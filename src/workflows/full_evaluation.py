@@ -693,6 +693,8 @@ def main():
     parser.add_argument("--output", type=str, help="Output file path")
     parser.add_argument("--skip-diagnostics", action="store_true",
                         help="Skip tracking diagnostics")
+    parser.add_argument("--no-block", action="store_true",
+                        help="Don't block on Tier A diagnostic failures")
 
     args = parser.parse_args()
 
@@ -714,6 +716,8 @@ def main():
     if args.output:
         config.output_path = Path(args.output)
     config.run_diagnostics = not args.skip_diagnostics
+    if args.no_block:
+        config.block_on_tier_a = False
 
     # Run workflow
     workflow = FullEvaluationWorkflow(config)
