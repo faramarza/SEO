@@ -223,3 +223,54 @@ class GSCClient:
         max_entropy = math.log2(len(queries)) if len(queries) > 1 else 1.0
 
         return entropy / max_entropy if max_entropy > 0 else 0.0
+
+    def get_page_data(self, days: int = 28) -> dict[str, dict]:
+        """
+        Get page-level data for all pages in the property.
+
+        Args:
+            days: Number of days to look back
+
+        Returns:
+            Dict mapping URL -> page data dict
+        """
+        service = self._get_service()
+        if service is None:
+            return {}
+
+        end_date = date.today() - timedelta(days=3)
+        start_date = end_date - timedelta(days=days)
+
+        try:
+            # Get all pages
+            request = {
+                'startDate': start_date.isoformat(),
+                'endDate': end_date.isoformat(),
+                'dimensions': ['page'],
+                'rowLimit': 25000,
+            }
+
+            response = service.searchanalytics().query(
+                siteUrl=self.site_url,
+                body=request
+            ).execute()
+
+            if 'rows' not in response:
+                return {}
+
+            result = {}
+            for row in response['rows']:
+                url = row['keys'][0]
+                result[url] = {
+                    'clicks': int(row.get('clicks', 0)),
+                    'impressions': int(row.get('impressions', 0)),
+                    'ctr': float(row.get('ctr', 0.0)),
+                    'position': float(row.get('position', 0.0)),
+                    'queries': [],  # Would need separate call per page
+                }
+
+            return result
+
+        except Exception as e:
+            print(f"GSC API error: {e}")
+            return {}

@@ -256,3 +256,97 @@ class GA4Client:
 
         except Exception:
             return []
+
+    def get_page_data(self, days: int = 28, organic_only: bool = True) -> dict[str, dict]:
+        """
+        Get page-level data for all landing pages.
+
+        Args:
+            days: Number of days to look back
+            organic_only: Filter to organic search traffic only
+
+        Returns:
+            Dict mapping URL -> page data dict
+        """
+        client = self._get_client()
+        if client is None:
+            return {}
+
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest,
+                DateRange,
+                Dimension,
+                Metric,
+                Filter,
+                FilterExpression,
+                OrderBy,
+            )
+
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+
+            dimensions = [Dimension(name="landingPage")]
+
+            # Add channel filter for organic only
+            dimension_filter = None
+            if organic_only:
+                dimension_filter = FilterExpression(
+                    filter=Filter(
+                        field_name="sessionDefaultChannelGroup",
+                        string_filter=Filter.StringFilter(
+                            value="Organic Search",
+                            match_type=Filter.StringFilter.MatchType.EXACT,
+                        ),
+                    ),
+                )
+
+            request = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(
+                    start_date=start_date.isoformat(),
+                    end_date=end_date.isoformat(),
+                )],
+                dimensions=dimensions,
+                metrics=[
+                    Metric(name="sessions"),
+                    Metric(name="totalUsers"),
+                    Metric(name="engagedSessions"),
+                    Metric(name="ecommercePurchases"),
+                    Metric(name="purchaseRevenue"),
+                    Metric(name="addToCarts"),
+                    Metric(name="bounceRate"),
+                ],
+                dimension_filter=dimension_filter,
+                order_bys=[OrderBy(
+                    metric=OrderBy.MetricOrderBy(metric_name="sessions"),
+                    desc=True,
+                )],
+                limit=25000,
+            )
+
+            response = client.run_report(request)
+            result = {}
+
+            for row in response.rows:
+                url = row.dimension_values[0].value
+                metrics = {
+                    m.name: row.metric_values[i].value
+                    for i, m in enumerate(response.metric_headers)
+                }
+
+                result[url] = {
+                    'sessions': int(float(metrics.get('sessions', 0))),
+                    'users': int(float(metrics.get('totalUsers', 0))),
+                    'engaged_sessions': int(float(metrics.get('engagedSessions', 0))),
+                    'conversions': int(float(metrics.get('ecommercePurchases', 0))),
+                    'revenue': float(metrics.get('purchaseRevenue', 0)),
+                    'add_to_carts': int(float(metrics.get('addToCarts', 0))),
+                    'bounce_rate': float(metrics.get('bounceRate', 0)),
+                }
+
+            return result
+
+        except Exception as e:
+            print(f"GA4 API error: {e}")
+            return {}
