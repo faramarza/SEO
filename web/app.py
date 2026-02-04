@@ -349,11 +349,22 @@ def api_tracking():
 @app.route("/api/run-evaluation", methods=["POST"])
 def api_run_evaluation():
     """Trigger a new evaluation run."""
-    # This would integrate with the full workflow
-    # For now, return a message
+    import subprocess
+    import threading
+
+    def run_workflow():
+        subprocess.run(
+            ["python", "-m", "src.workflows.full_evaluation", "--no-block"],
+            cwd=Path(__file__).parent.parent,
+        )
+
+    # Run in background thread
+    thread = threading.Thread(target=run_workflow)
+    thread.start()
+
     return jsonify({
-        "message": "Run evaluation from CLI: python -m src.workflows.full_evaluation",
-        "status": "not_implemented",
+        "message": "Evaluation started. Refresh the page in a minute to see results.",
+        "status": "running",
     })
 
 
