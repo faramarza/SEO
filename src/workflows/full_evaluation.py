@@ -526,6 +526,64 @@ class FullEvaluationWorkflow:
         }
         return surfaces.get(action, "other")
 
+    def save_results_for_dashboard(self):
+        """Save evaluation and diagnostic results for the web dashboard."""
+        data_dir = Path(__file__).parent.parent.parent / "data"
+        data_dir.mkdir(exist_ok=True)
+
+        # Save evaluation results
+        eval_data = {
+            "timestamp": datetime.now().isoformat(),
+            "total_pages": len(self._assets),
+            "pages_with_action": sum(
+                1 for r in self._evaluation_results
+                if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
+            ),
+            "action_rate": round(
+                sum(1 for r in self._evaluation_results
+                    if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None))
+                / max(len(self._evaluation_results), 1) * 100, 1
+            ),
+            "total_expected_value": round(
+                sum(r.get("expected_value", 0) for r in self._evaluation_results), 2
+            ),
+            "results": self._evaluation_results,
+        }
+
+        with open(data_dir / "latest_evaluation.json", "w") as f:
+            json.dump(eval_data, f, indent=2, default=str)
+
+        # Save diagnostic results
+        if self._diagnostic_results:
+            diag_data = {
+                "timestamp": datetime.now().isoformat(),
+                "results": [
+                    {
+                        "url": d.url,
+                        "status": d.status,
+                        "blocking": d.blocking,
+                        "tier": "A" if d.blocking else ("B" if d.status == "WARN" else "PASS"),
+                        "eligible_for_raip": d.eligible_for_raip,
+                        "special_classification": d.special_classification,
+                        "failures": [
+                            {
+                                "code": f.code.value,
+                                "severity": f.severity.value,
+                                "interpretation": f.interpretation,
+                                "recommended_fix": f.recommended_fix,
+                            }
+                            for f in d.failures
+                        ],
+                    }
+                    for d in self._diagnostic_results
+                ],
+            }
+
+            with open(data_dir / "diagnostic_results.json", "w") as f:
+                json.dump(diag_data, f, indent=2)
+
+        print(f"  Results saved to {data_dir}")
+
     def generate_output(self) -> str:
         """
         Generate formatted output report.
@@ -608,7 +666,11 @@ class FullEvaluationWorkflow:
         self.evaluate_all()
         print()
 
-        # Step 5: Generate output
+        # Step 5: Save results for dashboard
+        self.save_results_for_dashboard()
+        print()
+
+        # Step 6: Generate output
         output = self.generate_output()
         print()
 
