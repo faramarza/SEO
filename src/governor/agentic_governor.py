@@ -164,7 +164,7 @@ class AgenticGovernor:
         ]
 
         if extra:
-            for source, fact, value in extra.items():
+            for (source, fact), value in extra.items():
                 evidence.append(Evidence(source=source, fact=fact, value=str(value)))
 
         return evidence
