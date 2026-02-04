@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Task Board{% endblock %}
+{% block header %}Task Board{% endblock %}
+
+{% block content %}
+<div class="task-board">
+    <div class="board-column" data-status="proposed">
+        <div class="column-header">
+            <h3>Proposed</h3>
+            <span class="column-count" id="count-proposed">0</span>
+        </div>
+        <div class="column-tasks" id="tasks-proposed"></div>
+    </div>
+
+    <div class="board-column" data-status="approved">
+        <div class="column-header">
+            <h3>Approved</h3>
+            <span class="column-count" id="count-approved">0</span>
+        </div>
+        <div class="column-tasks" id="tasks-approved"></div>
+    </div>
+
+    <div class="board-column" data-status="implemented">
+        <div class="column-header">
+            <h3>Implemented</h3>
+            <span class="column-count" id="count-implemented">0</span>
+        </div>
+        <div class="column-tasks" id="tasks-implemented"></div>
+    </div>
+
+    <div class="board-column" data-status="measured">
+        <div class="column-header">
+            <h3>Measured</h3>
+            <span class="column-count" id="count-measured">0</span>
+        </div>
+        <div class="column-tasks" id="tasks-measured"></div>
+    </div>
+
+    <div class="board-column" data-status="closed">
+        <div class="column-header">
+            <h3>Closed</h3>
+            <span class="column-count" id="count-closed">0</span>
+        </div>
+        <div class="column-tasks" id="tasks-closed"></div>
+    </div>
+</div>
+
+<!-- Outcome Modal -->
+<div id="outcome-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeOutcomeModal()">&times;</span>
+        <h2>Record Outcome</h2>
+        <form id="outcome-form">
+            <input type="hidden" id="outcome-action-id">
+            <div class="form-group">
+                <label>Outcome</label>
+                <select id="outcome-value" required>
+                    <option value="">Select outcome...</option>
+                    <option value="positive">Positive</option>
+                    <option value="neutral">Neutral</option>
+                    <option value="negative">Negative</option>
+                    <option value="inconclusive">Inconclusive</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <textarea id="outcome-notes" rows="3"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Outcome</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tasksData = {};
+
+async function loadTasks() {
+    const res = await fetch('/api/tasks');
+    tasksData = await res.json();
+
+    for (const status of ['proposed', 'approved', 'implemented', 'measured', 'closed']) {
+        const tasks = tasksData[status] || [];
+        document.getElementById('count-' + status).textContent = tasks.length;
+        document.getElementById('tasks-' + status).innerHTML =
+            tasks.length > 0
+                ? tasks.map(t => renderTask(t, status)).join('')
+                : '<p class="empty-column">No tasks</p>';
+    }
+}
+
+function renderTask(task, status) {
+    const outcomeClass = task.outcome ? 'outcome-' + task.outcome : '';
+
+    let actions = '';
+    if (status === 'proposed') {
+        actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Approve</button>`;
+    } else if (status === 'approved') {
+        actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Mark Implemented</button>`;
+    } else if (status === 'implemented') {
+        actions = `<button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Record Outcome</button>`;
+    } else if (status === 'measured') {
+        actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Close</button>`;
+    }
+
+    return `
+        <div class="task-card ${outcomeClass}">
+            <div class="task-header">
+                <span class="task-id">${task.action_id}</span>
+                <span class="task-type">${task.action_type}</span>
+            </div>
+            <div class="task-url" title="${task.url}">${truncateUrl(task.url)}</div>
+            <div class="task-metrics">
+                <span>${task.score_type}: ${task.score_value}</span>
+                <span>Conf: ${task.confidence}</span>
+            </div>
+            ${task.outcome ? `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}</div>` : ''}
+            <div class="task-actions">${actions}</div>
+        </div>
+    `;
+}
+
+function truncateUrl(url) {
+    const path = url.replace(/https?:\/\/[^\/]+/, '');
+    return path.length > 30 ? '...' + path.slice(-27) : path;
+}
+
+async function advanceTask(actionId) {
+    const res = await fetch(`/api/tasks/${actionId}/advance`, { method: 'POST' });
+    const data = await res.json();
+
+    if (data.success) {
+        loadTasks();
+    } else {
+        alert('Error: ' + (data.error || 'Unknown error'));
+    }
+}
+
+function showOutcomeModal(actionId) {
+    document.getElementById('outcome-action-id').value = actionId;
+    document.getElementById('outcome-value').value = '';
+    document.getElementById('outcome-notes').value = '';
+    document.getElementById('outcome-modal').classList.remove('hidden');
+}
+
+function closeOutcomeModal() {
+    document.getElementById('outcome-modal').classList.add('hidden');
+}
+
+document.getElementById('outcome-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const actionId = document.getElementById('outcome-action-id').value;
+    const outcome = document.getElementById('outcome-value').value;
+    const notes = document.getElementById('outcome-notes').value;
+
+    const res = await fetch(`/api/tasks/${actionId}/outcome`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outcome, notes }),
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+        closeOutcomeModal();
+        loadTasks();
+    } else {
+        alert('Error: ' + (data.error || 'Unknown error'));
+    }
+});
+
+loadTasks();
+</script>
+{% endblock %}

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Learning{% endblock %}
+{% block header %}Learning & Memory{% endblock %}
+
+{% block content %}
+<div class="learning-page">
+    <!-- Summary Cards -->
+    <div class="summary-row">
+        <div class="summary-card">
+            <span class="summary-label">Total Actions</span>
+            <span class="summary-value" id="total-actions">0</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Success Rate</span>
+            <span class="summary-value" id="success-rate">—</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Patterns Learned</span>
+            <span class="summary-value" id="patterns-count">0</span>
+        </div>
+        <div class="summary-card forbidden">
+            <span class="summary-label">Forbidden Patterns</span>
+            <span class="summary-value" id="forbidden-count">0</span>
+        </div>
+    </div>
+
+    <!-- Fingerprint Table -->
+    <div class="card">
+        <h3>Action Patterns (Fingerprints)</h3>
+        <p class="card-subtitle">Patterns with ≥3 negative outcomes are FORBIDDEN per doctrine.</p>
+
+        <table class="data-table" id="fingerprints-table">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Page Type</th>
+                    <th>Intent</th>
+                    <th>Surface</th>
+                    <th>Action Type</th>
+                    <th>Total</th>
+                    <th>Positive</th>
+                    <th>Negative</th>
+                    <th>Success Rate</th>
+                </tr>
+            </thead>
+            <tbody id="fingerprints-body">
+                <tr><td colspan="9" class="loading">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Outcome Distribution -->
+    <div class="card">
+        <h3>Outcome Distribution</h3>
+        <div class="outcome-bars" id="outcome-bars">
+            <div class="outcome-bar">
+                <span class="outcome-label">Positive</span>
+                <div class="bar-container">
+                    <div class="bar bar-positive" id="bar-positive" style="width: 0%"></div>
+                </div>
+                <span class="outcome-count" id="count-positive">0</span>
+            </div>
+            <div class="outcome-bar">
+                <span class="outcome-label">Neutral</span>
+                <div class="bar-container">
+                    <div class="bar bar-neutral" id="bar-neutral" style="width: 0%"></div>
+                </div>
+                <span class="outcome-count" id="count-neutral">0</span>
+            </div>
+            <div class="outcome-bar">
+                <span class="outcome-label">Negative</span>
+                <div class="bar-container">
+                    <div class="bar bar-negative" id="bar-negative" style="width: 0%"></div>
+                </div>
+                <span class="outcome-count" id="count-negative">0</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadLearning() {
+    const res = await fetch('/api/learning');
+    const data = await res.json();
+
+    // Summary
+    document.getElementById('total-actions').textContent = data.summary.total_actions || 0;
+    document.getElementById('success-rate').textContent =
+        data.summary.success_rate ? (data.summary.success_rate * 100).toFixed(0) + '%' : '—';
+    document.getElementById('patterns-count').textContent = data.fingerprints.length;
+
+    const forbidden = data.fingerprints.filter(f => f.status === 'FORBIDDEN').length;
+    document.getElementById('forbidden-count').textContent = forbidden;
+
+    // Fingerprints table
+    const tbody = document.getElementById('fingerprints-body');
+    if (data.fingerprints.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">No patterns recorded yet.</td></tr>';
+    } else {
+        tbody.innerHTML = data.fingerprints.map(fp => `
+            <tr class="row-${fp.status.toLowerCase()}">
+                <td><span class="status-badge status-${fp.status_color}">${fp.status}</span></td>
+                <td>${fp.fingerprint.page_type}</td>
+                <td>${fp.fingerprint.intent_cluster}</td>
+                <td>${fp.fingerprint.action_surface}</td>
+                <td>${fp.fingerprint.action_type}</td>
+                <td>${fp.total}</td>
+                <td class="positive">${fp.positive}</td>
+                <td class="negative">${fp.negative}</td>
+                <td>${fp.success_rate !== null ? (fp.success_rate * 100).toFixed(0) + '%' : '—'}</td>
+            </tr>
+        `).join('');
+    }
+
+    // Outcome bars
+    const outcomes = data.summary.by_outcome || {};
+    const total = Object.values(outcomes).reduce((a, b) => a + b, 0) || 1;
+
+    const positive = outcomes.positive || 0;
+    const neutral = outcomes.neutral || 0;
+    const negative = outcomes.negative || 0;
+
+    document.getElementById('bar-positive').style.width = (positive / total * 100) + '%';
+    document.getElementById('bar-neutral').style.width = (neutral / total * 100) + '%';
+    document.getElementById('bar-negative').style.width = (negative / total * 100) + '%';
+
+    document.getElementById('count-positive').textContent = positive;
+    document.getElementById('count-neutral').textContent = neutral;
+    document.getElementById('count-negative').textContent = negative;
+}
+
+loadLearning();
+</script>
+{% endblock %}

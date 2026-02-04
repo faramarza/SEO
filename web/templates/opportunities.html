@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}Opportunities{% endblock %}
+{% block header %}Ranked Opportunity Queue{% endblock %}
+
+{% block content %}
+<div class="opportunities-page">
+    <div class="filters">
+        <select id="filter-action" onchange="filterOpportunities()">
+            <option value="">All Action Types</option>
+            <option value="TITLE_META_TEST">Title/Meta Test</option>
+            <option value="INTERNAL_LINK_REALLOCATION">Internal Links</option>
+            <option value="CANONICAL_FIX">Canonical Fix</option>
+            <option value="PAGE_REINVESTMENT">Page Reinvestment</option>
+            <option value="NEW_ASSET_CREATION">New Asset</option>
+        </select>
+        <select id="filter-risk" onchange="filterOpportunities()">
+            <option value="">All Risk Levels</option>
+            <option value="low">Low Risk</option>
+            <option value="medium">Medium Risk</option>
+            <option value="high">High Risk</option>
+        </select>
+        <span class="result-count" id="result-count">0 opportunities</span>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table" id="opportunities-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>URL</th>
+                    <th>Action</th>
+                    <th>Mode</th>
+                    <th>Expected Value</th>
+                    <th>Confidence</th>
+                    <th>Priority</th>
+                    <th>Risk</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="opportunities-body">
+                <tr><td colspan="9" class="loading">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Detail Modal -->
+<div id="detail-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal()">&times;</span>
+        <h2 id="modal-title">Recommendation Details</h2>
+        <div id="modal-body"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allOpportunities = [];
+
+async function loadOpportunities() {
+    const res = await fetch('/api/opportunities');
+    const data = await res.json();
+    allOpportunities = data.opportunities || [];
+    renderOpportunities(allOpportunities);
+}
+
+function renderOpportunities(opportunities) {
+    const tbody = document.getElementById('opportunities-body');
+    document.getElementById('result-count').textContent = opportunities.length + ' opportunities';
+
+    if (opportunities.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">No opportunities. All pages evaluated to NO_ACTION.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = opportunities.map((opp, idx) => `
+        <tr>
+            <td>${idx + 1}</td>
+            <td class="url-cell" title="${opp.url}">${truncateUrl(opp.url)}</td>
+            <td><span class="action-badge action-${opp.recommended_action}">${opp.recommended_action}</span></td>
+            <td>${opp.mode || '—'}</td>
+            <td class="number">$${(opp.expected_value || 0).toFixed(2)}</td>
+            <td class="number">${(opp.confidence || 0).toFixed(2)}</td>
+            <td class="number">${(opp.priority_score || 0).toFixed(4)}</td>
+            <td><span class="risk-badge risk-${opp.risk_level}">${opp.risk_level}</span></td>
+            <td><button class="btn btn-small" onclick="showDetail(${idx})">View</button></td>
+        </tr>
+    `).join('');
+}
+
+function truncateUrl(url) {
+    const path = url.replace(/https?:\/\/[^\/]+/, '');
+    return path.length > 40 ? '...' + path.slice(-37) : path;
+}
+
+function filterOpportunities() {
+    const actionFilter = document.getElementById('filter-action').value;
+    const riskFilter = document.getElementById('filter-risk').value;
+
+    let filtered = allOpportunities;
+
+    if (actionFilter) {
+        filtered = filtered.filter(o => o.recommended_action === actionFilter);
+    }
+    if (riskFilter) {
+        filtered = filtered.filter(o => o.risk_level === riskFilter);
+    }
+
+    renderOpportunities(filtered);
+}
+
+function showDetail(idx) {
+    const opp = allOpportunities[idx];
+    document.getElementById('modal-title').textContent = opp.recommended_action;
+
+    const steps = opp.implementation_steps || [];
+    const stepsHtml = steps.length > 0
+        ? '<ol>' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
+        : '<p>No implementation steps specified.</p>';
+
+    document.getElementById('modal-body').innerHTML = `
+        <div class="detail-grid">
+            <div class="detail-item">
+                <label>URL</label>
+                <p><a href="${opp.url}" target="_blank">${opp.url}</a></p>
+            </div>
+            <div class="detail-item">
+                <label>Expected Value</label>
+                <p>$${(opp.expected_value || 0).toFixed(2)}</p>
+            </div>
+            <div class="detail-item">
+                <label>Confidence</label>
+                <p>${(opp.confidence || 0).toFixed(3)}</p>
+            </div>
+            <div class="detail-item">
+                <label>Priority Score</label>
+                <p>${(opp.priority_score || 0).toFixed(4)}</p>
+            </div>
+            <div class="detail-item">
+                <label>Mode</label>
+                <p>${opp.mode || 'Unknown'}</p>
+            </div>
+            <div class="detail-item">
+                <label>Risk Level</label>
+                <p><span class="risk-badge risk-${opp.risk_level}">${opp.risk_level}</span></p>
+            </div>
+        </div>
+        <div class="detail-section">
+            <h4>Implementation Steps</h4>
+            ${stepsHtml}
+        </div>
+        ${opp.learning_reference ? `
+        <div class="detail-section">
+            <h4>Learning Reference</h4>
+            <p>${opp.learning_reference}</p>
+        </div>
+        ` : ''}
+        <div class="detail-actions">
+            <button class="btn btn-primary" onclick="approveAction('${opp.url}')">Approve for Implementation</button>
+        </div>
+    `;
+
+    document.getElementById('detail-modal').classList.remove('hidden');
+}
+
+function closeModal() {
+    document.getElementById('detail-modal').classList.add('hidden');
+}
+
+function approveAction(url) {
+    alert('Action approval flow not yet implemented.\nURL: ' + url);
+    closeModal();
+}
+
+loadOpportunities();
+</script>
+{% endblock %}

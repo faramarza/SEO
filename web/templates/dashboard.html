@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block header %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <!-- KPI Cards -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <span class="kpi-label">Total Pages</span>
+            <span class="kpi-value" id="kpi-pages">—</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Action Rate</span>
+            <span class="kpi-value" id="kpi-action-rate">—</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Expected Value</span>
+            <span class="kpi-value" id="kpi-ev">—</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Regret Budget</span>
+            <span class="kpi-value" id="kpi-regret">—</span>
+        </div>
+    </div>
+
+    <!-- Posture & Config -->
+    <div class="section-row">
+        <div class="card">
+            <h3>Governor Posture</h3>
+            <div id="posture-display" class="posture-large">
+                <span class="posture-mode">—</span>
+                <p class="posture-desc">Loading...</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Configuration</h3>
+            <table class="config-table">
+                <tr><td>AOV</td><td id="config-aov">—</td></tr>
+                <tr><td>Margin</td><td id="config-margin">—</td></tr>
+                <tr><td>Confidence Gate</td><td>0.65</td></tr>
+                <tr><td>ROI Gate</td><td>5×</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Action Summary -->
+    <div class="card full-width">
+        <h3>Action Ledger Summary</h3>
+        <div class="summary-grid" id="ledger-summary">
+            <div class="summary-item">
+                <span class="summary-label">Total Actions</span>
+                <span class="summary-value" id="ledger-total">0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Proposed</span>
+                <span class="summary-value" id="ledger-proposed">0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Implemented</span>
+                <span class="summary-value" id="ledger-implemented">0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Success Rate</span>
+                <span class="summary-value" id="ledger-success">—</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Last Run -->
+    <div class="card full-width">
+        <h3>Last Evaluation</h3>
+        <p id="last-run">Never</p>
+        <button class="btn btn-primary" onclick="runEvaluation()">Run Evaluation</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDashboard() {
+    const res = await fetch('/api/dashboard');
+    const data = await res.json();
+
+    // KPIs
+    document.getElementById('kpi-pages').textContent = data.kpis.total_pages || '—';
+    document.getElementById('kpi-action-rate').textContent =
+        data.kpis.action_rate ? (data.kpis.action_rate * 100).toFixed(1) + '%' : '—';
+    document.getElementById('kpi-ev').textContent =
+        data.kpis.total_expected_value ? '$' + data.kpis.total_expected_value.toFixed(0) : '—';
+    document.getElementById('kpi-regret').textContent = data.config.regret_budget + '/2';
+
+    // Posture
+    const postureEl = document.getElementById('posture-display');
+    postureEl.querySelector('.posture-mode').textContent = data.posture.mode;
+    postureEl.className = 'posture-large posture-' + data.posture.color;
+
+    // Config
+    document.getElementById('config-aov').textContent = '$' + data.config.aov;
+    document.getElementById('config-margin').textContent = (data.config.margin * 100) + '%';
+
+    // Ledger
+    const ledger = data.ledger_summary;
+    document.getElementById('ledger-total').textContent = ledger.total_actions || 0;
+    document.getElementById('ledger-proposed').textContent = ledger.by_status?.proposed || 0;
+    document.getElementById('ledger-implemented').textContent = ledger.by_status?.implemented || 0;
+    document.getElementById('ledger-success').textContent =
+        ledger.success_rate ? (ledger.success_rate * 100).toFixed(0) + '%' : '—';
+
+    // Last run
+    document.getElementById('last-run').textContent = data.last_run || 'Never';
+
+    // Posture badge in header
+    document.getElementById('posture-badge').textContent = data.posture.mode;
+    document.getElementById('posture-badge').className = 'posture-badge posture-' + data.posture.color;
+}
+
+async function runEvaluation() {
+    const res = await fetch('/api/run-evaluation', { method: 'POST' });
+    const data = await res.json();
+    alert(data.message);
+}
+
+loadDashboard();
+</script>
+{% endblock %}

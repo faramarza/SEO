@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Governor{% endblock %} — Alphabet Trains</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h2>Governor</h2>
+            <span class="subtitle">Organic Growth</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a></li>
+            <li><a href="/opportunities" class="{% if request.path == '/opportunities' %}active{% endif %}">Opportunities</a></li>
+            <li><a href="/tasks" class="{% if request.path == '/tasks' %}active{% endif %}">Task Board</a></li>
+            <li><a href="/learning" class="{% if request.path == '/learning' %}active{% endif %}">Learning</a></li>
+            <li><a href="/tracking" class="{% if request.path == '/tracking' %}active{% endif %}">Tracking</a></li>
+        </ul>
+        <div class="nav-footer">
+            <p>alphabet-trains.com</p>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="page-header">
+            <h1>{% block header %}Dashboard{% endblock %}</h1>
+            <div id="posture-badge" class="posture-badge"></div>
+        </header>
+
+        <div class="page-content">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -91,7 +91,7 @@ class AssetCreationEvaluator:
     """
 
     # Thresholds
-    MIN_IMPRESSIONS_FOR_DEMAND = 500  # Monthly impressions
+    MIN_IMPRESSIONS_FOR_DEMAND = 1000  # Monthly impressions (doctrine requirement)
     MIN_RELATED_QUERIES = 3  # Should have query cluster, not single query
     MIN_ROI_MULTIPLE = 5.0  # Expected value must be 5× cost
     MAX_CANNIBALIZATION_OVERLAP = 0.4  # Max query overlap with existing pages

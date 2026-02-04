@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Tracking{% endblock %}
+{% block header %}Tracking Integrity{% endblock %}
+
+{% block content %}
+<div class="tracking-page">
+    <!-- Status Banner -->
+    <div class="status-banner" id="status-banner">
+        <div class="status-icon" id="status-icon"></div>
+        <div class="status-text">
+            <h2 id="status-title">Checking...</h2>
+            <p id="status-message">Loading tracking integrity data...</p>
+        </div>
+    </div>
+
+    <!-- Counts -->
+    <div class="count-row">
+        <div class="count-card tier-a">
+            <span class="count-value" id="tier-a-count">0</span>
+            <span class="count-label">Tier A Blockers</span>
+            <p class="count-desc">Must fix before any action</p>
+        </div>
+        <div class="count-card tier-b">
+            <span class="count-value" id="tier-b-count">0</span>
+            <span class="count-label">Tier B Warnings</span>
+            <p class="count-desc">Reduce confidence but don't block</p>
+        </div>
+    </div>
+
+    <!-- Tier A Issues -->
+    <div class="card" id="tier-a-section">
+        <h3>Tier A — Blocking Issues</h3>
+        <p class="card-subtitle">These issues must be resolved before the Governor can take action.</p>
+        <div id="tier-a-list" class="issue-list">
+            <p class="empty">No Tier A issues.</p>
+        </div>
+    </div>
+
+    <!-- Tier B Issues -->
+    <div class="card" id="tier-b-section">
+        <h3>Tier B — Warnings</h3>
+        <p class="card-subtitle">These issues reduce confidence but don't block actions.</p>
+        <div id="tier-b-list" class="issue-list">
+            <p class="empty">No Tier B warnings.</p>
+        </div>
+    </div>
+
+    <!-- Last Check -->
+    <div class="card">
+        <h3>Last Diagnostic Check</h3>
+        <p id="last-check">Never</p>
+        <button class="btn btn-secondary" onclick="runDiagnostics()">Run Diagnostics</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadTracking() {
+    const res = await fetch('/api/tracking');
+    const data = await res.json();
+
+    // Status banner
+    const banner = document.getElementById('status-banner');
+    const icon = document.getElementById('status-icon');
+    const title = document.getElementById('status-title');
+    const message = document.getElementById('status-message');
+
+    banner.className = 'status-banner status-' + data.status_color;
+
+    if (data.status === 'BLOCKED') {
+        icon.textContent = '⛔';
+        title.textContent = 'BLOCKED';
+        message.textContent = 'Tier A issues detected. Governor cannot take action until resolved.';
+    } else if (data.status === 'WARNING') {
+        icon.textContent = '⚠️';
+        title.textContent = 'WARNING';
+        message.textContent = 'Multiple Tier B warnings. Confidence will be reduced.';
+    } else if (data.status === 'HEALTHY') {
+        icon.textContent = '✓';
+        title.textContent = 'HEALTHY';
+        message.textContent = 'Tracking integrity is acceptable.';
+    } else {
+        icon.textContent = '?';
+        title.textContent = 'UNKNOWN';
+        message.textContent = data.message || 'Run diagnostics to check tracking integrity.';
+    }
+
+    // Counts
+    document.getElementById('tier-a-count').textContent = data.tier_a_count || 0;
+    document.getElementById('tier-b-count').textContent = data.tier_b_count || 0;
+
+    // Tier A list
+    const tierAList = document.getElementById('tier-a-list');
+    if (data.tier_a && data.tier_a.length > 0) {
+        tierAList.innerHTML = data.tier_a.map(issue => renderIssue(issue, 'A')).join('');
+    } else {
+        tierAList.innerHTML = '<p class="empty">No Tier A issues.</p>';
+    }
+
+    // Tier B list
+    const tierBList = document.getElementById('tier-b-list');
+    if (data.tier_b && data.tier_b.length > 0) {
+        tierBList.innerHTML = data.tier_b.map(issue => renderIssue(issue, 'B')).join('');
+    } else {
+        tierBList.innerHTML = '<p class="empty">No Tier B warnings.</p>';
+    }
+
+    // Last check
+    document.getElementById('last-check').textContent = data.last_check || 'Never';
+}
+
+function renderIssue(issue, tier) {
+    return `
+        <div class="issue-card tier-${tier.toLowerCase()}">
+            <div class="issue-header">
+                <span class="issue-type">${issue.issue_type || 'Unknown'}</span>
+                <span class="issue-tier">Tier ${tier}</span>
+            </div>
+            <div class="issue-url">${issue.url || 'Multiple URLs'}</div>
+            <div class="issue-details">${issue.details || issue.message || 'No details'}</div>
+            ${issue.fix_required ? `<div class="issue-fix"><strong>Fix:</strong> ${issue.fix_required}</div>` : ''}
+        </div>
+    `;
+}
+
+async function runDiagnostics() {
+    alert('Run diagnostics from CLI:\npython scripts/run_diagnostics.py');
+}
+
+loadTracking();
+</script>
+{% endblock %}

@@ -298,8 +298,8 @@ class ActionLedger:
         Analyzes past actions with similar fingerprint to determine
         confidence adjustment.
 
-        Rules:
-        - ≥2 NEGATIVE in last 180 days → reduce confidence by ≥0.20
+        Rules (per doctrine):
+        - ≥3 NEGATIVE in last 12 months → FORBIDDEN (reduce confidence to block)
         - ≥2 POSITIVE in last 180 days → boost confidence up to +0.10
         """
         matching = self.find_matching_actions(fingerprint, days_lookback, strict=False)
@@ -309,11 +309,13 @@ class ActionLedger:
         negative_count = sum(1 for a in completed if a.outcome == ActionOutcome.NEGATIVE)
         neutral_count = sum(1 for a in completed if a.outcome == ActionOutcome.NEUTRAL)
 
-        # Calculate confidence adjustment
-        if negative_count >= 2:
-            adjustment = -0.20 - (0.05 * (negative_count - 2))  # -0.20 for 2, -0.25 for 3, etc.
-            adjustment = max(-0.40, adjustment)  # Cap at -0.40
-            recommendation = f"CAUTION: {negative_count} negative outcomes. Reduce confidence significantly."
+        # Calculate confidence adjustment (doctrine: ≥3 NEGATIVE = forbidden)
+        if negative_count >= 3:
+            adjustment = -0.50  # Effectively blocks action
+            recommendation = f"FORBIDDEN: {negative_count} negative outcomes in last 12 months. Action blocked per doctrine."
+        elif negative_count == 2:
+            adjustment = -0.20
+            recommendation = f"CAUTION: {negative_count} negative outcomes. Significant confidence reduction."
         elif negative_count == 1 and positive_count == 0:
             adjustment = -0.10
             recommendation = "WARNING: 1 negative outcome, no positives. Consider caution."
