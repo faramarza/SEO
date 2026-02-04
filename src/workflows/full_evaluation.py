@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.models.page_asset import PageAsset, AssetType, GSCMetrics, GA4Metrics, TopQuery
 from src.models.governance_state import GovernanceState
+from src.models.decision_envelope import DecisionType
 from src.models.cost_model import ActionCostModel
 from src.models.profit_model import ProfitModel
 from src.governor.agentic_governor import GovernorConfig
@@ -370,14 +371,23 @@ class FullEvaluationWorkflow:
         # Run main Governor evaluation for each mode
         for mode in modes:
             result = self.governor.evaluate(asset, mode)
-            if result.recommended_action != "NO_ACTION":
+            if result.decision not in (DecisionType.NO_ACTION, DecisionType.OBSERVE_ONLY):
+                # Derive risk level from reversibility
+                risk_level = "low"
+                if result.priority and result.priority.reversibility:
+                    rev = result.priority.reversibility.value
+                    if rev == "irreversible":
+                        risk_level = "high"
+                    elif rev == "slowly_reversible":
+                        risk_level = "medium"
+
                 candidates.append({
                     "mode": mode.value,
-                    "action": result.recommended_action,
-                    "expected_value": result.expected_value,
+                    "action": result.decision.value,
+                    "expected_value": result.priority.expected_value if result.priority else result.score_value,
                     "confidence": result.confidence,
-                    "risk_level": result.risk_level,
-                    "implementation_steps": result.implementation_steps,
+                    "risk_level": risk_level,
+                    "implementation_steps": result.action_plan.steps if result.action_plan else [],
                     "source": "governor",
                 })
 
