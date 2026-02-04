@@ -23,6 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.models.page_asset import PageAsset, AssetType, GSCMetrics, GA4Metrics, TopQuery
 from src.models.governance_state import GovernanceState
+from src.models.cost_model import ActionCostModel
+from src.models.profit_model import ProfitModel
+from src.governor.agentic_governor import GovernorConfig
 from src.data_sources.gsc_client import GSCClient
 from src.data_sources.ga4_client import GA4Client
 from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
@@ -118,11 +121,30 @@ class FullEvaluationWorkflow:
 
         # Initialize components
         self.diagnostics = TrackingSanityDiagnostics()
-        self.governor = AgenticGovernor(
-            aov=config.aov,
-            margin=config.margin,
-        )
         self.ledger = ActionLedger()
+
+        # Create Governor dependencies
+        cost_model = ActionCostModel()
+        profit_model = ProfitModel(
+            aov=config.aov,
+            gross_margin_low=config.margin,
+            gross_margin_high=config.margin + 0.03,
+        )
+        governance_state = GovernanceState()
+        governor_config = GovernorConfig(
+            aov=config.aov,
+            gross_margin=config.margin,
+            min_confidence_threshold=config.min_confidence_threshold,
+            profit_to_cost_ratio_gate=config.profit_to_cost_ratio_gate,
+        )
+
+        self.governor = AgenticGovernor(
+            cost_model=cost_model,
+            profit_model=profit_model,
+            governance_state=governance_state,
+            config=governor_config,
+            ledger=self.ledger,
+        )
         self.formatter = DecisionFormatter()
 
         # Evaluators
