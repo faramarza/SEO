@@ -1089,3 +1089,115 @@ td.negative { color: var(--accent-red); }
 .error {
     color: var(--accent-red);
 }
+
+/* ============================================================
+   Issue Details in Modal
+   ============================================================ */
+
+.issues-section {
+    background-color: var(--bg-secondary);
+    padding: 16px;
+    border-radius: 8px;
+    margin-top: 16px;
+}
+
+.issue-detail {
+    background-color: var(--bg-card);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border-left: 3px solid var(--border-color);
+}
+
+.issue-detail.issue-critical {
+    border-left-color: var(--accent-red);
+}
+
+.issue-detail.issue-high {
+    border-left-color: var(--accent-orange);
+}
+
+.issue-detail.issue-medium {
+    border-left-color: var(--accent-yellow);
+}
+
+.issue-detail.issue-low {
+    border-left-color: var(--text-secondary);
+}
+
+.issue-header-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.issue-type-badge {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-primary);
+}
+
+.severity-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.severity-badge.severity-critical {
+    background-color: rgba(244, 33, 46, 0.2);
+    color: var(--accent-red);
+}
+
+.severity-badge.severity-high {
+    background-color: rgba(255, 122, 0, 0.2);
+    color: var(--accent-orange);
+}
+
+.severity-badge.severity-medium {
+    background-color: rgba(255, 212, 0, 0.2);
+    color: var(--accent-yellow);
+}
+
+.severity-badge.severity-low {
+    background-color: var(--bg-secondary);
+    color: var(--text-secondary);
+}
+
+.issue-description {
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.issue-fix-box {
+    background-color: var(--bg-primary);
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.issue-fix-box code {
+    color: var(--accent-green);
+    word-break: break-all;
+}
+
+.issue-impact {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.rollback-section {
+    background-color: rgba(244, 33, 46, 0.1);
+    padding: 16px;
+    border-radius: 8px;
+    margin-top: 16px;
+}
+
+.rollback-section h4 {
+    color: var(--accent-red);
+}

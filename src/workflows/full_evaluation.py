@@ -420,6 +420,17 @@ class FullEvaluationWorkflow:
         canonical_result = self.canonical_evaluator.evaluate(asset)
         # CanonicalFixResult uses has_issues and total_traffic_at_risk
         if canonical_result.has_issues and canonical_result.recommended_action != "NO_ACTION":
+            # Build detailed issue information
+            issues_detail = []
+            for issue in canonical_result.issues:
+                issues_detail.append({
+                    "type": issue.issue_type,
+                    "severity": issue.severity,
+                    "description": issue.description,
+                    "fix": issue.recommended_fix,
+                    "impact": issue.estimated_impact,
+                })
+
             candidates.append({
                 "mode": "PRESERVATION",
                 "action": canonical_result.recommended_action,
@@ -428,6 +439,8 @@ class FullEvaluationWorkflow:
                 "risk_level": "low",  # Canonical fixes are generally low risk
                 "implementation_steps": canonical_result.implementation_steps,
                 "source": "canonical_evaluator",
+                "issues": issues_detail,
+                "rollback_plan": canonical_result.rollback_plan,
             })
 
         # Internal link evaluation

@@ -216,10 +216,34 @@ function showDetail(idx) {
                 <p><span class="risk-badge risk-${opp.risk_level}">${opp.risk_level}</span></p>
             </div>
         </div>
+        ${opp.issues && opp.issues.length > 0 ? `
+        <div class="detail-section issues-section">
+            <h4>Issues Found</h4>
+            ${opp.issues.map(issue => `
+                <div class="issue-detail issue-${issue.severity}">
+                    <div class="issue-header-detail">
+                        <span class="issue-type-badge">${issue.type.replace(/_/g, ' ')}</span>
+                        <span class="severity-badge severity-${issue.severity}">${issue.severity}</span>
+                    </div>
+                    <p class="issue-description">${issue.description}</p>
+                    <div class="issue-fix-box">
+                        <strong>Fix:</strong> <code>${issue.fix}</code>
+                    </div>
+                    <p class="issue-impact"><em>Impact: ${issue.impact}</em></p>
+                </div>
+            `).join('')}
+        </div>
+        ` : ''}
         <div class="detail-section">
             <h4>Implementation Steps</h4>
             ${stepsHtml}
         </div>
+        ${opp.rollback_plan ? `
+        <div class="detail-section rollback-section">
+            <h4>Rollback Plan</h4>
+            <p>${opp.rollback_plan}</p>
+        </div>
+        ` : ''}
         ${opp.learning_reference ? `
         <div class="detail-section learning-ref">
             <h4>Learning Reference</h4>
