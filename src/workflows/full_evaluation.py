@@ -108,12 +108,12 @@ class FullEvaluationWorkflow:
 
         # Initialize clients
         self.gsc_client = GSCClient(
+            site_url=config.gsc_property,
             credentials_path=config.credentials_path,
-            property_url=config.gsc_property,
         )
         self.ga4_client = GA4Client(
-            credentials_path=config.credentials_path,
             property_id=config.ga4_property_id,
+            credentials_path=config.credentials_path,
         )
 
         # Initialize components
