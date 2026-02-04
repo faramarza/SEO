@@ -17,6 +17,14 @@ Uses:
 from dataclasses import dataclass
 from typing import Any, Optional
 from datetime import datetime
+from enum import Enum
+
+
+class GovernorMode(str, Enum):
+    """Operating modes for the Governor."""
+    PRESERVATION = "preservation"
+    OPPORTUNITY_DISCOVERY = "opportunity"
+    FUNNEL_ALIGNMENT = "funnel"
 
 import sys
 from pathlib import Path
