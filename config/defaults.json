@@ -1,4 +1,14 @@
 {
+  "data_sources": {
+    "gsc": {
+      "property_url": "sc-domain:alphabet-trains.com",
+      "credentials_path": "credentials.json"
+    },
+    "ga4": {
+      "property_id": "342683367",
+      "credentials_path": "credentials.json"
+    }
+  },
   "action_cost_model": {
     "cost_units": "operator_minutes",
     "defaults": {
