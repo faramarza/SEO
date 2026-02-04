@@ -158,9 +158,14 @@ def pull_gsc_data(config: dict, days: int = 28) -> dict[str, dict]:
     return pages_data
 
 
-def pull_ga4_data(config: dict, days: int = 28) -> dict[str, dict]:
+def pull_ga4_data(config: dict, days: int = 28, organic_only: bool = True) -> dict[str, dict]:
     """
     Pull landing page data from Google Analytics 4.
+
+    Args:
+        config: Configuration dict
+        days: Lookback period in days
+        organic_only: If True, filter to Organic Search channel only (required for GSC comparison)
 
     Returns dict mapping page path -> GA4 metrics.
     """
@@ -171,6 +176,8 @@ def pull_ga4_data(config: dict, days: int = 28) -> dict[str, dict]:
         Dimension,
         Metric,
         OrderBy,
+        FilterExpression,
+        Filter,
     )
     from google.oauth2 import service_account
 
@@ -185,7 +192,21 @@ def pull_ga4_data(config: dict, days: int = 28) -> dict[str, dict]:
 
     client = BetaAnalyticsDataClient(credentials=credentials)
 
-    print(f"Pulling GA4 data (last {days} days)...")
+    channel_label = "ORGANIC ONLY" if organic_only else "ALL CHANNELS"
+    print(f"Pulling GA4 data (last {days} days, {channel_label})...")
+
+    # Build dimension filter for organic search only
+    dimension_filter = None
+    if organic_only:
+        dimension_filter = FilterExpression(
+            filter=Filter(
+                field_name="sessionDefaultChannelGroup",
+                string_filter=Filter.StringFilter(
+                    value="Organic Search",
+                    match_type=Filter.StringFilter.MatchType.EXACT,
+                ),
+            ),
+        )
 
     request = RunReportRequest(
         property=f"properties/{property_id}",
@@ -198,6 +219,7 @@ def pull_ga4_data(config: dict, days: int = 28) -> dict[str, dict]:
             Metric(name="ecommercePurchases"),
             Metric(name="totalRevenue"),
         ],
+        dimension_filter=dimension_filter,
         order_bys=[OrderBy(
             metric=OrderBy.MetricOrderBy(metric_name="sessions"),
             desc=True,
@@ -218,6 +240,7 @@ def pull_ga4_data(config: dict, days: int = 28) -> dict[str, dict]:
 
         ga4_data[page_path] = {
             'sessions': sessions,
+            'organic_sessions': sessions,  # Explicitly mark as organic
             'engaged_sessions': engaged,
             'engagement_rate': engagement_rate,
             'purchases': purchases,
@@ -225,7 +248,7 @@ def pull_ga4_data(config: dict, days: int = 28) -> dict[str, dict]:
             'purchase_rate': purchases / sessions if sessions > 0 else 0.0,
         }
 
-    print(f"  Found {len(ga4_data)} landing pages with GA4 data")
+    print(f"  Found {len(ga4_data)} landing pages with GA4 organic data")
 
     return ga4_data
 
@@ -459,12 +482,25 @@ def print_results(results: list[tuple[PageAsset, Any]]) -> None:
             print(f"  Reason: {decision.why_no_action_may_be_better[:100]}...")
 
 
+def normalize_path(url: str, base_url: str = "https://alphabet-trains.com") -> str:
+    """Normalize URL to path for organic sessions matching."""
+    if url.startswith(base_url):
+        path = url[len(base_url):]
+    else:
+        path = url
+    path = path.lower().split("?")[0].rstrip("/")
+    if not path:
+        path = "/"
+    return path
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Run Capital Governor evaluation")
     parser.add_argument('--top', type=int, default=50, help='Evaluate top N pages by revenue')
     parser.add_argument('--url', type=str, help='Evaluate specific URL only')
     parser.add_argument('--days', type=int, default=28, help='Lookback period in days')
+    parser.add_argument('--skip-diagnostics', action='store_true', help='Skip tracking sanity diagnostics')
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════════════════╗")
@@ -481,10 +517,10 @@ def main():
         print(f"  Regret budget: {governance.regret_budget_used}/{governance.regret_budget_year}")
         print("  No actions will be proposed.")
 
-    # Pull data
+    # Pull data (organic only for proper comparison)
     try:
         gsc_data = pull_gsc_data(config, days=args.days)
-        ga4_data = pull_ga4_data(config, days=args.days)
+        ga4_data = pull_ga4_data(config, days=args.days, organic_only=True)
     except Exception as e:
         print(f"\n✗ Failed to pull data: {e}")
         print("  Run 'python scripts/test_connection.py' to diagnose.")
@@ -498,7 +534,51 @@ def main():
         print("\n✗ No pages to evaluate. Check data sources.")
         return 1
 
-    # Run evaluation
+    # === TRACKING SANITY DIAGNOSTICS (Pre-filter Gate) ===
+    if not args.skip_diagnostics:
+        print("\n" + "-" * 60)
+        print("PHASE 1: TRACKING SANITY DIAGNOSTICS")
+        print("-" * 60)
+
+        from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
+
+        # Build organic sessions map for diagnostics
+        organic_sessions_map = {}
+        for path, data in ga4_data.items():
+            norm_path = path.lower().split("?")[0].rstrip("/")
+            if not norm_path:
+                norm_path = "/"
+            organic_sessions_map[norm_path] = data.get('organic_sessions', data.get('sessions', 0))
+
+        diagnostics_engine = TrackingSanityDiagnostics(base_url=base_url)
+        diagnostics = diagnostics_engine.diagnose_all(assets, organic_sessions_map)
+        summary = diagnostics_engine.summary(diagnostics)
+
+        print(f"\nDiagnostics complete:")
+        print(f"  Total pages: {summary['total_pages']}")
+        print(f"  PASS: {summary['passed']}")
+        print(f"  WARN: {summary['warned']}")
+        print(f"  FAIL: {summary['failed']}")
+        print(f"  Eligible for RAIP: {summary['eligible_for_raip']}")
+
+        # Filter to eligible pages only
+        eligible_urls = {d.url for d in diagnostics if d.eligible_for_raip}
+        original_count = len(assets)
+        assets = [a for a in assets if a.url in eligible_urls]
+
+        print(f"\nFiltered: {original_count} → {len(assets)} pages eligible for evaluation")
+
+        if not assets:
+            print("\n⚠ No pages passed tracking sanity diagnostics.")
+            print("  Run 'python scripts/run_diagnostics.py' for detailed report.")
+            print("  Fix tracking issues before Governor can propose actions.")
+            return 0
+
+    print("\n" + "-" * 60)
+    print("PHASE 2: GOVERNOR EVALUATION")
+    print("-" * 60)
+
+    # Run evaluation on eligible pages only
     results = run_evaluation(
         assets=assets,
         config=config,
