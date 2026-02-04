@@ -238,8 +238,175 @@ class FullEvaluationWorkflow:
         self._assets = assets
         print(f"  Merged: {len(assets)} PageAssets")
 
+        # If no real data, generate mock data for demo
+        if len(assets) == 0:
+            print("  No real data available. Generating mock data...")
+            assets = self._generate_mock_data()
+            self._assets = assets
+            print(f"  Generated: {len(assets)} mock PageAssets")
+
         # Import URLs to page inventory
         self.page_inventory.import_from_gsc_urls([a.url for a in assets])
+
+        return assets
+
+    def _generate_mock_data(self) -> list[PageAsset]:
+        """
+        Generate mock PageAsset data for demo/testing.
+
+        Creates realistic page data with various scenarios to demonstrate
+        all evaluator capabilities including canonical issues.
+        """
+        import random
+        random.seed(42)  # Reproducible demo data
+
+        base_domain = "https://alphabet-trains.com"
+        assets = []
+
+        # Define page templates with different characteristics
+        page_templates = [
+            # Product pages
+            {"path": "/product/wooden-train-set", "type": AssetType.PRODUCT, "clicks": 450, "impressions": 15000, "position": 4.2, "sessions": 520, "conversions": 12},
+            {"path": "/product/electric-locomotive", "type": AssetType.PRODUCT, "clicks": 320, "impressions": 12000, "position": 5.1, "sessions": 380, "conversions": 8},
+            {"path": "/product/train-tracks-expansion", "type": AssetType.PRODUCT, "clicks": 180, "impressions": 8000, "position": 8.3, "sessions": 210, "conversions": 4},
+            {"path": "/product/alphabet-carriages-a-z", "type": AssetType.PRODUCT, "clicks": 890, "impressions": 25000, "position": 2.1, "sessions": 1050, "conversions": 28},
+            {"path": "/product/number-train-1-10", "type": AssetType.PRODUCT, "clicks": 560, "impressions": 18000, "position": 3.5, "sessions": 680, "conversions": 15},
+            {"path": "/product/steam-engine-deluxe", "type": AssetType.PRODUCT, "clicks": 290, "impressions": 11000, "position": 6.2, "sessions": 340, "conversions": 7},
+            {"path": "/product/magnetic-couplings-pack", "type": AssetType.PRODUCT, "clicks": 120, "impressions": 5000, "position": 12.4, "sessions": 140, "conversions": 2},
+
+            # Category pages
+            {"path": "/collections/wooden-trains", "type": AssetType.CATEGORY, "clicks": 780, "impressions": 22000, "position": 3.8, "sessions": 920, "conversions": 5},
+            {"path": "/collections/educational-toys", "type": AssetType.CATEGORY, "clicks": 450, "impressions": 14000, "position": 5.5, "sessions": 530, "conversions": 3},
+            {"path": "/collections/train-accessories", "type": AssetType.CATEGORY, "clicks": 320, "impressions": 10000, "position": 7.2, "sessions": 380, "conversions": 2},
+            {"path": "/collections/gift-sets", "type": AssetType.CATEGORY, "clicks": 210, "impressions": 7000, "position": 9.8, "sessions": 250, "conversions": 4},
+
+            # Blog posts
+            {"path": "/blog/best-wooden-trains-2024", "type": AssetType.BLOG, "clicks": 1200, "impressions": 45000, "position": 2.5, "sessions": 1400, "conversions": 8},
+            {"path": "/blog/learning-alphabet-with-trains", "type": AssetType.BLOG, "clicks": 680, "impressions": 28000, "position": 4.1, "sessions": 800, "conversions": 5},
+            {"path": "/blog/train-table-setup-guide", "type": AssetType.BLOG, "clicks": 450, "impressions": 18000, "position": 5.8, "sessions": 530, "conversions": 2},
+            {"path": "/blog/montessori-train-play", "type": AssetType.BLOG, "clicks": 320, "impressions": 12000, "position": 7.3, "sessions": 380, "conversions": 1},
+            {"path": "/blog/wooden-vs-plastic-trains", "type": AssetType.BLOG, "clicks": 540, "impressions": 22000, "position": 4.9, "sessions": 640, "conversions": 3},
+
+            # Pages with canonical issues (for demo)
+            {"path": "/product/wooden-train-set?utm_source=google", "type": AssetType.PRODUCT, "clicks": 25, "impressions": 800, "position": 15.2, "sessions": 30, "conversions": 0, "has_tracking_params": True},
+            {"path": "/collections/wooden-trains/", "type": AssetType.CATEGORY, "clicks": 45, "impressions": 1500, "position": 18.5, "sessions": 55, "conversions": 0, "trailing_slash": True},
+            {"path": "/BLOG/best-wooden-trains-2024", "type": AssetType.BLOG, "clicks": 15, "impressions": 500, "position": 22.1, "sessions": 18, "conversions": 0, "case_mismatch": True},
+        ]
+
+        # Generate more pages with variations
+        for i, template in enumerate(page_templates):
+            url = f"{base_domain}{template['path']}"
+
+            # Determine canonical issues
+            canonical_url = None
+            indexable = True
+
+            if template.get("has_tracking_params"):
+                # This page should canonical to clean URL
+                clean_path = template["path"].split("?")[0]
+                canonical_url = f"{base_domain}{clean_path}"
+            elif template.get("trailing_slash"):
+                # Trailing slash inconsistency
+                canonical_url = url.rstrip("/")
+            elif template.get("case_mismatch"):
+                # Case mismatch - canonical should be lowercase
+                canonical_url = f"{base_domain}{template['path'].lower()}"
+            else:
+                # Normal self-referencing canonical (sometimes missing for demo)
+                if random.random() > 0.85:  # 15% missing canonical
+                    canonical_url = None
+                else:
+                    canonical_url = url
+
+            # Create GSC metrics
+            ctr = template["clicks"] / template["impressions"] if template["impressions"] > 0 else 0
+            gsc_metrics = GSCMetrics(
+                clicks_28d=template["clicks"],
+                impressions_28d=template["impressions"],
+                avg_position_28d=template["position"],
+                avg_ctr_28d=ctr,
+                top_queries=[
+                    TopQuery(
+                        query=f"wooden alphabet train",
+                        clicks=int(template["clicks"] * 0.3),
+                        impressions=int(template["impressions"] * 0.25),
+                        position=template["position"] + random.uniform(-1, 1),
+                        ctr=ctr * random.uniform(0.8, 1.2),
+                    ),
+                    TopQuery(
+                        query=f"educational train toy",
+                        clicks=int(template["clicks"] * 0.2),
+                        impressions=int(template["impressions"] * 0.18),
+                        position=template["position"] + random.uniform(0, 3),
+                        ctr=ctr * random.uniform(0.7, 1.1),
+                    ),
+                ],
+            )
+
+            # Create GA4 metrics
+            bounce_rate = 0.35 + random.uniform(0, 0.25)
+            ga4_metrics = GA4Metrics(
+                sessions_28d=template["sessions"],
+                users_28d=int(template["sessions"] * 0.85),
+                engaged_sessions_28d=int(template["sessions"] * (1 - bounce_rate)),
+                conversions_28d=template["conversions"],
+                revenue_28d=template["conversions"] * 53.19,
+                add_to_carts_28d=int(template["conversions"] * 2.5),
+                bounce_rate_28d=bounce_rate,
+            )
+
+            asset = PageAsset(
+                url=url,
+                asset_type=template["type"],
+                gsc=gsc_metrics,
+                ga4=ga4_metrics,
+                canonical_url=canonical_url,
+                indexable=indexable,
+            )
+            assets.append(asset)
+
+        # Add some additional random pages to make data more realistic
+        additional_products = [
+            "diesel-engine", "passenger-car", "cargo-wagon", "crane-car",
+            "bridge-set", "tunnel-pack", "station-building", "crossing-gate",
+            "signal-lights", "coal-tender", "caboose-classic", "flatbed-car"
+        ]
+
+        for product in additional_products:
+            url = f"{base_domain}/product/{product}"
+            clicks = random.randint(50, 400)
+            impressions = clicks * random.randint(20, 50)
+            position = random.uniform(5, 25)
+            sessions = int(clicks * random.uniform(1.1, 1.4))
+            conversions = max(0, int(sessions * random.uniform(0.01, 0.04)))
+
+            gsc_metrics = GSCMetrics(
+                clicks_28d=clicks,
+                impressions_28d=impressions,
+                avg_position_28d=position,
+                avg_ctr_28d=clicks / impressions if impressions > 0 else 0,
+                top_queries=[],
+            )
+
+            ga4_metrics = GA4Metrics(
+                sessions_28d=sessions,
+                users_28d=int(sessions * 0.85),
+                engaged_sessions_28d=int(sessions * 0.6),
+                conversions_28d=conversions,
+                revenue_28d=conversions * 53.19,
+                add_to_carts_28d=int(conversions * 2.5),
+                bounce_rate_28d=random.uniform(0.35, 0.55),
+            )
+
+            asset = PageAsset(
+                url=url,
+                asset_type=AssetType.PRODUCT,
+                gsc=gsc_metrics,
+                ga4=ga4_metrics,
+                canonical_url=url,  # Self-referencing
+                indexable=True,
+            )
+            assets.append(asset)
 
         return assets
 
@@ -513,7 +680,7 @@ class FullEvaluationWorkflow:
                     "reason": f"Confidence {best['confidence']:.2f} below threshold {self.config.min_confidence_threshold}",
                 }
 
-            return {
+            result = {
                 "url": asset.url,
                 "recommended_action": best["action"],
                 "mode": best["mode"],
@@ -526,6 +693,14 @@ class FullEvaluationWorkflow:
                 "learning_reference": best.get("learning_reference"),
                 "source": best["source"],
             }
+
+            # Include optional fields from specific evaluators
+            if "issues" in best:
+                result["issues"] = best["issues"]
+            if "rollback_plan" in best:
+                result["rollback_plan"] = best["rollback_plan"]
+
+            return result
 
         # No action recommended
         return {
