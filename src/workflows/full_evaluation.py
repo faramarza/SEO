@@ -545,9 +545,11 @@ class FullEvaluationWorkflow:
         # Format diagnostic summary
         diagnostic_summary = None
         if self._diagnostic_results:
+            # PageDiagnostic objects have blocking (Tier A) and status attributes
             diagnostic_summary = {
-                "tier_a_failures": sum(1 for r in self._diagnostic_results if r.get("tier") == "A"),
-                "tier_b_warnings": sum(1 for r in self._diagnostic_results if r.get("tier") == "B"),
+                "tier_a_failures": sum(1 for r in self._diagnostic_results if r.blocking),
+                "tier_b_warnings": sum(1 for r in self._diagnostic_results if r.status == "WARN"),
+                "eligible_for_raip": sum(1 for r in self._diagnostic_results if r.eligible_for_raip),
             }
 
         # Get regret budget from ledger
@@ -591,9 +593,10 @@ class FullEvaluationWorkflow:
             diag_summary = self.run_diagnostics()
             print()
 
-            # Check for blockers
-            if self.config.block_on_tier_a and diag_summary["tier_a_failures"] > 0:
+            # Check for blockers (failed = Tier A blocking failures)
+            if self.config.block_on_tier_a and diag_summary["failed"] > 0:
                 print("⚠️  BLOCKED: Tier A diagnostic failures detected.")
+                print(f"   {diag_summary['failed']} pages have blocking issues.")
                 print("   Resolve tracking issues before proceeding.")
                 return "BLOCKED: Tier A diagnostic failures"
 
