@@ -404,32 +404,35 @@ class FullEvaluationWorkflow:
         # Title/Meta evaluation
         if asset.gsc.impressions_28d >= 500:
             title_result = self.title_evaluator.evaluate(asset)
-            if title_result.recommended_action != "NO_ACTION":
+            # TitleTestResult uses should_test and expected_ctr_lift
+            if title_result.should_test and title_result.recommended_variant:
                 candidates.append({
                     "mode": "OPPORTUNITY_DISCOVERY",
-                    "action": title_result.recommended_action,
-                    "expected_value": title_result.expected_lift * asset.ga4.sessions_28d * 0.5,
+                    "action": "TITLE_META_TEST",
+                    "expected_value": title_result.expected_ctr_lift * asset.ga4.sessions_28d * 0.5,
                     "confidence": title_result.confidence,
                     "risk_level": title_result.risk_level,
-                    "implementation_steps": title_result.test_variants[:2] if title_result.test_variants else [],
+                    "implementation_steps": [title_result.recommended_variant.title] if title_result.recommended_variant else [],
                     "source": "title_evaluator",
                 })
 
         # Canonical evaluation
         canonical_result = self.canonical_evaluator.evaluate(asset)
-        if canonical_result.recommended_action != "NO_ACTION":
+        # CanonicalFixResult uses has_issues and total_traffic_at_risk
+        if canonical_result.has_issues and canonical_result.recommended_action != "NO_ACTION":
             candidates.append({
                 "mode": "PRESERVATION",
                 "action": canonical_result.recommended_action,
-                "expected_value": canonical_result.expected_lift * asset.ga4.sessions_28d,
+                "expected_value": float(canonical_result.total_traffic_at_risk),
                 "confidence": canonical_result.confidence,
-                "risk_level": canonical_result.risk_level,
+                "risk_level": "low",  # Canonical fixes are generally low risk
                 "implementation_steps": canonical_result.implementation_steps,
                 "source": "canonical_evaluator",
             })
 
         # Internal link evaluation
         link_result = self.link_evaluator.evaluate(asset, self._assets)
+        # LinkReallocationResult has all standard attributes
         if link_result.recommended_action != "NO_ACTION":
             candidates.append({
                 "mode": "FUNNEL_ALIGNMENT",
