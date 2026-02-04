@@ -357,6 +357,32 @@ def api_run_evaluation():
     })
 
 
+@app.route("/api/debug")
+def api_debug():
+    """Debug endpoint to verify paths and data."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    diag_path = DATA_PATH / "diagnostic_results.json"
+
+    eval_exists = eval_path.exists()
+    diag_exists = diag_path.exists()
+
+    eval_data = None
+    if eval_exists:
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+
+    return jsonify({
+        "data_path": str(DATA_PATH),
+        "data_path_exists": DATA_PATH.exists(),
+        "eval_file_exists": eval_exists,
+        "eval_file_path": str(eval_path),
+        "diag_file_exists": diag_exists,
+        "eval_data_keys": list(eval_data.keys()) if eval_data else None,
+        "eval_total_pages": eval_data.get("total_pages") if eval_data else None,
+        "eval_timestamp": eval_data.get("timestamp") if eval_data else None,
+    })
+
+
 # ============================================================
 # RUN SERVER
 # ============================================================
