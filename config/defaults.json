@@ -1,0 +1,23 @@
+{
+  "action_cost_model": {
+    "cost_units": "operator_minutes",
+    "defaults": {
+      "page_reinvestment": 120,
+      "internal_link_change": 30,
+      "new_page_creation": 240
+    }
+  },
+  "profit_model": {
+    "aov": 53.19,
+    "gross_margin_low": 0.25,
+    "gross_margin_high": 0.30,
+    "evaluation_window_days": 28
+  },
+  "governance": {
+    "regret_budget_year": 2,
+    "defensive_action_weight": 2.0,
+    "exploratory_action_penalty": 3.0,
+    "min_confidence_threshold": 0.65,
+    "profit_to_cost_ratio_gate": 5.0
+  }
+}
