@@ -370,7 +370,16 @@ class FullEvaluationWorkflow:
 
         # Run main Governor evaluation for each mode
         for mode in modes:
-            result = self.governor.evaluate(asset, mode)
+            # Call the appropriate Governor method based on mode
+            if mode == GovernorMode.PRESERVATION:
+                result = self.governor.evaluate_preservation(asset)
+            elif mode == GovernorMode.OPPORTUNITY_DISCOVERY:
+                result = self.governor.evaluate_opportunity(asset)
+            elif mode == GovernorMode.FUNNEL_ALIGNMENT:
+                result = self.governor.evaluate_funnel(asset)
+            else:
+                continue
+
             if result.decision not in (DecisionType.NO_ACTION, DecisionType.OBSERVE_ONLY):
                 # Derive risk level from reversibility
                 risk_level = "low"
