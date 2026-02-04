@@ -20,22 +20,23 @@
             <option value="medium">Medium Risk</option>
             <option value="high">High Risk</option>
         </select>
+        <input type="text" id="filter-search" placeholder="Search URLs..." oninput="filterOpportunities()">
         <span class="result-count" id="result-count">0 opportunities</span>
     </div>
 
     <div class="table-container">
-        <table class="data-table" id="opportunities-table">
+        <table class="data-table sortable" id="opportunities-table">
             <thead>
                 <tr>
-                    <th>#</th>
-                    <th>URL</th>
-                    <th>Action</th>
-                    <th>Mode</th>
-                    <th>Expected Value</th>
-                    <th>Confidence</th>
-                    <th>Priority</th>
-                    <th>Risk</th>
-                    <th></th>
+                    <th data-sort="index" class="sortable-header">#</th>
+                    <th data-sort="url" class="sortable-header">URL</th>
+                    <th data-sort="action" class="sortable-header">Action</th>
+                    <th data-sort="mode" class="sortable-header">Mode</th>
+                    <th data-sort="expected_value" class="sortable-header sorted-desc">Expected Value <span class="sort-icon">▼</span></th>
+                    <th data-sort="confidence" class="sortable-header">Confidence <span class="sort-icon"></span></th>
+                    <th data-sort="priority_score" class="sortable-header">Priority <span class="sort-icon"></span></th>
+                    <th data-sort="risk_level" class="sortable-header">Risk <span class="sort-icon"></span></th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="opportunities-body">
@@ -53,17 +54,70 @@
         <div id="modal-body"></div>
     </div>
 </div>
+
+<!-- Toast Notification -->
+<div id="toast" class="toast hidden"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 let allOpportunities = [];
+let currentSort = { field: 'expected_value', direction: 'desc' };
 
 async function loadOpportunities() {
-    const res = await fetch('/api/opportunities');
-    const data = await res.json();
-    allOpportunities = data.opportunities || [];
-    renderOpportunities(allOpportunities);
+    try {
+        const res = await fetch('/api/opportunities');
+        const data = await res.json();
+        allOpportunities = data.opportunities || [];
+        sortOpportunities();
+        renderOpportunities(allOpportunities);
+    } catch (err) {
+        console.error('Failed to load opportunities:', err);
+        document.getElementById('opportunities-body').innerHTML =
+            '<tr><td colspan="9" class="error">Failed to load data</td></tr>';
+    }
+}
+
+function sortOpportunities() {
+    const { field, direction } = currentSort;
+    allOpportunities.sort((a, b) => {
+        let aVal = a[field] ?? '';
+        let bVal = b[field] ?? '';
+
+        if (typeof aVal === 'string') {
+            aVal = aVal.toLowerCase();
+            bVal = bVal.toLowerCase();
+        }
+
+        if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+}
+
+function handleSort(field) {
+    if (currentSort.field === field) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.field = field;
+        currentSort.direction = 'desc';
+    }
+
+    // Update header styles
+    document.querySelectorAll('.sortable-header').forEach(th => {
+        th.classList.remove('sorted-asc', 'sorted-desc');
+        th.querySelector('.sort-icon')?.remove();
+    });
+
+    const activeHeader = document.querySelector(`[data-sort="${field}"]`);
+    activeHeader.classList.add(currentSort.direction === 'asc' ? 'sorted-asc' : 'sorted-desc');
+    const icon = document.createElement('span');
+    icon.className = 'sort-icon';
+    icon.textContent = currentSort.direction === 'asc' ? ' ▲' : ' ▼';
+    activeHeader.appendChild(icon);
+
+    sortOpportunities();
+    filterOpportunities();
 }
 
 function renderOpportunities(opportunities) {
@@ -71,33 +125,45 @@ function renderOpportunities(opportunities) {
     document.getElementById('result-count').textContent = opportunities.length + ' opportunities';
 
     if (opportunities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty">No opportunities. All pages evaluated to NO_ACTION.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">No opportunities match your filters.</td></tr>';
         return;
     }
 
     tbody.innerHTML = opportunities.map((opp, idx) => `
-        <tr>
-            <td>${idx + 1}</td>
-            <td class="url-cell" title="${opp.url}">${truncateUrl(opp.url)}</td>
-            <td><span class="action-badge action-${opp.recommended_action}">${opp.recommended_action}</span></td>
-            <td>${opp.mode || '—'}</td>
-            <td class="number">$${(opp.expected_value || 0).toFixed(2)}</td>
-            <td class="number">${(opp.confidence || 0).toFixed(2)}</td>
-            <td class="number">${(opp.priority_score || 0).toFixed(4)}</td>
-            <td><span class="risk-badge risk-${opp.risk_level}">${opp.risk_level}</span></td>
-            <td><button class="btn btn-small" onclick="showDetail(${idx})">View</button></td>
+        <tr class="opportunity-row" data-idx="${idx}">
+            <td class="row-number">${idx + 1}</td>
+            <td class="url-cell" title="${opp.url}">
+                <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
+            </td>
+            <td><span class="action-badge action-${(opp.recommended_action || '').toLowerCase()}">${opp.recommended_action || 'N/A'}</span></td>
+            <td class="mode-cell">${formatMode(opp.mode)}</td>
+            <td class="number ev-cell">$${(opp.expected_value || 0).toFixed(2)}</td>
+            <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
+            <td class="number priority-cell">${(opp.priority_score || 0).toFixed(2)}</td>
+            <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
+            <td class="actions-cell">
+                <button class="btn btn-small btn-view" onclick="showDetail(${idx})">View</button>
+                <button class="btn btn-small btn-approve" onclick="quickApprove(${idx})">Approve</button>
+            </td>
         </tr>
     `).join('');
 }
 
 function truncateUrl(url) {
+    if (!url) return '—';
     const path = url.replace(/https?:\/\/[^\/]+/, '');
-    return path.length > 40 ? '...' + path.slice(-37) : path;
+    return path.length > 35 ? '...' + path.slice(-32) : path || '/';
+}
+
+function formatMode(mode) {
+    if (!mode) return '—';
+    return mode.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function filterOpportunities() {
     const actionFilter = document.getElementById('filter-action').value;
     const riskFilter = document.getElementById('filter-risk').value;
+    const searchFilter = document.getElementById('filter-search').value.toLowerCase();
 
     let filtered = allOpportunities;
 
@@ -107,40 +173,43 @@ function filterOpportunities() {
     if (riskFilter) {
         filtered = filtered.filter(o => o.risk_level === riskFilter);
     }
+    if (searchFilter) {
+        filtered = filtered.filter(o => o.url?.toLowerCase().includes(searchFilter));
+    }
 
     renderOpportunities(filtered);
 }
 
 function showDetail(idx) {
     const opp = allOpportunities[idx];
-    document.getElementById('modal-title').textContent = opp.recommended_action;
+    document.getElementById('modal-title').textContent = opp.recommended_action || 'Details';
 
     const steps = opp.implementation_steps || [];
     const stepsHtml = steps.length > 0
-        ? '<ol>' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
-        : '<p>No implementation steps specified.</p>';
+        ? '<ol class="impl-steps">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
+        : '<p class="no-steps">No implementation steps specified.</p>';
 
     document.getElementById('modal-body').innerHTML = `
         <div class="detail-grid">
             <div class="detail-item">
                 <label>URL</label>
-                <p><a href="${opp.url}" target="_blank">${opp.url}</a></p>
+                <p><a href="${opp.url}" target="_blank" class="detail-link">${opp.url}</a></p>
             </div>
             <div class="detail-item">
                 <label>Expected Value</label>
-                <p>$${(opp.expected_value || 0).toFixed(2)}</p>
+                <p class="detail-value">$${(opp.expected_value || 0).toFixed(2)}</p>
             </div>
             <div class="detail-item">
                 <label>Confidence</label>
-                <p>${(opp.confidence || 0).toFixed(3)}</p>
+                <p class="detail-value">${((opp.confidence || 0) * 100).toFixed(0)}%</p>
             </div>
             <div class="detail-item">
                 <label>Priority Score</label>
-                <p>${(opp.priority_score || 0).toFixed(4)}</p>
+                <p class="detail-value">${(opp.priority_score || 0).toFixed(4)}</p>
             </div>
             <div class="detail-item">
                 <label>Mode</label>
-                <p>${opp.mode || 'Unknown'}</p>
+                <p>${formatMode(opp.mode)}</p>
             </div>
             <div class="detail-item">
                 <label>Risk Level</label>
@@ -152,13 +221,16 @@ function showDetail(idx) {
             ${stepsHtml}
         </div>
         ${opp.learning_reference ? `
-        <div class="detail-section">
+        <div class="detail-section learning-ref">
             <h4>Learning Reference</h4>
             <p>${opp.learning_reference}</p>
         </div>
         ` : ''}
         <div class="detail-actions">
-            <button class="btn btn-primary" onclick="approveAction('${opp.url}')">Approve for Implementation</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="approveAction(${idx})">
+                <span class="btn-icon">✓</span> Approve for Implementation
+            </button>
         </div>
     `;
 
@@ -169,10 +241,66 @@ function closeModal() {
     document.getElementById('detail-modal').classList.add('hidden');
 }
 
-function approveAction(url) {
-    alert('Action approval flow not yet implemented.\nURL: ' + url);
-    closeModal();
+async function quickApprove(idx) {
+    await approveAction(idx);
 }
+
+async function approveAction(idx) {
+    const opp = allOpportunities[idx];
+
+    try {
+        const res = await fetch('/api/opportunities/approve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                url: opp.url,
+                action: opp.recommended_action,
+                expected_value: opp.expected_value,
+                confidence: opp.confidence,
+                risk_level: opp.risk_level,
+                mode: opp.mode,
+                implementation_steps: opp.implementation_steps,
+                page_type: opp.page_type || 'unknown',
+                intent_cluster: opp.intent_cluster || 'unknown',
+                action_surface: opp.action_surface || 'other',
+                score_type: opp.score_type || 'EV',
+                source: opp.source || 'evaluation',
+            }),
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            showToast(`Action approved! ID: ${data.action_id}`, 'success');
+            closeModal();
+            // Remove from opportunities list
+            allOpportunities.splice(idx, 1);
+            filterOpportunities();
+        } else {
+            showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (err) {
+        showToast('Failed to approve action', 'error');
+    }
+}
+
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = `toast toast-${type}`;
+    toast.classList.remove('hidden');
+
+    setTimeout(() => {
+        toast.classList.add('hidden');
+    }, 3000);
+}
+
+// Initialize sortable headers
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.sortable-header').forEach(th => {
+        th.addEventListener('click', () => handleSort(th.dataset.sort));
+    });
+});
 
 loadOpportunities();
 </script>

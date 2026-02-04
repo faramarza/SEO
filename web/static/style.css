@@ -810,3 +810,282 @@ td.negative { color: var(--accent-red); }
 .form-group textarea {
     resize: vertical;
 }
+
+/* ============================================================
+   Sortable Tables
+   ============================================================ */
+
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+    position: relative;
+}
+
+.sortable-header:hover {
+    background-color: var(--bg-secondary);
+}
+
+.sortable-header.sorted-asc,
+.sortable-header.sorted-desc {
+    color: var(--accent-blue);
+}
+
+.sort-icon {
+    font-size: 10px;
+    margin-left: 4px;
+    opacity: 0.7;
+}
+
+/* ============================================================
+   Enhanced Table Rows
+   ============================================================ */
+
+.opportunity-row {
+    transition: background-color 0.15s;
+}
+
+.opportunity-row:hover {
+    background-color: var(--bg-secondary);
+}
+
+.url-link {
+    color: var(--accent-blue);
+    text-decoration: none;
+}
+
+.url-link:hover {
+    text-decoration: underline;
+}
+
+.ev-cell {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+.conf-cell {
+    color: var(--text-secondary);
+}
+
+.row-number {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.actions-cell {
+    display: flex;
+    gap: 6px;
+}
+
+/* ============================================================
+   Action Type Badges
+   ============================================================ */
+
+.action-badge.action-canonical_fix {
+    background-color: rgba(120, 86, 255, 0.2);
+    color: var(--accent-purple);
+}
+
+.action-badge.action-internal_link_reallocation {
+    background-color: rgba(29, 155, 240, 0.2);
+    color: var(--accent-blue);
+}
+
+.action-badge.action-title_meta_test {
+    background-color: rgba(255, 212, 0, 0.2);
+    color: var(--accent-yellow);
+}
+
+.action-badge.action-page_reinvestment {
+    background-color: rgba(0, 186, 124, 0.2);
+    color: var(--accent-green);
+}
+
+.action-badge.action-new_asset_creation {
+    background-color: rgba(255, 122, 0, 0.2);
+    color: var(--accent-orange);
+}
+
+/* ============================================================
+   Button Variants
+   ============================================================ */
+
+.btn-view {
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.btn-view:hover {
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.btn-approve {
+    background-color: rgba(0, 186, 124, 0.15);
+    color: var(--accent-green);
+    border: 1px solid var(--accent-green);
+}
+
+.btn-approve:hover {
+    background-color: var(--accent-green);
+    color: white;
+}
+
+.btn-icon {
+    margin-right: 4px;
+}
+
+/* ============================================================
+   Toast Notifications
+   ============================================================ */
+
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 16px 24px;
+    border-radius: 8px;
+    font-weight: 500;
+    z-index: 2000;
+    animation: slideIn 0.3s ease;
+}
+
+.toast.hidden {
+    display: none;
+}
+
+.toast-success {
+    background-color: var(--accent-green);
+    color: white;
+}
+
+.toast-error {
+    background-color: var(--accent-red);
+    color: white;
+}
+
+.toast-info {
+    background-color: var(--accent-blue);
+    color: white;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* ============================================================
+   Search Input
+   ============================================================ */
+
+.filters input[type="text"] {
+    padding: 8px 12px;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.filters input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+}
+
+.filters input[type="text"]::placeholder {
+    color: var(--text-secondary);
+}
+
+/* ============================================================
+   Modal Enhancements
+   ============================================================ */
+
+.detail-value {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.detail-link {
+    color: var(--accent-blue);
+    word-break: break-all;
+}
+
+.impl-steps {
+    padding-left: 24px;
+}
+
+.impl-steps li {
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+.no-steps {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.learning-ref {
+    background-color: var(--bg-secondary);
+    padding: 16px;
+    border-radius: 8px;
+    margin-top: 16px;
+}
+
+.learning-ref p {
+    color: var(--accent-yellow);
+}
+
+/* ============================================================
+   Responsive Improvements
+   ============================================================ */
+
+@media (max-width: 1400px) {
+    .task-board {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 1000px) {
+    .task-board {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .kpi-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .section-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================================
+   Loading States
+   ============================================================ */
+
+.loading {
+    color: var(--text-secondary);
+}
+
+.loading::after {
+    content: '';
+    animation: dots 1.5s infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: '.'; }
+    40% { content: '..'; }
+    60%, 100% { content: '...'; }
+}
+
+.error {
+    color: var(--accent-red);
+}

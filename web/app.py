@@ -191,6 +191,45 @@ def api_tasks():
     return jsonify(tasks_by_status)
 
 
+@app.route("/api/opportunities/approve", methods=["POST"])
+def api_approve_opportunity():
+    """Approve an opportunity and create a proposed action."""
+    data = request.json
+    ledger = ActionLedger()
+
+    from src.ledger.action_ledger import ActionFingerprint
+
+    # Create fingerprint from opportunity data
+    fingerprint = ActionFingerprint(
+        page_type=data.get("page_type", "unknown"),
+        intent_cluster=data.get("intent_cluster", "unknown"),
+        action_surface=data.get("action_surface", "other"),
+        action_type=data.get("action", "OBSERVE_ONLY"),
+    )
+
+    # Create proposed action
+    action_id = ledger.create_action(
+        url=data.get("url", ""),
+        action_type=data.get("action", "OBSERVE_ONLY"),
+        score_type=data.get("score_type", "EV"),
+        score_value=data.get("expected_value", 0),
+        confidence=data.get("confidence", 0.5),
+        fingerprint=fingerprint,
+        metadata={
+            "mode": data.get("mode"),
+            "risk_level": data.get("risk_level"),
+            "implementation_steps": data.get("implementation_steps", []),
+            "source": data.get("source", "manual"),
+        },
+    )
+
+    return jsonify({
+        "success": True,
+        "action_id": action_id,
+        "message": f"Action {action_id} created and added to Task Board",
+    })
+
+
 @app.route("/api/tasks/<action_id>/advance", methods=["POST"])
 def api_advance_task(action_id):
     """Advance task to next status."""
