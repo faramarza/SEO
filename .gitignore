@@ -41,3 +41,6 @@ config/local.json
 # Environment files
 .env
 .env.local
+# Generated data files
+data/*.json
+!data/.gitkeep
