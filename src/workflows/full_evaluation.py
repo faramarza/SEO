@@ -266,25 +266,30 @@ class FullEvaluationWorkflow:
         """
         print("Running tracking diagnostics...")
 
-        gsc_urls = {a.url: a.gsc.clicks_28d for a in self._assets}
-        ga4_urls = {a.url: a.ga4.sessions_28d for a in self._assets}
+        # Build organic sessions map with normalized paths
+        organic_sessions_map = {}
+        for asset in self._assets:
+            normalized_path = self.diagnostics.normalize_url(asset.url)
+            # Use GA4 sessions as proxy for organic (GA4 client filters organic by default)
+            organic_sessions_map[normalized_path] = asset.ga4.sessions_28d
 
-        results = self.diagnostics.run_all_checks(gsc_urls, ga4_urls)
+        # Run diagnostics using the correct method
+        results = self.diagnostics.diagnose_all(
+            assets=self._assets,
+            organic_sessions_map=organic_sessions_map,
+        )
         self._diagnostic_results = results
 
-        # Summarize
-        tier_a = sum(1 for r in results if r.get("tier") == "A")
-        tier_b = sum(1 for r in results if r.get("tier") == "B")
+        # Summarize using the diagnostics summary method
+        summary = self.diagnostics.summary(results)
 
-        print(f"  Tier A (blocking): {tier_a}")
-        print(f"  Tier B (warnings): {tier_b}")
+        print(f"  Total pages: {summary['total_pages']}")
+        print(f"  Passed: {summary['passed']}")
+        print(f"  Warned: {summary['warned']}")
+        print(f"  Failed (blocking): {summary['failed']}")
+        print(f"  Eligible for RAIP: {summary['eligible_for_raip']}")
 
-        return {
-            "tier_a_failures": tier_a,
-            "tier_b_warnings": tier_b,
-            "total_checks": len(results),
-            "details": results,
-        }
+        return summary
 
     def build_link_graph(self) -> dict:
         """
