@@ -21,7 +21,7 @@ from typing import Optional
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.models.page_asset import PageAsset, AssetType, GSCMetrics, GA4Metrics, QueryData
+from src.models.page_asset import PageAsset, AssetType, GSCMetrics, GA4Metrics, TopQuery
 from src.models.governance_state import GovernanceState
 from src.data_sources.gsc_client import GSCClient
 from src.data_sources.ga4_client import GA4Client
@@ -179,12 +179,12 @@ class FullEvaluationWorkflow:
                 avg_position_28d=gsc.get("position", 100),
                 avg_ctr_28d=gsc.get("ctr", 0),
                 top_queries=[
-                    QueryData(
+                    TopQuery(
                         query=q["query"],
                         clicks=q["clicks"],
                         impressions=q["impressions"],
-                        avg_position=q["position"],
-                        avg_ctr=q["ctr"],
+                        position=q["position"],
+                        ctr=q["ctr"],
                     )
                     for q in gsc.get("queries", [])
                 ],

@@ -141,7 +141,7 @@ class AssetCreationEvaluator:
                     if target.lower() in query_lower or query_lower in target.lower():
                         total_impressions += query_data.impressions
                         total_clicks += query_data.clicks
-                        positions.append(query_data.avg_position)
+                        positions.append(query_data.position)
                         if query_data.query not in found_queries:
                             found_queries.append(query_data.query)
 
@@ -426,14 +426,14 @@ class AssetCreationEvaluator:
                     query_coverage[query] = {
                         "query": query_data.query,
                         "impressions": query_data.impressions,
-                        "best_position": query_data.avg_position,
+                        "best_position": query_data.position,
                         "best_url": asset.url,
                         "clicks": query_data.clicks,
                     }
                 else:
                     # Update if this page ranks better
-                    if query_data.avg_position < query_coverage[query]["best_position"]:
-                        query_coverage[query]["best_position"] = query_data.avg_position
+                    if query_data.position < query_coverage[query]["best_position"]:
+                        query_coverage[query]["best_position"] = query_data.position
                         query_coverage[query]["best_url"] = asset.url
                     query_coverage[query]["impressions"] += query_data.impressions
                     query_coverage[query]["clicks"] += query_data.clicks
