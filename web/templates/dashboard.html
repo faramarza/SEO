@@ -81,40 +81,64 @@
 {% block scripts %}
 <script>
 async function loadDashboard() {
-    const res = await fetch('/api/dashboard');
-    const data = await res.json();
+    try {
+        const res = await fetch('/api/dashboard');
+        if (!res.ok) {
+            console.error('API error:', res.status);
+            return;
+        }
+        const data = await res.json();
+        console.log('Dashboard data:', data);
 
-    // KPIs
-    document.getElementById('kpi-pages').textContent = data.kpis.total_pages ?? '—';
-    document.getElementById('kpi-action-rate').textContent =
-        data.kpis.action_rate != null ? data.kpis.action_rate.toFixed(1) + '%' : '—';
-    document.getElementById('kpi-ev').textContent =
-        data.kpis.total_expected_value != null ? '$' + data.kpis.total_expected_value.toFixed(0) : '—';
-    document.getElementById('kpi-regret').textContent = (data.config.regret_budget ?? 2) + '/2';
+        // KPIs - handle numbers properly
+        const pages = data.kpis?.total_pages;
+        const actionRate = data.kpis?.action_rate;
+        const ev = data.kpis?.total_expected_value;
 
-    // Posture
-    const postureEl = document.getElementById('posture-display');
-    postureEl.querySelector('.posture-mode').textContent = data.posture.mode;
-    postureEl.className = 'posture-large posture-' + data.posture.color;
+        document.getElementById('kpi-pages').textContent =
+            (pages !== undefined && pages !== null) ? pages.toLocaleString() : '—';
+        document.getElementById('kpi-action-rate').textContent =
+            (actionRate !== undefined && actionRate !== null) ? actionRate.toFixed(1) + '%' : '—';
+        document.getElementById('kpi-ev').textContent =
+            (ev !== undefined && ev !== null) ? '$' + ev.toLocaleString() : '—';
+        document.getElementById('kpi-regret').textContent =
+            (data.config?.regret_budget ?? 2) + '/2';
 
-    // Config
-    document.getElementById('config-aov').textContent = '$' + data.config.aov;
-    document.getElementById('config-margin').textContent = (data.config.margin * 100) + '%';
+        // Posture
+        const postureEl = document.getElementById('posture-display');
+        if (postureEl && data.posture) {
+            postureEl.querySelector('.posture-mode').textContent = data.posture.mode;
+            postureEl.className = 'posture-large posture-' + data.posture.color;
+        }
 
-    // Ledger
-    const ledger = data.ledger_summary;
-    document.getElementById('ledger-total').textContent = ledger.total_actions || 0;
-    document.getElementById('ledger-proposed').textContent = ledger.by_status?.proposed || 0;
-    document.getElementById('ledger-implemented').textContent = ledger.by_status?.implemented || 0;
-    document.getElementById('ledger-success').textContent =
-        ledger.success_rate ? (ledger.success_rate * 100).toFixed(0) + '%' : '—';
+        // Config
+        if (data.config) {
+            document.getElementById('config-aov').textContent = '$' + (data.config.aov || 0).toFixed(2);
+            document.getElementById('config-margin').textContent = ((data.config.margin || 0) * 100).toFixed(0) + '%';
+        }
 
-    // Last run
-    document.getElementById('last-run').textContent = data.last_run || 'Never';
+        // Ledger
+        const ledger = data.ledger_summary || {};
+        document.getElementById('ledger-total').textContent = ledger.total_actions || 0;
+        document.getElementById('ledger-proposed').textContent = ledger.by_status?.proposed || 0;
+        document.getElementById('ledger-implemented').textContent = ledger.by_status?.implemented || 0;
+        document.getElementById('ledger-success').textContent =
+            ledger.success_rate ? (ledger.success_rate * 100).toFixed(0) + '%' : '—';
 
-    // Posture badge in header
-    document.getElementById('posture-badge').textContent = data.posture.mode;
-    document.getElementById('posture-badge').className = 'posture-badge posture-' + data.posture.color;
+        // Last run
+        const lastRun = data.last_run;
+        document.getElementById('last-run').textContent =
+            (lastRun && lastRun !== 'Never') ? new Date(lastRun).toLocaleString() : 'Never';
+
+        // Posture badge in header
+        const badge = document.getElementById('posture-badge');
+        if (badge && data.posture) {
+            badge.textContent = data.posture.mode;
+            badge.className = 'posture-badge posture-' + data.posture.color;
+        }
+    } catch (err) {
+        console.error('Failed to load dashboard:', err);
+    }
 }
 
 async function runEvaluation() {
