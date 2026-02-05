@@ -296,9 +296,10 @@ function showDetail(idx) {
 
     // Build GSC query data table
     const topQueries = opp.top_queries || [];
-    const queriesHtml = topQueries.length > 0 ? `
+    const queriesHtml = `
         <div class="detail-section">
             <h4>GSC Query Data</h4>
+            ${topQueries.length > 0 ? `
             <table class="query-data-table">
                 <thead>
                     <tr>
@@ -326,8 +327,9 @@ function showDetail(idx) {
                 <span class="legend-item page-two">● Page 2 (11-20)</span>
                 <span class="legend-item page-three-plus">● Page 3+ (21+)</span>
             </p>
+            ` : `<p class="empty-state">No query data available. Re-run evaluation to fetch GSC query data.</p>`}
         </div>
-    ` : '';
+    `;
 
     document.getElementById('modal-body').innerHTML = `
         <div class="detail-grid">
