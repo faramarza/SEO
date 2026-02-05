@@ -428,191 +428,207 @@ def api_ai_recommend():
             },
         })
 
-    # Build prompt for OpenAI with full contextual constraints
-    asset_type = opportunity.get("asset_type", "other")
+    # ── Build structured prompt per AI Recommendation Subsystem ──
+    asset_type = opportunity.get("asset_type", "other").upper()
 
-    # ── 1) Performance context ───────────────────────────────────
-    constraint_info = ""
-    if opportunity.get("primary_constraint"):
-        constraint_info = f"\nPrimary Constraint: {opportunity.get('primary_constraint')}"
-        if opportunity.get("constraints"):
-            for c in opportunity.get("constraints", []):
-                constraint_info += f"\n- {c.get('constraint_type')}: {c.get('description')}"
+    # Determine operating mode from the opportunity data
+    mode = opportunity.get("mode", "")
+    if not mode:
+        # Infer from recommended action and asset type
+        if asset_type == "BLOG":
+            mode = "FUNNEL_ALIGNMENT"
+        elif opportunity.get("recommended_action") in ("PAGE_REINVESTMENT",):
+            mode = "PRESERVATION"
+        else:
+            mode = "OPPORTUNITY_DISCOVERY"
 
-    query_info = ""
-    if opportunity.get("top_queries"):
-        query_info = "\nTop Search Queries (from GSC):"
-        for q in opportunity.get("top_queries", [])[:5]:
-            query_info += (
-                f"\n- \"{q.get('query')}\" "
-                f"(pos: {q.get('position')}, impr: {q.get('impressions')}, "
-                f"clicks: {q.get('clicks', 'N/A')}, ctr: {q.get('ctr', 'N/A')}%)"
+    # ── 1) Constraint evidence ──────────────────────────────────
+    constraint_evidence_lines = []
+    if opportunity.get("constraints"):
+        for c in opportunity.get("constraints", []):
+            evidence_str = ""
+            if c.get("evidence"):
+                evidence_str = f" | Evidence: {json.dumps(c['evidence'])}"
+            constraint_evidence_lines.append(
+                f"- [{c.get('severity', 'medium')}] {c.get('constraint_type', 'unknown')}: "
+                f"{c.get('description', '')}{evidence_str}"
             )
+    constraint_evidence = "\n".join(constraint_evidence_lines) if constraint_evidence_lines else "No constraint evidence available."
 
-    performance_info = ""
+    # ── 2) GSC summary ──────────────────────────────────────────
+    gsc_lines = []
+    if opportunity.get("top_queries"):
+        for q in opportunity.get("top_queries", [])[:5]:
+            gsc_lines.append(
+                f"  \"{q.get('query')}\" → pos: {q.get('position')}, "
+                f"impr: {q.get('impressions')}, clicks: {q.get('clicks', 'N/A')}, "
+                f"ctr: {q.get('ctr', 'N/A')}%"
+            )
+    gsc_summary = "\n".join(gsc_lines) if gsc_lines else "No GSC query data available."
+
+    # ── 3) GA4 summary ──────────────────────────────────────────
+    ga4_parts = []
     if opportunity.get("demand_score") is not None:
-        performance_info = f"""
-Performance Context:
-- Avg Position: {opportunity.get('visibility_score', 'N/A')}
-- Demand Score: {opportunity.get('demand_score', 'N/A')}
-- Intent Score: {opportunity.get('intent_score', 'N/A')}
-- Confidence: {opportunity.get('confidence', 'N/A')}"""
+        ga4_parts.append(f"Demand Score: {opportunity.get('demand_score')}")
+    if opportunity.get("intent_score") is not None:
+        ga4_parts.append(f"Intent Score: {opportunity.get('intent_score')}")
+    if opportunity.get("visibility_score") is not None:
+        ga4_parts.append(f"Visibility Score: {opportunity.get('visibility_score')}")
+    ga4_summary = ", ".join(ga4_parts) if ga4_parts else "No GA4 performance data available."
 
-    routing_info = ""
+    # ── 4) Internal link summary ────────────────────────────────
+    link_parts = []
+    if parser.internal_links:
+        link_parts.append(f"{len(parser.internal_links)} above-fold internal links detected")
+        for link in parser.internal_links[:5]:
+            link_parts.append(f"  [{link['text'] or '(no text)'}] → {link['href']}")
+    if parser.cta_texts:
+        link_parts.append(f"{len(parser.cta_texts)} CTA elements detected")
+        for cta in parser.cta_texts[:3]:
+            link_parts.append(f"  CTA: \"{cta['text'] or '(empty)'}\" → {cta['href']}")
     if opportunity.get("routing_data"):
         rd = opportunity["routing_data"]
-        routing_info = "\nRouting Data:"
+        link_parts.append(f"Routing quality: {rd.get('routing_quality', 'unknown')}")
         if rd.get("current_routing_paths"):
-            routing_info += f"\n- Current paths: {', '.join(rd['current_routing_paths'])}"
+            link_parts.append(f"Current routing paths: {', '.join(rd['current_routing_paths'])}")
         if rd.get("recommended_destinations"):
-            routing_info += f"\n- Recommended destinations: {', '.join(rd['recommended_destinations'])}"
+            link_parts.append(f"Recommended destinations: {', '.join(rd['recommended_destinations'])}")
         if rd.get("destination_rationale"):
-            routing_info += f"\n- Rationale: {rd['destination_rationale']}"
+            link_parts.append(f"Destination rationale: {rd['destination_rationale']}")
         if rd.get("links_to_remove"):
-            routing_info += f"\n- Links to remove: {', '.join(rd['links_to_remove'])}"
-        routing_info += f"\n- Routing quality: {rd.get('routing_quality', 'unknown')}"
+            link_parts.append(f"Links to remove: {', '.join(rd['links_to_remove'])}")
+    internal_link_summary = "\n".join(link_parts) if link_parts else "No internal link data available."
 
-    # ── 2) Enhanced page context ─────────────────────────────────
+    # ── 5) Technical summary ────────────────────────────────────
+    tech_parts = []
+    tech_parts.append(f"Title: {parser.title.strip() or '[Missing]'}")
+    tech_parts.append(f"Meta Description: {parser.meta_description or '[Missing]'}")
+    tech_parts.append(f"Canonical: {parser.canonical_url or '[Not found]'}")
+    tech_parts.append(f"H1: {', '.join(parser.h1s[:3]) or '[None found]'}")
+    tech_parts.append(f"H2s: {', '.join(parser.h2s[:5]) or '[None found]'}")
+    if opportunity.get("issues"):
+        for issue in opportunity["issues"][:3]:
+            tech_parts.append(f"Issue [{issue.get('severity')}]: {issue.get('type')} — {issue.get('description')}")
+    technical_summary = "\n".join(tech_parts)
+
+    # ── 6) Evaluator findings ───────────────────────────────────
+    evaluator_lines = []
+    evaluator_lines.append(f"Recommended Action: {opportunity.get('recommended_action', 'Unknown')}")
+    if opportunity.get("capture_class"):
+        evaluator_lines.append(f"Capture Class: {opportunity['capture_class']}")
+    if opportunity.get("implementation_steps"):
+        evaluator_lines.append("Implementation Steps:")
+        for step in opportunity["implementation_steps"]:
+            evaluator_lines.append(f"  - {step}")
+    if opportunity.get("rollback_plan"):
+        evaluator_lines.append(f"Rollback Plan: {opportunity['rollback_plan']}")
+    # Include intro paragraphs as content context
     intro_paragraphs = parser.paragraphs[:3]
-    intro_text = "\n".join(intro_paragraphs) if intro_paragraphs else "[No intro paragraphs captured]"
+    if intro_paragraphs:
+        evaluator_lines.append("Intro Content:")
+        for p in intro_paragraphs:
+            evaluator_lines.append(f"  {p[:200]}")
+    # Above-fold preview
+    if parser.above_fold.strip():
+        evaluator_lines.append(f"Above-fold Preview (first 800 chars):\n  {parser.above_fold[:800]}")
+    evaluator_findings = "\n".join(evaluator_lines)
 
-    above_fold_links = ""
-    if parser.internal_links:
-        above_fold_links = "\nAbove-the-fold Internal Links:"
-        for link in parser.internal_links[:10]:
-            above_fold_links += f"\n- [{link['text'] or '(no text)'}] → {link['href']}"
+    # ── 7) Build the full structured prompt ─────────────────────
+    prompt = f"""You are the AI Recommendation Subsystem of the Agentic Organic Growth Governor
+for Alphabet Trains.
 
-    cta_info = ""
-    if parser.cta_texts:
-        cta_info = "\nAbove-the-fold CTAs:"
-        for cta in parser.cta_texts[:5]:
-            cta_info += f"\n- \"{cta['text'] or '(empty)'}\" → {cta['href']}"
+IMPORTANT SCOPE LIMITATION:
+You are NOT the Governor.
+You do NOT detect constraints, compute value, classify assets, or approve actions.
+All inputs you receive are authoritative and final.
 
-    # ── 3) Asset-type-specific suggestion rules ──────────────────
-    if asset_type == "product":
-        allowed_suggestions = """
-ALLOWED suggestions for PRODUCT pages:
-- Meta title/description improvements (must reference current H1 and above-fold content)
-- Schema improvements
-- Internal links INTO the product
-- Content clarity and trust signals
-- Canonical/indexability fixes
+Your sole responsibility is:
+- To translate pre-validated signals into a clear recommendation OR NO ACTION
+- To explain the recommendation so a human owner can approve or reject it
 
-FORBIDDEN suggestions for PRODUCT pages (DO NOT suggest these):
-- Broad informational expansion
-- Blog-style content additions"""
+You must not contradict system classifications, valuations, or modes.
 
-    elif asset_type == "category":
-        allowed_suggestions = """
-ALLOWED suggestions for CATEGORY pages:
-- Title and H1 alignment with commercial intent
-- Intro content that aids selection and conversion
-- Internal links from blogs into the category
-- Indexability and filtering controls
-
-FORBIDDEN suggestions for CATEGORY pages (DO NOT suggest these):
-- Educational blog-style narratives
-- Traffic-only keyword expansion"""
-
-    elif asset_type == "blog":
-        allowed_suggestions = """
-ALLOWED suggestions for BLOG/GUIDE pages (ONLY these):
-- Internal linking changes (primary focus)
-- "Next step" blocks linking to products/categories
-- Re-ordering sections to surface intent earlier
-- Adding or removing product/category references
-- Clarifying buying considerations (not sales copy)
-- Removing irrelevant or misleading links
-
-ABSOLUTELY FORBIDDEN suggestions for BLOG/GUIDE pages (NEVER suggest these):
-- New keywords to target
-- Traffic-driven meta title changes
-- Conversion copy or sales language
-- Expanding topical breadth
-- "Create more content" recommendations
-- ANY suggestion justified by traffic alone
-
-If you cannot provide routing-focused suggestions, return NO ACTION."""
-    else:
-        allowed_suggestions = ""
-
-    # ── 4) Build the prompt ──────────────────────────────────────
-    prompt = f"""You are an expert SEO consultant analyzing a specific page. You must only recommend changes grounded in the actual page context provided below. Generic advice is forbidden.
-
-=== PAGE IDENTITY ===
+────────────────────────
+AUTHORITATIVE INPUT CONTEXT
+────────────────────────
 URL: {url}
-Asset Type: {asset_type.upper()}
-Recommended Action: {opportunity.get('recommended_action', 'Unknown')}
-Expected Value: ${opportunity.get('expected_value', 0):.2f}
-{constraint_info}
-{performance_info}
-{query_info}
+Asset Type: {asset_type}  (PRODUCT | CATEGORY | BLOG | OTHER)
+Operating Mode: {mode}  (PRESERVATION | OPPORTUNITY_DISCOVERY | FUNNEL_ALIGNMENT)
 
-=== CURRENT METADATA ===
-- Title Tag: {parser.title.strip() or '[Missing]'}
-- Meta Description: {parser.meta_description or '[Missing]'}
-- Canonical URL: {parser.canonical_url or '[Not found]'}
-- H1: {', '.join(parser.h1s[:3]) or '[None found]'}
-- H2s: {', '.join(parser.h2s[:5]) or '[None found]'}
-- First Visible Heading: {parser.first_heading or '[None]'}
+Primary Constraint (already detected): {opportunity.get('primary_constraint', 'none')}
+Constraint Evidence:
+{constraint_evidence}
 
-=== CONTENT CONTEXT ===
-Intro Paragraphs:
-{intro_text[:1000]}
-{above_fold_links}
-{cta_info}
-{routing_info}
+Expected Value (system-calculated): ${opportunity.get('expected_value', 0):.2f}
+Confidence Score (system-calculated): {opportunity.get('confidence', 0)}
+Risk Level (system-calculated): {opportunity.get('risk_level', 'unknown')}
 
-Above-the-fold Content Preview:
-{parser.above_fold[:1500]}
+Key Signals (read-only):
+- GSC Summary:
+{gsc_summary}
+- GA4 Summary: {ga4_summary}
+- Internal Link Summary:
+{internal_link_summary}
+- Technical Summary:
+{technical_summary}
 
-=== ASSET-TYPE RULES ===
-{allowed_suggestions}
+Evaluator Findings (authoritative):
+{evaluator_findings}
 
-=== MANDATORY CONSTRAINTS ===
+────────────────────────
+AI TASK DEFINITION
+────────────────────────
+Your task is NOT to optimize SEO.
 
-META & TITLE CONSTRAINTS:
-- You MUST explain how any title/description change improves alignment with the CURRENT H1 and above-fold content.
-- You MUST NOT introduce new intent unless explicitly justified with evidence from the query data.
-- You MUST NOT use generic CTAs ("Learn now", "Discover", "Explore") unless they already appear on the page.
-- Every title/description suggestion MUST include a rationale grounded in:
-  (a) intent clarity relative to the current H1
-  (b) CTR vs position data from the query context
-  (c) differentiation from competing SERP snippets
-- If these conditions cannot be met, set the recommendation to null.
+Your task is to:
+1. Decide whether a human-reviewable action should be proposed.
+2. If yes, articulate ONLY the single highest-leverage corrective action
+   that directly addresses the stated primary constraint.
+3. If no, explicitly recommend NO ACTION.
 
-CONTENT SUGGESTION CONSTRAINTS:
-- You MUST NOT suggest adding sections, expanding comparisons, answering FAQs, or targeting new queries
-  unless you can explicitly state: (a) what user confusion exists, (b) where it appears in the current page,
-  and (c) how the change improves funnel routing or intent clarity.
-- If you cannot ground a content suggestion in the page context above, do not include it.
+You must default to NO ACTION unless action is clearly justified.
 
-OUTPUT CONSTRAINTS:
-- Every recommendation MUST reference the current H1.
-- Every recommendation MUST reference above-the-fold content.
-- Every recommendation MUST explain alignment or misalignment with current page state.
-- Every recommendation MUST state why the current version is insufficient.
-- Generic advice is forbidden. If you cannot provide specific, grounded recommendations, return null for that field.
+────────────────────────
+AI BEHAVIOR CONSTRAINTS
+────────────────────────
+- You may NOT invent new constraints or opportunities.
+- You may NOT recommend actions blocked by the asset type:
+  - BLOG pages may only receive routing / internal link recommendations.
+  - BLOG pages may NOT receive title, meta, visibility, or keyword changes.
+- You may NOT propose more than one action.
+- You may NOT suggest experiments, alternatives, or follow-up analysis.
+- You may NOT restate doctrine or explain system architecture.
 
-Format your response as a structured JSON with these fields:
-{{
-  "title_recommendation": {{
-    "current": "the exact current title",
-    "suggested": "the suggested title or null if no change needed",
-    "h1_alignment": "how the suggestion aligns with the current H1",
-    "reasoning": "grounded rationale referencing CTR, position, and above-fold content"
-  }},
-  "meta_description_recommendation": {{
-    "current": "the exact current meta description",
-    "suggested": "the suggested description or null if no change needed",
-    "h1_alignment": "how the suggestion aligns with the current H1",
-    "reasoning": "grounded rationale referencing intent and above-fold content"
-  }},
-  "heading_recommendations": ["each must reference current heading structure"],
-  "content_suggestions": ["each must identify specific user confusion and where it occurs on the page"],
-  "critical_issues": ["issues with evidence from the page context"],
-  "priority_actions": ["actions with explicit grounding in the data above"]
-}}"""
+────────────────────────
+TERMINATION RULE
+────────────────────────
+If confidence < 0.65, expected value is insufficient, or evidence is ambiguous,
+output recommendation as NO_ACTION and explain why.
+
+────────────────────────
+OUTPUT FORMAT
+────────────────────────
+Respond ONLY with valid JSON matching this exact schema (no markdown, no commentary):
+{{{{
+  "recommendation": "<NO_ACTION | PAGE_REINVESTMENT | INTERNAL_LINK_REALLOCATION | NEW_PAGE_CREATION | OBSERVE_ONLY>",
+  "problem_statement": "<≤25 words describing the constraint in plain language>",
+  "rationale": "<2–4 sentences referencing expected value, confidence, and risk — why action > no action>",
+  "action": {{{{
+    "surface": "<title | meta | internal_links | content | structure | technical | canonical | navigation | null>",
+    "instruction": "<precise, implementation-ready directive or null if NO_ACTION>",
+    "guardrails": {{{{
+      "must_not_change": "<what must NOT be changed>",
+      "must_preserve": "<what must be preserved>"
+    }}}}
+  }}}},
+  "expected_impact": "<primary metric change and downstream business effect>",
+  "measurement": {{{{
+    "primary_metric": "<the metric to watch>",
+    "evaluation_window": "<time period>",
+    "abort_conditions": "<when to rollback>"
+  }}}},
+  "risk_notes": "<explicit downside risks and mitigation>"
+}}}}"""
 
     # Call OpenAI API
     try:
@@ -626,11 +642,23 @@ Format your response as a structured JSON with these fields:
             json={
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": f"You are an expert SEO consultant. This page is classified as {asset_type.upper()}. You must ONLY recommend changes grounded in the actual page content and data provided. Generic advice is forbidden. Every suggestion must reference the current H1 and above-the-fold content. Strictly follow the allowed/forbidden suggestion rules for this asset type. For blog pages, focus exclusively on routing quality. Always respond with valid JSON. If you cannot provide grounded recommendations for a field, set it to null."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are the AI Recommendation Subsystem of the Agentic Organic Growth Governor. "
+                            f"This page is classified as {asset_type}. Operating mode: {mode}. "
+                            "You translate pre-validated signals into a single clear recommendation or NO ACTION. "
+                            "You do NOT detect constraints, compute value, or approve actions — all inputs are authoritative. "
+                            "You must not contradict system classifications. "
+                            "Default to NO ACTION unless action is clearly justified. "
+                            "BLOG pages may ONLY receive routing/internal link recommendations. "
+                            "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                "temperature": 0.7,
-                "max_tokens": 2000,
+                "temperature": 0.4,
+                "max_tokens": 1500,
             },
             timeout=30.0,
         )
@@ -644,13 +672,17 @@ Format your response as a structured JSON with these fields:
         # Try to parse as JSON
         try:
             # Remove markdown code blocks if present
-            if "```json" in ai_content:
-                ai_content = ai_content.split("```json")[1].split("```")[0]
-            elif "```" in ai_content:
-                ai_content = ai_content.split("```")[1].split("```")[0]
+            clean = ai_content.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            elif clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
 
-            recommendations = json_module.loads(ai_content)
-        except:
+            recommendations = json_module.loads(clean)
+        except Exception:
             recommendations = {"raw_response": ai_content}
 
         return jsonify({

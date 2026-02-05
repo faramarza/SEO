@@ -491,7 +491,7 @@ async function getAIRecommendations(idx) {
 
         const rec = data.recommendations;
 
-        // Handle NO ACTION response from context validation
+        // Handle NO ACTION response from context validation (server-side)
         if (rec.no_action) {
             content.innerHTML = `
                 <div class="ai-recommendation">
@@ -507,68 +507,83 @@ async function getAIRecommendations(idx) {
             return;
         }
 
+        // Handle raw_response fallback (JSON parse failed)
+        if (rec.raw_response) {
+            content.innerHTML = `
+                <div class="ai-recommendation">
+                    <div class="rec-item">
+                        <h5>AI Response</h5>
+                        <pre style="white-space: pre-wrap;">${rec.raw_response}</pre>
+                    </div>
+                </div>
+            `;
+            btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
+            showToast('AI recommendations loaded!', 'success');
+            return;
+        }
+
+        // ── Structured recommendation rendering ──
+        const isNoAction = rec.recommendation === 'NO_ACTION' || rec.recommendation === 'OBSERVE_ONLY';
+        const recBadgeClass = isNoAction ? 'no-action' : 'has-action';
+
         content.innerHTML = `
             <div class="ai-recommendation">
-                ${rec.title_recommendation && rec.title_recommendation.suggested ? `
+                <div class="rec-item ${isNoAction ? 'critical' : ''}">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <h5 style="margin: 0;">AI Recommendation</h5>
+                        <span class="action-badge action-${(rec.recommendation || '').toLowerCase()}" style="font-size: 12px; padding: 2px 8px;">
+                            ${(rec.recommendation || 'NO_ACTION').replace(/_/g, ' ')}
+                        </span>
+                    </div>
+                    <p><strong>Problem:</strong> ${rec.problem_statement || 'N/A'}</p>
+                    <p class="reasoning">${rec.rationale || ''}</p>
+                </div>
+
+                ${!isNoAction && rec.action && rec.action.instruction ? `
                 <div class="rec-item">
-                    <h5>Title Tag</h5>
-                    <p><strong>Current:</strong> ${rec.title_recommendation.current || data.page_analysis?.title || '[Missing]'}</p>
-                    <p><strong>Suggested:</strong> <code>${rec.title_recommendation.suggested}</code></p>
-                    ${rec.title_recommendation.h1_alignment ? `<p><strong>H1 Alignment:</strong> ${rec.title_recommendation.h1_alignment}</p>` : ''}
-                    <p class="reasoning">${rec.title_recommendation.reasoning || ''}</p>
+                    <h5>Action</h5>
+                    <p><strong>Surface:</strong> <code>${rec.action.surface || 'N/A'}</code></p>
+                    <p><strong>Instruction:</strong> ${rec.action.instruction}</p>
+                    ${rec.action.guardrails ? `
+                    <div style="margin-top: 8px; padding: 8px; background: #fef3c7; border-radius: 4px; font-size: 13px;">
+                        <p style="margin: 0 0 4px 0;"><strong>Must NOT change:</strong> ${rec.action.guardrails.must_not_change || 'N/A'}</p>
+                        <p style="margin: 0;"><strong>Must preserve:</strong> ${rec.action.guardrails.must_preserve || 'N/A'}</p>
+                    </div>
+                    ` : ''}
                 </div>
                 ` : ''}
 
-                ${rec.meta_description_recommendation && rec.meta_description_recommendation.suggested ? `
+                ${rec.expected_impact ? `
                 <div class="rec-item">
-                    <h5>Meta Description</h5>
-                    <p><strong>Current:</strong> ${rec.meta_description_recommendation.current || data.page_analysis?.meta_description || '[Missing]'}</p>
-                    <p><strong>Suggested:</strong> <code>${rec.meta_description_recommendation.suggested}</code></p>
-                    ${rec.meta_description_recommendation.h1_alignment ? `<p><strong>H1 Alignment:</strong> ${rec.meta_description_recommendation.h1_alignment}</p>` : ''}
-                    <p class="reasoning">${rec.meta_description_recommendation.reasoning || ''}</p>
+                    <h5>Expected Impact</h5>
+                    <p>${rec.expected_impact}</p>
                 </div>
                 ` : ''}
 
-                ${rec.priority_actions && rec.priority_actions.length > 0 ? `
+                ${rec.measurement ? `
                 <div class="rec-item">
-                    <h5>Priority Actions</h5>
-                    <ol>
-                        ${rec.priority_actions.map(a => `<li>${a}</li>`).join('')}
-                    </ol>
+                    <h5>Measurement & Stop Conditions</h5>
+                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                        <tr>
+                            <td style="padding: 4px 8px; font-weight: bold; white-space: nowrap;">Primary Metric</td>
+                            <td style="padding: 4px 8px;">${rec.measurement.primary_metric || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 4px 8px; font-weight: bold; white-space: nowrap;">Evaluation Window</td>
+                            <td style="padding: 4px 8px;">${rec.measurement.evaluation_window || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 4px 8px; font-weight: bold; white-space: nowrap;">Abort Conditions</td>
+                            <td style="padding: 4px 8px; color: #dc2626;">${rec.measurement.abort_conditions || 'N/A'}</td>
+                        </tr>
+                    </table>
                 </div>
                 ` : ''}
 
-                ${rec.critical_issues && rec.critical_issues.length > 0 ? `
-                <div class="rec-item critical">
-                    <h5>Critical Issues</h5>
-                    <ul>
-                        ${rec.critical_issues.map(i => `<li>${i}</li>`).join('')}
-                    </ul>
-                </div>
-                ` : ''}
-
-                ${rec.heading_recommendations && rec.heading_recommendations.length > 0 ? `
-                <div class="rec-item">
-                    <h5>Heading Recommendations</h5>
-                    <ul>
-                        ${rec.heading_recommendations.map(h => `<li>${h}</li>`).join('')}
-                    </ul>
-                </div>
-                ` : ''}
-
-                ${rec.content_suggestions && rec.content_suggestions.length > 0 ? `
-                <div class="rec-item">
-                    <h5>Content Suggestions</h5>
-                    <ul>
-                        ${rec.content_suggestions.map(s => `<li>${s}</li>`).join('')}
-                    </ul>
-                </div>
-                ` : ''}
-
-                ${rec.raw_response ? `
-                <div class="rec-item">
-                    <h5>AI Response</h5>
-                    <pre>${rec.raw_response}</pre>
+                ${rec.risk_notes ? `
+                <div class="rec-item" style="border-left: 3px solid #ea580c; padding-left: 12px;">
+                    <h5>Risk Notes</h5>
+                    <p style="color: #9a3412;">${rec.risk_notes}</p>
                 </div>
                 ` : ''}
             </div>
