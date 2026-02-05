@@ -41,6 +41,7 @@ from src.output.decision_formatter import DecisionFormatter, OutputFormat
 from src.crawlers.page_inventory import PageInventory
 from src.crawlers.link_graph import LinkGraph
 from src.crawlers.beamusup_importer import BeamUsUpImporter
+from src.crawlers.simple_crawler import SimpleCrawler
 
 
 @dataclass
@@ -279,6 +280,29 @@ class FullEvaluationWorkflow:
             print(f"  Warning: Crawl data file not found: {csv_path}")
         except Exception as e:
             print(f"  Warning: Failed to load crawl data: {e}")
+
+    def _run_crawler(self) -> None:
+        """
+        Crawl pages to get canonical/indexability data.
+        """
+        if not self._assets:
+            print("No pages to crawl.")
+            return
+
+        print("Crawling pages for canonical/indexability data...")
+        urls = [asset.url for asset in self._assets]
+
+        crawler = SimpleCrawler(
+            timeout=10.0,
+            max_concurrent=10,
+        )
+
+        # Crawl all URLs
+        crawler.crawl_urls(urls, show_progress=True)
+
+        # Enrich assets with crawl data
+        total, enriched = crawler.enrich_assets(self._assets)
+        print(f"  Enriched: {enriched}/{total} assets with crawl data")
 
     def run_diagnostics(self) -> dict:
         """
@@ -691,13 +715,19 @@ class FullEvaluationWorkflow:
 
         return output
 
-    def run(self, days: int = 28, crawl_data_path: Optional[str] = None) -> str:
+    def run(
+        self,
+        days: int = 28,
+        crawl_data_path: Optional[str] = None,
+        run_crawler: bool = False,
+    ) -> str:
         """
         Run the complete evaluation workflow.
 
         Args:
             days: Days of data to analyze
             crawl_data_path: Optional path to Beam Us Up CSV export
+            run_crawler: Whether to crawl pages for canonical/indexability data
 
         Returns:
             Formatted output report
@@ -712,8 +742,11 @@ class FullEvaluationWorkflow:
         self.load_data(days=days)
         print()
 
-        # Step 1b: Enrich with crawl data if provided
-        if crawl_data_path:
+        # Step 1b: Enrich with crawl data
+        if run_crawler:
+            self._run_crawler()
+            print()
+        elif crawl_data_path:
             self._load_crawl_data(crawl_data_path)
             print()
 
@@ -766,8 +799,10 @@ def main():
                         help="Skip tracking diagnostics")
     parser.add_argument("--no-block", action="store_true",
                         help="Don't block on Tier A diagnostic failures")
+    parser.add_argument("--crawl", action="store_true",
+                        help="Crawl pages to get canonical/indexability data")
     parser.add_argument("--crawl-data", type=str,
-                        help="Path to Beam Us Up CSV export for canonical/indexability data")
+                        help="Path to Beam Us Up CSV export (alternative to --crawl)")
 
     args = parser.parse_args()
 
@@ -794,10 +829,11 @@ def main():
 
     # Run workflow
     workflow = FullEvaluationWorkflow(config)
-
-    # Load crawl data if provided
-    crawl_data_path = args.crawl_data
-    output = workflow.run(days=args.days, crawl_data_path=crawl_data_path)
+    output = workflow.run(
+        days=args.days,
+        crawl_data_path=args.crawl_data,
+        run_crawler=args.crawl,
+    )
 
     print(output)
 
