@@ -59,6 +59,10 @@ class GA4Metrics(BaseModel):
     purchases_28d: int = Field(default=0, ge=0)
     revenue_28d: float = Field(default=0.0, ge=0.0)
     purchase_rate_28d: float = Field(default=0.0, ge=0.0, le=1.0)
+    add_to_carts_28d: int = Field(default=0, ge=0)
+    users_28d: int = Field(default=0, ge=0)
+    conversions_28d: int = Field(default=0, ge=0)
+    bounce_rate_28d: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @property
     def revenue_per_session(self) -> float:
