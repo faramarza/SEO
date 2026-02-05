@@ -43,6 +43,7 @@ from src.crawlers.page_inventory import PageInventory
 from src.crawlers.link_graph import LinkGraph
 from src.crawlers.beamusup_importer import BeamUsUpImporter
 from src.crawlers.simple_crawler import SimpleCrawler
+from src.data_sources.google_ads_client import GoogleAdsClient, AdsAccountData
 
 
 @dataclass
@@ -73,11 +74,19 @@ class WorkflowConfig:
     run_diagnostics: bool = True
     block_on_tier_a: bool = True
 
+    # Google Ads settings (optional - absence is neutral)
+    google_ads_customer_id: Optional[str] = None
+    google_ads_config_path: Optional[str] = None
+    brand_terms: Optional[list[str]] = None
+
     @classmethod
     def from_json(cls, path: Path) -> "WorkflowConfig":
         """Load config from JSON file."""
         with open(path) as f:
             data = json.load(f)
+
+        # Get Google Ads config if present
+        ads_config = data.get("data_sources", {}).get("google_ads", {})
 
         return cls(
             gsc_property=data["data_sources"]["gsc"]["property_url"],
@@ -88,6 +97,9 @@ class WorkflowConfig:
             min_confidence_threshold=data.get("governance", {}).get("min_confidence_threshold", 0.65),
             regret_budget_year=data.get("governance", {}).get("regret_budget_year", 2),
             profit_to_cost_ratio_gate=data.get("governance", {}).get("profit_to_cost_ratio_gate", 5.0),
+            google_ads_customer_id=ads_config.get("customer_id"),
+            google_ads_config_path=ads_config.get("config_path"),
+            brand_terms=ads_config.get("brand_terms", []),
         )
 
 
@@ -163,6 +175,17 @@ class FullEvaluationWorkflow:
             aov=config.aov,
             margin=config.margin,
         )
+
+        # Google Ads client (optional - absence is neutral, not negative)
+        self.ads_client: Optional[GoogleAdsClient] = None
+        self.ads_data: Optional[AdsAccountData] = None
+
+        if config.google_ads_customer_id:
+            self.ads_client = GoogleAdsClient(
+                credentials_path=config.google_ads_config_path,
+                customer_id=config.google_ads_customer_id,
+                brand_terms=config.brand_terms,
+            )
 
         # Page inventory and link graph
         domain = config.gsc_property.replace("sc-domain:", "")
@@ -248,7 +271,61 @@ class FullEvaluationWorkflow:
         # Import URLs to page inventory
         self.page_inventory.import_from_gsc_urls([a.url for a in assets])
 
+        # Load Google Ads data if available (optional - absence is neutral)
+        self._load_ads_data(days)
+
         return assets
+
+    def _load_ads_data(self, days: int = 28) -> None:
+        """
+        Load Google Ads data for demand analysis.
+
+        IMPORTANT: Absence of Ads data is NEUTRAL, not negative.
+        Ads data anchors monetization evidence but doesn't gatekeep.
+
+        Permitted data (read-only):
+        - Search term reports (query-level)
+        - Impression Share metrics
+        - Cost, conversions, conversion value
+        - PMax search term insights
+        """
+        if not self.ads_client:
+            print("  Ads: No Google Ads configured (neutral - GSC+GA4 sufficient)")
+            return
+
+        print("  Loading Google Ads data...")
+
+        try:
+            # Check for cached data first
+            cache_path = Path(__file__).parent.parent.parent / "data" / "ads_cache.json"
+
+            if cache_path.exists():
+                self.ads_data = self.ads_client.load_from_cache(str(cache_path))
+                if self.ads_data:
+                    print(f"  Ads: Loaded {len(self.ads_data.queries)} queries from cache")
+
+            if not self.ads_data:
+                # Fetch fresh data (READ-ONLY - no mutations)
+                self.ads_data = self.ads_client.fetch_search_terms(days=days)
+                print(f"  Ads: Fetched {len(self.ads_data.queries)} queries")
+
+                # Cache for offline use
+                self.ads_client.save_to_cache(self.ads_data, str(cache_path))
+
+            # Update constraint detector with Ads data
+            if self.ads_data:
+                self.constraint_detector.set_ads_data(self.ads_data)
+
+                # Log summary
+                summary = self.ads_data.get_monetization_summary()
+                print(f"  Ads: {summary['total_queries']} queries, "
+                      f"${summary['total_cost']:.2f} cost, "
+                      f"{summary['total_conversions']:.0f} conversions")
+
+        except Exception as e:
+            print(f"  Ads: Failed to load ({e}) - continuing with GSC+GA4 only")
+            # Absence of Ads data is neutral, not a failure
+            self.ads_data = None
 
     def _classify_asset_type(self, url: str) -> AssetType:
         """Classify URL into asset type."""
@@ -429,15 +506,19 @@ class FullEvaluationWorkflow:
             "primary_constraint": constraint_result.primary_constraint.value if constraint_result.primary_constraint else None,
             "constraints": [
                 {
-                    "type": c.constraint_type.value,
+                    "constraint_type": c.constraint_type.value,
                     "severity": c.severity,
                     "description": c.description,
                     "evidence": c.evidence,
-                    "action": c.recommended_action,
+                    "recommended_action": c.recommended_action,
                 }
                 for c in constraint_result.constraints
             ],
             "extracted_queries": constraint_result.extracted_queries[:5],  # Top 5
+            # Ads-enriched fields
+            "has_ads_data": constraint_result.has_ads_data,
+            "monetization_score": round(constraint_result.monetization_score, 2),
+            "coverage_gap_score": round(constraint_result.coverage_gap_score, 2),
         }
 
         candidates = []
@@ -477,6 +558,50 @@ class FullEvaluationWorkflow:
                     "implementation_steps": [ctr_constraint.recommended_action],
                     "source": "constraint_detector",
                 })
+
+        # Handle Ads-specific constraints (if Ads data available)
+        if constraint_result.has_ads_data:
+            for ads_constraint in constraint_result.ads_constraints:
+                if ads_constraint.constraint_type == ConstraintType.IMPRESSION_SHARE_BUDGET:
+                    # Budget constraint - high value opportunity
+                    is_lost = ads_constraint.evidence.get("avg_is_lost_to_budget", 0)
+                    potential_impressions = asset.gsc.impressions_28d * is_lost
+                    expected_value = potential_impressions * 0.03 * self.config.aov * self.config.margin
+                    candidates.append({
+                        "mode": "CONSTRAINT_RESOLUTION",
+                        "action": "PAID_BUDGET_INCREASE",
+                        "expected_value": expected_value,
+                        "confidence": constraint_result.confidence,
+                        "risk_level": "low",
+                        "implementation_steps": [ads_constraint.recommended_action],
+                        "source": "constraint_detector_ads",
+                    })
+
+                elif ads_constraint.constraint_type == ConstraintType.PAID_COVERAGE_GAP:
+                    # High demand queries without paid coverage
+                    unmon_impressions = ads_constraint.evidence.get("total_impressions", 0)
+                    expected_value = unmon_impressions * 0.02 * self.config.aov * self.config.margin
+                    candidates.append({
+                        "mode": "CONSTRAINT_RESOLUTION",
+                        "action": "EXPAND_PAID_COVERAGE",
+                        "expected_value": expected_value,
+                        "confidence": constraint_result.confidence * 0.8,  # Slightly lower confidence
+                        "risk_level": "medium",
+                        "implementation_steps": [ads_constraint.recommended_action],
+                        "source": "constraint_detector_ads",
+                    })
+
+                elif ads_constraint.constraint_type == ConstraintType.PMAX_ABSORPTION:
+                    # PMax absorbing queries - review needed
+                    candidates.append({
+                        "mode": "CONSTRAINT_RESOLUTION",
+                        "action": "REVIEW_PMAX_COVERAGE",
+                        "expected_value": 0,  # Can't estimate without more data
+                        "confidence": 0.6,
+                        "risk_level": "low",
+                        "implementation_steps": [ads_constraint.recommended_action],
+                        "source": "constraint_detector_ads",
+                    })
 
         # Run main Governor evaluation for each mode
         for mode in modes:

@@ -12,9 +12,15 @@ B. Commercial Intent - Transactional queries, PDP behavior, funnel progression
 C. Discoverability Constraints - Position, CTR vs expected, suppression
 D. Economic Plausibility - AOV, margin, fulfillment reality
 E. Channel Coverage Gaps - Organic carrying all discovery?
+F. Paid Search Constraints - Impression share, budget, rank limitations
+
+Google Ads Data Role:
+- When available: Anchors monetization evidence
+- When absent: GSC + GA4 remain sufficient (neutral, not negative)
+- NEVER used to infer lack of demand or exclude products
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
@@ -23,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.models.page_asset import PageAsset, AssetType
+from src.data_sources.google_ads_client import AdsAccountData
 
 
 class ConstraintType(str, Enum):
@@ -33,6 +40,11 @@ class ConstraintType(str, Enum):
     COVERAGE_GAP = "coverage_gap"  # Demand exists, no monetization path
     CANNIBALIZATION = "cannibalization"  # Multiple pages competing
     ECONOMIC_INVALID = "economic_invalid"  # Economics don't work
+    # Ads-specific constraints
+    IMPRESSION_SHARE_BUDGET = "impression_share_budget"  # Lost IS due to budget
+    IMPRESSION_SHARE_RANK = "impression_share_rank"  # Lost IS due to rank
+    PMAX_ABSORPTION = "pmax_absorption"  # PMax absorbing Search traffic
+    PAID_COVERAGE_GAP = "paid_coverage_gap"  # High demand, no paid coverage
     NO_CONSTRAINT = "no_constraint"  # Page is performing as expected
 
 
@@ -70,6 +82,12 @@ class ConstraintResult:
     confidence: float
     extracted_queries: list[str]  # Verbatim queries only
 
+    # Ads-enriched fields
+    has_ads_data: bool = False
+    monetization_score: float = 0.0  # 0-1, based on ads coverage
+    coverage_gap_score: float = 0.0  # 0-1, how much demand we're missing
+    ads_constraints: list[ConstraintSignal] = field(default_factory=list)
+
 
 class ConstraintDetector:
     """
@@ -77,6 +95,12 @@ class ConstraintDetector:
 
     Does NOT judge products by performance.
     Does NOT infer lack of demand from lack of sales.
+
+    Google Ads Integration:
+    - When Ads data exists: anchors monetization evidence
+    - When Ads data absent: GSC + GA4 remain sufficient
+    - Ads data is supporting evidence, not a gatekeeper
+    - NEVER uses Ads data to infer lack of demand or exclude products
     """
 
     def __init__(
@@ -84,16 +108,22 @@ class ConstraintDetector:
         aov: float = 53.19,
         margin: float = 0.27,
         min_economic_profit: float = 5.0,  # Minimum profit per order to be viable
+        ads_data: Optional[AdsAccountData] = None,
     ):
         self.aov = aov
         self.margin = margin
         self.min_economic_profit = min_economic_profit
+        self.ads_data = ads_data  # Optional - absence is neutral, not negative
 
         # Expected CTR by position (approximate industry benchmarks)
         self.expected_ctr_by_position = {
             1: 0.30, 2: 0.15, 3: 0.10, 4: 0.07, 5: 0.05,
             6: 0.04, 7: 0.03, 8: 0.025, 9: 0.02, 10: 0.015,
         }
+
+    def set_ads_data(self, ads_data: AdsAccountData):
+        """Set or update Ads data for analysis."""
+        self.ads_data = ads_data
 
     def evaluate(self, asset: PageAsset, all_assets: list[PageAsset] = None) -> ConstraintResult:
         """
@@ -102,6 +132,7 @@ class ConstraintDetector:
         Evaluates all dimensions independently - no single dimension nullifies others.
         """
         constraints = []
+        ads_constraints = []
 
         # A. Demand Existence
         demand_score = self._evaluate_demand(asset)
@@ -120,6 +151,25 @@ class ConstraintDetector:
         if all_assets:
             coverage_constraints = self._evaluate_coverage(asset, all_assets)
             constraints.extend(coverage_constraints)
+
+        # F. Ads Constraints (if Ads data available)
+        has_ads_data = False
+        monetization_score = 0.0
+        coverage_gap_score = 0.0
+
+        if self.ads_data:
+            ads_result = self._evaluate_ads_constraints(asset)
+            has_ads_data = ads_result["has_data"]
+            monetization_score = ads_result["monetization_score"]
+            coverage_gap_score = ads_result["coverage_gap_score"]
+            ads_constraints = ads_result["constraints"]
+
+            # Ads constraints are additive, not replacing
+            constraints.extend(ads_constraints)
+
+            # Boost confidence if Ads data validates demand
+            if has_ads_data and ads_result.get("confirms_demand"):
+                demand_score = min(1.0, demand_score * 1.2)
 
         # Classify
         capture_class = self._classify(
@@ -151,6 +201,10 @@ class ConstraintDetector:
         # Confidence based on data quality
         confidence = self._calculate_confidence(asset, demand_score, intent_score)
 
+        # Ads data increases confidence if present
+        if has_ads_data:
+            confidence = min(0.95, confidence + 0.1)
+
         return ConstraintResult(
             url=asset.url,
             capture_class=capture_class,
@@ -163,6 +217,10 @@ class ConstraintDetector:
             recommended_actions=recommended_actions,
             confidence=confidence,
             extracted_queries=extracted_queries,
+            has_ads_data=has_ads_data,
+            monetization_score=monetization_score,
+            coverage_gap_score=coverage_gap_score,
+            ads_constraints=ads_constraints,
         )
 
     def _evaluate_demand(self, asset: PageAsset) -> float:
@@ -324,6 +382,165 @@ class ConstraintDetector:
                     ))
 
         return constraints
+
+    def _evaluate_ads_constraints(self, asset: PageAsset) -> dict:
+        """
+        Evaluate constraints from Google Ads data.
+
+        This method answers:
+        1. Are there commercial queries already monetizing?
+        2. Is Search coverage constrained or absent for known intent?
+        3. Is PMax absorbing exact or brand intent?
+        4. Is impression share indicating budget or rank suppression?
+
+        IMPORTANT: Absence of Ads data is NEUTRAL, not negative.
+        Ads data anchors monetization evidence but doesn't gatekeep.
+        """
+        result = {
+            "has_data": False,
+            "monetization_score": 0.0,
+            "coverage_gap_score": 0.0,
+            "constraints": [],
+            "confirms_demand": False,
+        }
+
+        if not self.ads_data:
+            return result
+
+        if not asset.gsc.top_queries:
+            return result
+
+        # Analyze queries for this page
+        queries_with_ads = []
+        queries_without_ads = []
+        total_gsc_impressions = 0
+        total_is_lost_budget = 0.0
+        total_is_lost_rank = 0.0
+        is_count = 0
+        pmax_absorbed_queries = []
+
+        for gsc_query in asset.gsc.top_queries:
+            query_text = gsc_query.query.lower()
+            total_gsc_impressions += gsc_query.impressions
+
+            ads_query = self.ads_data.get_query_data(query_text)
+
+            if ads_query:
+                result["has_data"] = True
+                queries_with_ads.append({
+                    "query": query_text,
+                    "ads_impressions": ads_query.impressions,
+                    "ads_conversions": ads_query.conversions,
+                    "ads_cpc": ads_query.cpc,
+                    "impression_share": ads_query.search_impression_share,
+                })
+
+                # Track IS losses
+                if ads_query.search_lost_is_budget:
+                    total_is_lost_budget += ads_query.search_lost_is_budget
+                    is_count += 1
+                if ads_query.search_lost_is_rank:
+                    total_is_lost_rank += ads_query.search_lost_is_rank
+                    is_count += 1
+
+                # Conversions confirm demand
+                if ads_query.conversions > 0:
+                    result["confirms_demand"] = True
+
+            else:
+                queries_without_ads.append({
+                    "query": query_text,
+                    "gsc_impressions": gsc_query.impressions,
+                })
+
+            # Check PMax absorption
+            if self.ads_data.is_pmax_absorbing_query(query_text):
+                pmax_absorbed_queries.append(query_text)
+
+        # Calculate monetization score
+        if asset.gsc.top_queries:
+            total_queries = len(asset.gsc.top_queries)
+            monetized = len(queries_with_ads)
+            result["monetization_score"] = monetized / total_queries if total_queries > 0 else 0.0
+
+        # Calculate coverage gap
+        high_volume_unmonetized = [
+            q for q in queries_without_ads
+            if q["gsc_impressions"] >= 500
+        ]
+        if high_volume_unmonetized and total_gsc_impressions > 0:
+            unmonetized_impressions = sum(q["gsc_impressions"] for q in high_volume_unmonetized)
+            result["coverage_gap_score"] = unmonetized_impressions / total_gsc_impressions
+
+        constraints = []
+
+        # CONSTRAINT: Budget-constrained impression share
+        if is_count > 0:
+            avg_is_lost_budget = total_is_lost_budget / is_count
+            if avg_is_lost_budget >= 0.15:  # Losing 15%+ to budget
+                severity = "critical" if avg_is_lost_budget >= 0.3 else "high"
+                constraints.append(ConstraintSignal(
+                    constraint_type=ConstraintType.IMPRESSION_SHARE_BUDGET,
+                    severity=severity,
+                    description=f"Losing {avg_is_lost_budget*100:.0f}% impression share due to budget constraints",
+                    evidence={
+                        "avg_is_lost_to_budget": round(avg_is_lost_budget, 3),
+                        "queries_analyzed": is_count,
+                        "sample_queries": [q["query"] for q in queries_with_ads[:3]],
+                    },
+                    recommended_action="Consider increasing Search budget to capture more demand",
+                    reversibility="immediate",
+                ))
+
+        # CONSTRAINT: Rank-constrained impression share
+        if is_count > 0:
+            avg_is_lost_rank = total_is_lost_rank / is_count
+            if avg_is_lost_rank >= 0.15:  # Losing 15%+ to rank
+                severity = "high" if avg_is_lost_rank >= 0.3 else "medium"
+                constraints.append(ConstraintSignal(
+                    constraint_type=ConstraintType.IMPRESSION_SHARE_RANK,
+                    severity=severity,
+                    description=f"Losing {avg_is_lost_rank*100:.0f}% impression share due to ad rank",
+                    evidence={
+                        "avg_is_lost_to_rank": round(avg_is_lost_rank, 3),
+                        "queries_analyzed": is_count,
+                    },
+                    recommended_action="Improve Quality Score or increase bids to capture more demand",
+                    reversibility="slow",
+                ))
+
+        # CONSTRAINT: PMax absorbing Search traffic
+        if pmax_absorbed_queries:
+            constraints.append(ConstraintSignal(
+                constraint_type=ConstraintType.PMAX_ABSORPTION,
+                severity="medium",
+                description=f"PMax is absorbing {len(pmax_absorbed_queries)} queries that could run in Search",
+                evidence={
+                    "absorbed_queries": pmax_absorbed_queries[:5],
+                    "total_absorbed": len(pmax_absorbed_queries),
+                },
+                recommended_action="Review PMax brand exclusions and Search campaign coverage",
+                reversibility="immediate",
+            ))
+
+        # CONSTRAINT: High demand, no paid coverage
+        if high_volume_unmonetized and len(high_volume_unmonetized) >= 3:
+            total_unmon_impressions = sum(q["gsc_impressions"] for q in high_volume_unmonetized)
+            if total_unmon_impressions >= 2000:
+                constraints.append(ConstraintSignal(
+                    constraint_type=ConstraintType.PAID_COVERAGE_GAP,
+                    severity="medium",
+                    description=f"{len(high_volume_unmonetized)} high-volume queries ({total_unmon_impressions:,} impressions) have no paid coverage",
+                    evidence={
+                        "unmonetized_queries": [q["query"] for q in high_volume_unmonetized[:5]],
+                        "total_impressions": total_unmon_impressions,
+                    },
+                    recommended_action="Consider adding these queries to Search campaigns",
+                    reversibility="immediate",
+                ))
+
+        result["constraints"] = constraints
+        return result
 
     def _classify(
         self,
