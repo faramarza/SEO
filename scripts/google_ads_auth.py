@@ -95,6 +95,7 @@ def get_auth_url(client_id: str) -> str:
 def exchange_code_for_tokens(client_id: str, client_secret: str, auth_code: str) -> dict:
     """Exchange authorization code for tokens."""
     import urllib.request
+    import ssl
 
     data = urlencode({
         "client_id": client_id,
@@ -107,7 +108,16 @@ def exchange_code_for_tokens(client_id: str, client_secret: str, auth_code: str)
     req = urllib.request.Request(TOKEN_URL, data=data, method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
 
-    with urllib.request.urlopen(req) as response:
+    # Try to use certifi for SSL certificates (fixes macOS issues)
+    ssl_context = None
+    try:
+        import certifi
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        # Fall back to default SSL context
+        ssl_context = ssl.create_default_context()
+
+    with urllib.request.urlopen(req, context=ssl_context) as response:
         return json.loads(response.read().decode())
 
 
