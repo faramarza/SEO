@@ -267,6 +267,7 @@ class GoogleAdsClient:
         self.login_customer_id = login_customer_id
         self._client = None
         self._initialized = False
+        self._last_error = None
 
     def _init_client(self) -> bool:
         """Initialize the Google Ads API client."""
@@ -514,6 +515,7 @@ class GoogleAdsClient:
                 )
 
         except Exception as e:
+            self._last_error = str(e)
             print(f"Error fetching campaign summary: {e}")
 
         return campaigns

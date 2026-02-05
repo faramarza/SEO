@@ -438,11 +438,12 @@ def api_ads():
 
         # Debug: Log if no campaigns returned
         if not campaigns:
+            error_msg = client._last_error or "No error captured"
             return jsonify({
                 "connected": True,
-                "message": f"No campaigns returned. Client initialized: {client._initialized}, Path: {creds_path}",
+                "message": f"No campaigns returned. Error: {error_msg}",
                 "campaigns": [],
-                "summary": {"debug_path": creds_path},
+                "summary": {"debug_path": creds_path, "error": error_msg},
             })
 
         # Build response
