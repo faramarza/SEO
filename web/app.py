@@ -513,6 +513,7 @@ def api_run_evaluation():
 
     def run_workflow():
         global job_state
+        import traceback
         try:
             job_state["running"] = True
             job_state["type"] = "evaluation"
@@ -525,8 +526,10 @@ def api_run_evaluation():
             from src.output.decision_formatter import OutputFormat
 
             # Load config
+            job_state["message"] = "Loading config..."
             if CONFIG_PATH.exists():
                 config = WorkflowConfig.from_json(CONFIG_PATH)
+                job_state["message"] = f"Config loaded: GSC={config.gsc_property}, GA4={config.ga4_property_id}"
             else:
                 config = WorkflowConfig(
                     gsc_property="sc-domain:example.com",
@@ -536,10 +539,11 @@ def api_run_evaluation():
 
             config.block_on_tier_a = False
 
+            job_state["message"] = "Initializing workflow..."
             workflow = FullEvaluationWorkflow(config)
 
             # Step 1: Load data
-            job_state["message"] = "Loading data from GSC/GA4..."
+            job_state["message"] = f"Loading data from GSC ({config.gsc_property}) and GA4 ({config.ga4_property_id})..."
             workflow.load_data(days=28)
             job_state["total"] = len(workflow._assets)
             job_state["message"] = f"Loaded {len(workflow._assets)} pages"
@@ -661,8 +665,10 @@ def api_run_evaluation():
             job_state["progress"] = job_state["total"]
 
         except Exception as e:
-            job_state["error"] = str(e)
+            tb = traceback.format_exc()
+            job_state["error"] = f"{e}\n\nTraceback:\n{tb}"
             job_state["message"] = f"Error: {e}"
+            print(f"Evaluation error: {e}\n{tb}")  # Also log to Flask console
         finally:
             job_state["running"] = False
 
