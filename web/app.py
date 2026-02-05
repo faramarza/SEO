@@ -417,6 +417,15 @@ def api_ads():
         project_root = Path(__file__).parent.parent
         creds_path = str(project_root / creds_path)
 
+    # Debug: Check if file exists
+    if not Path(creds_path).exists():
+        return jsonify({
+            "connected": False,
+            "message": f"Credentials file not found: {creds_path}",
+            "campaigns": [],
+            "summary": {},
+        })
+
     try:
         client = GoogleAdsClient(
             credentials_path=creds_path,
@@ -426,6 +435,15 @@ def api_ads():
 
         # Fetch campaign data
         campaigns = client.fetch_campaign_summary(days=28)
+
+        # Debug: Log if no campaigns returned
+        if not campaigns:
+            return jsonify({
+                "connected": True,
+                "message": f"No campaigns returned. Client initialized: {client._initialized}, Path: {creds_path}",
+                "campaigns": [],
+                "summary": {"debug_path": creds_path},
+            })
 
         # Build response
         campaign_list = []
