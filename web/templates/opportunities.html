@@ -45,11 +45,11 @@
                 <tr>
                     <th data-sort="index" class="sortable-header">#</th>
                     <th data-sort="url" class="sortable-header">URL</th>
+                    <th data-sort="primary_constraint" class="sortable-header">Constraint</th>
                     <th data-sort="action" class="sortable-header">Action</th>
-                    <th data-sort="mode" class="sortable-header">Mode</th>
+                    <th data-sort="demand_score" class="sortable-header">Demand</th>
                     <th data-sort="expected_value" class="sortable-header sorted-desc">Expected Value <span class="sort-icon">▼</span></th>
                     <th data-sort="confidence" class="sortable-header">Confidence <span class="sort-icon"></span></th>
-                    <th data-sort="priority_score" class="sortable-header">Priority <span class="sort-icon"></span></th>
                     <th data-sort="risk_level" class="sortable-header">Risk <span class="sort-icon"></span></th>
                     <th>Actions</th>
                 </tr>
@@ -150,11 +150,15 @@ function renderOpportunities(opportunities) {
             <td class="url-cell" title="${opp.url}">
                 <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
             </td>
+            <td><span class="constraint-badge constraint-${(opp.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(opp.primary_constraint)}</span></td>
             <td><span class="action-badge action-${(opp.recommended_action || '').toLowerCase()}">${opp.recommended_action || 'N/A'}</span></td>
-            <td class="mode-cell">${formatMode(opp.mode)}</td>
+            <td class="number demand-cell">
+                <div class="demand-bar" title="Demand: ${((opp.demand_score || 0) * 100).toFixed(0)}%">
+                    <div class="demand-fill" style="width: ${(opp.demand_score || 0) * 100}%"></div>
+                </div>
+            </td>
             <td class="number ev-cell">$${(opp.expected_value || 0).toFixed(2)}</td>
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
-            <td class="number priority-cell">${(opp.priority_score || 0).toFixed(2)}</td>
             <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
             <td class="actions-cell">
                 <button class="btn btn-small btn-view" onclick="showDetail(${idx})">View</button>
@@ -173,6 +177,20 @@ function truncateUrl(url) {
 function formatMode(mode) {
     if (!mode) return '—';
     return mode.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatConstraint(constraint) {
+    if (!constraint) return '—';
+    const labels = {
+        'visibility_blocked': 'Visibility',
+        'ctr_suppressed': 'CTR',
+        'intent_mismatch': 'Intent',
+        'coverage_gap': 'Coverage',
+        'cannibalization': 'Cannibal.',
+        'economic_invalid': 'Economics',
+        'no_constraint': '—',
+    };
+    return labels[constraint] || constraint.replace(/_/g, ' ');
 }
 
 function filterOpportunities() {
@@ -204,11 +222,90 @@ function showDetail(idx) {
         ? '<ol class="impl-steps">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
         : '<p class="no-steps">No implementation steps specified.</p>';
 
+    // Helper to format score class
+    const scoreClass = (val) => val >= 0.6 ? 'score-high' : val >= 0.3 ? 'score-medium' : 'score-low';
+
+    // Format capture class for display
+    const captureClassLabel = (cc) => {
+        const labels = {
+            'capture_expansion': 'Capture Expansion',
+            'capture_validation': 'Capture Validation',
+            'capture_deferred': 'Capture Deferred',
+            'no_action': 'No Action'
+        };
+        return labels[cc] || cc || '—';
+    };
+
+    // Build constraint scores section
+    const constraintScoresHtml = (opp.demand_score !== undefined) ? `
+        <div class="constraint-scores">
+            <div class="score-item">
+                <span class="score-label">Demand</span>
+                <span class="score-value ${scoreClass(opp.demand_score)}">${((opp.demand_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar">
+                    <div class="score-bar-fill fill-demand" style="width: ${(opp.demand_score || 0) * 100}%"></div>
+                </div>
+            </div>
+            <div class="score-item">
+                <span class="score-label">Intent</span>
+                <span class="score-value ${scoreClass(opp.intent_score)}">${((opp.intent_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar">
+                    <div class="score-bar-fill fill-intent" style="width: ${(opp.intent_score || 0) * 100}%"></div>
+                </div>
+            </div>
+            <div class="score-item">
+                <span class="score-label">Visibility</span>
+                <span class="score-value ${scoreClass(opp.visibility_score)}">${((opp.visibility_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar">
+                    <div class="score-bar-fill fill-visibility" style="width: ${(opp.visibility_score || 0) * 100}%"></div>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
+    // Build detected constraints section
+    const detectedConstraints = opp.constraints || [];
+    const constraintsHtml = detectedConstraints.length > 0 ? `
+        <div class="detail-section constraints-list">
+            <h4>Detected Constraints</h4>
+            ${detectedConstraints.map(c => `
+                <div class="constraint-item severity-${c.severity}">
+                    <div class="constraint-item-header">
+                        <span class="constraint-type-label">${(c.constraint_type || '').replace(/_/g, ' ')}</span>
+                        <span class="severity-badge severity-${c.severity}">${c.severity}</span>
+                    </div>
+                    <p class="constraint-description">${c.description}</p>
+                    ${c.evidence ? `
+                        <div class="constraint-evidence">
+                            <code>${JSON.stringify(c.evidence, null, 2)}</code>
+                        </div>
+                    ` : ''}
+                    <p class="constraint-action">${c.recommended_action}</p>
+                </div>
+            `).join('')}
+        </div>
+    ` : '';
+
+    // Build extracted queries section
+    const queries = opp.extracted_queries || [];
+    const queriesHtml = queries.length > 0 ? `
+        <div class="detail-section">
+            <h4>Top Queries</h4>
+            <div class="extracted-queries">
+                ${queries.map(q => `<span class="query-tag">${q}</span>`).join('')}
+            </div>
+        </div>
+    ` : '';
+
     document.getElementById('modal-body').innerHTML = `
         <div class="detail-grid">
             <div class="detail-item">
                 <label>URL</label>
                 <p><a href="${opp.url}" target="_blank" class="detail-link">${opp.url}</a></p>
+            </div>
+            <div class="detail-item">
+                <label>Capture Class</label>
+                <p><span class="capture-class-badge ${(opp.capture_class || 'no_action').replace(/_/g, '-')}">${captureClassLabel(opp.capture_class)}</span></p>
             </div>
             <div class="detail-item">
                 <label>Expected Value</label>
@@ -219,21 +316,20 @@ function showDetail(idx) {
                 <p class="detail-value">${((opp.confidence || 0) * 100).toFixed(0)}%</p>
             </div>
             <div class="detail-item">
-                <label>Priority Score</label>
-                <p class="detail-value">${(opp.priority_score || 0).toFixed(4)}</p>
-            </div>
-            <div class="detail-item">
-                <label>Mode</label>
-                <p>${formatMode(opp.mode)}</p>
+                <label>Primary Constraint</label>
+                <p><span class="constraint-badge constraint-${(opp.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(opp.primary_constraint)}</span></p>
             </div>
             <div class="detail-item">
                 <label>Risk Level</label>
                 <p><span class="risk-badge risk-${opp.risk_level}">${opp.risk_level}</span></p>
             </div>
         </div>
+        ${constraintScoresHtml}
+        ${constraintsHtml}
+        ${queriesHtml}
         ${opp.issues && opp.issues.length > 0 ? `
         <div class="detail-section issues-section">
-            <h4>Issues Found</h4>
+            <h4>Technical Issues</h4>
             ${opp.issues.map(issue => `
                 <div class="issue-detail issue-${issue.severity}">
                     <div class="issue-header-detail">

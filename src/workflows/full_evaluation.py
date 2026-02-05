@@ -36,6 +36,7 @@ from src.evaluators.title_meta_evaluator import TitleMetaEvaluator
 from src.evaluators.canonical_evaluator import CanonicalEvaluator
 from src.evaluators.internal_link_evaluator import InternalLinkEvaluator
 from src.evaluators.asset_creation_evaluator import AssetCreationEvaluator
+from src.evaluators.constraint_detector import ConstraintDetector, CaptureClass, ConstraintType
 from src.ledger.action_ledger import ActionLedger, ActionFingerprint, ActionRecord
 from src.output.decision_formatter import DecisionFormatter, OutputFormat
 from src.crawlers.page_inventory import PageInventory
@@ -155,6 +156,10 @@ class FullEvaluationWorkflow:
         self.canonical_evaluator = CanonicalEvaluator()
         self.link_evaluator = InternalLinkEvaluator()
         self.asset_evaluator = AssetCreationEvaluator(
+            aov=config.aov,
+            margin=config.margin,
+        )
+        self.constraint_detector = ConstraintDetector(
             aov=config.aov,
             margin=config.margin,
         )
@@ -412,7 +417,66 @@ class FullEvaluationWorkflow:
 
         Returns best recommendation after applying learning rules.
         """
+        # FIRST: Run constraint detection (new paradigm)
+        constraint_result = self.constraint_detector.evaluate(asset, self._assets)
+
+        # Store constraint data to include in all results
+        constraint_data = {
+            "capture_class": constraint_result.capture_class.value,
+            "demand_score": round(constraint_result.demand_score, 2),
+            "intent_score": round(constraint_result.intent_score, 2),
+            "visibility_score": round(constraint_result.visibility_score, 2),
+            "primary_constraint": constraint_result.primary_constraint.value if constraint_result.primary_constraint else None,
+            "constraints": [
+                {
+                    "type": c.constraint_type.value,
+                    "severity": c.severity,
+                    "description": c.description,
+                    "evidence": c.evidence,
+                    "action": c.recommended_action,
+                }
+                for c in constraint_result.constraints
+            ],
+            "extracted_queries": constraint_result.extracted_queries[:5],  # Top 5
+        }
+
         candidates = []
+
+        # If visibility is blocked but demand exists, prioritize visibility fix
+        if (constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
+            and constraint_result.demand_score >= 0.4):
+            # Calculate expected value based on potential, not current revenue
+            potential_clicks = asset.gsc.impressions_28d * 0.05  # ~5% CTR at good position
+            expected_value = potential_clicks * self.config.aov * self.config.margin * 0.1
+            candidates.append({
+                "mode": "CONSTRAINT_RESOLUTION",
+                "action": "VISIBILITY_FIX",
+                "expected_value": expected_value,
+                "confidence": constraint_result.confidence,
+                "risk_level": "low",
+                "implementation_steps": constraint_result.recommended_actions,
+                "source": "constraint_detector",
+            })
+
+        # If CTR is suppressed, prioritize title test
+        if constraint_result.primary_constraint == ConstraintType.CTR_SUPPRESSED:
+            # Find the constraint for evidence
+            ctr_constraint = next(
+                (c for c in constraint_result.constraints if c.constraint_type == ConstraintType.CTR_SUPPRESSED),
+                None
+            )
+            if ctr_constraint:
+                missed_clicks = ctr_constraint.evidence.get("missed_clicks", 0)
+                expected_value = missed_clicks * self.config.aov * self.config.margin * 0.1
+                candidates.append({
+                    "mode": "CONSTRAINT_RESOLUTION",
+                    "action": "TITLE_META_TEST",
+                    "expected_value": expected_value,
+                    "confidence": constraint_result.confidence,
+                    "risk_level": "low",
+                    "implementation_steps": [ctr_constraint.recommended_action],
+                    "source": "constraint_detector",
+                })
 
         # Run main Governor evaluation for each mode
         for mode in modes:
@@ -557,6 +621,7 @@ class FullEvaluationWorkflow:
                     "risk_level": "low",
                     "implementation_steps": [],
                     "reason": f"Confidence {best['confidence']:.2f} below threshold {self.config.min_confidence_threshold}",
+                    **constraint_data,  # Include constraint detection data
                 }
 
             result = {
@@ -571,6 +636,7 @@ class FullEvaluationWorkflow:
                 "implementation_summary": best["implementation_steps"][0] if best["implementation_steps"] else "",
                 "learning_reference": best.get("learning_reference"),
                 "source": best["source"],
+                **constraint_data,  # Include constraint detection data
             }
 
             # Include optional fields from specific evaluators
@@ -581,7 +647,7 @@ class FullEvaluationWorkflow:
 
             return result
 
-        # No action recommended
+        # No action recommended - but still include constraint data!
         return {
             "url": asset.url,
             "recommended_action": "NO_ACTION",
@@ -592,6 +658,7 @@ class FullEvaluationWorkflow:
             "risk_level": "none",
             "implementation_steps": [],
             "reason": "No actionable opportunities identified",
+            **constraint_data,  # Include constraint detection data
         }
 
     def _get_intent_cluster(self, asset: PageAsset) -> str:
