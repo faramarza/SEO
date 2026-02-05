@@ -95,13 +95,21 @@ async function loadOpportunities() {
 
 function sortOpportunities() {
     const { field, direction } = currentSort;
-    allOpportunities.sort((a, b) => {
-        let aVal = a[field] ?? '';
-        let bVal = b[field] ?? '';
+    // Numeric fields should default to 0, not empty string
+    const numericFields = ['expected_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index'];
+    const isNumeric = numericFields.includes(field);
 
-        if (typeof aVal === 'string') {
-            aVal = aVal.toLowerCase();
-            bVal = bVal.toLowerCase();
+    allOpportunities.sort((a, b) => {
+        let aVal = a[field];
+        let bVal = b[field];
+
+        // Handle undefined/null values
+        if (isNumeric) {
+            aVal = aVal ?? 0;
+            bVal = bVal ?? 0;
+        } else {
+            aVal = (aVal ?? '').toString().toLowerCase();
+            bVal = (bVal ?? '').toString().toLowerCase();
         }
 
         if (aVal < bVal) return direction === 'asc' ? -1 : 1;
