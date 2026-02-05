@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.ledger.action_ledger import ActionLedger, ActionStatus, ActionOutcome
 from src.data_sources.gsc_client import GSCClient
 from src.data_sources.ga4_client import GA4Client
+from src.data_sources.google_ads_client import GoogleAdsClient
 from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
 
 
@@ -394,6 +395,83 @@ def api_tracking():
         "tier_b_count": len(tier_b),
         "last_check": diag_data.get("timestamp", "Unknown"),
     })
+
+
+@app.route("/api/ads")
+def api_ads():
+    """Get Google Ads campaign and monetization data."""
+    config = load_config()
+    ads_config = config.get("data_sources", {}).get("google_ads", {})
+
+    if not ads_config.get("customer_id"):
+        return jsonify({
+            "connected": False,
+            "message": "Google Ads not configured",
+            "campaigns": [],
+            "summary": {},
+        })
+
+    try:
+        client = GoogleAdsClient(
+            credentials_path=ads_config.get("config_path", "google-ads.yaml"),
+            customer_id=ads_config.get("customer_id"),
+            brand_terms=ads_config.get("brand_terms", []),
+        )
+
+        # Fetch campaign data
+        campaigns = client.fetch_campaign_summary(days=28)
+
+        # Build response
+        campaign_list = []
+        total_impressions = 0
+        total_clicks = 0
+        total_cost = 0
+        total_conversions = 0
+        total_value = 0
+
+        for c in campaigns.values():
+            campaign_list.append({
+                "name": c.campaign_name,
+                "type": c.campaign_type.value,
+                "status": c.status,
+                "impressions": c.impressions,
+                "clicks": c.clicks,
+                "cost": round(c.cost, 2),
+                "conversions": round(c.conversions, 1),
+                "conversion_value": round(c.conversion_value, 2),
+                "impression_share": c.search_impression_share,
+            })
+            total_impressions += c.impressions
+            total_clicks += c.clicks
+            total_cost += c.cost
+            total_conversions += c.conversions
+            total_value += c.conversion_value
+
+        # Sort by impressions
+        campaign_list.sort(key=lambda x: x["impressions"], reverse=True)
+
+        return jsonify({
+            "connected": True,
+            "campaigns": campaign_list,
+            "summary": {
+                "total_campaigns": len(campaigns),
+                "active_campaigns": len([c for c in campaign_list if c["impressions"] > 0]),
+                "total_impressions": total_impressions,
+                "total_clicks": total_clicks,
+                "total_cost": round(total_cost, 2),
+                "total_conversions": round(total_conversions, 1),
+                "total_value": round(total_value, 2),
+                "roas": round(total_value / total_cost, 2) if total_cost > 0 else 0,
+            },
+        })
+
+    except Exception as e:
+        return jsonify({
+            "connected": False,
+            "message": f"Error: {str(e)}",
+            "campaigns": [],
+            "summary": {},
+        })
 
 
 @app.route("/api/run-evaluation", methods=["POST"])

@@ -69,6 +69,48 @@
         </div>
     </div>
 
+    <!-- Google Ads Summary -->
+    <div class="card full-width" id="ads-section">
+        <h3>Google Ads Monetization</h3>
+        <div id="ads-status" class="ads-status">
+            <span class="status-indicator" id="ads-indicator">●</span>
+            <span id="ads-status-text">Loading...</span>
+        </div>
+        <div class="summary-grid" id="ads-summary" style="display: none;">
+            <div class="summary-item">
+                <span class="summary-label">Active Campaigns</span>
+                <span class="summary-value" id="ads-campaigns">0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Impressions (28d)</span>
+                <span class="summary-value" id="ads-impressions">0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Clicks</span>
+                <span class="summary-value" id="ads-clicks">0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">ROAS</span>
+                <span class="summary-value" id="ads-roas">—</span>
+            </div>
+        </div>
+        <div id="ads-campaigns-list" style="margin-top: 1rem; display: none;">
+            <h4>Active Campaigns</h4>
+            <table class="data-table" id="ads-table">
+                <thead>
+                    <tr>
+                        <th>Campaign</th>
+                        <th>Type</th>
+                        <th>Impressions</th>
+                        <th>Clicks</th>
+                        <th>Cost</th>
+                    </tr>
+                </thead>
+                <tbody id="ads-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Last Run -->
     <div class="card full-width">
         <h3>Last Evaluation</h3>
@@ -154,6 +196,54 @@ async function runEvaluation() {
     alert(data.message);
 }
 
+async function loadAdsData() {
+    try {
+        const res = await fetch('/api/ads');
+        const data = await res.json();
+
+        const indicator = document.getElementById('ads-indicator');
+        const statusText = document.getElementById('ads-status-text');
+        const summaryGrid = document.getElementById('ads-summary');
+        const campaignsList = document.getElementById('ads-campaigns-list');
+
+        if (data.connected) {
+            indicator.style.color = '#198038';
+            statusText.textContent = 'Connected';
+            summaryGrid.style.display = 'grid';
+
+            // Update summary
+            document.getElementById('ads-campaigns').textContent = data.summary.active_campaigns || 0;
+            document.getElementById('ads-impressions').textContent = (data.summary.total_impressions || 0).toLocaleString();
+            document.getElementById('ads-clicks').textContent = (data.summary.total_clicks || 0).toLocaleString();
+            document.getElementById('ads-roas').textContent = data.summary.roas ? data.summary.roas.toFixed(1) + 'x' : '—';
+
+            // Show active campaigns table
+            const activeCampaigns = data.campaigns.filter(c => c.impressions > 0);
+            if (activeCampaigns.length > 0) {
+                campaignsList.style.display = 'block';
+                const tbody = document.getElementById('ads-tbody');
+                tbody.innerHTML = activeCampaigns.map(c => `
+                    <tr>
+                        <td>${c.name}</td>
+                        <td><span class="badge badge-${c.type}">${c.type.toUpperCase()}</span></td>
+                        <td>${c.impressions.toLocaleString()}</td>
+                        <td>${c.clicks.toLocaleString()}</td>
+                        <td>$${c.cost.toLocaleString()}</td>
+                    </tr>
+                `).join('');
+            }
+        } else {
+            indicator.style.color = '#da1e28';
+            statusText.textContent = data.message || 'Not connected';
+        }
+    } catch (err) {
+        console.error('Failed to load Ads data:', err);
+        document.getElementById('ads-indicator').style.color = '#da1e28';
+        document.getElementById('ads-status-text').textContent = 'Error loading data';
+    }
+}
+
 loadDashboard();
+loadAdsData();
 </script>
 {% endblock %}
