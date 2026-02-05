@@ -90,6 +90,18 @@
                 <span class="summary-value" id="ads-clicks">0</span>
             </div>
             <div class="summary-item">
+                <span class="summary-label">Cost</span>
+                <span class="summary-value" id="ads-cost">$0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Conversions</span>
+                <span class="summary-value" id="ads-conversions">0</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Revenue</span>
+                <span class="summary-value" id="ads-revenue">$0</span>
+            </div>
+            <div class="summary-item">
                 <span class="summary-label">ROAS</span>
                 <span class="summary-value" id="ads-roas">—</span>
             </div>
@@ -101,9 +113,11 @@
                     <tr>
                         <th>Campaign</th>
                         <th>Type</th>
-                        <th>Impressions</th>
+                        <th>Impr</th>
                         <th>Clicks</th>
                         <th>Cost</th>
+                        <th>Conv</th>
+                        <th>Revenue</th>
                         <th>ROAS</th>
                     </tr>
                 </thead>
@@ -216,6 +230,9 @@ async function loadAdsData() {
             document.getElementById('ads-campaigns').textContent = data.summary.active_campaigns || 0;
             document.getElementById('ads-impressions').textContent = (data.summary.total_impressions || 0).toLocaleString();
             document.getElementById('ads-clicks').textContent = (data.summary.total_clicks || 0).toLocaleString();
+            document.getElementById('ads-cost').textContent = '$' + (data.summary.total_cost || 0).toLocaleString();
+            document.getElementById('ads-conversions').textContent = (data.summary.total_conversions || 0).toLocaleString();
+            document.getElementById('ads-revenue').textContent = '$' + (data.summary.total_value || 0).toLocaleString();
             document.getElementById('ads-roas').textContent = data.summary.roas ? data.summary.roas.toFixed(1) + 'x' : '—';
 
             // Show active campaigns table
@@ -230,6 +247,8 @@ async function loadAdsData() {
                         <td>${c.impressions.toLocaleString()}</td>
                         <td>${c.clicks.toLocaleString()}</td>
                         <td>$${c.cost.toLocaleString()}</td>
+                        <td>${c.conversions.toLocaleString()}</td>
+                        <td>$${c.conversion_value.toLocaleString()}</td>
                         <td>${c.roas ? c.roas.toFixed(1) + 'x' : '—'}</td>
                     </tr>
                 `).join('');
