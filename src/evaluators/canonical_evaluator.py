@@ -86,6 +86,10 @@ class CanonicalEvaluator:
         asset: PageAsset,
     ) -> Optional[CanonicalIssue]:
         """Check if page has proper self-referencing canonical."""
+        # Only check if we have actual crawl data - otherwise we don't know
+        if not asset.has_crawl_data:
+            return None
+
         if not asset.canonical_url:
             if asset.gsc.clicks_28d > 10:  # Only flag if page has traffic
                 return CanonicalIssue(
@@ -103,6 +107,10 @@ class CanonicalEvaluator:
         asset: PageAsset,
     ) -> Optional[CanonicalIssue]:
         """Check if canonical points to different URL."""
+        # Only check if we have actual crawl data
+        if not asset.has_crawl_data:
+            return None
+
         if asset.canonical_url and asset.canonical_url != asset.url:
             # Normalize both
             norm_self = self.normalize_url(asset.url)
@@ -164,6 +172,10 @@ class CanonicalEvaluator:
         asset: PageAsset,
     ) -> Optional[CanonicalIssue]:
         """Check if noindexed page still receives organic traffic."""
+        # Only check if we have actual crawl data
+        if not asset.has_crawl_data:
+            return None
+
         if not asset.indexable and asset.gsc.clicks_28d > 10:
             return CanonicalIssue(
                 issue_type=CanonicalIssueType.NOINDEX_WITH_TRAFFIC,

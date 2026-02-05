@@ -78,6 +78,7 @@ class PageAsset(BaseModel):
     url: str = Field(description="Full URL of the page")
     asset_type: AssetType = Field(default=AssetType.OTHER)
     canonical_url: Optional[str] = Field(default=None)
+    has_crawl_data: bool = Field(default=False, description="Whether we have crawl data for this page")
     http_status: int = Field(default=200)
     indexable: bool = Field(default=True)
     title: str = Field(default="")
