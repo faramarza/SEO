@@ -469,6 +469,8 @@ class GoogleAdsClient:
         try:
             ga_service = self._client.get_service("GoogleAdsService")
 
+            # Note: Removed impression share metrics - they require specific
+            # account/campaign setups and cause query failures for many accounts
             query = f"""
                 SELECT
                     campaign.id,
@@ -479,10 +481,7 @@ class GoogleAdsClient:
                     metrics.clicks,
                     metrics.cost_micros,
                     metrics.conversions,
-                    metrics.conversions_value,
-                    metrics.search_impression_share,
-                    metrics.search_budget_lost_impression_share,
-                    metrics.search_rank_lost_impression_share
+                    metrics.conversions_value
                 FROM campaign
                 WHERE segments.date BETWEEN '{start_date.strftime("%Y-%m-%d")}'
                     AND '{end_date.strftime("%Y-%m-%d")}'
@@ -508,9 +507,10 @@ class GoogleAdsClient:
                     cost=row.metrics.cost_micros / 1_000_000,
                     conversions=row.metrics.conversions,
                     conversion_value=row.metrics.conversions_value,
-                    search_impression_share=row.metrics.search_impression_share or None,
-                    search_lost_is_budget=row.metrics.search_budget_lost_impression_share or None,
-                    search_lost_is_rank=row.metrics.search_rank_lost_impression_share or None,
+                    # Impression share metrics removed - not reliably available
+                    search_impression_share=None,
+                    search_lost_is_budget=None,
+                    search_lost_is_rank=None,
                 )
 
         except Exception as e:
