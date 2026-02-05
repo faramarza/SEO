@@ -209,7 +209,8 @@ def api_approve_opportunity():
     data = request.json
     ledger = ActionLedger()
 
-    from src.ledger.action_ledger import ActionFingerprint
+    from src.ledger.action_ledger import ActionFingerprint, ActionRecord
+    import uuid
 
     # Create fingerprint from opportunity data
     fingerprint = ActionFingerprint(
@@ -219,21 +220,28 @@ def api_approve_opportunity():
         action_type=data.get("action", "OBSERVE_ONLY"),
     )
 
-    # Create proposed action
-    action_id = ledger.create_action(
+    # Generate action ID
+    action_id = f"ACT-{uuid.uuid4().hex[:8].upper()}"
+
+    # Create action record
+    action = ActionRecord(
+        action_id=action_id,
         url=data.get("url", ""),
         action_type=data.get("action", "OBSERVE_ONLY"),
         score_type=data.get("score_type", "EV"),
         score_value=data.get("expected_value", 0),
         confidence=data.get("confidence", 0.5),
         fingerprint=fingerprint,
-        metadata={
+        recommendation_json={
             "mode": data.get("mode"),
             "risk_level": data.get("risk_level"),
             "implementation_steps": data.get("implementation_steps", []),
             "source": data.get("source", "manual"),
         },
     )
+
+    # Add to ledger
+    ledger.add_action(action)
 
     return jsonify({
         "success": True,
