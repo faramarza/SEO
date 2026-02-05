@@ -1382,6 +1382,107 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 }
 
 /* ============================================================
+   AI Recommendations
+   ============================================================ */
+
+.ai-section {
+    margin-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 20px;
+}
+
+.ai-section h4 {
+    color: var(--accent-purple);
+    margin-bottom: 15px;
+}
+
+.loading-ai {
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: 20px;
+    text-align: center;
+}
+
+.error-msg {
+    color: var(--accent-red);
+    padding: 15px;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 8px;
+}
+
+.ai-recommendation {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.rec-item {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 3px solid var(--accent-blue);
+}
+
+.rec-item.critical {
+    border-left-color: var(--accent-red);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.rec-item h5 {
+    color: var(--accent-blue);
+    margin-bottom: 10px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.rec-item.critical h5 {
+    color: var(--accent-red);
+}
+
+.rec-item p {
+    margin: 8px 0;
+    line-height: 1.6;
+}
+
+.rec-item code {
+    background: rgba(79, 70, 229, 0.2);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--accent-purple);
+    display: inline-block;
+    max-width: 100%;
+    word-break: break-word;
+}
+
+.rec-item .reasoning {
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-style: italic;
+}
+
+.rec-item ol, .rec-item ul {
+    margin: 10px 0;
+    padding-left: 20px;
+}
+
+.rec-item li {
+    margin: 6px 0;
+    line-height: 1.5;
+}
+
+.rec-item pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ============================================================
    Toast Notifications
    ============================================================ */
 

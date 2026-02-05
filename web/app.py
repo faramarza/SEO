@@ -250,6 +250,246 @@ def api_approve_opportunity():
     })
 
 
+@app.route("/api/ai/recommend", methods=["POST"])
+def api_ai_recommend():
+    """Get AI-powered SEO recommendations for a page."""
+    import os
+    import httpx
+
+    data = request.json
+    url = data.get("url")
+    opportunity = data.get("opportunity", {})
+
+    if not url:
+        return jsonify({"error": "URL required"}), 400
+
+    config = load_config()
+    ai_config = config.get("ai", {})
+
+    # Get API key from environment or config
+    api_key = os.environ.get(ai_config.get("api_key_env", "OPENAI_API_KEY"))
+    if not api_key:
+        return jsonify({"error": "OpenAI API key not configured. Set OPENAI_API_KEY environment variable."}), 400
+
+    model = ai_config.get("model", "gpt-4o")
+
+    # Fetch page content
+    try:
+        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+            response = client.get(url)
+            html = response.text
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch page: {e}"}), 400
+
+    # Parse HTML for SEO elements
+    from html.parser import HTMLParser
+
+    class SEOParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.title = ""
+            self.meta_description = ""
+            self.h1s = []
+            self.h2s = []
+            self.in_title = False
+            self.in_h1 = False
+            self.in_h2 = False
+            self.above_fold = ""
+            self.char_count = 0
+
+        def handle_starttag(self, tag, attrs):
+            attrs_dict = dict(attrs)
+            if tag == "title":
+                self.in_title = True
+            elif tag == "h1":
+                self.in_h1 = True
+            elif tag == "h2":
+                self.in_h2 = True
+            elif tag == "meta" and attrs_dict.get("name", "").lower() == "description":
+                self.meta_description = attrs_dict.get("content", "")
+
+        def handle_endtag(self, tag):
+            if tag == "title":
+                self.in_title = False
+            elif tag == "h1":
+                self.in_h1 = False
+            elif tag == "h2":
+                self.in_h2 = False
+
+        def handle_data(self, data):
+            if self.in_title:
+                self.title += data
+            elif self.in_h1:
+                self.h1s.append(data.strip())
+            elif self.in_h2:
+                self.h2s.append(data.strip())
+
+            # Capture first ~2000 chars of text content
+            if self.char_count < 2000:
+                self.above_fold += data
+                self.char_count += len(data)
+
+    parser = SEOParser()
+    try:
+        parser.feed(html)
+    except:
+        pass
+
+    # Build prompt for OpenAI
+    constraint_info = ""
+    if opportunity.get("primary_constraint"):
+        constraint_info = f"\nPrimary Constraint: {opportunity.get('primary_constraint')}"
+        if opportunity.get("constraints"):
+            for c in opportunity.get("constraints", []):
+                constraint_info += f"\n- {c.get('constraint_type')}: {c.get('description')}"
+
+    query_info = ""
+    if opportunity.get("top_queries"):
+        query_info = "\nTop Search Queries (from GSC):"
+        for q in opportunity.get("top_queries", [])[:5]:
+            query_info += f"\n- \"{q.get('query')}\" (pos: {q.get('position')}, impr: {q.get('impressions')})"
+
+    prompt = f"""You are an expert SEO consultant analyzing a page for optimization opportunities.
+
+URL: {url}
+Recommended Action: {opportunity.get('recommended_action', 'Unknown')}
+Expected Value: ${opportunity.get('expected_value', 0):.2f}
+{constraint_info}
+{query_info}
+
+Current Page SEO Elements:
+- Title Tag: {parser.title.strip() or '[Missing]'}
+- Meta Description: {parser.meta_description or '[Missing]'}
+- H1 Tags: {', '.join(parser.h1s[:3]) or '[None found]'}
+- H2 Tags: {', '.join(parser.h2s[:5]) or '[None found]'}
+
+Above-the-fold Content Preview:
+{parser.above_fold[:1500]}
+
+Based on this analysis, provide specific, actionable SEO recommendations. Focus on:
+1. Title tag optimization (include target keyword, keep under 60 chars)
+2. Meta description optimization (compelling, include CTA, under 160 chars)
+3. H1/H2 structure improvements
+4. Content suggestions for better keyword targeting
+5. Any critical issues to fix immediately
+
+Format your response as a structured JSON with these fields:
+{{
+  "title_recommendation": {{
+    "current": "...",
+    "suggested": "...",
+    "reasoning": "..."
+  }},
+  "meta_description_recommendation": {{
+    "current": "...",
+    "suggested": "...",
+    "reasoning": "..."
+  }},
+  "heading_recommendations": ["..."],
+  "content_suggestions": ["..."],
+  "critical_issues": ["..."],
+  "priority_actions": ["..."]
+}}"""
+
+    # Call OpenAI API
+    try:
+        import json as json_module
+        openai_response = httpx.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are an expert SEO consultant. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 2000,
+            },
+            timeout=30.0,
+        )
+
+        if openai_response.status_code != 200:
+            return jsonify({"error": f"OpenAI API error: {openai_response.text}"}), 500
+
+        result = openai_response.json()
+        ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        # Try to parse as JSON
+        try:
+            # Remove markdown code blocks if present
+            if "```json" in ai_content:
+                ai_content = ai_content.split("```json")[1].split("```")[0]
+            elif "```" in ai_content:
+                ai_content = ai_content.split("```")[1].split("```")[0]
+
+            recommendations = json_module.loads(ai_content)
+        except:
+            recommendations = {"raw_response": ai_content}
+
+        return jsonify({
+            "success": True,
+            "url": url,
+            "page_analysis": {
+                "title": parser.title.strip(),
+                "meta_description": parser.meta_description,
+                "h1s": parser.h1s[:3],
+                "h2s": parser.h2s[:5],
+            },
+            "recommendations": recommendations,
+        })
+
+    except Exception as e:
+        return jsonify({"error": f"AI request failed: {e}"}), 500
+
+
+@app.route("/api/gsc/inspect", methods=["POST"])
+def api_gsc_inspect():
+    """Inspect a URL in GSC to check indexing status."""
+    data = request.json
+    url = data.get("url")
+
+    if not url:
+        return jsonify({"error": "URL required"}), 400
+
+    config = load_config()
+    gsc_config = config.get("data_sources", {}).get("gsc", {})
+
+    from src.data_sources.gsc_client import GSCClient
+    client = GSCClient(
+        site_url=gsc_config.get("property_url", ""),
+        credentials_path=gsc_config.get("credentials_path"),
+    )
+
+    result = client.inspect_url(url)
+    return jsonify(result)
+
+
+@app.route("/api/gsc/request-indexing", methods=["POST"])
+def api_gsc_request_indexing():
+    """Request (re)indexing of a URL."""
+    data = request.json
+    url = data.get("url")
+
+    if not url:
+        return jsonify({"error": "URL required"}), 400
+
+    config = load_config()
+    gsc_config = config.get("data_sources", {}).get("gsc", {})
+
+    from src.data_sources.gsc_client import GSCClient
+    client = GSCClient(
+        site_url=gsc_config.get("property_url", ""),
+        credentials_path=gsc_config.get("credentials_path"),
+    )
+
+    result = client.request_indexing(url)
+    return jsonify(result)
+
+
 @app.route("/api/tasks/<action_id>/advance", methods=["POST"])
 def api_advance_task(action_id):
     """Advance task to next status."""

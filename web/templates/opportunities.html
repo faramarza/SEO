@@ -397,19 +397,164 @@ function showDetail(idx) {
             <p>${opp.learning_reference}</p>
         </div>
         ` : ''}
+        <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: none;">
+            <h4>AI Recommendations</h4>
+            <div class="ai-content" id="ai-content-${idx}"></div>
+        </div>
         <div class="detail-actions">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
             <button class="btn btn-secondary" onclick="exportToPDF(${idx})">
                 <span class="btn-icon">📄</span> Export PDF
             </button>
+            <button class="btn btn-secondary" onclick="inspectUrl(${idx})" title="Check indexing status in GSC">
+                <span class="btn-icon">🔍</span> Inspect URL
+            </button>
+            <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}">
+                <span class="btn-icon">🤖</span> AI Recommend
+            </button>
             <button class="btn btn-primary" onclick="approveAction(${idx})">
-                <span class="btn-icon">✓</span> Approve for Implementation
+                <span class="btn-icon">✓</span> Approve
             </button>
         </div>
     `;
 
     document.getElementById('detail-modal').classList.remove('hidden');
 }
+
+async function inspectUrl(idx) {
+    const opp = allOpportunities[idx];
+    showToast('Inspecting URL in GSC...', 'info');
+
+    try {
+        const res = await fetch('/api/gsc/inspect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: opp.url })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+            showToast('Inspect error: ' + data.error, 'error');
+            return;
+        }
+
+        // Show results in a simple alert for now
+        const status = `
+URL Inspection Results:
+━━━━━━━━━━━━━━━━━━━━━━
+Verdict: ${data.verdict}
+Coverage: ${data.coverage_state}
+Indexing: ${data.indexing_state}
+Last Crawl: ${data.last_crawl_time || 'Unknown'}
+Fetch State: ${data.page_fetch_state}
+Crawled As: ${data.crawled_as}
+        `.trim();
+
+        alert(status);
+
+    } catch (err) {
+        showToast('Failed to inspect URL', 'error');
+        console.error(err);
+    }
+}
+
+async function getAIRecommendations(idx) {
+    const opp = allOpportunities[idx];
+    const btn = document.getElementById('ai-btn-' + idx);
+    const section = document.getElementById('ai-recommendations-' + idx);
+    const content = document.getElementById('ai-content-' + idx);
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
+    section.style.display = 'block';
+    content.innerHTML = '<p class="loading-ai">Fetching page and generating AI recommendations...</p>';
+
+    try {
+        const res = await fetch('/api/ai/recommend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                url: opp.url,
+                opportunity: opp
+            })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+            content.innerHTML = `<p class="error-msg">${data.error}</p>`;
+            btn.innerHTML = '<span class="btn-icon">🤖</span> Retry';
+            btn.disabled = false;
+            return;
+        }
+
+        const rec = data.recommendations;
+        content.innerHTML = `
+            <div class="ai-recommendation">
+                ${rec.title_recommendation ? `
+                <div class="rec-item">
+                    <h5>Title Tag</h5>
+                    <p><strong>Current:</strong> ${rec.title_recommendation.current || data.page_analysis?.title || '[Missing]'}</p>
+                    <p><strong>Suggested:</strong> <code>${rec.title_recommendation.suggested || 'N/A'}</code></p>
+                    <p class="reasoning">${rec.title_recommendation.reasoning || ''}</p>
+                </div>
+                ` : ''}
+
+                ${rec.meta_description_recommendation ? `
+                <div class="rec-item">
+                    <h5>Meta Description</h5>
+                    <p><strong>Current:</strong> ${rec.meta_description_recommendation.current || data.page_analysis?.meta_description || '[Missing]'}</p>
+                    <p><strong>Suggested:</strong> <code>${rec.meta_description_recommendation.suggested || 'N/A'}</code></p>
+                    <p class="reasoning">${rec.meta_description_recommendation.reasoning || ''}</p>
+                </div>
+                ` : ''}
+
+                ${rec.priority_actions && rec.priority_actions.length > 0 ? `
+                <div class="rec-item">
+                    <h5>Priority Actions</h5>
+                    <ol>
+                        ${rec.priority_actions.map(a => `<li>${a}</li>`).join('')}
+                    </ol>
+                </div>
+                ` : ''}
+
+                ${rec.critical_issues && rec.critical_issues.length > 0 ? `
+                <div class="rec-item critical">
+                    <h5>Critical Issues</h5>
+                    <ul>
+                        ${rec.critical_issues.map(i => `<li>${i}</li>`).join('')}
+                    </ul>
+                </div>
+                ` : ''}
+
+                ${rec.content_suggestions && rec.content_suggestions.length > 0 ? `
+                <div class="rec-item">
+                    <h5>Content Suggestions</h5>
+                    <ul>
+                        ${rec.content_suggestions.map(s => `<li>${s}</li>`).join('')}
+                    </ul>
+                </div>
+                ` : ''}
+
+                ${rec.raw_response ? `
+                <div class="rec-item">
+                    <h5>AI Response</h5>
+                    <pre>${rec.raw_response}</pre>
+                </div>
+                ` : ''}
+            </div>
+        `;
+
+        btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
+        showToast('AI recommendations loaded!', 'success');
+
+    } catch (err) {
+        content.innerHTML = `<p class="error-msg">Failed to get AI recommendations: ${err.message}</p>`;
+        btn.innerHTML = '<span class="btn-icon">🤖</span> Retry';
+        btn.disabled = false;
+        console.error(err);
+    }
 
 function closeModal() {
     document.getElementById('detail-modal').classList.add('hidden');

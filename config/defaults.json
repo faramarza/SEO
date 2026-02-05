@@ -34,5 +34,10 @@
     "exploratory_action_penalty": 3.0,
     "min_confidence_threshold": 0.65,
     "profit_to_cost_ratio_gate": 5.0
+  },
+  "ai": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "api_key_env": "OPENAI_API_KEY"
   }
 }

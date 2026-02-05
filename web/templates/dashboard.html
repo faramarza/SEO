@@ -130,7 +130,16 @@
     <div class="card full-width">
         <h3>Last Evaluation</h3>
         <p id="last-run">Never</p>
-        <button class="btn btn-primary" onclick="runEvaluation()">Run Evaluation</button>
+        <div class="eval-controls">
+            <button class="btn btn-primary" onclick="runEvaluation(false)" id="btn-run">Run Evaluation</button>
+            <button class="btn btn-secondary" onclick="runEvaluation(true)" id="btn-crawl">Run with Crawl</button>
+        </div>
+        <div id="job-progress" class="job-progress hidden" style="margin-top: 15px;">
+            <div class="progress-bar" style="height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                <div class="progress-fill" id="progress-fill" style="height: 100%; background: var(--accent-blue); width: 0%; transition: width 0.3s;"></div>
+            </div>
+            <span id="progress-text" style="font-size: 13px; color: var(--text-secondary); margin-top: 8px; display: block;">Starting...</span>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -205,10 +214,75 @@ async function loadDashboard() {
     }
 }
 
-async function runEvaluation() {
-    const res = await fetch('/api/run-evaluation', { method: 'POST' });
-    const data = await res.json();
-    alert(data.message);
+async function runEvaluation(withCrawl = false) {
+    const btnRun = document.getElementById('btn-run');
+    const btnCrawl = document.getElementById('btn-crawl');
+    const progressDiv = document.getElementById('job-progress');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+
+    // Disable buttons and show progress
+    btnRun.disabled = true;
+    btnCrawl.disabled = true;
+    progressDiv.classList.remove('hidden');
+    progressText.textContent = 'Starting evaluation...';
+    progressFill.style.width = '0%';
+
+    try {
+        const res = await fetch('/api/run-evaluation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ crawl: withCrawl })
+        });
+        const data = await res.json();
+
+        if (data.status === 'busy') {
+            progressText.textContent = 'Another job is already running...';
+            return;
+        }
+
+        // Poll for progress
+        const pollInterval = setInterval(async () => {
+            try {
+                const statusRes = await fetch('/api/job-status');
+                const status = await statusRes.json();
+
+                progressText.textContent = status.message || 'Processing...';
+
+                if (status.total > 0) {
+                    const pct = Math.round((status.progress / status.total) * 100);
+                    progressFill.style.width = pct + '%';
+                }
+
+                if (!status.running) {
+                    clearInterval(pollInterval);
+                    btnRun.disabled = false;
+                    btnCrawl.disabled = false;
+
+                    if (status.error) {
+                        progressText.textContent = 'Error: ' + status.error.split('\n')[0];
+                        progressFill.style.background = 'var(--accent-red)';
+                    } else {
+                        progressText.textContent = 'Evaluation complete! Refreshing...';
+                        progressFill.style.width = '100%';
+                        setTimeout(() => {
+                            loadDashboard();
+                            progressDiv.classList.add('hidden');
+                            progressFill.style.background = 'var(--accent-blue)';
+                        }, 1500);
+                    }
+                }
+            } catch (err) {
+                console.error('Poll error:', err);
+            }
+        }, 1000);
+
+    } catch (err) {
+        console.error('Failed to start evaluation:', err);
+        progressText.textContent = 'Failed to start evaluation';
+        btnRun.disabled = false;
+        btnCrawl.disabled = false;
+    }
 }
 
 async function loadAdsData() {

@@ -57,7 +57,11 @@ class GSCClient:
 
             credentials = service_account.Credentials.from_service_account_file(
                 self.credentials_path,
-                scopes=['https://www.googleapis.com/auth/webmasters.readonly']
+                scopes=[
+                    'https://www.googleapis.com/auth/webmasters.readonly',
+                    'https://www.googleapis.com/auth/webmasters',  # For URL inspection
+                    'https://www.googleapis.com/auth/indexing',    # For indexing requests
+                ]
             )
 
             self._service = build('searchconsole', 'v1', credentials=credentials)
@@ -308,3 +312,85 @@ class GSCClient:
         except Exception as e:
             print(f"GSC API error: {e}")
             return {}
+
+    def inspect_url(self, url: str) -> dict:
+        """
+        Inspect a URL using the URL Inspection API.
+
+        Returns indexing status and other details.
+        """
+        service = self._get_service()
+        if service is None:
+            return {"error": "GSC not configured"}
+
+        try:
+            result = service.urlInspection().index().inspect(
+                body={
+                    "inspectionUrl": url,
+                    "siteUrl": self.site_url
+                }
+            ).execute()
+
+            inspection = result.get("inspectionResult", {})
+            index_status = inspection.get("indexStatusResult", {})
+
+            return {
+                "url": url,
+                "verdict": index_status.get("verdict", "UNKNOWN"),
+                "coverage_state": index_status.get("coverageState", "UNKNOWN"),
+                "robotstxt_state": index_status.get("robotsTxtState", "UNKNOWN"),
+                "indexing_state": index_status.get("indexingState", "UNKNOWN"),
+                "last_crawl_time": index_status.get("lastCrawlTime"),
+                "page_fetch_state": index_status.get("pageFetchState", "UNKNOWN"),
+                "crawled_as": index_status.get("crawledAs", "UNKNOWN"),
+                "raw": inspection,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    def request_indexing(self, url: str) -> dict:
+        """
+        Request (re)indexing of a URL using the Indexing API.
+
+        Note: The Indexing API is primarily for JobPosting and BroadcastEvent
+        structured data. For other pages, use inspect_url() to check status.
+
+        Returns success status or error.
+        """
+        if self.credentials_path is None:
+            return {"success": False, "error": "Credentials not configured"}
+
+        try:
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+
+            credentials = service_account.Credentials.from_service_account_file(
+                self.credentials_path,
+                scopes=['https://www.googleapis.com/auth/indexing']
+            )
+
+            indexing_service = build('indexing', 'v3', credentials=credentials)
+
+            result = indexing_service.urlNotifications().publish(
+                body={
+                    "url": url,
+                    "type": "URL_UPDATED"  # or "URL_DELETED"
+                }
+            ).execute()
+
+            return {
+                "success": True,
+                "url": url,
+                "notification_time": result.get("urlNotificationMetadata", {}).get("latestUpdate", {}).get("notifyTime"),
+                "raw": result,
+            }
+        except Exception as e:
+            error_msg = str(e)
+            # Provide helpful message for common errors
+            if "Permission denied" in error_msg or "403" in error_msg:
+                return {
+                    "success": False,
+                    "error": "Indexing API requires special permissions. The URL Inspection API may be used instead.",
+                    "suggestion": "Use 'Inspect URL' to check indexing status, then manually request indexing in GSC."
+                }
+            return {"success": False, "error": error_msg}
