@@ -7,6 +7,11 @@
     "ga4": {
       "property_id": "342683367",
       "credentials_path": "credentials.json"
+    },
+    "google_ads": {
+      "config_path": "google-ads.yaml",
+      "customer_id": "YOUR_CUSTOMER_ID_HERE",
+      "brand_terms": ["alphabet trains", "alphabet-trains", "alphabettrains"]
     }
   },
   "action_cost_model": {
