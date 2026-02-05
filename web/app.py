@@ -10,6 +10,7 @@ Flask application providing operator interface per doctrine:
 """
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request
@@ -30,6 +31,16 @@ app = Flask(__name__,
 # Load config
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "defaults.json"
 DATA_PATH = Path(__file__).parent.parent / "data"
+
+# Global state for background jobs
+job_state = {
+    "running": False,
+    "type": None,
+    "progress": 0,
+    "total": 0,
+    "message": "",
+    "error": None,
+}
 
 
 def load_config():
@@ -387,24 +398,142 @@ def api_tracking():
 
 @app.route("/api/run-evaluation", methods=["POST"])
 def api_run_evaluation():
-    """Trigger a new evaluation run."""
-    import subprocess
-    import threading
+    """Trigger a new evaluation run with optional crawling."""
+    global job_state
+
+    if job_state["running"]:
+        return jsonify({"error": "A job is already running", "status": "busy"}), 400
+
+    data = request.json or {}
+    run_crawl = data.get("crawl", False)
 
     def run_workflow():
-        subprocess.run(
-            ["python", "-m", "src.workflows.full_evaluation", "--no-block"],
-            cwd=Path(__file__).parent.parent,
-        )
+        global job_state
+        try:
+            job_state["running"] = True
+            job_state["type"] = "evaluation"
+            job_state["progress"] = 0
+            job_state["total"] = 0
+            job_state["message"] = "Starting evaluation..."
+            job_state["error"] = None
+
+            from src.workflows.full_evaluation import FullEvaluationWorkflow, WorkflowConfig
+            from src.output.decision_formatter import OutputFormat
+
+            # Load config
+            if CONFIG_PATH.exists():
+                config = WorkflowConfig.from_json(CONFIG_PATH)
+            else:
+                config = WorkflowConfig(
+                    gsc_property="sc-domain:example.com",
+                    ga4_property_id="123456789",
+                    credentials_path="credentials.json",
+                )
+
+            config.block_on_tier_a = False
+
+            workflow = FullEvaluationWorkflow(config)
+
+            # Step 1: Load data
+            job_state["message"] = "Loading data from GSC/GA4..."
+            workflow.load_data(days=28)
+            job_state["total"] = len(workflow._assets)
+            job_state["message"] = f"Loaded {len(workflow._assets)} pages"
+
+            # Step 2: Crawl if requested
+            if run_crawl and workflow._assets:
+                job_state["message"] = "Crawling pages for canonical data..."
+                job_state["progress"] = 0
+
+                from src.crawlers.simple_crawler import SimpleCrawler
+
+                crawler = SimpleCrawler(timeout=10.0, max_concurrent=20)
+                urls = [asset.url for asset in workflow._assets]
+
+                # Crawl with progress tracking
+                import asyncio
+                import httpx
+
+                async def crawl_with_progress():
+                    global job_state
+                    semaphore = asyncio.Semaphore(20)
+                    completed = 0
+
+                    async def fetch_one(client, url):
+                        nonlocal completed
+                        async with semaphore:
+                            try:
+                                result = await crawler._fetch_url(client, url, semaphore)
+                                completed += 1
+                                job_state["progress"] = completed
+                                job_state["message"] = f"Crawling... {completed}/{len(urls)}"
+                                return result
+                            except Exception as e:
+                                completed += 1
+                                job_state["progress"] = completed
+                                return None
+
+                    async with httpx.AsyncClient(
+                        headers={"User-Agent": crawler.user_agent},
+                        follow_redirects=True,
+                    ) as client:
+                        tasks = [fetch_one(client, url) for url in urls]
+                        results = await asyncio.gather(*tasks)
+
+                    # Store results
+                    for result in results:
+                        if result and result.error is None:
+                            crawler._results[result.url.lower().rstrip('/')] = result
+
+                    return results
+
+                asyncio.run(crawl_with_progress())
+
+                # Enrich assets
+                total, enriched = crawler.enrich_assets(workflow._assets)
+                job_state["message"] = f"Enriched {enriched}/{total} pages with crawl data"
+
+            # Step 3: Run diagnostics
+            job_state["message"] = "Running diagnostics..."
+            if config.run_diagnostics:
+                workflow.run_diagnostics()
+
+            # Step 4: Build link graph
+            job_state["message"] = "Building link graph..."
+            workflow.build_link_graph()
+
+            # Step 5: Run evaluations
+            job_state["message"] = "Running evaluations..."
+            workflow.evaluate_all()
+
+            # Step 6: Save results
+            job_state["message"] = "Saving results..."
+            workflow.save_results_for_dashboard()
+
+            job_state["message"] = "Evaluation complete!"
+            job_state["progress"] = job_state["total"]
+
+        except Exception as e:
+            job_state["error"] = str(e)
+            job_state["message"] = f"Error: {e}"
+        finally:
+            job_state["running"] = False
 
     # Run in background thread
     thread = threading.Thread(target=run_workflow)
     thread.start()
 
     return jsonify({
-        "message": "Evaluation started. Refresh the page in a minute to see results.",
+        "message": "Evaluation started",
         "status": "running",
+        "crawl": run_crawl,
     })
+
+
+@app.route("/api/job-status")
+def api_job_status():
+    """Get current job status."""
+    return jsonify(job_state)
 
 
 @app.route("/api/debug")

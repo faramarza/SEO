@@ -5,6 +5,21 @@
 
 {% block content %}
 <div class="opportunities-page">
+    <div class="action-bar">
+        <button class="btn btn-primary" onclick="runEvaluation(false)" id="btn-run">
+            Run Evaluation
+        </button>
+        <button class="btn btn-secondary" onclick="runEvaluation(true)" id="btn-crawl">
+            Run with Crawl
+        </button>
+        <div id="job-progress" class="job-progress hidden">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <span id="progress-text">Starting...</span>
+        </div>
+    </div>
+
     <div class="filters">
         <select id="filter-action" onchange="filterOpportunities()">
             <option value="">All Action Types</option>
@@ -324,7 +339,97 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.sortable-header').forEach(th => {
         th.addEventListener('click', () => handleSort(th.dataset.sort));
     });
+    // Check if job is running on page load
+    checkJobStatus();
 });
+
+let jobPollInterval = null;
+
+async function runEvaluation(withCrawl) {
+    const btnRun = document.getElementById('btn-run');
+    const btnCrawl = document.getElementById('btn-crawl');
+    const progressDiv = document.getElementById('job-progress');
+
+    // Disable buttons
+    btnRun.disabled = true;
+    btnCrawl.disabled = true;
+    progressDiv.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/run-evaluation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ crawl: withCrawl }),
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetJobUI();
+            return;
+        }
+
+        showToast(withCrawl ? 'Evaluation with crawling started...' : 'Evaluation started...', 'info');
+
+        // Start polling for status
+        jobPollInterval = setInterval(checkJobStatus, 1000);
+
+    } catch (err) {
+        showToast('Failed to start evaluation', 'error');
+        resetJobUI();
+    }
+}
+
+async function checkJobStatus() {
+    try {
+        const res = await fetch('/api/job-status');
+        const status = await res.json();
+
+        const progressDiv = document.getElementById('job-progress');
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+
+        if (status.running) {
+            progressDiv.classList.remove('hidden');
+            document.getElementById('btn-run').disabled = true;
+            document.getElementById('btn-crawl').disabled = true;
+
+            const pct = status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
+            progressFill.style.width = pct + '%';
+            progressText.textContent = status.message || 'Processing...';
+
+            // Keep polling
+            if (!jobPollInterval) {
+                jobPollInterval = setInterval(checkJobStatus, 1000);
+            }
+        } else {
+            // Job finished
+            if (jobPollInterval) {
+                clearInterval(jobPollInterval);
+                jobPollInterval = null;
+            }
+
+            if (status.error) {
+                showToast('Error: ' + status.error, 'error');
+            } else if (status.message && status.message.includes('complete')) {
+                showToast('Evaluation complete! Refreshing...', 'success');
+                setTimeout(() => loadOpportunities(), 500);
+            }
+
+            resetJobUI();
+        }
+    } catch (err) {
+        // Ignore polling errors
+    }
+}
+
+function resetJobUI() {
+    document.getElementById('btn-run').disabled = false;
+    document.getElementById('btn-crawl').disabled = false;
+    document.getElementById('job-progress').classList.add('hidden');
+    document.getElementById('progress-fill').style.width = '0%';
+}
 
 loadOpportunities();
 </script>
