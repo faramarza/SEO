@@ -531,6 +531,17 @@ class FullEvaluationWorkflow:
                 for c in constraint_result.constraints
             ],
             "extracted_queries": constraint_result.extracted_queries[:5],  # Top 5
+            # Full query data with metrics for actionability
+            "top_queries": [
+                {
+                    "query": q.query,
+                    "impressions": q.impressions,
+                    "clicks": q.clicks,
+                    "position": round(q.position, 1),
+                    "ctr": round(q.ctr * 100, 2),  # As percentage
+                }
+                for q in asset.gsc.top_queries[:10]  # Top 10 queries
+            ],
             # Ads-enriched fields
             "has_ads_data": constraint_result.has_ads_data,
             "monetization_score": round(constraint_result.monetization_score, 2),

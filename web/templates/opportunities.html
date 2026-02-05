@@ -294,14 +294,38 @@ function showDetail(idx) {
         </div>
     ` : '';
 
-    // Build extracted queries section
-    const queries = opp.extracted_queries || [];
-    const queriesHtml = queries.length > 0 ? `
+    // Build GSC query data table
+    const topQueries = opp.top_queries || [];
+    const queriesHtml = topQueries.length > 0 ? `
         <div class="detail-section">
-            <h4>Top Queries</h4>
-            <div class="extracted-queries">
-                ${queries.map(q => `<span class="query-tag">${q}</span>`).join('')}
-            </div>
+            <h4>GSC Query Data</h4>
+            <table class="query-data-table">
+                <thead>
+                    <tr>
+                        <th>Query</th>
+                        <th>Impr</th>
+                        <th>Clicks</th>
+                        <th>Position</th>
+                        <th>CTR</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${topQueries.map(q => `
+                        <tr class="${q.position <= 10 ? 'page-one' : q.position <= 20 ? 'page-two' : 'page-three-plus'}">
+                            <td class="query-text">${q.query}</td>
+                            <td class="number">${q.impressions.toLocaleString()}</td>
+                            <td class="number">${q.clicks.toLocaleString()}</td>
+                            <td class="number position-cell">${q.position}</td>
+                            <td class="number">${q.ctr}%</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <p class="query-legend">
+                <span class="legend-item page-one">● Page 1 (1-10)</span>
+                <span class="legend-item page-two">● Page 2 (11-20)</span>
+                <span class="legend-item page-three-plus">● Page 3+ (21+)</span>
+            </p>
         </div>
     ` : '';
 
