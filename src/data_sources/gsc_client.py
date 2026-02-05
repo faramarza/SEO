@@ -266,8 +266,42 @@ class GSCClient:
                     'impressions': int(row.get('impressions', 0)),
                     'ctr': float(row.get('ctr', 0.0)),
                     'position': float(row.get('position', 0.0)),
-                    'queries': [],  # Would need separate call per page
+                    'queries': [],
                 }
+
+            # Fetch query data for all pages in one call
+            query_request = {
+                'startDate': start_date.isoformat(),
+                'endDate': end_date.isoformat(),
+                'dimensions': ['page', 'query'],
+                'rowLimit': 25000,
+            }
+
+            query_response = service.searchanalytics().query(
+                siteUrl=self.site_url,
+                body=query_request
+            ).execute()
+
+            if 'rows' in query_response:
+                for row in query_response['rows']:
+                    url = row['keys'][0]
+                    query = row['keys'][1]
+                    if url in result:
+                        result[url]['queries'].append({
+                            'query': query,
+                            'clicks': int(row.get('clicks', 0)),
+                            'impressions': int(row.get('impressions', 0)),
+                            'ctr': float(row.get('ctr', 0.0)),
+                            'position': float(row.get('position', 0.0)),
+                        })
+
+                # Sort queries by impressions (descending) and keep top 10
+                for url in result:
+                    result[url]['queries'] = sorted(
+                        result[url]['queries'],
+                        key=lambda x: x['impressions'],
+                        reverse=True
+                    )[:10]
 
             return result
 
