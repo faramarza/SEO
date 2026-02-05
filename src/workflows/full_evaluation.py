@@ -239,7 +239,7 @@ class FullEvaluationWorkflow:
                 clicks_28d=gsc.get("clicks", 0),
                 impressions_28d=gsc.get("impressions", 0),
                 avg_position_28d=gsc.get("position", 100),
-                avg_ctr_28d=gsc.get("ctr", 0),
+                ctr_28d=gsc.get("ctr", 0),
                 top_queries=[
                     TopQuery(
                         query=q["query"],

@@ -283,7 +283,7 @@ class ConstraintDetector:
         position = asset.gsc.avg_position_28d
         impressions = asset.gsc.impressions_28d
         clicks = asset.gsc.clicks_28d
-        actual_ctr = asset.gsc.avg_ctr_28d
+        actual_ctr = asset.gsc.ctr_28d
 
         # Calculate visibility score (inverse of position, normalized)
         if position <= 3:
