@@ -31,7 +31,7 @@
             <h3>Governor Posture</h3>
             <div id="posture-display" class="posture-large">
                 <span class="posture-mode">—</span>
-                <p class="posture-desc">Loading...</p>
+                <p class="posture-desc" id="posture-desc"></p>
             </div>
         </div>
 
@@ -109,6 +109,13 @@ async function loadDashboard() {
         if (postureEl && data.posture) {
             postureEl.querySelector('.posture-mode').textContent = data.posture.mode;
             postureEl.className = 'posture-large posture-' + data.posture.color;
+            const descEl = document.getElementById('posture-desc');
+            const descriptions = {
+                'PRESERVATION': 'Protecting existing rankings and traffic',
+                'ACTIVE': 'Actively pursuing growth opportunities',
+                'MONITORING': 'Observing results from recent actions',
+            };
+            descEl.textContent = descriptions[data.posture.mode] || '';
         }
 
         // Config

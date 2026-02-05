@@ -445,37 +445,80 @@ def api_run_evaluation():
                 job_state["message"] = "Crawling pages for canonical data..."
                 job_state["progress"] = 0
 
-                from src.crawlers.simple_crawler import SimpleCrawler
+                from src.crawlers.simple_crawler import SimpleCrawler, CrawlResult, HTMLMetaParser
 
-                crawler = SimpleCrawler(timeout=10.0, max_concurrent=20)
+                crawler = SimpleCrawler(timeout=5.0, max_concurrent=50)
                 urls = [asset.url for asset in workflow._assets]
 
-                # Crawl with progress tracking
+                # Fast crawl with progress tracking
                 import asyncio
                 import httpx
+                from urllib.parse import urljoin
 
                 async def crawl_with_progress():
                     global job_state
-                    semaphore = asyncio.Semaphore(20)
+                    semaphore = asyncio.Semaphore(50)
                     completed = 0
 
                     async def fetch_one(client, url):
                         nonlocal completed
                         async with semaphore:
                             try:
-                                result = await crawler._fetch_url(client, url, semaphore)
-                                completed += 1
-                                job_state["progress"] = completed
-                                job_state["message"] = f"Crawling... {completed}/{len(urls)}"
-                                return result
+                                response = await client.get(url, timeout=5.0)
+
+                                if response.status_code == 200:
+                                    parser = HTMLMetaParser()
+                                    try:
+                                        parser.feed(response.text)
+                                    except:
+                                        pass
+
+                                    canonical = parser.canonical_url
+                                    if canonical and not canonical.startswith(("http://", "https://")):
+                                        canonical = urljoin(url, canonical)
+
+                                    result = CrawlResult(
+                                        url=url,
+                                        status_code=response.status_code,
+                                        canonical_url=canonical,
+                                        indexable=parser.is_indexable,
+                                        title=parser.title.strip(),
+                                        h1=parser.h1.strip(),
+                                        word_count=parser.get_word_count(),
+                                    )
+                                else:
+                                    result = CrawlResult(
+                                        url=url,
+                                        status_code=response.status_code,
+                                        canonical_url=None,
+                                        indexable=True,
+                                        title="",
+                                        h1="",
+                                        word_count=0,
+                                        error=f"HTTP {response.status_code}",
+                                    )
                             except Exception as e:
-                                completed += 1
-                                job_state["progress"] = completed
-                                return None
+                                result = CrawlResult(
+                                    url=url,
+                                    status_code=0,
+                                    canonical_url=None,
+                                    indexable=True,
+                                    title="",
+                                    h1="",
+                                    word_count=0,
+                                    error=str(e)[:50],
+                                )
+
+                            completed += 1
+                            job_state["progress"] = completed
+                            if completed % 20 == 0 or completed == len(urls):
+                                job_state["message"] = f"Crawling... {completed}/{len(urls)}"
+                            return result
 
                     async with httpx.AsyncClient(
-                        headers={"User-Agent": crawler.user_agent},
+                        headers={"User-Agent": "AlphabetTrains-SEO-Crawler/1.0"},
                         follow_redirects=True,
+                        limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
                     ) as client:
                         tasks = [fetch_one(client, url) for url in urls]
                         results = await asyncio.gather(*tasks)
