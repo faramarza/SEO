@@ -75,6 +75,8 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- html2pdf library for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script>
 let allOpportunities = [];
 let currentSort = { field: 'expected_value', direction: 'desc' };
@@ -397,6 +399,9 @@ function showDetail(idx) {
         ` : ''}
         <div class="detail-actions">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-secondary" onclick="exportToPDF(${idx})">
+                <span class="btn-icon">📄</span> Export PDF
+            </button>
             <button class="btn btn-primary" onclick="approveAction(${idx})">
                 <span class="btn-icon">✓</span> Approve for Implementation
             </button>
@@ -408,6 +413,130 @@ function showDetail(idx) {
 
 function closeModal() {
     document.getElementById('detail-modal').classList.add('hidden');
+}
+
+function exportToPDF(idx) {
+    const opp = allOpportunities[idx];
+    const modalBody = document.getElementById('modal-body');
+
+    // Create a clean version for PDF
+    const pdfContent = document.createElement('div');
+    pdfContent.innerHTML = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h1 style="color: #1a1a2e; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;">
+                SEO Opportunity Report
+            </h1>
+            <p style="color: #666; margin-bottom: 20px;">Generated: ${new Date().toLocaleString()}</p>
+
+            <h2 style="color: #4f46e5;">${opp.recommended_action?.replace(/_/g, ' ') || 'Opportunity'}</h2>
+
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">URL</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${opp.url}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Expected Value</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">$${(opp.expected_value || 0).toFixed(2)}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Confidence</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Primary Constraint</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${opp.primary_constraint?.replace(/_/g, ' ') || 'None'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Risk Level</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${opp.risk_level || 'low'}</td>
+                </tr>
+            </table>
+
+            <h3 style="color: #1a1a2e; margin-top: 20px;">Constraint Scores</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">
+                        <strong>Demand</strong><br/>
+                        <span style="font-size: 24px; color: #4f46e5;">${((opp.demand_score || 0) * 100).toFixed(0)}%</span>
+                    </td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">
+                        <strong>Intent</strong><br/>
+                        <span style="font-size: 24px; color: #4f46e5;">${((opp.intent_score || 0) * 100).toFixed(0)}%</span>
+                    </td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: center;">
+                        <strong>Visibility</strong><br/>
+                        <span style="font-size: 24px; color: #4f46e5;">${((opp.visibility_score || 0) * 100).toFixed(0)}%</span>
+                    </td>
+                </tr>
+            </table>
+
+            ${opp.constraints && opp.constraints.length > 0 ? `
+            <h3 style="color: #1a1a2e; margin-top: 20px;">Detected Constraints</h3>
+            ${opp.constraints.map(c => `
+                <div style="border: 1px solid #ddd; padding: 12px; margin: 10px 0; border-radius: 5px;">
+                    <strong style="color: ${c.severity === 'critical' ? '#dc2626' : c.severity === 'high' ? '#ea580c' : '#ca8a04'};">
+                        ${c.constraint_type?.replace(/_/g, ' ')} (${c.severity})
+                    </strong>
+                    <p style="margin: 8px 0;">${c.description}</p>
+                    <p style="color: #059669; font-style: italic;">${c.recommended_action}</p>
+                </div>
+            `).join('')}
+            ` : ''}
+
+            ${opp.top_queries && opp.top_queries.length > 0 ? `
+            <h3 style="color: #1a1a2e; margin-top: 20px;">GSC Query Data</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <tr style="background: #f5f5f5;">
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Query</th>
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">Impressions</th>
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">Clicks</th>
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">Position</th>
+                    <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">CTR</th>
+                </tr>
+                ${opp.top_queries.map(q => `
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${q.query}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${q.impressions.toLocaleString()}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${q.clicks.toLocaleString()}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right; color: ${q.position <= 10 ? '#059669' : q.position <= 20 ? '#ca8a04' : '#dc2626'};">${q.position}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${q.ctr}%</td>
+                </tr>
+                `).join('')}
+            </table>
+            ` : ''}
+
+            <h3 style="color: #1a1a2e; margin-top: 20px;">Implementation Steps</h3>
+            <ol style="line-height: 1.8;">
+                ${(opp.implementation_steps || []).map(step => `<li>${step}</li>`).join('')}
+            </ol>
+
+            <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; color: #666; font-size: 12px;">
+                <p>Report generated by Alphabet Trains SEO Governor</p>
+            </div>
+        </div>
+    `;
+
+    // Generate filename from URL
+    const urlPath = new URL(opp.url).pathname.replace(/\//g, '-').replace(/^-|-$/g, '') || 'opportunity';
+    const filename = `seo-opportunity-${urlPath}-${new Date().toISOString().slice(0,10)}.pdf`;
+
+    // PDF options
+    const opt = {
+        margin: 10,
+        filename: filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    // Generate PDF
+    html2pdf().set(opt).from(pdfContent).save().then(() => {
+        showToast('PDF exported successfully!', 'success');
+    }).catch(err => {
+        console.error('PDF export failed:', err);
+        showToast('Failed to export PDF', 'error');
+    });
 }
 
 async function quickApprove(idx) {
