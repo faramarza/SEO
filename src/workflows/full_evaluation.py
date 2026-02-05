@@ -40,6 +40,7 @@ from src.ledger.action_ledger import ActionLedger, ActionFingerprint, ActionReco
 from src.output.decision_formatter import DecisionFormatter, OutputFormat
 from src.crawlers.page_inventory import PageInventory
 from src.crawlers.link_graph import LinkGraph
+from src.crawlers.beamusup_importer import BeamUsUpImporter
 
 
 @dataclass
@@ -257,6 +258,27 @@ class FullEvaluationWorkflow:
             return AssetType.CATEGORY  # Likely homepage or main category
         else:
             return AssetType.OTHER
+
+    def _load_crawl_data(self, csv_path: str) -> None:
+        """
+        Load crawl data from Beam Us Up CSV and enrich assets.
+
+        Args:
+            csv_path: Path to Beam Us Up CSV export
+        """
+        print(f"Loading crawl data from {csv_path}...")
+
+        importer = BeamUsUpImporter()
+        try:
+            url_count = importer.load_csv(Path(csv_path))
+            print(f"  Loaded: {url_count} URLs from crawl")
+
+            total, enriched = importer.enrich_assets(self._assets)
+            print(f"  Enriched: {enriched}/{total} assets with crawl data")
+        except FileNotFoundError:
+            print(f"  Warning: Crawl data file not found: {csv_path}")
+        except Exception as e:
+            print(f"  Warning: Failed to load crawl data: {e}")
 
     def run_diagnostics(self) -> dict:
         """
@@ -669,12 +691,13 @@ class FullEvaluationWorkflow:
 
         return output
 
-    def run(self, days: int = 28) -> str:
+    def run(self, days: int = 28, crawl_data_path: Optional[str] = None) -> str:
         """
         Run the complete evaluation workflow.
 
         Args:
             days: Days of data to analyze
+            crawl_data_path: Optional path to Beam Us Up CSV export
 
         Returns:
             Formatted output report
@@ -688,6 +711,11 @@ class FullEvaluationWorkflow:
         # Step 1: Load data
         self.load_data(days=days)
         print()
+
+        # Step 1b: Enrich with crawl data if provided
+        if crawl_data_path:
+            self._load_crawl_data(crawl_data_path)
+            print()
 
         # Step 2: Run diagnostics
         if self.config.run_diagnostics:
@@ -738,6 +766,8 @@ def main():
                         help="Skip tracking diagnostics")
     parser.add_argument("--no-block", action="store_true",
                         help="Don't block on Tier A diagnostic failures")
+    parser.add_argument("--crawl-data", type=str,
+                        help="Path to Beam Us Up CSV export for canonical/indexability data")
 
     args = parser.parse_args()
 
@@ -764,7 +794,10 @@ def main():
 
     # Run workflow
     workflow = FullEvaluationWorkflow(config)
-    output = workflow.run(days=args.days)
+
+    # Load crawl data if provided
+    crawl_data_path = args.crawl_data
+    output = workflow.run(days=args.days, crawl_data_path=crawl_data_path)
 
     print(output)
 
