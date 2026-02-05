@@ -41,6 +41,8 @@ class ConstraintType(str, Enum):
     CANNIBALIZATION = "cannibalization"  # Multiple pages competing
     ECONOMIC_INVALID = "economic_invalid"  # Economics don't work
     # Ads-specific constraints
+    WEAK_FUNNEL_ROUTING = "weak_funnel_routing"  # Blog with traffic but no downstream routing
+    # Ads-specific constraints
     IMPRESSION_SHARE_BUDGET = "impression_share_budget"  # Lost IS due to budget
     IMPRESSION_SHARE_RANK = "impression_share_rank"  # Lost IS due to rank
     PMAX_ABSORPTION = "pmax_absorption"  # PMax absorbing Search traffic
@@ -130,6 +132,10 @@ class ConstraintDetector:
         Detect constraints for a single page.
 
         Evaluates all dimensions independently - no single dimension nullifies others.
+
+        Blog/Guide pages get additional routing constraint evaluation:
+        - Traffic must not increase value without funnel contribution
+        - Weak routing is flagged as a constraint
         """
         constraints = []
         ads_constraints = []
@@ -151,6 +157,11 @@ class ConstraintDetector:
         if all_assets:
             coverage_constraints = self._evaluate_coverage(asset, all_assets)
             constraints.extend(coverage_constraints)
+
+        # E2. Blog routing constraints
+        if asset.asset_type == AssetType.BLOG:
+            routing_constraints = self._evaluate_blog_routing(asset, all_assets or [])
+            constraints.extend(routing_constraints)
 
         # F. Ads Constraints (if Ads data available)
         has_ads_data = False
@@ -541,6 +552,74 @@ class ConstraintDetector:
 
         result["constraints"] = constraints
         return result
+
+    def _evaluate_blog_routing(
+        self,
+        asset: PageAsset,
+        all_assets: list[PageAsset],
+    ) -> list[ConstraintSignal]:
+        """
+        Evaluate routing quality for blog/guide pages.
+
+        Blogs are routing infrastructure, not revenue assets.
+        A blog with traffic but no measurable routing to revenue assets
+        has LOW value regardless of traffic.
+        """
+        constraints = []
+
+        # Count outlinks to revenue pages (products/categories)
+        # We approximate using the outlinks field and asset type distribution
+        revenue_pages = [a for a in all_assets
+                         if a.asset_type in (AssetType.PRODUCT, AssetType.CATEGORY)]
+        total_revenue_pages = len(revenue_pages)
+
+        # If blog has meaningful traffic but few outlinks, it's poorly routed
+        has_traffic = asset.ga4.sessions_28d >= 10 or asset.gsc.impressions_28d >= 500
+        has_few_outlinks = asset.outlinks < 3
+
+        if has_traffic and has_few_outlinks:
+            severity = "high" if asset.gsc.impressions_28d >= 2000 else "medium"
+            constraints.append(ConstraintSignal(
+                constraint_type=ConstraintType.WEAK_FUNNEL_ROUTING,
+                severity=severity,
+                description=(
+                    f"Blog has {asset.gsc.impressions_28d:,} impressions and "
+                    f"{asset.ga4.sessions_28d} sessions but only {asset.outlinks} outlinks. "
+                    f"Traffic without routing to revenue pages has low value."
+                ),
+                evidence={
+                    "impressions": asset.gsc.impressions_28d,
+                    "sessions": asset.ga4.sessions_28d,
+                    "outlinks": asset.outlinks,
+                    "total_revenue_pages_on_site": total_revenue_pages,
+                },
+                recommended_action=(
+                    "Add internal links to relevant product/category pages. "
+                    "Every blog must have at least one primary 'next step' link."
+                ),
+                reversibility="immediate",
+            ))
+
+        # If blog has traffic but no engagement, routing won't help much
+        if has_traffic and asset.ga4.engagement_rate_28d < 0.2 and asset.ga4.sessions_28d > 0:
+            constraints.append(ConstraintSignal(
+                constraint_type=ConstraintType.INTENT_MISMATCH,
+                severity="medium",
+                description=(
+                    f"Blog has traffic ({asset.ga4.sessions_28d} sessions) but "
+                    f"very low engagement ({asset.ga4.engagement_rate_28d:.0%}). "
+                    f"Users are not engaging with content, limiting routing effectiveness."
+                ),
+                evidence={
+                    "sessions": asset.ga4.sessions_28d,
+                    "engagement_rate": asset.ga4.engagement_rate_28d,
+                    "bounce_rate": asset.ga4.bounce_rate_28d,
+                },
+                recommended_action="Re-order sections to surface intent earlier. Review content relevance.",
+                reversibility="immediate",
+            ))
+
+        return constraints
 
     def _classify(
         self,

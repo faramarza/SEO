@@ -335,7 +335,9 @@ def api_ai_recommend():
     except:
         pass
 
-    # Build prompt for OpenAI
+    # Build prompt for OpenAI with asset-type-specific constraints
+    asset_type = opportunity.get("asset_type", "other")
+
     constraint_info = ""
     if opportunity.get("primary_constraint"):
         constraint_info = f"\nPrimary Constraint: {opportunity.get('primary_constraint')}"
@@ -349,13 +351,108 @@ def api_ai_recommend():
         for q in opportunity.get("top_queries", [])[:5]:
             query_info += f"\n- \"{q.get('query')}\" (pos: {q.get('position')}, impr: {q.get('impressions')})"
 
+    routing_info = ""
+    if opportunity.get("routing_data"):
+        rd = opportunity["routing_data"]
+        routing_info = "\nRouting Data:"
+        if rd.get("current_routing_paths"):
+            routing_info += f"\n- Current paths: {', '.join(rd['current_routing_paths'])}"
+        if rd.get("recommended_destinations"):
+            routing_info += f"\n- Recommended destinations: {', '.join(rd['recommended_destinations'])}"
+        if rd.get("destination_rationale"):
+            routing_info += f"\n- Rationale: {rd['destination_rationale']}"
+        if rd.get("links_to_remove"):
+            routing_info += f"\n- Links to remove: {', '.join(rd['links_to_remove'])}"
+        routing_info += f"\n- Routing quality: {rd.get('routing_quality', 'unknown')}"
+
+    # Asset-type-specific suggestion rules
+    if asset_type == "product":
+        allowed_suggestions = """
+ALLOWED suggestions for PRODUCT pages:
+- Meta title/description improvements
+- Schema improvements
+- Internal links INTO the product
+- Content clarity and trust signals
+- Canonical/indexability fixes
+
+FORBIDDEN suggestions for PRODUCT pages (DO NOT suggest these):
+- Broad informational expansion
+- Blog-style content additions"""
+        focus_areas = """Focus on:
+1. Title tag optimization (include target keyword, keep under 60 chars)
+2. Meta description optimization (compelling, include CTA, under 160 chars)
+3. Schema/structured data improvements
+4. Content clarity and trust signals
+5. Any critical indexability issues"""
+
+    elif asset_type == "category":
+        allowed_suggestions = """
+ALLOWED suggestions for CATEGORY pages:
+- Title and H1 alignment with commercial intent
+- Intro content that aids selection and conversion
+- Internal links from blogs into the category
+- Indexability and filtering controls
+
+FORBIDDEN suggestions for CATEGORY pages (DO NOT suggest these):
+- Educational blog-style narratives
+- Traffic-only keyword expansion"""
+        focus_areas = """Focus on:
+1. Title/H1 alignment with commercial intent
+2. Meta description optimization for click-through
+3. Intro content that aids product selection
+4. Internal linking improvements (receiving links from blogs)
+5. Indexability and filtering issues"""
+
+    elif asset_type == "blog":
+        allowed_suggestions = """
+ALLOWED suggestions for BLOG/GUIDE pages (ONLY these):
+- Internal linking changes (primary focus)
+- "Next step" blocks linking to products/categories
+- Re-ordering sections to surface intent earlier
+- Adding or removing product/category references
+- Clarifying buying considerations (not sales copy)
+- Removing irrelevant or misleading links
+
+ABSOLUTELY FORBIDDEN suggestions for BLOG/GUIDE pages (NEVER suggest these):
+- New keywords to target
+- Traffic-driven meta title changes
+- Conversion copy or sales language
+- Expanding topical breadth
+- "Create more content" recommendations
+- ANY suggestion justified by traffic alone
+
+If you cannot provide routing-focused suggestions, return NO ACTION."""
+        focus_areas = """Focus EXCLUSIVELY on routing quality:
+1. Internal links to product/category pages (add, improve, or remove)
+2. "Next step" CTA blocks directing users to revenue pages
+3. Section re-ordering to surface purchase intent earlier
+4. Removing irrelevant or misleading outlinks
+5. Link destination quality (prefer high-converting targets)
+
+You MUST explicitly state:
+- Current routing paths
+- Recommended destination(s) and why
+- What links to remove or deprioritize
+- Never justify any action by traffic alone"""
+    else:
+        allowed_suggestions = ""
+        focus_areas = """Focus on:
+1. Title tag optimization (include target keyword, keep under 60 chars)
+2. Meta description optimization (compelling, include CTA, under 160 chars)
+3. H1/H2 structure improvements
+4. Content suggestions for better keyword targeting
+5. Any critical issues to fix immediately"""
+
     prompt = f"""You are an expert SEO consultant analyzing a page for optimization opportunities.
 
 URL: {url}
+Asset Type: {asset_type.upper()}
 Recommended Action: {opportunity.get('recommended_action', 'Unknown')}
 Expected Value: ${opportunity.get('expected_value', 0):.2f}
 {constraint_info}
 {query_info}
+{routing_info}
+{allowed_suggestions}
 
 Current Page SEO Elements:
 - Title Tag: {parser.title.strip() or '[Missing]'}
@@ -366,12 +463,7 @@ Current Page SEO Elements:
 Above-the-fold Content Preview:
 {parser.above_fold[:1500]}
 
-Based on this analysis, provide specific, actionable SEO recommendations. Focus on:
-1. Title tag optimization (include target keyword, keep under 60 chars)
-2. Meta description optimization (compelling, include CTA, under 160 chars)
-3. H1/H2 structure improvements
-4. Content suggestions for better keyword targeting
-5. Any critical issues to fix immediately
+{focus_areas}
 
 Format your response as a structured JSON with these fields:
 {{
@@ -403,7 +495,7 @@ Format your response as a structured JSON with these fields:
             json={
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": "You are an expert SEO consultant. Always respond with valid JSON."},
+                    {"role": "system", "content": f"You are an expert SEO consultant. This page is classified as {asset_type.upper()}. Strictly follow the allowed/forbidden suggestion rules for this asset type. For blog pages, focus exclusively on routing quality — never suggest traffic expansion or title optimization. Always respond with valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.7,

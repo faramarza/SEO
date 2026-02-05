@@ -224,8 +224,31 @@ class TitleMetaEvaluator:
         """
         Full evaluation for title/meta test opportunity.
 
+        Asset-type constraints:
+        - PRODUCT: May suggest meta title/description improvements
+        - CATEGORY: May suggest title and H1 alignment with commercial intent
+        - BLOG/GUIDE: Must NEVER suggest traffic-driven meta title changes or new keywords
+        - OTHER: Standard evaluation
+
         Returns TitleTestResult with variants and recommendation.
         """
+        # BLOG/GUIDE pages: title tests are NOT allowed per doctrine
+        # Blogs must never get traffic-driven meta title changes
+        if asset.asset_type == AssetType.BLOG:
+            return TitleTestResult(
+                url=asset.url,
+                current_title=current_title,
+                current_issues=[],
+                should_test=False,
+                variants=[],
+                recommended_variant=None,
+                expected_ctr_lift=0.0,
+                confidence=1.0,
+                risk_level="low",
+                measurement_plan={},
+                rollback_plan="N/A — Blog title tests not permitted. Focus on routing quality instead.",
+            )
+
         # Analyze current title
         issues = self.analyze_current_title(current_title, asset)
 

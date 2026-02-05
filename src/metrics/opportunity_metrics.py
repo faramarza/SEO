@@ -471,16 +471,23 @@ def calculate_assist_value(
     avg_product_conversion_rate: float = 0.03,
     avg_product_aov: float = 53.19,
     gross_margin: float = 0.27,
+    destination_conversion_rates: Optional[list[float]] = None,
+    site_baseline_conversion_rate: float = 0.02,
 ) -> AssistValueResult:
     """
     Calculate Assist Value for blogs/guides.
 
-    AV = DemandExposure × FCP × RCC × Margin × Confidence − RiskPenalty
+    AV = Demand Exposure (impressions) × FCP × DCQ × Margin − Risk
 
     Where:
-    - DemandExposure: Sessions × engagement (reach of the content)
-    - FCP: Funnel Completion Probability (likelihood of reaching revenue page)
-    - RCC: Revenue Contribution Coefficient (quality of downstream targets)
+    - Demand Exposure: Impressions (not sessions) — traffic alone must never create value
+    - FCP: Funnel Contribution Probability — probability an organic session reaches
+           a product or category page via this blog
+    - DCQ: Downstream Conversion Quality — relative conversion strength of
+           destinations vs site baseline
+
+    High traffic + weak routing = LOW value.
+    Lower traffic + strong routing = HIGH value.
 
     Args:
         asset: PageAsset (should be blog/guide type)
@@ -489,77 +496,99 @@ def calculate_assist_value(
         avg_product_conversion_rate: Average conversion rate of product pages
         avg_product_aov: Average order value
         gross_margin: Gross margin percentage
+        destination_conversion_rates: Conversion rates of linked destination pages
+        site_baseline_conversion_rate: Site-wide baseline conversion rate
     """
-    # 1. Demand Exposure
-    sessions = asset.ga4.sessions_28d
-    engagement_rate = asset.ga4.engagement_rate_28d or 0.5
-    demand_exposure = sessions * engagement_rate
+    # 1. Demand Exposure — use IMPRESSIONS, not sessions
+    # Traffic (sessions) alone must never create value for blogs
+    impressions = asset.gsc.impressions_28d
+    engagement_rate = asset.ga4.engagement_rate_28d or 0.0
+    demand_exposure = impressions  # Raw impressions as demand signal
 
-    # 2. Funnel Completion Probability (FCP)
-    # Based on internal linking structure
+    # 2. Funnel Contribution Probability (FCP)
+    # Probability that an organic session on this blog reaches a product/category page
     total_revenue_links = internal_links_to_products + internal_links_to_categories
 
     if total_revenue_links == 0:
-        # No links to revenue pages - very low FCP
-        fcp = 0.02  # 2% chance of natural navigation
+        # No links to revenue pages — blog has no routing, therefore near-zero value
+        fcp = 0.01  # 1% natural navigation (very low)
     elif total_revenue_links <= 2:
-        fcp = 0.08
+        fcp = 0.06
     elif total_revenue_links <= 5:
-        fcp = 0.15
+        fcp = 0.12
     else:
-        fcp = 0.25  # Well-linked content
+        fcp = 0.20  # Well-linked content
 
-    # Adjust for engagement (engaged users more likely to continue)
+    # Engagement adjusts FCP: engaged users are more likely to follow links
     fcp *= (0.5 + engagement_rate)
-    fcp = min(0.4, fcp)  # Cap at 40%
+    fcp = min(0.40, fcp)  # Cap at 40%
 
-    # 3. Revenue Contribution Coefficient (RCC)
-    # Quality of downstream targets
-    # Products are better targets than categories
-    if total_revenue_links == 0:
-        rcc = 0.0
+    # 3. Downstream Conversion Quality (DCQ)
+    # Relative conversion strength of destinations vs site baseline
+    if destination_conversion_rates and site_baseline_conversion_rate > 0:
+        # Use actual destination conversion rates
+        avg_dest_rate = sum(destination_conversion_rates) / len(destination_conversion_rates)
+        dcq = avg_dest_rate / site_baseline_conversion_rate
+        dcq = min(3.0, dcq)  # Cap at 3x baseline
+    elif total_revenue_links == 0:
+        dcq = 0.0  # No destinations — no conversion quality
     else:
+        # Estimate from link composition: products convert better than categories
         product_weight = internal_links_to_products / total_revenue_links
         category_weight = internal_links_to_categories / total_revenue_links
-        rcc = (product_weight * 1.0) + (category_weight * 0.5)
+        # Products ~1.5x baseline, categories ~0.8x baseline
+        dcq = (product_weight * 1.5) + (category_weight * 0.8)
 
     # 4. Calculate expected downstream value
-    expected_funnel_sessions = demand_exposure * fcp
-    expected_conversions = expected_funnel_sessions * avg_product_conversion_rate * rcc
+    # Demand Exposure (impressions) → estimated sessions → funnel sessions → conversions
+    estimated_ctr = asset.gsc.ctr_28d if asset.gsc.ctr_28d > 0 else 0.02
+    estimated_sessions = impressions * estimated_ctr
+    expected_funnel_sessions = estimated_sessions * fcp
+    # DCQ adjusts the effective conversion rate relative to baseline
+    effective_conversion_rate = site_baseline_conversion_rate * dcq
+    expected_conversions = expected_funnel_sessions * effective_conversion_rate
     expected_revenue = expected_conversions * avg_product_aov
     expected_profit = expected_revenue * gross_margin
 
-    # 5. Confidence discount
-    # Lower confidence for:
-    # - Low engagement
-    # - No direct revenue attribution
-    # - Sparse internal linking
+    # 5. Confidence
+    # Routing quality drives confidence, not traffic volume
     link_confidence = min(1.0, total_revenue_links / 5)
-    confidence = 0.3 + (engagement_rate * 0.3) + (link_confidence * 0.2)
-    confidence = min(0.7, confidence)  # Cap at 70% for assist value
+    routing_quality = fcp * dcq  # Combined routing signal
+    confidence = 0.3 + (routing_quality * 0.3) + (link_confidence * 0.2)
+    # Engagement adds minor confidence (not a primary driver)
+    confidence += engagement_rate * 0.1
+    confidence = min(0.70, confidence)  # Cap at 70% for assist value
 
     # 6. Risk penalty
-    # Blogs have inherent uncertainty in attribution
-    risk_penalty = expected_profit * 0.25  # 25% risk for blogs
+    # Higher risk when routing is weak
+    base_risk = expected_profit * 0.25  # 25% base risk for blogs
+    routing_risk = expected_profit * 0.15 * (1.0 - min(1.0, fcp * 5))  # Extra risk for weak routing
+    risk_penalty = base_risk + routing_risk
 
     # 7. Final Assist Value
+    # High traffic + weak routing = LOW value (fcp and dcq will be near zero)
+    # Lower traffic + strong routing = HIGH value (fcp and dcq amplify)
     assist_value = (expected_profit * confidence) - risk_penalty
 
     return AssistValueResult(
         assist_value=assist_value,
         demand_exposure=demand_exposure,
         funnel_completion_prob=fcp,
-        revenue_contribution_coef=rcc,
+        revenue_contribution_coef=dcq,
         confidence=confidence,
         risk_penalty=risk_penalty,
         breakdown={
-            "sessions": sessions,
+            "impressions": impressions,
+            "estimated_ctr": estimated_ctr,
+            "estimated_sessions": estimated_sessions,
             "engagement_rate": engagement_rate,
             "internal_links_products": internal_links_to_products,
             "internal_links_categories": internal_links_to_categories,
+            "dcq": dcq,
             "expected_funnel_sessions": expected_funnel_sessions,
             "expected_conversions": expected_conversions,
             "expected_revenue": expected_revenue,
             "expected_profit": expected_profit,
+            "routing_quality": routing_quality,
         },
     )

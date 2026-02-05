@@ -182,7 +182,31 @@ class AgenticGovernor:
         MODE 1: Preservation evaluation using RAIP.
 
         For pages with existing revenue, protect and optimize.
+
+        Asset-type constraints:
+        - PRODUCT: Primary value source is direct revenue (RAIP)
+        - CATEGORY: RAIP + demand visibility
+        - BLOG/GUIDE: Must NOT use RAIP — blogs use Assist Value only
+        - Traffic may increase confidence but NOT override negative RAIP
         """
+        # BLOG pages must NOT use RAIP — enforce asset-type rule
+        if asset.asset_type == AssetType.BLOG:
+            return EvaluationResult(
+                url=asset.url,
+                asset_type=asset.asset_type,
+                mode="preservation",
+                decision=DecisionType.NO_ACTION,
+                score_type="RAIP",
+                score_value=0.0,
+                confidence=0.0,
+                priority=calculate_priority(0, 0, ActionType.NO_ACTION),
+                evidence=self._build_evidence(asset),
+                action_plan=None,
+                learning_insight=None,
+                why_no_action="Blog pages must not use RAIP. Use Assist Value (AV) via Funnel Alignment mode.",
+                raw_metrics={},
+            )
+
         # Check for revenue signal
         if not asset.ga4.revenue_28d > 0:
             return EvaluationResult(
@@ -297,7 +321,30 @@ class AgenticGovernor:
         MODE 2: Opportunity discovery using EVUV.
 
         For pages with suppressed demand (high impressions, low position/clicks).
+
+        Asset-type constraints:
+        - PRODUCT: EVUV fully applicable
+        - CATEGORY: EVUV applicable, traffic relevant only with commercial intent
+        - BLOG/GUIDE: Must NOT use EVUV — blogs use Assist Value only
         """
+        # BLOG pages must NOT use EVUV — enforce asset-type rule
+        if asset.asset_type == AssetType.BLOG:
+            return EvaluationResult(
+                url=asset.url,
+                asset_type=asset.asset_type,
+                mode="opportunity",
+                decision=DecisionType.NO_ACTION,
+                score_type="EVUV",
+                score_value=0.0,
+                confidence=0.0,
+                priority=calculate_priority(0, 0, ActionType.NO_ACTION),
+                evidence=self._build_evidence(asset),
+                action_plan=None,
+                learning_insight=None,
+                why_no_action="Blog pages must not use EVUV. Use Assist Value (AV) via Funnel Alignment mode.",
+                raw_metrics={},
+            )
+
         # Calculate EVUV
         evuv_result = calculate_evuv(
             asset,
@@ -393,8 +440,14 @@ class AgenticGovernor:
         MODE 3: Funnel alignment using Assist Value.
 
         For blogs/guides that should route traffic to revenue pages.
+
+        Decision enforcement:
+        - If AV ≤ threshold AND no routing improvements possible:
+          Value = LOW, Recommendation = NO_ACTION
+        - Do not propose traffic or content expansion for blogs
+        - Blog optimization must focus on routing quality, not traffic expansion
         """
-        # Calculate Assist Value
+        # Calculate Assist Value (uses impressions for demand exposure, not sessions)
         av_result = calculate_assist_value(
             asset,
             internal_links_to_products=internal_links_to_products,
@@ -424,14 +477,28 @@ class AgenticGovernor:
             has_revenue=False,
         )
 
-        # Decision logic
-        if adjusted_av < self.config.min_av_value:
+        # Decision logic with blog-specific enforcement
+        has_routing = av_result.funnel_completion_prob >= 0.05
+        can_improve_routing = internal_links_to_products == 0 or internal_links_to_categories == 0
+
+        if adjusted_av < self.config.min_av_value and not can_improve_routing:
+            # AV below threshold AND no routing improvements possible → NO ACTION
+            decision = DecisionType.NO_ACTION
+            why_no_action = (
+                f"Assist Value (${adjusted_av:.2f}) below threshold and no routing improvements possible. "
+                f"Do not propose traffic or content expansion."
+            )
+            action_plan = None
+        elif adjusted_av < self.config.min_av_value:
             decision = DecisionType.NO_ACTION
             why_no_action = f"Assist Value (${adjusted_av:.2f}) below minimum threshold."
             action_plan = None
-        elif av_result.funnel_completion_prob < 0.05:
+        elif not has_routing:
             decision = DecisionType.NO_ACTION
-            why_no_action = "Funnel completion probability too low. Needs more internal links."
+            why_no_action = (
+                "Funnel completion probability too low. Blog needs internal links "
+                "to product/category pages before it can generate value."
+            )
             action_plan = ActionPlan(
                 steps=["Add internal links to product/category pages before re-evaluation"],
                 rollback=[],
@@ -441,8 +508,8 @@ class AgenticGovernor:
             why_no_action = "Action proposed. Blog attribution is inherently uncertain."
             action_plan = ActionPlan(
                 steps=[
-                    f"Ensure ≥5 internal links (2 category, 3 product)",
-                    "Add clear CTA referencing Alphabet Trains products",
+                    "Improve internal linking to revenue pages (focus on routing quality)",
+                    "Add 'next step' block directing users to relevant product/category",
                     "Monitor funnel flow for 28 days",
                 ],
                 rollback=["Remove added links if no improvement"],

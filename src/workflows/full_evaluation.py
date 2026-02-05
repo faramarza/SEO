@@ -549,9 +549,15 @@ class FullEvaluationWorkflow:
         }
 
         candidates = []
+        is_blog = asset.asset_type == AssetType.BLOG
+
+        # BLOG ENFORCEMENT: Blogs must NOT generate visibility or title test candidates
+        # Blogs are routing infrastructure — only internal linking changes are permitted
 
         # If visibility is blocked but demand exists, prioritize visibility fix
-        if (constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
+        # (NOT for blogs — blogs must not get traffic-expansion recommendations)
+        if (not is_blog
+            and constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
             and constraint_result.demand_score >= 0.4):
             # Calculate expected value based on potential, not current revenue
             potential_clicks = asset.gsc.impressions_28d * 0.05  # ~5% CTR at good position
@@ -567,8 +573,9 @@ class FullEvaluationWorkflow:
             })
 
         # If CTR is suppressed, prioritize title test
-        if constraint_result.primary_constraint == ConstraintType.CTR_SUPPRESSED:
-            # Find the constraint for evidence
+        # (NOT for blogs — blogs must never get traffic-driven meta title changes)
+        if (not is_blog
+            and constraint_result.primary_constraint == ConstraintType.CTR_SUPPRESSED):
             ctr_constraint = next(
                 (c for c in constraint_result.constraints if c.constraint_type == ConstraintType.CTR_SUPPRESSED),
                 None
@@ -587,7 +594,8 @@ class FullEvaluationWorkflow:
                 })
 
         # Handle Ads-specific constraints (if Ads data available)
-        if constraint_result.has_ads_data:
+        # (Not applicable to blogs — blogs do not get paid recommendations)
+        if constraint_result.has_ads_data and not is_blog:
             for ads_constraint in constraint_result.ads_constraints:
                 if ads_constraint.constraint_type == ConstraintType.IMPRESSION_SHARE_BUDGET:
                     # Budget constraint - high value opportunity
@@ -663,8 +671,8 @@ class FullEvaluationWorkflow:
                 })
 
         # Run specialized evaluators
-        # Title/Meta evaluation
-        if asset.gsc.impressions_28d >= 500:
+        # Title/Meta evaluation (NOT for blogs — blogs must not get title/keyword changes)
+        if asset.gsc.impressions_28d >= 500 and not is_blog:
             title_result = self.title_evaluator.evaluate(asset)
             # TitleTestResult uses should_test and expected_ctr_lift
             if title_result.should_test and title_result.recommended_variant:
@@ -707,9 +715,9 @@ class FullEvaluationWorkflow:
 
         # Internal link evaluation
         link_result = self.link_evaluator.evaluate(asset, self._assets)
-        # LinkReallocationResult has all standard attributes
+        # LinkReallocationResult has all standard attributes including routing assessment
         if link_result.recommended_action != "NO_ACTION":
-            candidates.append({
+            link_candidate = {
                 "mode": "FUNNEL_ALIGNMENT",
                 "action": link_result.recommended_action,
                 "expected_value": link_result.expected_lift * asset.ga4.sessions_28d * 2,
@@ -717,7 +725,19 @@ class FullEvaluationWorkflow:
                 "risk_level": link_result.risk_level,
                 "implementation_steps": link_result.implementation_steps,
                 "source": "link_evaluator",
-            })
+            }
+            # For blog pages, include routing details (required per output requirements)
+            if is_blog:
+                link_candidate["routing_data"] = {
+                    "current_routing_paths": link_result.current_routing_paths,
+                    "recommended_destinations": link_result.recommended_destinations,
+                    "destination_rationale": link_result.destination_rationale,
+                    "links_to_remove": link_result.links_to_remove,
+                }
+                if link_result.routing_assessment:
+                    link_candidate["routing_data"]["routing_quality"] = link_result.routing_assessment.routing_quality
+                    link_candidate["routing_data"]["has_primary_destination"] = link_result.routing_assessment.has_primary_destination
+            candidates.append(link_candidate)
 
         # Apply learning rules to adjust confidence
         for candidate in candidates:
@@ -765,6 +785,7 @@ class FullEvaluationWorkflow:
             if best["confidence"] < self.config.min_confidence_threshold:
                 return {
                     "url": asset.url,
+                    "asset_type": asset.asset_type.value,
                     "recommended_action": "OBSERVE_ONLY",
                     "mode": best["mode"],
                     "expected_value": best["expected_value"],
@@ -778,6 +799,7 @@ class FullEvaluationWorkflow:
 
             result = {
                 "url": asset.url,
+                "asset_type": asset.asset_type.value,
                 "recommended_action": best["action"],
                 "mode": best["mode"],
                 "expected_value": best["expected_value"],
@@ -797,11 +819,16 @@ class FullEvaluationWorkflow:
             if "rollback_plan" in best:
                 result["rollback_plan"] = best["rollback_plan"]
 
+            # For blog recommendations, include routing details per output requirements
+            if is_blog and "routing_data" in best:
+                result["routing_data"] = best["routing_data"]
+
             return result
 
         # No action recommended - but still include constraint data!
         return {
             "url": asset.url,
+            "asset_type": asset.asset_type.value,
             "recommended_action": "NO_ACTION",
             "mode": "PRESERVATION",
             "expected_value": 0,
