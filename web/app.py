@@ -281,21 +281,32 @@ def api_ai_recommend():
     except Exception as e:
         return jsonify({"error": f"Failed to fetch page: {e}"}), 400
 
-    # Parse HTML for SEO elements
+    # Parse HTML for SEO elements with full context extraction
     from html.parser import HTMLParser
+    import re as re_module
 
     class SEOParser(HTMLParser):
         def __init__(self):
             super().__init__()
             self.title = ""
             self.meta_description = ""
+            self.canonical_url = ""
             self.h1s = []
             self.h2s = []
             self.in_title = False
             self.in_h1 = False
             self.in_h2 = False
+            self.in_p = False
+            self.in_a = False
             self.above_fold = ""
             self.char_count = 0
+            self.paragraphs = []  # Intro paragraphs
+            self.current_paragraph = ""
+            self.internal_links = []  # Above-fold internal links
+            self.current_link_href = ""
+            self.current_link_text = ""
+            self.cta_texts = []  # CTA-like elements above the fold
+            self.first_heading = ""  # First visible heading
 
         def handle_starttag(self, tag, attrs):
             attrs_dict = dict(attrs)
@@ -305,8 +316,22 @@ def api_ai_recommend():
                 self.in_h1 = True
             elif tag == "h2":
                 self.in_h2 = True
+            elif tag == "p" and self.char_count < 3000:
+                self.in_p = True
+                self.current_paragraph = ""
             elif tag == "meta" and attrs_dict.get("name", "").lower() == "description":
                 self.meta_description = attrs_dict.get("content", "")
+            elif tag == "link" and attrs_dict.get("rel", "").lower() == "canonical":
+                self.canonical_url = attrs_dict.get("href", "")
+            elif tag == "a" and self.char_count < 3000:
+                href = attrs_dict.get("href", "")
+                self.in_a = True
+                self.current_link_href = href
+                self.current_link_text = ""
+                # Detect CTA-like buttons/links
+                css_class = attrs_dict.get("class", "").lower()
+                if any(w in css_class for w in ["btn", "cta", "button", "action"]):
+                    self.cta_texts.append({"href": href, "text": "", "class": css_class})
 
         def handle_endtag(self, tag):
             if tag == "title":
@@ -315,17 +340,43 @@ def api_ai_recommend():
                 self.in_h1 = False
             elif tag == "h2":
                 self.in_h2 = False
+            elif tag == "p":
+                if self.in_p and self.current_paragraph.strip():
+                    self.paragraphs.append(self.current_paragraph.strip())
+                self.in_p = False
+            elif tag == "a":
+                if self.in_a and self.current_link_href and self.char_count < 3000:
+                    # Only capture internal links (relative or same domain)
+                    href = self.current_link_href
+                    if href.startswith("/") or not href.startswith("http"):
+                        self.internal_links.append({
+                            "href": href,
+                            "text": self.current_link_text.strip(),
+                        })
+                    # Fill CTA text if this was a CTA
+                    if self.cta_texts and self.cta_texts[-1]["href"] == href:
+                        self.cta_texts[-1]["text"] = self.current_link_text.strip()
+                self.in_a = False
 
         def handle_data(self, data):
             if self.in_title:
                 self.title += data
             elif self.in_h1:
                 self.h1s.append(data.strip())
+                if not self.first_heading:
+                    self.first_heading = data.strip()
             elif self.in_h2:
                 self.h2s.append(data.strip())
+                if not self.first_heading:
+                    self.first_heading = data.strip()
 
-            # Capture first ~2000 chars of text content
-            if self.char_count < 2000:
+            if self.in_p:
+                self.current_paragraph += data
+            if self.in_a:
+                self.current_link_text += data
+
+            # Capture above-the-fold text content
+            if self.char_count < 3000:
                 self.above_fold += data
                 self.char_count += len(data)
 
@@ -335,9 +386,52 @@ def api_ai_recommend():
     except:
         pass
 
-    # Build prompt for OpenAI with asset-type-specific constraints
+    # ── Required context validation ──────────────────────────────
+    # The AI must never propose page-level changes without sufficient context.
+    page_context = {
+        "has_url": bool(url),
+        "has_asset_type": bool(opportunity.get("asset_type")),
+        "has_title": bool(parser.title.strip()),
+        "has_h1": len(parser.h1s) > 0,
+        "has_above_fold": len(parser.above_fold.strip()) > 100,
+        "has_performance": bool(
+            opportunity.get("top_queries")
+            or opportunity.get("demand_score") is not None
+        ),
+    }
+
+    missing_context = [k for k, v in page_context.items() if not v]
+
+    # If critical context is missing, return NO ACTION
+    if len(missing_context) >= 3:
+        return jsonify({
+            "success": True,
+            "url": url,
+            "page_analysis": {
+                "title": parser.title.strip(),
+                "meta_description": parser.meta_description,
+                "h1s": parser.h1s[:3],
+                "h2s": parser.h2s[:5],
+            },
+            "recommendations": {
+                "no_action": True,
+                "reason": "Insufficient page context for safe recommendation.",
+                "missing_context": missing_context,
+                "title_recommendation": None,
+                "meta_description_recommendation": None,
+                "heading_recommendations": [],
+                "content_suggestions": [],
+                "critical_issues": [
+                    f"Cannot generate recommendations: missing {', '.join(c.replace('has_', '') for c in missing_context)}"
+                ],
+                "priority_actions": ["Re-run evaluation or verify page is accessible"],
+            },
+        })
+
+    # Build prompt for OpenAI with full contextual constraints
     asset_type = opportunity.get("asset_type", "other")
 
+    # ── 1) Performance context ───────────────────────────────────
     constraint_info = ""
     if opportunity.get("primary_constraint"):
         constraint_info = f"\nPrimary Constraint: {opportunity.get('primary_constraint')}"
@@ -349,7 +443,20 @@ def api_ai_recommend():
     if opportunity.get("top_queries"):
         query_info = "\nTop Search Queries (from GSC):"
         for q in opportunity.get("top_queries", [])[:5]:
-            query_info += f"\n- \"{q.get('query')}\" (pos: {q.get('position')}, impr: {q.get('impressions')})"
+            query_info += (
+                f"\n- \"{q.get('query')}\" "
+                f"(pos: {q.get('position')}, impr: {q.get('impressions')}, "
+                f"clicks: {q.get('clicks', 'N/A')}, ctr: {q.get('ctr', 'N/A')}%)"
+            )
+
+    performance_info = ""
+    if opportunity.get("demand_score") is not None:
+        performance_info = f"""
+Performance Context:
+- Avg Position: {opportunity.get('visibility_score', 'N/A')}
+- Demand Score: {opportunity.get('demand_score', 'N/A')}
+- Intent Score: {opportunity.get('intent_score', 'N/A')}
+- Confidence: {opportunity.get('confidence', 'N/A')}"""
 
     routing_info = ""
     if opportunity.get("routing_data"):
@@ -365,11 +472,27 @@ def api_ai_recommend():
             routing_info += f"\n- Links to remove: {', '.join(rd['links_to_remove'])}"
         routing_info += f"\n- Routing quality: {rd.get('routing_quality', 'unknown')}"
 
-    # Asset-type-specific suggestion rules
+    # ── 2) Enhanced page context ─────────────────────────────────
+    intro_paragraphs = parser.paragraphs[:3]
+    intro_text = "\n".join(intro_paragraphs) if intro_paragraphs else "[No intro paragraphs captured]"
+
+    above_fold_links = ""
+    if parser.internal_links:
+        above_fold_links = "\nAbove-the-fold Internal Links:"
+        for link in parser.internal_links[:10]:
+            above_fold_links += f"\n- [{link['text'] or '(no text)'}] → {link['href']}"
+
+    cta_info = ""
+    if parser.cta_texts:
+        cta_info = "\nAbove-the-fold CTAs:"
+        for cta in parser.cta_texts[:5]:
+            cta_info += f"\n- \"{cta['text'] or '(empty)'}\" → {cta['href']}"
+
+    # ── 3) Asset-type-specific suggestion rules ──────────────────
     if asset_type == "product":
         allowed_suggestions = """
 ALLOWED suggestions for PRODUCT pages:
-- Meta title/description improvements
+- Meta title/description improvements (must reference current H1 and above-fold content)
 - Schema improvements
 - Internal links INTO the product
 - Content clarity and trust signals
@@ -378,12 +501,6 @@ ALLOWED suggestions for PRODUCT pages:
 FORBIDDEN suggestions for PRODUCT pages (DO NOT suggest these):
 - Broad informational expansion
 - Blog-style content additions"""
-        focus_areas = """Focus on:
-1. Title tag optimization (include target keyword, keep under 60 chars)
-2. Meta description optimization (compelling, include CTA, under 160 chars)
-3. Schema/structured data improvements
-4. Content clarity and trust signals
-5. Any critical indexability issues"""
 
     elif asset_type == "category":
         allowed_suggestions = """
@@ -396,12 +513,6 @@ ALLOWED suggestions for CATEGORY pages:
 FORBIDDEN suggestions for CATEGORY pages (DO NOT suggest these):
 - Educational blog-style narratives
 - Traffic-only keyword expansion"""
-        focus_areas = """Focus on:
-1. Title/H1 alignment with commercial intent
-2. Meta description optimization for click-through
-3. Intro content that aids product selection
-4. Internal linking improvements (receiving links from blogs)
-5. Indexability and filtering issues"""
 
     elif asset_type == "blog":
         allowed_suggestions = """
@@ -422,65 +533,85 @@ ABSOLUTELY FORBIDDEN suggestions for BLOG/GUIDE pages (NEVER suggest these):
 - ANY suggestion justified by traffic alone
 
 If you cannot provide routing-focused suggestions, return NO ACTION."""
-        focus_areas = """Focus EXCLUSIVELY on routing quality:
-1. Internal links to product/category pages (add, improve, or remove)
-2. "Next step" CTA blocks directing users to revenue pages
-3. Section re-ordering to surface purchase intent earlier
-4. Removing irrelevant or misleading outlinks
-5. Link destination quality (prefer high-converting targets)
-
-You MUST explicitly state:
-- Current routing paths
-- Recommended destination(s) and why
-- What links to remove or deprioritize
-- Never justify any action by traffic alone"""
     else:
         allowed_suggestions = ""
-        focus_areas = """Focus on:
-1. Title tag optimization (include target keyword, keep under 60 chars)
-2. Meta description optimization (compelling, include CTA, under 160 chars)
-3. H1/H2 structure improvements
-4. Content suggestions for better keyword targeting
-5. Any critical issues to fix immediately"""
 
-    prompt = f"""You are an expert SEO consultant analyzing a page for optimization opportunities.
+    # ── 4) Build the prompt ──────────────────────────────────────
+    prompt = f"""You are an expert SEO consultant analyzing a specific page. You must only recommend changes grounded in the actual page context provided below. Generic advice is forbidden.
 
+=== PAGE IDENTITY ===
 URL: {url}
 Asset Type: {asset_type.upper()}
 Recommended Action: {opportunity.get('recommended_action', 'Unknown')}
 Expected Value: ${opportunity.get('expected_value', 0):.2f}
 {constraint_info}
+{performance_info}
 {query_info}
-{routing_info}
-{allowed_suggestions}
 
-Current Page SEO Elements:
+=== CURRENT METADATA ===
 - Title Tag: {parser.title.strip() or '[Missing]'}
 - Meta Description: {parser.meta_description or '[Missing]'}
-- H1 Tags: {', '.join(parser.h1s[:3]) or '[None found]'}
-- H2 Tags: {', '.join(parser.h2s[:5]) or '[None found]'}
+- Canonical URL: {parser.canonical_url or '[Not found]'}
+- H1: {', '.join(parser.h1s[:3]) or '[None found]'}
+- H2s: {', '.join(parser.h2s[:5]) or '[None found]'}
+- First Visible Heading: {parser.first_heading or '[None]'}
+
+=== CONTENT CONTEXT ===
+Intro Paragraphs:
+{intro_text[:1000]}
+{above_fold_links}
+{cta_info}
+{routing_info}
 
 Above-the-fold Content Preview:
 {parser.above_fold[:1500]}
 
-{focus_areas}
+=== ASSET-TYPE RULES ===
+{allowed_suggestions}
+
+=== MANDATORY CONSTRAINTS ===
+
+META & TITLE CONSTRAINTS:
+- You MUST explain how any title/description change improves alignment with the CURRENT H1 and above-fold content.
+- You MUST NOT introduce new intent unless explicitly justified with evidence from the query data.
+- You MUST NOT use generic CTAs ("Learn now", "Discover", "Explore") unless they already appear on the page.
+- Every title/description suggestion MUST include a rationale grounded in:
+  (a) intent clarity relative to the current H1
+  (b) CTR vs position data from the query context
+  (c) differentiation from competing SERP snippets
+- If these conditions cannot be met, set the recommendation to null.
+
+CONTENT SUGGESTION CONSTRAINTS:
+- You MUST NOT suggest adding sections, expanding comparisons, answering FAQs, or targeting new queries
+  unless you can explicitly state: (a) what user confusion exists, (b) where it appears in the current page,
+  and (c) how the change improves funnel routing or intent clarity.
+- If you cannot ground a content suggestion in the page context above, do not include it.
+
+OUTPUT CONSTRAINTS:
+- Every recommendation MUST reference the current H1.
+- Every recommendation MUST reference above-the-fold content.
+- Every recommendation MUST explain alignment or misalignment with current page state.
+- Every recommendation MUST state why the current version is insufficient.
+- Generic advice is forbidden. If you cannot provide specific, grounded recommendations, return null for that field.
 
 Format your response as a structured JSON with these fields:
 {{
   "title_recommendation": {{
-    "current": "...",
-    "suggested": "...",
-    "reasoning": "..."
+    "current": "the exact current title",
+    "suggested": "the suggested title or null if no change needed",
+    "h1_alignment": "how the suggestion aligns with the current H1",
+    "reasoning": "grounded rationale referencing CTR, position, and above-fold content"
   }},
   "meta_description_recommendation": {{
-    "current": "...",
-    "suggested": "...",
-    "reasoning": "..."
+    "current": "the exact current meta description",
+    "suggested": "the suggested description or null if no change needed",
+    "h1_alignment": "how the suggestion aligns with the current H1",
+    "reasoning": "grounded rationale referencing intent and above-fold content"
   }},
-  "heading_recommendations": ["..."],
-  "content_suggestions": ["..."],
-  "critical_issues": ["..."],
-  "priority_actions": ["..."]
+  "heading_recommendations": ["each must reference current heading structure"],
+  "content_suggestions": ["each must identify specific user confusion and where it occurs on the page"],
+  "critical_issues": ["issues with evidence from the page context"],
+  "priority_actions": ["actions with explicit grounding in the data above"]
 }}"""
 
     # Call OpenAI API
@@ -495,7 +626,7 @@ Format your response as a structured JSON with these fields:
             json={
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": f"You are an expert SEO consultant. This page is classified as {asset_type.upper()}. Strictly follow the allowed/forbidden suggestion rules for this asset type. For blog pages, focus exclusively on routing quality — never suggest traffic expansion or title optimization. Always respond with valid JSON."},
+                    {"role": "system", "content": f"You are an expert SEO consultant. This page is classified as {asset_type.upper()}. You must ONLY recommend changes grounded in the actual page content and data provided. Generic advice is forbidden. Every suggestion must reference the current H1 and above-the-fold content. Strictly follow the allowed/forbidden suggestion rules for this asset type. For blog pages, focus exclusively on routing quality. Always respond with valid JSON. If you cannot provide grounded recommendations for a field, set it to null."},
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.7,
@@ -528,8 +659,13 @@ Format your response as a structured JSON with these fields:
             "page_analysis": {
                 "title": parser.title.strip(),
                 "meta_description": parser.meta_description,
+                "canonical_url": parser.canonical_url,
                 "h1s": parser.h1s[:3],
                 "h2s": parser.h2s[:5],
+                "first_heading": parser.first_heading,
+                "intro_paragraphs": parser.paragraphs[:3],
+                "internal_links_count": len(parser.internal_links),
+                "cta_count": len(parser.cta_texts),
             },
             "recommendations": recommendations,
         })

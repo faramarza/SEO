@@ -490,22 +490,41 @@ async function getAIRecommendations(idx) {
         }
 
         const rec = data.recommendations;
+
+        // Handle NO ACTION response from context validation
+        if (rec.no_action) {
+            content.innerHTML = `
+                <div class="ai-recommendation">
+                    <div class="rec-item critical">
+                        <h5>No Action</h5>
+                        <p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>
+                        ${rec.missing_context ? `<p><strong>Missing:</strong> ${rec.missing_context.join(', ')}</p>` : ''}
+                    </div>
+                </div>
+            `;
+            btn.innerHTML = '<span class="btn-icon">⚠️</span> Insufficient Context';
+            btn.disabled = false;
+            return;
+        }
+
         content.innerHTML = `
             <div class="ai-recommendation">
-                ${rec.title_recommendation ? `
+                ${rec.title_recommendation && rec.title_recommendation.suggested ? `
                 <div class="rec-item">
                     <h5>Title Tag</h5>
                     <p><strong>Current:</strong> ${rec.title_recommendation.current || data.page_analysis?.title || '[Missing]'}</p>
-                    <p><strong>Suggested:</strong> <code>${rec.title_recommendation.suggested || 'N/A'}</code></p>
+                    <p><strong>Suggested:</strong> <code>${rec.title_recommendation.suggested}</code></p>
+                    ${rec.title_recommendation.h1_alignment ? `<p><strong>H1 Alignment:</strong> ${rec.title_recommendation.h1_alignment}</p>` : ''}
                     <p class="reasoning">${rec.title_recommendation.reasoning || ''}</p>
                 </div>
                 ` : ''}
 
-                ${rec.meta_description_recommendation ? `
+                ${rec.meta_description_recommendation && rec.meta_description_recommendation.suggested ? `
                 <div class="rec-item">
                     <h5>Meta Description</h5>
                     <p><strong>Current:</strong> ${rec.meta_description_recommendation.current || data.page_analysis?.meta_description || '[Missing]'}</p>
-                    <p><strong>Suggested:</strong> <code>${rec.meta_description_recommendation.suggested || 'N/A'}</code></p>
+                    <p><strong>Suggested:</strong> <code>${rec.meta_description_recommendation.suggested}</code></p>
+                    ${rec.meta_description_recommendation.h1_alignment ? `<p><strong>H1 Alignment:</strong> ${rec.meta_description_recommendation.h1_alignment}</p>` : ''}
                     <p class="reasoning">${rec.meta_description_recommendation.reasoning || ''}</p>
                 </div>
                 ` : ''}
@@ -524,6 +543,15 @@ async function getAIRecommendations(idx) {
                     <h5>Critical Issues</h5>
                     <ul>
                         ${rec.critical_issues.map(i => `<li>${i}</li>`).join('')}
+                    </ul>
+                </div>
+                ` : ''}
+
+                ${rec.heading_recommendations && rec.heading_recommendations.length > 0 ? `
+                <div class="rec-item">
+                    <h5>Heading Recommendations</h5>
+                    <ul>
+                        ${rec.heading_recommendations.map(h => `<li>${h}</li>`).join('')}
                     </ul>
                 </div>
                 ` : ''}
