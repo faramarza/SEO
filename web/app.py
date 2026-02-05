@@ -464,6 +464,7 @@ def api_ads():
                 "cost": round(c.cost, 2),
                 "conversions": round(c.conversions, 1),
                 "conversion_value": round(c.conversion_value, 2),
+                "roas": round(c.conversion_value / c.cost, 2) if c.cost > 0 else 0,
                 "impression_share": c.search_impression_share,
             })
             total_impressions += c.impressions

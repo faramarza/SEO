@@ -104,6 +104,7 @@
                         <th>Impressions</th>
                         <th>Clicks</th>
                         <th>Cost</th>
+                        <th>ROAS</th>
                     </tr>
                 </thead>
                 <tbody id="ads-tbody"></tbody>
@@ -229,6 +230,7 @@ async function loadAdsData() {
                         <td>${c.impressions.toLocaleString()}</td>
                         <td>${c.clicks.toLocaleString()}</td>
                         <td>$${c.cost.toLocaleString()}</td>
+                        <td>${c.roas ? c.roas.toFixed(1) + 'x' : '—'}</td>
                     </tr>
                 `).join('');
             }
