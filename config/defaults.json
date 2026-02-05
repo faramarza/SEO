@@ -10,7 +10,7 @@
     },
     "google_ads": {
       "config_path": "google-ads.yaml",
-      "customer_id": "YOUR_CUSTOMER_ID_HERE",
+      "customer_id": "9662499348",
       "brand_terms": ["alphabet trains", "alphabet-trains", "alphabettrains"]
     }
   },
