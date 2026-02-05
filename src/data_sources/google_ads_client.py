@@ -233,6 +233,10 @@ class GoogleAdsClient:
     Read-only Google Ads API client.
 
     IMPORTANT: This client only reads data. It never calls mutate endpoints.
+
+    Supports two authentication methods:
+    1. OAuth2 with google-ads.yaml (recommended for user accounts)
+    2. Service Account with credentials.json (for automation)
     """
 
     def __init__(
@@ -240,18 +244,27 @@ class GoogleAdsClient:
         credentials_path: Optional[str] = None,
         customer_id: Optional[str] = None,
         brand_terms: Optional[list[str]] = None,
+        use_service_account: bool = False,
+        developer_token: Optional[str] = None,
+        login_customer_id: Optional[str] = None,
     ):
         """
         Initialize the Google Ads client.
 
         Args:
-            credentials_path: Path to google-ads.yaml config file
+            credentials_path: Path to google-ads.yaml OR service account JSON
             customer_id: Google Ads customer ID (without dashes)
             brand_terms: List of brand terms to identify brand queries
+            use_service_account: If True, use service account auth instead of OAuth
+            developer_token: Required for API access (get from Google Ads UI)
+            login_customer_id: MCC account ID if using manager account
         """
         self.credentials_path = credentials_path
         self.customer_id = customer_id
         self.brand_terms = [t.lower() for t in (brand_terms or [])]
+        self.use_service_account = use_service_account
+        self.developer_token = developer_token
+        self.login_customer_id = login_customer_id
         self._client = None
         self._initialized = False
 
@@ -265,6 +278,23 @@ class GoogleAdsClient:
         try:
             from google.ads.googleads.client import GoogleAdsClient as GAdsClient
 
+            if self.use_service_account:
+                # Service Account authentication (like GSC/GA4)
+                return self._init_service_account_client(GAdsClient)
+            else:
+                # OAuth2 authentication (google-ads.yaml)
+                return self._init_oauth_client(GAdsClient)
+
+        except ImportError:
+            print("google-ads package not installed. Run: pip install google-ads")
+        except Exception as e:
+            print(f"Failed to initialize Google Ads client: {e}")
+
+        return False
+
+    def _init_oauth_client(self, GAdsClient) -> bool:
+        """Initialize using OAuth2 (google-ads.yaml)."""
+        try:
             if self.credentials_path and Path(self.credentials_path).exists():
                 self._client = GAdsClient.load_from_storage(self.credentials_path)
                 return True
@@ -274,12 +304,47 @@ class GoogleAdsClient:
                 if default_path.exists():
                     self._client = GAdsClient.load_from_storage(str(default_path))
                     return True
-        except ImportError:
-            print("google-ads package not installed. Run: pip install google-ads")
         except Exception as e:
-            print(f"Failed to initialize Google Ads client: {e}")
-
+            print(f"OAuth init failed: {e}")
         return False
+
+    def _init_service_account_client(self, GAdsClient) -> bool:
+        """Initialize using Service Account (credentials.json)."""
+        try:
+            from google.oauth2 import service_account
+
+            if not self.developer_token:
+                print("Error: developer_token required for Google Ads API")
+                return False
+
+            if not self.credentials_path or not Path(self.credentials_path).exists():
+                print(f"Error: Service account file not found: {self.credentials_path}")
+                return False
+
+            # Load service account credentials
+            credentials = service_account.Credentials.from_service_account_file(
+                self.credentials_path,
+                scopes=["https://www.googleapis.com/auth/adwords"],
+            )
+
+            # If using domain-wide delegation, impersonate a user
+            # credentials = credentials.with_subject("user@yourdomain.com")
+
+            # Build config dict for GoogleAdsClient
+            config = {
+                "developer_token": self.developer_token,
+                "use_proto_plus": True,
+            }
+
+            if self.login_customer_id:
+                config["login_customer_id"] = self.login_customer_id
+
+            self._client = GAdsClient(credentials=credentials, **config)
+            return True
+
+        except Exception as e:
+            print(f"Service account init failed: {e}")
+            return False
 
     def _is_brand_query(self, query: str) -> bool:
         """Check if query contains brand terms."""

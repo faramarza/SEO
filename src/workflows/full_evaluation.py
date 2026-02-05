@@ -77,6 +77,9 @@ class WorkflowConfig:
     # Google Ads settings (optional - absence is neutral)
     google_ads_customer_id: Optional[str] = None
     google_ads_config_path: Optional[str] = None
+    google_ads_developer_token: Optional[str] = None
+    google_ads_login_customer_id: Optional[str] = None
+    google_ads_use_service_account: bool = False
     brand_terms: Optional[list[str]] = None
 
     @classmethod
@@ -99,6 +102,9 @@ class WorkflowConfig:
             profit_to_cost_ratio_gate=data.get("governance", {}).get("profit_to_cost_ratio_gate", 5.0),
             google_ads_customer_id=ads_config.get("customer_id"),
             google_ads_config_path=ads_config.get("config_path"),
+            google_ads_developer_token=ads_config.get("developer_token"),
+            google_ads_login_customer_id=ads_config.get("login_customer_id"),
+            google_ads_use_service_account=ads_config.get("use_service_account", False),
             brand_terms=ads_config.get("brand_terms", []),
         )
 
@@ -182,9 +188,12 @@ class FullEvaluationWorkflow:
 
         if config.google_ads_customer_id:
             self.ads_client = GoogleAdsClient(
-                credentials_path=config.google_ads_config_path,
+                credentials_path=config.google_ads_config_path or config.credentials_path,
                 customer_id=config.google_ads_customer_id,
                 brand_terms=config.brand_terms,
+                use_service_account=config.google_ads_use_service_account,
+                developer_token=config.google_ads_developer_token,
+                login_customer_id=config.google_ads_login_customer_id,
             )
 
         # Page inventory and link graph
