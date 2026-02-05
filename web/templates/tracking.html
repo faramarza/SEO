@@ -112,15 +112,33 @@ async function loadTracking() {
 }
 
 function renderIssue(issue, tier) {
+    // Get first failure details (most issues have one primary failure)
+    const failure = issue.failures && issue.failures[0];
+    const issueType = failure ? failure.code : 'Unknown';
+    const details = failure ? failure.interpretation : 'No details';
+    const fix = failure ? failure.recommended_fix : null;
+    const severity = failure ? failure.severity : '';
+
+    // Render additional failures if multiple
+    let additionalFailures = '';
+    if (issue.failures && issue.failures.length > 1) {
+        additionalFailures = issue.failures.slice(1).map(f => `
+            <div class="additional-failure">
+                <span class="failure-code">${f.code}</span>: ${f.interpretation}
+            </div>
+        `).join('');
+    }
+
     return `
-        <div class="issue-card tier-${tier.toLowerCase()}">
+        <div class="issue-card tier-${tier.toLowerCase()} severity-${severity.toLowerCase()}">
             <div class="issue-header">
-                <span class="issue-type">${issue.issue_type || 'Unknown'}</span>
+                <span class="issue-type">${issueType.replace(/_/g, ' ')}</span>
                 <span class="issue-tier">Tier ${tier}</span>
             </div>
             <div class="issue-url">${issue.url || 'Multiple URLs'}</div>
-            <div class="issue-details">${issue.details || issue.message || 'No details'}</div>
-            ${issue.fix_required ? `<div class="issue-fix"><strong>Fix:</strong> ${issue.fix_required}</div>` : ''}
+            <div class="issue-details">${details}</div>
+            ${additionalFailures}
+            ${fix ? `<div class="issue-fix"><strong>Fix:</strong><pre>${fix}</pre></div>` : ''}
         </div>
     `;
 }
