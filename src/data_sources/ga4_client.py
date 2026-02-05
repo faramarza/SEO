@@ -163,14 +163,19 @@ class GA4Client:
 
             sessions = int(metrics.get('sessions', 0))
             purchases = int(metrics.get('ecommercePurchases', 0))
+            engaged_sessions = int(metrics.get('engagedSessions', 0))
 
             return GA4Metrics(
                 sessions_28d=sessions,
-                engaged_sessions_28d=int(metrics.get('engagedSessions', 0)),
-                engagement_rate_28d=float(metrics.get('engagementRate', 0.0)),
+                users_28d=int(metrics.get('totalUsers', 0)),
+                engaged_sessions_28d=engaged_sessions,
+                engagement_rate_28d=float(metrics.get('engagementRate', 0.0)) or (engaged_sessions / sessions if sessions > 0 else 0.0),
                 purchases_28d=purchases,
+                conversions_28d=purchases,
                 revenue_28d=float(metrics.get('purchaseRevenue', 0.0)),
                 purchase_rate_28d=(purchases / sessions if sessions > 0 else 0.0),
+                add_to_carts_28d=int(metrics.get('addToCarts', 0)),
+                bounce_rate_28d=float(metrics.get('bounceRate', 0.0)),
             )
 
         except Exception:
@@ -239,16 +244,21 @@ class GA4Client:
                     continue
 
                 purchases = int(metrics.get('ecommercePurchases', 0))
+                engaged_sessions = int(metrics.get('engagedSessions', 0))
 
                 results.append({
                     'page_path': page_path,
                     'ga4_metrics': GA4Metrics(
                         sessions_28d=sessions,
-                        engaged_sessions_28d=int(metrics.get('engagedSessions', 0)),
-                        engagement_rate_28d=float(metrics.get('engagementRate', 0.0)),
+                        users_28d=int(metrics.get('totalUsers', 0)),
+                        engaged_sessions_28d=engaged_sessions,
+                        engagement_rate_28d=float(metrics.get('engagementRate', 0.0)) or (engaged_sessions / sessions if sessions > 0 else 0.0),
                         purchases_28d=purchases,
+                        conversions_28d=purchases,
                         revenue_28d=float(metrics.get('purchaseRevenue', 0.0)),
                         purchase_rate_28d=(purchases / sessions if sessions > 0 else 0.0),
+                        add_to_carts_28d=int(metrics.get('addToCarts', 0)),
+                        bounce_rate_28d=float(metrics.get('bounceRate', 0.0)),
                     ),
                 })
 

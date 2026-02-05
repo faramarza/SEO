@@ -253,11 +253,18 @@ class FullEvaluationWorkflow:
             )
 
             # Create GA4 metrics
+            sessions = ga4.get("sessions", 0)
+            engaged_sessions = ga4.get("engaged_sessions", 0)
+            purchases = ga4.get("conversions", 0)  # ecommercePurchases from GA4
+
             ga4_metrics = GA4Metrics(
-                sessions_28d=ga4.get("sessions", 0),
+                sessions_28d=sessions,
                 users_28d=ga4.get("users", 0),
-                engaged_sessions_28d=ga4.get("engaged_sessions", 0),
-                conversions_28d=ga4.get("conversions", 0),
+                engaged_sessions_28d=engaged_sessions,
+                engagement_rate_28d=engaged_sessions / sessions if sessions > 0 else 0.0,
+                purchases_28d=purchases,
+                purchase_rate_28d=purchases / sessions if sessions > 0 else 0.0,
+                conversions_28d=purchases,
                 revenue_28d=ga4.get("revenue", 0),
                 add_to_carts_28d=ga4.get("add_to_carts", 0),
                 bounce_rate_28d=ga4.get("bounce_rate", 0),
