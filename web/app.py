@@ -411,9 +411,15 @@ def api_ads():
             "summary": {},
         })
 
+    # Resolve credentials path relative to project root
+    creds_path = ads_config.get("config_path", "google-ads.yaml")
+    if not Path(creds_path).is_absolute():
+        project_root = Path(__file__).parent.parent
+        creds_path = str(project_root / creds_path)
+
     try:
         client = GoogleAdsClient(
-            credentials_path=ads_config.get("config_path", "google-ads.yaml"),
+            credentials_path=creds_path,
             customer_id=ads_config.get("customer_id"),
             brand_terms=ads_config.get("brand_terms", []),
         )
