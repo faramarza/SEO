@@ -1056,6 +1056,13 @@ def api_run_evaluation():
                 # Enrich assets
                 total, enriched = crawler.enrich_assets(workflow._assets)
                 job_state["message"] = f"Enriched {enriched}/{total} pages with crawl data"
+                print(f"  Crawl: {len(crawler._results)} results cached, enriched {enriched}/{total} assets")
+                if enriched == 0 and len(crawler._results) > 0:
+                    # Debug: show first asset URL vs first result URL
+                    sample_asset = workflow._assets[0].url.lower().rstrip('/') if workflow._assets else "(none)"
+                    sample_result = list(crawler._results.keys())[0] if crawler._results else "(none)"
+                    print(f"  URL mismatch? Asset: {sample_asset}")
+                    print(f"                Result: {sample_result}")
 
             # Step 3: Run diagnostics
             job_state["message"] = "Running diagnostics..."

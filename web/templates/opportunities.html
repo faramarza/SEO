@@ -397,28 +397,27 @@ function showDetail(idx) {
             <p>${opp.learning_reference}</p>
         </div>
         ` : ''}
-        ${opp.page_metadata ? `
+        ${opp.page_metadata && opp.page_metadata.has_crawl_data ? `
         <div class="detail-section page-context-section">
             <h4>Page Context</h4>
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.title || '[Missing]'}</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.title || '[Not found]'}</code></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.h1 || '[Missing]'}</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.h1 || '[Not found]'}</code></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '<em style="color: #999;">[Missing]</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '<em style="color: #999;">[Not found]</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Canonical</td>
                     <td style="padding: 6px 10px;">${opp.page_metadata.canonical_url || '<em style="color: #999;">[Not set]</em>'}</td>
                 </tr>
             </table>
-            ${!opp.page_metadata.has_crawl_data ? '<p style="color: #ca8a04; font-size: 12px; margin-top: 6px;">No crawl data — run evaluation with crawl to populate.</p>' : ''}
         </div>
         ` : ''}
         <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: none;">
@@ -691,20 +690,20 @@ function exportToPDF(idx) {
                 </tr>
             </table>
 
-            ${opp.page_metadata ? `
+            ${opp.page_metadata && opp.page_metadata.has_crawl_data ? `
             <h3 style="color: #1a1a2e; margin-top: 20px;">Page Context</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 100px; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.title || '[Missing]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.title || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.h1 || '[Missing]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.h1 || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '[Missing]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold;">Canonical</td>
