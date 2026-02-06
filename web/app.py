@@ -168,8 +168,18 @@ def api_opportunities():
     with open(eval_path) as f:
         eval_data = json.load(f)
 
-    # Return all evaluated pages — frontend handles filtering/visual treatment
+    # Get URLs with active tasks (not closed) — these are already on the task board
+    ledger = ActionLedger()
+    active_task_urls = set()
+    for status in (ActionStatus.PROPOSED, ActionStatus.APPROVED,
+                   ActionStatus.IMPLEMENTED, ActionStatus.MEASURED):
+        for action in ledger.get_actions_by_status(status):
+            active_task_urls.add(action.url)
+
+    # Return all evaluated pages, but mark those with active tasks
     all_results = eval_data.get("results", [])
+    for r in all_results:
+        r["has_active_task"] = r.get("url", "") in active_task_urls
 
     # Sort: actionable items first (by priority), then observe, then no-action
     action_order = {"NO_ACTION": 2, "OBSERVE_ONLY": 1}
@@ -184,6 +194,7 @@ def api_opportunities():
         "opportunities": all_results,
         "total": len(all_results),
         "actionable": sum(1 for r in all_results if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)),
+        "active_tasks": len(active_task_urls),
     })
 
 

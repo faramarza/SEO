@@ -31,6 +31,7 @@
             <option value="NEW_ASSET_CREATION">New Asset</option>
             <option value="OBSERVE_ONLY">Observe Only</option>
             <option value="NO_ACTION">No Action</option>
+            <option value="__has_task__">Has Active Task</option>
         </select>
         <select id="filter-risk" onchange="filterOpportunities()">
             <option value="">All Risk Levels</option>
@@ -174,7 +175,8 @@ function renderOpportunities(opportunities) {
 
     tbody.innerHTML = pageItems.map((opp, i) => {
         const globalIdx = start + i;
-        const rowClass = opp.recommended_action === 'NO_ACTION' ? 'row-no-action'
+        const rowClass = opp.has_active_task ? 'row-has-task'
+            : opp.recommended_action === 'NO_ACTION' ? 'row-no-action'
             : opp.recommended_action === 'OBSERVE_ONLY' ? 'row-observe-only' : '';
         return `
         <tr class="opportunity-row ${rowClass}" data-idx="${globalIdx}">
@@ -276,7 +278,9 @@ function filterOpportunities() {
     let filtered = allOpportunities;
 
     if (actionFilter === '__actionable__') {
-        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action));
+        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action) && !o.has_active_task);
+    } else if (actionFilter === '__has_task__') {
+        filtered = filtered.filter(o => o.has_active_task);
     } else if (actionFilter) {
         filtered = filtered.filter(o => o.recommended_action === actionFilter);
     }
@@ -972,9 +976,8 @@ async function approveAction(idx) {
         if (data.success) {
             showToast(`Action approved! ID: ${data.action_id}`, 'success');
             closeModal();
-            // Remove from opportunities list
-            allOpportunities.splice(idx, 1);
-            filterOpportunities();
+            // Reload to reflect active task status
+            loadOpportunities();
         } else {
             showToast('Error: ' + (data.error || 'Unknown error'), 'error');
         }

@@ -1311,6 +1311,17 @@ td.negative { color: var(--accent-red); font-weight: 600; }
     opacity: 0.75;
 }
 
+.opportunity-row.row-has-task {
+    opacity: 0.45;
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 8px,
+        rgba(37, 99, 235, 0.03) 8px,
+        rgba(37, 99, 235, 0.03) 16px
+    );
+}
+
 /* ============================================================
    Button Variants
    ============================================================ */
