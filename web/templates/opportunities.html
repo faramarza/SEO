@@ -745,11 +745,10 @@ function closeModal() {
 
 function exportToPDF(idx) {
     const opp = filteredOpportunities[idx];
+    const pm = opp.page_metadata || {};
 
-    // Capture AI recommendations if they were loaded
-    const aiContentEl = document.getElementById('ai-content-' + idx);
-    const aiSectionEl = document.getElementById('ai-recommendations-' + idx);
-    const hasAI = aiSectionEl && aiSectionEl.style.display !== 'none' && aiContentEl && aiContentEl.innerHTML.trim();
+    // Use cached AI html if available, otherwise try to grab from DOM
+    const aiHtml = opp._ai_html || '';
 
     // Helper: format capture class label
     const captureClassLabel = (cc) => {
@@ -806,24 +805,32 @@ function exportToPDF(idx) {
                 </tr>
             </table>
 
-            ${opp.page_metadata ? `
+            ${pm.has_crawl_data ? `
             <h3 style="color: #1a1a2e; margin-top: 20px;">Page Context</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 100px; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.title || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${pm.title || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.h1 || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${pm.h1 || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.meta_description || '[Not found]'}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 6px 10px; font-weight: bold;">Canonical</td>
-                    <td style="padding: 6px 10px;">${opp.page_metadata.canonical_url || '[Not set]'}</td>
+                    <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Canonical</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.canonical_url || '[Not set]'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Word Count</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.word_count || '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold;">Content Preview</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5;">${pm.content_preview || '[Not available]'}</td>
                 </tr>
             </table>
             ` : ''}
@@ -915,10 +922,10 @@ function exportToPDF(idx) {
             </div>
             ` : ''}
 
-            ${hasAI ? `
+            ${aiHtml ? `
             <h3 style="color: #1a1a2e; margin-top: 20px;">AI Recommendations</h3>
             <div style="border: 1px solid #ddd; padding: 12px; border-radius: 5px; background: #f5f3ff;">
-                ${aiContentEl.innerHTML}
+                ${aiHtml}
             </div>
             ` : ''}
 
