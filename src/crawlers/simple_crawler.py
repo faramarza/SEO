@@ -100,7 +100,7 @@ class HTMLMetaParser(HTMLParser):
             self.title += data
         elif self._in_h1:
             self.h1 += data
-        elif self._in_body and self._skip_depth == 0:
+        elif self._in_body and self._skip_depth == 0 and self._h1_found:
             stripped = data.strip()
             if stripped:
                 self._body_text.append(stripped)
