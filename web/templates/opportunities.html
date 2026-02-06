@@ -397,6 +397,30 @@ function showDetail(idx) {
             <p>${opp.learning_reference}</p>
         </div>
         ` : ''}
+        ${opp.page_metadata ? `
+        <div class="detail-section page-context-section">
+            <h4>Page Context</h4>
+            <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.title || '[Missing]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.h1 || '[Missing]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '<em style="color: #999;">[Missing]</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Canonical</td>
+                    <td style="padding: 6px 10px;">${opp.page_metadata.canonical_url || '<em style="color: #999;">[Not set]</em>'}</td>
+                </tr>
+            </table>
+            ${!opp.page_metadata.has_crawl_data ? '<p style="color: #ca8a04; font-size: 12px; margin-top: 6px;">No crawl data — run evaluation with crawl to populate.</p>' : ''}
+        </div>
+        ` : ''}
         <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: none;">
             <h4>AI Recommendations</h4>
             <div class="ai-content" id="ai-content-${idx}"></div>
@@ -667,6 +691,28 @@ function exportToPDF(idx) {
                 </tr>
             </table>
 
+            ${opp.page_metadata ? `
+            <h3 style="color: #1a1a2e; margin-top: 20px;">Page Context</h3>
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px;">
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; width: 100px; border-bottom: 1px solid #eee;">Title</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.title || '[Missing]'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">H1</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.h1 || '[Missing]'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Meta Desc</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '[Missing]'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold;">Canonical</td>
+                    <td style="padding: 6px 10px;">${opp.page_metadata.canonical_url || '[Not set]'}</td>
+                </tr>
+            </table>
+            ` : ''}
+
             <h3 style="color: #1a1a2e; margin-top: 20px;">Constraint Scores</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
                 <tr>
@@ -771,19 +817,35 @@ function exportToPDF(idx) {
     const urlPath = new URL(opp.url).pathname.replace(/\//g, '-').replace(/^-|-$/g, '') || 'opportunity';
     const filename = `seo-opportunity-${urlPath}-${new Date().toISOString().slice(0,10)}.pdf`;
 
-    // PDF options
+    // Append to DOM temporarily so html2canvas can measure/render it
+    pdfContent.style.position = 'absolute';
+    pdfContent.style.left = '-9999px';
+    pdfContent.style.top = '0';
+    pdfContent.style.width = '210mm';  // A4 width
+    document.body.appendChild(pdfContent);
+
+    // PDF options — scale 1 avoids oversized canvas causing blank pages
     const opt = {
-        margin: 10,
+        margin: [10, 10, 10, 10],
         filename: filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: {
+            scale: 1,
+            useCORS: true,
+            logging: false,
+            width: pdfContent.scrollWidth,
+            windowWidth: pdfContent.scrollWidth,
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
     };
 
     // Generate PDF
     html2pdf().set(opt).from(pdfContent).save().then(() => {
+        document.body.removeChild(pdfContent);
         showToast('PDF exported successfully!', 'success');
     }).catch(err => {
+        document.body.removeChild(pdfContent);
         console.error('PDF export failed:', err);
         showToast('Failed to export PDF', 'error');
     });

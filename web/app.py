@@ -252,7 +252,11 @@ def api_approve_opportunity():
 
 @app.route("/api/ai/recommend", methods=["POST"])
 def api_ai_recommend():
-    """Get AI-powered SEO recommendations for a page."""
+    """Get AI-powered SEO recommendations for a page.
+
+    Uses cached crawl data from evaluation results (page_metadata)
+    instead of re-fetching the page live.
+    """
     import os
     import httpx
 
@@ -271,129 +275,57 @@ def api_ai_recommend():
     if not api_key:
         return jsonify({"error": "OpenAI API key not configured. Set OPENAI_API_KEY environment variable."}), 400
 
-    model = ai_config.get("model", "gpt-4o")
+    model = ai_config.get("model", "gpt-4o-mini")
 
-    # Fetch page content
-    try:
-        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
-            response = client.get(url)
-            html = response.text
-    except Exception as e:
-        return jsonify({"error": f"Failed to fetch page: {e}"}), 400
+    # ── Use cached page metadata from evaluation pipeline ────────
+    # No live page fetch — metadata was collected during crawl step
+    pm = opportunity.get("page_metadata", {})
+    cached_title = pm.get("title", "")
+    cached_h1 = pm.get("h1", "")
+    cached_meta = pm.get("meta_description", "")
+    cached_canonical = pm.get("canonical_url", "")
+    cached_word_count = pm.get("word_count", 0)
 
-    # Parse HTML for SEO elements with full context extraction
-    from html.parser import HTMLParser
-    import re as re_module
+    page_analysis = {
+        "title": cached_title,
+        "meta_description": cached_meta,
+        "canonical_url": cached_canonical,
+        "h1": cached_h1,
+        "word_count": cached_word_count,
+        "has_crawl_data": pm.get("has_crawl_data", False),
+    }
 
-    class SEOParser(HTMLParser):
-        def __init__(self):
-            super().__init__()
-            self.title = ""
-            self.meta_description = ""
-            self.canonical_url = ""
-            self.h1s = []
-            self.h2s = []
-            self.in_title = False
-            self.in_h1 = False
-            self.in_h2 = False
-            self.in_p = False
-            self.in_a = False
-            self.above_fold = ""
-            self.char_count = 0
-            self.paragraphs = []  # Intro paragraphs
-            self.current_paragraph = ""
-            self.internal_links = []  # Above-fold internal links
-            self.current_link_href = ""
-            self.current_link_text = ""
-            self.cta_texts = []  # CTA-like elements above the fold
-            self.first_heading = ""  # First visible heading
-
-        def handle_starttag(self, tag, attrs):
-            attrs_dict = dict(attrs)
-            if tag == "title":
-                self.in_title = True
-            elif tag == "h1":
-                self.in_h1 = True
-            elif tag == "h2":
-                self.in_h2 = True
-            elif tag == "p" and self.char_count < 3000:
-                self.in_p = True
-                self.current_paragraph = ""
-            elif tag == "meta" and attrs_dict.get("name", "").lower() == "description":
-                self.meta_description = attrs_dict.get("content", "")
-            elif tag == "link" and attrs_dict.get("rel", "").lower() == "canonical":
-                self.canonical_url = attrs_dict.get("href", "")
-            elif tag == "a" and self.char_count < 3000:
-                href = attrs_dict.get("href", "")
-                self.in_a = True
-                self.current_link_href = href
-                self.current_link_text = ""
-                # Detect CTA-like buttons/links
-                css_class = attrs_dict.get("class", "").lower()
-                if any(w in css_class for w in ["btn", "cta", "button", "action"]):
-                    self.cta_texts.append({"href": href, "text": "", "class": css_class})
-
-        def handle_endtag(self, tag):
-            if tag == "title":
-                self.in_title = False
-            elif tag == "h1":
-                self.in_h1 = False
-            elif tag == "h2":
-                self.in_h2 = False
-            elif tag == "p":
-                if self.in_p and self.current_paragraph.strip():
-                    self.paragraphs.append(self.current_paragraph.strip())
-                self.in_p = False
-            elif tag == "a":
-                if self.in_a and self.current_link_href and self.char_count < 3000:
-                    # Only capture internal links (relative or same domain)
-                    href = self.current_link_href
-                    if href.startswith("/") or not href.startswith("http"):
-                        self.internal_links.append({
-                            "href": href,
-                            "text": self.current_link_text.strip(),
-                        })
-                    # Fill CTA text if this was a CTA
-                    if self.cta_texts and self.cta_texts[-1]["href"] == href:
-                        self.cta_texts[-1]["text"] = self.current_link_text.strip()
-                self.in_a = False
-
-        def handle_data(self, data):
-            if self.in_title:
-                self.title += data
-            elif self.in_h1:
-                self.h1s.append(data.strip())
-                if not self.first_heading:
-                    self.first_heading = data.strip()
-            elif self.in_h2:
-                self.h2s.append(data.strip())
-                if not self.first_heading:
-                    self.first_heading = data.strip()
-
-            if self.in_p:
-                self.current_paragraph += data
-            if self.in_a:
-                self.current_link_text += data
-
-            # Capture above-the-fold text content
-            if self.char_count < 3000:
-                self.above_fold += data
-                self.char_count += len(data)
-
-    parser = SEOParser()
-    try:
-        parser.feed(html)
-    except:
-        pass
+    # ── Confidence short-circuit ─────────────────────────────────
+    # If confidence is below the system threshold, return NO_ACTION
+    # immediately without spending an API call.
+    confidence = opportunity.get("confidence", 0)
+    if confidence < 0.65:
+        return jsonify({
+            "success": True,
+            "url": url,
+            "page_analysis": page_analysis,
+            "recommendations": {
+                "recommendation": "NO_ACTION",
+                "problem_statement": "System confidence below the 0.65 minimum threshold for action.",
+                "rationale": (
+                    f"The system-calculated confidence is {confidence:.2f}, "
+                    f"which is below the 0.65 minimum required to propose any action. "
+                    f"At this confidence level, the risk of a bad recommendation outweighs "
+                    f"the expected value of ${opportunity.get('expected_value', 0):.2f}."
+                ),
+                "action": {"surface": None, "instruction": None, "guardrails": {"must_not_change": "N/A", "must_preserve": "N/A"}},
+                "expected_impact": "None — no action proposed.",
+                "measurement": {"primary_metric": "N/A", "evaluation_window": "N/A", "abort_conditions": "N/A"},
+                "risk_notes": "Inaction is the safest path when confidence is insufficient.",
+            },
+        })
 
     # ── Required context validation ──────────────────────────────
-    # The AI must never propose page-level changes without sufficient context.
     page_context = {
         "has_url": bool(url),
         "has_asset_type": bool(opportunity.get("asset_type")),
-        "has_title": bool(parser.title.strip()),
-        "has_h1": len(parser.h1s) > 0,
-        "has_above_fold": len(parser.above_fold.strip()) > 100,
+        "has_title": bool(cached_title),
+        "has_h1": bool(cached_h1),
         "has_performance": bool(
             opportunity.get("top_queries")
             or opportunity.get("demand_score") is not None
@@ -407,24 +339,11 @@ def api_ai_recommend():
         return jsonify({
             "success": True,
             "url": url,
-            "page_analysis": {
-                "title": parser.title.strip(),
-                "meta_description": parser.meta_description,
-                "h1s": parser.h1s[:3],
-                "h2s": parser.h2s[:5],
-            },
+            "page_analysis": page_analysis,
             "recommendations": {
                 "no_action": True,
                 "reason": "Insufficient page context for safe recommendation.",
                 "missing_context": missing_context,
-                "title_recommendation": None,
-                "meta_description_recommendation": None,
-                "heading_recommendations": [],
-                "content_suggestions": [],
-                "critical_issues": [
-                    f"Cannot generate recommendations: missing {', '.join(c.replace('has_', '') for c in missing_context)}"
-                ],
-                "priority_actions": ["Re-run evaluation or verify page is accessible"],
             },
         })
 
@@ -478,14 +397,6 @@ def api_ai_recommend():
 
     # ── 4) Internal link summary ────────────────────────────────
     link_parts = []
-    if parser.internal_links:
-        link_parts.append(f"{len(parser.internal_links)} above-fold internal links detected")
-        for link in parser.internal_links[:5]:
-            link_parts.append(f"  [{link['text'] or '(no text)'}] → {link['href']}")
-    if parser.cta_texts:
-        link_parts.append(f"{len(parser.cta_texts)} CTA elements detected")
-        for cta in parser.cta_texts[:3]:
-            link_parts.append(f"  CTA: \"{cta['text'] or '(empty)'}\" → {cta['href']}")
     if opportunity.get("routing_data"):
         rd = opportunity["routing_data"]
         link_parts.append(f"Routing quality: {rd.get('routing_quality', 'unknown')}")
@@ -501,11 +412,11 @@ def api_ai_recommend():
 
     # ── 5) Technical summary ────────────────────────────────────
     tech_parts = []
-    tech_parts.append(f"Title: {parser.title.strip() or '[Missing]'}")
-    tech_parts.append(f"Meta Description: {parser.meta_description or '[Missing]'}")
-    tech_parts.append(f"Canonical: {parser.canonical_url or '[Not found]'}")
-    tech_parts.append(f"H1: {', '.join(parser.h1s[:3]) or '[None found]'}")
-    tech_parts.append(f"H2s: {', '.join(parser.h2s[:5]) or '[None found]'}")
+    tech_parts.append(f"Title: {cached_title or '[Missing]'}")
+    tech_parts.append(f"Meta Description: {cached_meta or '[Missing]'}")
+    tech_parts.append(f"Canonical: {cached_canonical or '[Not found]'}")
+    tech_parts.append(f"H1: {cached_h1 or '[None found]'}")
+    tech_parts.append(f"Word Count: {cached_word_count}")
     if opportunity.get("issues"):
         for issue in opportunity["issues"][:3]:
             tech_parts.append(f"Issue [{issue.get('severity')}]: {issue.get('type')} — {issue.get('description')}")
@@ -522,15 +433,6 @@ def api_ai_recommend():
             evaluator_lines.append(f"  - {step}")
     if opportunity.get("rollback_plan"):
         evaluator_lines.append(f"Rollback Plan: {opportunity['rollback_plan']}")
-    # Include intro paragraphs as content context
-    intro_paragraphs = parser.paragraphs[:3]
-    if intro_paragraphs:
-        evaluator_lines.append("Intro Content:")
-        for p in intro_paragraphs:
-            evaluator_lines.append(f"  {p[:200]}")
-    # Above-fold preview
-    if parser.above_fold.strip():
-        evaluator_lines.append(f"Above-fold Preview (first 800 chars):\n  {parser.above_fold[:800]}")
     evaluator_findings = "\n".join(evaluator_lines)
 
     # ── 7) Build the full structured prompt ─────────────────────
@@ -698,17 +600,7 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no comment
         return jsonify({
             "success": True,
             "url": url,
-            "page_analysis": {
-                "title": parser.title.strip(),
-                "meta_description": parser.meta_description,
-                "canonical_url": parser.canonical_url,
-                "h1s": parser.h1s[:3],
-                "h2s": parser.h2s[:5],
-                "first_heading": parser.first_heading,
-                "intro_paragraphs": parser.paragraphs[:3],
-                "internal_links_count": len(parser.internal_links),
-                "cta_count": len(parser.cta_texts),
-            },
+            "page_analysis": page_analysis,
             "recommendations": recommendations,
         })
 
@@ -1111,6 +1003,7 @@ def api_run_evaluation():
                                         title=parser.title.strip(),
                                         h1=parser.h1.strip(),
                                         word_count=parser.get_word_count(),
+                                        meta_description=parser.meta_description.strip(),
                                     )
                                 else:
                                     result = CrawlResult(

@@ -87,6 +87,7 @@ class PageAsset(BaseModel):
     indexable: bool = Field(default=True)
     title: str = Field(default="")
     h1: str = Field(default="")
+    meta_description: str = Field(default="")
     word_count: int = Field(default=0, ge=0)
 
     # Internal link graph metrics

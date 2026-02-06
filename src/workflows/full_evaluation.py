@@ -794,6 +794,14 @@ class FullEvaluationWorkflow:
                     "risk_level": "low",
                     "implementation_steps": [],
                     "reason": f"Confidence {best['confidence']:.2f} below threshold {self.config.min_confidence_threshold}",
+                    "page_metadata": {
+                        "title": asset.title,
+                        "h1": asset.h1,
+                        "meta_description": asset.meta_description,
+                        "canonical_url": asset.canonical_url,
+                        "word_count": asset.word_count,
+                        "has_crawl_data": asset.has_crawl_data,
+                    },
                     **constraint_data,  # Include constraint detection data
                 }
 
@@ -810,6 +818,15 @@ class FullEvaluationWorkflow:
                 "implementation_summary": best["implementation_steps"][0] if best["implementation_steps"] else "",
                 "learning_reference": best.get("learning_reference"),
                 "source": best["source"],
+                # Page metadata from crawl (used by AI subsystem and modal display)
+                "page_metadata": {
+                    "title": asset.title,
+                    "h1": asset.h1,
+                    "meta_description": asset.meta_description,
+                    "canonical_url": asset.canonical_url,
+                    "word_count": asset.word_count,
+                    "has_crawl_data": asset.has_crawl_data,
+                },
                 **constraint_data,  # Include constraint detection data
             }
 
@@ -837,6 +854,14 @@ class FullEvaluationWorkflow:
             "risk_level": "none",
             "implementation_steps": [],
             "reason": "No actionable opportunities identified",
+            "page_metadata": {
+                "title": asset.title,
+                "h1": asset.h1,
+                "meta_description": asset.meta_description,
+                "canonical_url": asset.canonical_url,
+                "word_count": asset.word_count,
+                "has_crawl_data": asset.has_crawl_data,
+            },
             **constraint_data,  # Include constraint detection data
         }
 

@@ -33,6 +33,7 @@ class CrawlResult:
     title: str
     h1: str
     word_count: int
+    meta_description: str = ""
     error: Optional[str] = None
 
 
@@ -44,6 +45,7 @@ class HTMLMetaParser(HTMLParser):
         self.canonical_url: Optional[str] = None
         self.title: str = ""
         self.h1: str = ""
+        self.meta_description: str = ""
         self.meta_robots: str = ""
         self.word_count: int = 0
 
@@ -63,6 +65,8 @@ class HTMLMetaParser(HTMLParser):
             name = attrs_dict.get("name", "").lower()
             if name == "robots":
                 self.meta_robots = attrs_dict.get("content", "")
+            elif name == "description":
+                self.meta_description = attrs_dict.get("content", "")
 
         elif tag == "title":
             self._in_title = True
@@ -270,6 +274,7 @@ class SimpleCrawler:
             asset.indexable = result.indexable
             asset.title = result.title or asset.title
             asset.h1 = result.h1 or asset.h1
+            asset.meta_description = result.meta_description or asset.meta_description
             asset.word_count = result.word_count or asset.word_count
 
         return asset
