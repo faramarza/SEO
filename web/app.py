@@ -321,29 +321,31 @@ def api_ai_recommend():
         })
 
     # ── Required context validation ──────────────────────────────
-    page_context = {
+    # Only block if truly critical context is missing (URL, asset type,
+    # performance data). Crawl metadata (title/H1) is nice-to-have
+    # but the AI can still make constraint-based recommendations without it.
+    critical_context = {
         "has_url": bool(url),
         "has_asset_type": bool(opportunity.get("asset_type")),
-        "has_title": bool(cached_title),
-        "has_h1": bool(cached_h1),
         "has_performance": bool(
             opportunity.get("top_queries")
             or opportunity.get("demand_score") is not None
         ),
+        "has_constraint": bool(opportunity.get("primary_constraint")),
     }
 
-    missing_context = [k for k, v in page_context.items() if not v]
+    missing_critical = [k for k, v in critical_context.items() if not v]
 
-    # If critical context is missing, return NO ACTION
-    if len(missing_context) >= 3:
+    # Block only if 3+ critical items are missing (out of 4)
+    if len(missing_critical) >= 3:
         return jsonify({
             "success": True,
             "url": url,
             "page_analysis": page_analysis,
             "recommendations": {
                 "no_action": True,
-                "reason": "Insufficient page context for safe recommendation.",
-                "missing_context": missing_context,
+                "reason": "Insufficient context for safe recommendation.",
+                "missing_context": missing_critical,
             },
         })
 
