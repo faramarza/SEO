@@ -7,11 +7,13 @@ Flask application providing operator interface per doctrine:
 - Task Board (Proposed → Approved → Implemented → Measured → Closed)
 - Learning & Memory view
 - Tracking Integrity view
+- Admin settings
 """
 
+import hashlib
 import json
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request
 
@@ -92,6 +94,12 @@ def learning():
 def tracking():
     """Tracking integrity view."""
     return render_template("tracking.html")
+
+
+@app.route("/admin")
+def admin():
+    """Admin settings view."""
+    return render_template("admin.html")
 
 
 # ============================================================
@@ -281,6 +289,12 @@ def api_ai_recommend():
         return jsonify({"error": "OpenAI API key not configured. Set OPENAI_API_KEY environment variable."}), 400
 
     model = ai_config.get("model", "gpt-4o-mini")
+    temperature = ai_config.get("temperature", 0.4)
+    max_tokens = ai_config.get("max_tokens", 1500)
+    timeout_sec = ai_config.get("timeout", 30)
+    max_queries = ai_config.get("max_queries_in_prompt", 0)
+    max_issues = ai_config.get("max_issues_in_prompt", 0)
+    min_context = ai_config.get("min_context_fields", 3)
 
     # ── Use cached page metadata from evaluation pipeline ────────
     # No live page fetch — metadata was collected during crawl step
@@ -341,8 +355,8 @@ def api_ai_recommend():
 
     missing_critical = [k for k, v in critical_context.items() if not v]
 
-    # Block only if 3+ critical items are missing (out of 4)
-    if len(missing_critical) >= 3:
+    # Block if too many critical items are missing
+    if len(missing_critical) >= min_context:
         return jsonify({
             "success": True,
             "url": url,
@@ -384,7 +398,8 @@ def api_ai_recommend():
     # ── 2) GSC summary ──────────────────────────────────────────
     gsc_lines = []
     if opportunity.get("top_queries"):
-        for q in opportunity.get("top_queries", [])[:5]:
+        queries = opportunity.get("top_queries", [])
+        for q in (queries[:max_queries] if max_queries else queries):
             gsc_lines.append(
                 f"  \"{q.get('query')}\" → pos: {q.get('position')}, "
                 f"impr: {q.get('impressions')}, clicks: {q.get('clicks', 'N/A')}, "
@@ -425,7 +440,8 @@ def api_ai_recommend():
     tech_parts.append(f"H1: {cached_h1 or '[None found]'}")
     tech_parts.append(f"Word Count: {cached_word_count}")
     if opportunity.get("issues"):
-        for issue in opportunity["issues"][:3]:
+        issues_list = opportunity["issues"]
+        for issue in (issues_list[:max_issues] if max_issues else issues_list):
             tech_parts.append(f"Issue [{issue.get('severity')}]: {issue.get('type')} — {issue.get('description')}")
     technical_summary = "\n".join(tech_parts)
 
@@ -546,6 +562,23 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no comment
   "risk_notes": "<explicit downside risks and why they are acceptable>"
 }}}}"""
 
+    # ── Reproducibility: hash the prompt ──────────────────────
+    prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+
+    system_message = (
+        "You are the AI Recommendation Subsystem of the Agentic Organic Growth Governor. "
+        f"This page is classified as {asset_type}. Operating mode: {mode}. "
+        "You translate validated constraints into a human-reviewable recommendation. "
+        "You do NOT detect constraints, compute value, or approve actions — all inputs are authoritative. "
+        "You must not contradict system classifications. "
+        "CRITICAL: If a constraint cannot be addressed directly on this asset type, "
+        "translate it into the highest-leverage PERMISSIBLE action for this asset's funnel role. "
+        "Do NOT default to NO ACTION just because the constraint is indirect. "
+        "NO ACTION only when no permissible action mitigates the constraint or thresholds fail. "
+        "BLOG pages may ONLY receive routing/internal link recommendations. "
+        "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
+    )
+
     # Call OpenAI API
     try:
         import json as json_module
@@ -558,28 +591,13 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no comment
             json={
                 "model": model,
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are the AI Recommendation Subsystem of the Agentic Organic Growth Governor. "
-                            f"This page is classified as {asset_type}. Operating mode: {mode}. "
-                            "You translate validated constraints into a human-reviewable recommendation. "
-                            "You do NOT detect constraints, compute value, or approve actions — all inputs are authoritative. "
-                            "You must not contradict system classifications. "
-                            "CRITICAL: If a constraint cannot be addressed directly on this asset type, "
-                            "translate it into the highest-leverage PERMISSIBLE action for this asset's funnel role. "
-                            "Do NOT default to NO ACTION just because the constraint is indirect. "
-                            "NO ACTION only when no permissible action mitigates the constraint or thresholds fail. "
-                            "BLOG pages may ONLY receive routing/internal link recommendations. "
-                            "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
-                        ),
-                    },
+                    {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt},
                 ],
-                "temperature": 0.4,
-                "max_tokens": 1500,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
             },
-            timeout=30.0,
+            timeout=float(timeout_sec),
         )
 
         if openai_response.status_code != 200:
@@ -587,6 +605,33 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no comment
 
         result = openai_response.json()
         ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        usage = result.get("usage", {})
+
+        # ── Reproducibility log entry ──────────────────────────
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "url": url,
+            "prompt_hash": prompt_hash,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tokens_used": {
+                "prompt": usage.get("prompt_tokens"),
+                "completion": usage.get("completion_tokens"),
+                "total": usage.get("total_tokens"),
+            },
+            "confidence": confidence,
+            "asset_type": asset_type,
+            "constraint": opportunity.get("primary_constraint"),
+        }
+
+        # Append to JSONL log
+        log_path = DATA_PATH / "ai_call_log.jsonl"
+        try:
+            with open(log_path, "a") as lf:
+                lf.write(json.dumps(log_entry) + "\n")
+        except Exception:
+            pass  # Don't fail the request over logging
 
         # Try to parse as JSON
         try:
@@ -609,6 +654,13 @@ Respond ONLY with valid JSON matching this exact schema (no markdown, no comment
             "url": url,
             "page_analysis": page_analysis,
             "recommendations": recommendations,
+            "reproducibility": {
+                "prompt_hash": prompt_hash,
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "tokens_used": log_entry["tokens_used"],
+            },
         })
 
     except Exception as e:
@@ -915,6 +967,54 @@ def api_ads():
             "campaigns": [],
             "summary": {},
         })
+
+
+@app.route("/api/admin/config")
+def api_admin_config():
+    """Get current configuration."""
+    config = load_config()
+    return jsonify(config)
+
+
+@app.route("/api/admin/config", methods=["POST"])
+def api_admin_save_config():
+    """Save configuration changes."""
+    updates = request.json
+    config = load_config()
+
+    # Deep merge updates into config
+    for section, values in updates.items():
+        if section not in config:
+            config[section] = {}
+        if isinstance(values, dict):
+            config[section].update(values)
+        else:
+            config[section] = values
+
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f, indent=2)
+        f.write('\n')
+
+    return jsonify({"success": True, "config": config})
+
+
+@app.route("/api/admin/ai-log")
+def api_admin_ai_log():
+    """Get AI call reproducibility log."""
+    log_path = DATA_PATH / "ai_call_log.jsonl"
+    if not log_path.exists():
+        return jsonify({"calls": []})
+
+    calls = []
+    with open(log_path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                calls.append(json.loads(line))
+
+    # Most recent first
+    calls.reverse()
+    return jsonify({"calls": calls})
 
 
 @app.route("/api/run-evaluation", methods=["POST"])

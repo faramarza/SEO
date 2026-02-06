@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block title %}Admin{% endblock %}
+{% block header %}Admin Settings{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <div class="admin-grid">
+        <!-- AI Configuration -->
+        <div class="admin-card">
+            <h3>AI Recommendation Engine</h3>
+            <div class="form-group">
+                <label for="ai-model">Model</label>
+                <select id="ai-model">
+                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                    <option value="gpt-4o">gpt-4o</option>
+                    <option value="gpt-4-turbo">gpt-4-turbo</option>
+                    <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="ai-temperature">Temperature <span class="form-hint" id="temp-display">0.4</span></label>
+                <input type="range" id="ai-temperature" min="0" max="1" step="0.05" value="0.4" oninput="document.getElementById('temp-display').textContent = this.value">
+            </div>
+            <div class="form-group">
+                <label for="ai-max-tokens">Max Tokens</label>
+                <input type="number" id="ai-max-tokens" min="100" max="16000" step="100" value="1500">
+            </div>
+            <div class="form-group">
+                <label for="ai-timeout">Timeout (seconds)</label>
+                <input type="number" id="ai-timeout" min="5" max="120" step="5" value="30">
+            </div>
+            <div class="form-group">
+                <label for="ai-max-queries">Max Queries in Prompt <span class="form-hint">0 = all</span></label>
+                <input type="number" id="ai-max-queries" min="0" max="50" value="0">
+            </div>
+            <div class="form-group">
+                <label for="ai-max-issues">Max Issues in Prompt <span class="form-hint">0 = all</span></label>
+                <input type="number" id="ai-max-issues" min="0" max="20" value="0">
+            </div>
+            <div class="form-group">
+                <label for="ai-min-context">Min Context Fields Required <span class="form-hint">out of 4</span></label>
+                <input type="number" id="ai-min-context" min="1" max="4" value="3">
+            </div>
+            <button class="btn btn-primary" onclick="saveAIConfig()">Save AI Settings</button>
+        </div>
+
+        <!-- Profit Model -->
+        <div class="admin-card">
+            <h3>Profit Model</h3>
+            <div class="form-group">
+                <label for="pm-aov">Average Order Value ($)</label>
+                <input type="number" id="pm-aov" min="0" step="0.01" value="53.19">
+            </div>
+            <div class="form-group">
+                <label for="pm-margin-low">Gross Margin Low</label>
+                <input type="number" id="pm-margin-low" min="0" max="1" step="0.01" value="0.25">
+            </div>
+            <div class="form-group">
+                <label for="pm-margin-high">Gross Margin High</label>
+                <input type="number" id="pm-margin-high" min="0" max="1" step="0.01" value="0.30">
+            </div>
+            <div class="form-group">
+                <label for="pm-window">Evaluation Window (days)</label>
+                <input type="number" id="pm-window" min="7" max="90" value="28">
+            </div>
+            <button class="btn btn-primary" onclick="saveProfitModel()">Save Profit Model</button>
+        </div>
+
+        <!-- Governance -->
+        <div class="admin-card">
+            <h3>Governance</h3>
+            <div class="form-group">
+                <label for="gov-regret">Regret Budget (per year)</label>
+                <input type="number" id="gov-regret" min="0" max="20" value="2">
+            </div>
+            <div class="form-group">
+                <label for="gov-confidence">Min Confidence Threshold</label>
+                <input type="number" id="gov-confidence" min="0" max="1" step="0.05" value="0.65">
+            </div>
+            <div class="form-group">
+                <label for="gov-defensive">Defensive Action Weight</label>
+                <input type="number" id="gov-defensive" min="0" max="10" step="0.5" value="2.0">
+            </div>
+            <div class="form-group">
+                <label for="gov-exploratory">Exploratory Action Penalty</label>
+                <input type="number" id="gov-exploratory" min="0" max="10" step="0.5" value="3.0">
+            </div>
+            <div class="form-group">
+                <label for="gov-ratio">Profit-to-Cost Ratio Gate</label>
+                <input type="number" id="gov-ratio" min="0" max="20" step="0.5" value="5.0">
+            </div>
+            <button class="btn btn-primary" onclick="saveGovernance()">Save Governance</button>
+        </div>
+    </div>
+
+    <!-- AI Call Log (Reproducibility) -->
+    <div class="admin-card" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="margin: 0;">AI Call Log (Reproducibility)</h3>
+            <button class="btn btn-secondary btn-small" onclick="loadAILog()">Refresh</button>
+        </div>
+        <div class="table-container">
+            <table class="data-table" id="ai-log-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>URL</th>
+                        <th>Prompt Hash</th>
+                        <th>Model</th>
+                        <th>Temp</th>
+                        <th>Max Tok</th>
+                        <th>Tokens Used</th>
+                        <th>Confidence</th>
+                        <th>Asset</th>
+                        <th>Constraint</th>
+                    </tr>
+                </thead>
+                <tbody id="ai-log-body">
+                    <tr><td colspan="10" class="empty">No AI calls logged yet.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadConfig() {
+    try {
+        const res = await fetch('/api/admin/config');
+        const config = await res.json();
+
+        // AI settings
+        const ai = config.ai || {};
+        document.getElementById('ai-model').value = ai.model || 'gpt-4o-mini';
+        document.getElementById('ai-temperature').value = ai.temperature ?? 0.4;
+        document.getElementById('temp-display').textContent = ai.temperature ?? 0.4;
+        document.getElementById('ai-max-tokens').value = ai.max_tokens ?? 1500;
+        document.getElementById('ai-timeout').value = ai.timeout ?? 30;
+        document.getElementById('ai-max-queries').value = ai.max_queries_in_prompt ?? 0;
+        document.getElementById('ai-max-issues').value = ai.max_issues_in_prompt ?? 0;
+        document.getElementById('ai-min-context').value = ai.min_context_fields ?? 3;
+
+        // Profit model
+        const pm = config.profit_model || {};
+        document.getElementById('pm-aov').value = pm.aov ?? 53.19;
+        document.getElementById('pm-margin-low').value = pm.gross_margin_low ?? 0.25;
+        document.getElementById('pm-margin-high').value = pm.gross_margin_high ?? 0.30;
+        document.getElementById('pm-window').value = pm.evaluation_window_days ?? 28;
+
+        // Governance
+        const gov = config.governance || {};
+        document.getElementById('gov-regret').value = gov.regret_budget_year ?? 2;
+        document.getElementById('gov-confidence').value = gov.min_confidence_threshold ?? 0.65;
+        document.getElementById('gov-defensive').value = gov.defensive_action_weight ?? 2.0;
+        document.getElementById('gov-exploratory').value = gov.exploratory_action_penalty ?? 3.0;
+        document.getElementById('gov-ratio').value = gov.profit_to_cost_ratio_gate ?? 5.0;
+
+    } catch (err) {
+        console.error('Failed to load config:', err);
+        showToast('Failed to load config', 'error');
+    }
+}
+
+async function saveAIConfig() {
+    const payload = {
+        ai: {
+            model: document.getElementById('ai-model').value,
+            temperature: parseFloat(document.getElementById('ai-temperature').value),
+            max_tokens: parseInt(document.getElementById('ai-max-tokens').value),
+            timeout: parseInt(document.getElementById('ai-timeout').value),
+            max_queries_in_prompt: parseInt(document.getElementById('ai-max-queries').value),
+            max_issues_in_prompt: parseInt(document.getElementById('ai-max-issues').value),
+            min_context_fields: parseInt(document.getElementById('ai-min-context').value),
+        }
+    };
+    await saveConfig(payload, 'AI settings saved');
+}
+
+async function saveProfitModel() {
+    const payload = {
+        profit_model: {
+            aov: parseFloat(document.getElementById('pm-aov').value),
+            gross_margin_low: parseFloat(document.getElementById('pm-margin-low').value),
+            gross_margin_high: parseFloat(document.getElementById('pm-margin-high').value),
+            evaluation_window_days: parseInt(document.getElementById('pm-window').value),
+        }
+    };
+    await saveConfig(payload, 'Profit model saved');
+}
+
+async function saveGovernance() {
+    const payload = {
+        governance: {
+            regret_budget_year: parseInt(document.getElementById('gov-regret').value),
+            min_confidence_threshold: parseFloat(document.getElementById('gov-confidence').value),
+            defensive_action_weight: parseFloat(document.getElementById('gov-defensive').value),
+            exploratory_action_penalty: parseFloat(document.getElementById('gov-exploratory').value),
+            profit_to_cost_ratio_gate: parseFloat(document.getElementById('gov-ratio').value),
+        }
+    };
+    await saveConfig(payload, 'Governance settings saved');
+}
+
+async function saveConfig(payload, successMsg) {
+    try {
+        const res = await fetch('/api/admin/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(successMsg, 'success');
+        } else {
+            showToast('Save failed: ' + (data.error || 'Unknown'), 'error');
+        }
+    } catch (err) {
+        showToast('Save failed: ' + err.message, 'error');
+    }
+}
+
+async function loadAILog() {
+    try {
+        const res = await fetch('/api/admin/ai-log');
+        const data = await res.json();
+        const calls = data.calls || [];
+        const tbody = document.getElementById('ai-log-body');
+
+        if (calls.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="empty">No AI calls logged yet.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = calls.map(c => {
+            const ts = new Date(c.timestamp).toLocaleString();
+            const urlShort = (c.url || '').replace(/https?:\/\/[^\/]+/, '').slice(0, 30);
+            return `
+                <tr>
+                    <td style="white-space: nowrap; font-size: 12px;">${ts}</td>
+                    <td title="${c.url}" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis;">${urlShort}</td>
+                    <td><code style="font-size: 11px;">${c.prompt_hash || ''}</code></td>
+                    <td>${c.model || ''}</td>
+                    <td>${c.temperature ?? ''}</td>
+                    <td>${c.max_tokens ?? ''}</td>
+                    <td>${c.tokens_used?.total ?? '—'}</td>
+                    <td>${c.confidence != null ? (c.confidence * 100).toFixed(0) + '%' : '—'}</td>
+                    <td>${c.asset_type || ''}</td>
+                    <td>${(c.constraint || '').replace(/_/g, ' ')}</td>
+                </tr>
+            `;
+        }).join('');
+
+    } catch (err) {
+        console.error('Failed to load AI log:', err);
+    }
+}
+
+function showToast(message, type = 'info') {
+    // Check if toast element exists, create if not
+    let toast = document.getElementById('toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.className = 'toast hidden';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.className = `toast toast-${type}`;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+
+// Load on page ready
+loadConfig();
+loadAILog();
+</script>
+{% endblock %}

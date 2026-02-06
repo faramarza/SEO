@@ -42,8 +42,8 @@
         <span class="result-count" id="result-count">0 opportunities</span>
     </div>
 
-    <div class="table-container">
-        <table class="data-table sortable" id="opportunities-table">
+    <div class="table-container" style="overflow-x: auto;">
+        <table class="data-table sortable" id="opportunities-table" style="table-layout: fixed; width: 100%;">
             <thead>
                 <tr>
                     <th data-sort="index" class="sortable-header">#</th>
@@ -62,6 +62,7 @@
             </tbody>
         </table>
     </div>
+    <div class="pagination" id="pagination-controls"></div>
 </div>
 
 <!-- Detail Modal -->
@@ -82,7 +83,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script>
 let allOpportunities = [];
+let filteredOpportunities = [];
 let currentSort = { field: 'expected_value', direction: 'desc' };
+let currentPage = 1;
+let pageSize = 25;
 
 async function loadOpportunities() {
     try {
@@ -149,6 +153,7 @@ function handleSort(field) {
 }
 
 function renderOpportunities(opportunities) {
+    filteredOpportunities = opportunities;
     const tbody = document.getElementById('opportunities-body');
     const total = allOpportunities.length;
     const shown = opportunities.length;
@@ -157,15 +162,23 @@ function renderOpportunities(opportunities) {
 
     if (opportunities.length === 0) {
         tbody.innerHTML = '<tr><td colspan="9" class="empty">No opportunities match your filters.</td></tr>';
+        document.getElementById('pagination-controls').innerHTML = '';
         return;
     }
 
-    tbody.innerHTML = opportunities.map((opp, idx) => {
+    // Paginate
+    const totalPages = Math.ceil(shown / pageSize);
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * pageSize;
+    const pageItems = opportunities.slice(start, start + pageSize);
+
+    tbody.innerHTML = pageItems.map((opp, i) => {
+        const globalIdx = start + i;
         const rowClass = opp.recommended_action === 'NO_ACTION' ? 'row-no-action'
             : opp.recommended_action === 'OBSERVE_ONLY' ? 'row-observe-only' : '';
         return `
-        <tr class="opportunity-row ${rowClass}" data-idx="${idx}">
-            <td class="row-number">${idx + 1}</td>
+        <tr class="opportunity-row ${rowClass}" data-idx="${globalIdx}">
+            <td class="row-number">${globalIdx + 1}</td>
             <td class="url-cell" title="${opp.url}">
                 <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
             </td>
@@ -180,11 +193,54 @@ function renderOpportunities(opportunities) {
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
             <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
             <td class="actions-cell">
-                <button class="btn btn-small btn-view" onclick="showDetail(${idx})">View</button>
-                <button class="btn btn-small btn-approve" onclick="quickApprove(${idx})">Approve</button>
+                <button class="btn btn-small btn-view" onclick="showDetail(${globalIdx})">View</button>
+                <button class="btn btn-small btn-approve" onclick="quickApprove(${globalIdx})">Approve</button>
             </td>
         </tr>
     `}).join('');
+
+    renderPagination(shown, totalPages);
+}
+
+function renderPagination(totalItems, totalPages) {
+    const container = document.getElementById('pagination-controls');
+    if (totalPages <= 1) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let buttons = '';
+    buttons += `<button ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">Prev</button>`;
+
+    // Show page numbers with ellipsis
+    for (let p = 1; p <= totalPages; p++) {
+        if (p === 1 || p === totalPages || (p >= currentPage - 2 && p <= currentPage + 2)) {
+            buttons += `<button class="${p === currentPage ? 'active' : ''}" onclick="goToPage(${p})">${p}</button>`;
+        } else if (p === currentPage - 3 || p === currentPage + 3) {
+            buttons += `<span class="page-info">...</span>`;
+        }
+    }
+
+    buttons += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">Next</button>`;
+    buttons += `<span class="page-info">${totalItems} items</span>`;
+    buttons += `<select class="page-size-select" onchange="changePageSize(this.value)">`;
+    for (const size of [10, 25, 50, 100]) {
+        buttons += `<option value="${size}" ${pageSize === size ? 'selected' : ''}>${size} / page</option>`;
+    }
+    buttons += `</select>`;
+
+    container.innerHTML = buttons;
+}
+
+function goToPage(page) {
+    currentPage = page;
+    renderOpportunities(filteredOpportunities);
+}
+
+function changePageSize(size) {
+    pageSize = parseInt(size);
+    currentPage = 1;
+    renderOpportunities(filteredOpportunities);
 }
 
 function truncateUrl(url) {
@@ -231,11 +287,12 @@ function filterOpportunities() {
         filtered = filtered.filter(o => o.url?.toLowerCase().includes(searchFilter));
     }
 
+    currentPage = 1;
     renderOpportunities(filtered);
 }
 
 function showDetail(idx) {
-    const opp = allOpportunities[idx];
+    const opp = filteredOpportunities[idx];
     document.getElementById('modal-title').textContent = opp.recommended_action || 'Details';
 
     const steps = opp.implementation_steps || [];
@@ -456,7 +513,7 @@ function showDetail(idx) {
 }
 
 async function inspectUrl(idx) {
-    const opp = allOpportunities[idx];
+    const opp = filteredOpportunities[idx];
     showToast('Inspecting URL in GSC...', 'info');
 
     try {
@@ -494,7 +551,7 @@ Crawled As: ${data.crawled_as}
 }
 
 async function getAIRecommendations(idx) {
-    const opp = allOpportunities[idx];
+    const opp = filteredOpportunities[idx];
     const btn = document.getElementById('ai-btn-' + idx);
     const section = document.getElementById('ai-recommendations-' + idx);
     const content = document.getElementById('ai-content-' + idx);
@@ -623,6 +680,20 @@ async function getAIRecommendations(idx) {
             </div>
         `;
 
+        // Append reproducibility info if available
+        if (data.reproducibility) {
+            const r = data.reproducibility;
+            content.innerHTML += `
+                <div class="rec-item" style="margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 4px; font-size: 12px; color: #6b7280;">
+                    <strong>Reproducibility</strong>
+                    <span style="margin-left: 12px;">Hash: <code>${r.prompt_hash}</code></span>
+                    <span style="margin-left: 12px;">Model: ${r.model}</span>
+                    <span style="margin-left: 12px;">Temp: ${r.temperature}</span>
+                    <span style="margin-left: 12px;">Tokens: ${r.tokens_used?.total ?? '—'}</span>
+                </div>
+            `;
+        }
+
         btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
         showToast('AI recommendations loaded!', 'success');
 
@@ -639,7 +710,7 @@ function closeModal() {
 }
 
 function exportToPDF(idx) {
-    const opp = allOpportunities[idx];
+    const opp = filteredOpportunities[idx];
 
     // Capture AI recommendations if they were loaded
     const aiContentEl = document.getElementById('ai-content-' + idx);
@@ -866,7 +937,7 @@ async function quickApprove(idx) {
 }
 
 async function approveAction(idx) {
-    const opp = allOpportunities[idx];
+    const opp = filteredOpportunities[idx];
 
     try {
         const res = await fetch('/api/opportunities/approve', {
@@ -1012,6 +1083,52 @@ function resetJobUI() {
     document.getElementById('progress-fill').style.width = '0%';
 }
 
+// ── Resizable columns ──────────────────────────────────
+function initResizableColumns() {
+    const table = document.getElementById('opportunities-table');
+    const headers = table.querySelectorAll('th');
+
+    headers.forEach((th, idx) => {
+        // Skip last column (actions)
+        if (idx === headers.length - 1) return;
+
+        const handle = document.createElement('div');
+        handle.className = 'col-resize-handle';
+        th.appendChild(handle);
+
+        let startX, startWidth;
+
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startX = e.pageX;
+            startWidth = th.offsetWidth;
+            handle.classList.add('resizing');
+
+            const onMouseMove = (e) => {
+                const diff = e.pageX - startX;
+                const newWidth = Math.max(40, startWidth + diff);
+                th.style.width = newWidth + 'px';
+                th.style.minWidth = newWidth + 'px';
+            };
+
+            const onMouseUp = () => {
+                handle.classList.remove('resizing');
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    });
+}
+
+// Also show reproducibility data in AI section if available
+const origGetAI = getAIRecommendations;
+
 loadOpportunities();
+
+// Init column resizers once DOM is ready
+document.addEventListener('DOMContentLoaded', initResizableColumns);
 </script>
 {% endblock %}

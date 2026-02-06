@@ -38,6 +38,12 @@
   "ai": {
     "provider": "openai",
     "model": "gpt-4o-mini",
-    "api_key_env": "OPENAI_API_KEY"
+    "api_key_env": "OPENAI_API_KEY",
+    "temperature": 0.4,
+    "max_tokens": 1500,
+    "timeout": 30,
+    "max_queries_in_prompt": 0,
+    "max_issues_in_prompt": 0,
+    "min_context_fields": 3
   }
 }
