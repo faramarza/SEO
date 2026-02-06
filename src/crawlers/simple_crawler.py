@@ -34,6 +34,7 @@ class CrawlResult:
     h1: str
     word_count: int
     meta_description: str = ""
+    content_preview: str = ""
     error: Optional[str] = None
 
 
@@ -97,9 +98,16 @@ class HTMLMetaParser(HTMLParser):
     def get_word_count(self) -> int:
         """Calculate word count from body text."""
         text = " ".join(self._body_text)
-        # Remove extra whitespace and count words
         words = re.findall(r'\b\w+\b', text)
         return len(words)
+
+    def get_content_preview(self, max_words: int = 200) -> str:
+        """Extract first N words of body text as a content preview."""
+        text = " ".join(self._body_text)
+        # Collapse whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        words = text.split()
+        return " ".join(words[:max_words])
 
     @property
     def is_indexable(self) -> bool:
@@ -184,6 +192,7 @@ class SimpleCrawler:
                     h1=parser.h1.strip(),
                     meta_description=parser.meta_description.strip(),
                     word_count=parser.get_word_count(),
+                    content_preview=parser.get_content_preview(200),
                 )
 
             except httpx.TimeoutException:
@@ -277,6 +286,7 @@ class SimpleCrawler:
             asset.h1 = result.h1 or asset.h1
             asset.meta_description = result.meta_description or asset.meta_description
             asset.word_count = result.word_count or asset.word_count
+            asset.content_preview = result.content_preview or asset.content_preview
 
         return asset
 

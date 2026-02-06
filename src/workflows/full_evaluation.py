@@ -623,13 +623,8 @@ class FullEvaluationWorkflow:
         candidates = []
         is_blog = asset.asset_type == AssetType.BLOG
 
-        # BLOG ENFORCEMENT: Blogs must NOT generate visibility or title test candidates
-        # Blogs are routing infrastructure — only internal linking changes are permitted
-
         # If visibility is blocked but demand exists, prioritize visibility fix
-        # (NOT for blogs — blogs must not get traffic-expansion recommendations)
-        if (not is_blog
-            and constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
+        if (constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
             and constraint_result.demand_score >= 0.4):
             # Calculate expected value based on potential, not current revenue
             potential_clicks = asset.gsc.impressions_28d * 0.05  # ~5% CTR at good position
@@ -645,9 +640,7 @@ class FullEvaluationWorkflow:
             })
 
         # If CTR is suppressed, prioritize title test
-        # (NOT for blogs — blogs must never get traffic-driven meta title changes)
-        if (not is_blog
-            and constraint_result.primary_constraint == ConstraintType.CTR_SUPPRESSED):
+        if constraint_result.primary_constraint == ConstraintType.CTR_SUPPRESSED:
             ctr_constraint = next(
                 (c for c in constraint_result.constraints if c.constraint_type == ConstraintType.CTR_SUPPRESSED),
                 None
@@ -743,8 +736,8 @@ class FullEvaluationWorkflow:
                 })
 
         # Run specialized evaluators
-        # Title/Meta evaluation (NOT for blogs — blogs must not get title/keyword changes)
-        if asset.gsc.impressions_28d >= 500 and not is_blog:
+        # Title/Meta evaluation
+        if asset.gsc.impressions_28d >= 500:
             title_result = self.title_evaluator.evaluate(asset)
             # TitleTestResult uses should_test and expected_ctr_lift
             if title_result.should_test and title_result.recommended_variant:
@@ -872,6 +865,7 @@ class FullEvaluationWorkflow:
                         "meta_description": asset.meta_description,
                         "canonical_url": asset.canonical_url,
                         "word_count": asset.word_count,
+                        "content_preview": asset.content_preview,
                         "has_crawl_data": asset.has_crawl_data,
                     },
                     **constraint_data,  # Include constraint detection data
@@ -932,6 +926,7 @@ class FullEvaluationWorkflow:
                 "meta_description": asset.meta_description,
                 "canonical_url": asset.canonical_url,
                 "word_count": asset.word_count,
+                "content_preview": asset.content_preview,
                 "has_crawl_data": asset.has_crawl_data,
             },
             **constraint_data,  # Include constraint detection data

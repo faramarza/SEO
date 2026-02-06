@@ -490,8 +490,12 @@ function showDetail(idx) {
                     <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.canonical_url || '<em style="color: #999;">[Not set]</em>'}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Word Count</td>
-                    <td style="padding: 6px 10px;">${opp.page_metadata.word_count || '—'}</td>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.word_count || '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Content Preview</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);">${opp.page_metadata.content_preview || '<em style="color: #999;">[Not available — re-run with crawl]</em>'}</td>
                 </tr>
             </table>
         </div>

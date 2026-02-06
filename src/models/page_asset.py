@@ -89,6 +89,7 @@ class PageAsset(BaseModel):
     h1: str = Field(default="")
     meta_description: str = Field(default="")
     word_count: int = Field(default=0, ge=0)
+    content_preview: str = Field(default="", description="First ~200 words of page body text")
 
     # Internal link graph metrics
     inlinks: int = Field(default=0, ge=0, description="Number of internal pages linking to this page")
