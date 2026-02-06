@@ -75,8 +75,14 @@
                 <input type="number" id="gov-regret" min="0" max="20" value="2">
             </div>
             <div class="form-group">
-                <label for="gov-confidence">Min Confidence Threshold</label>
-                <input type="number" id="gov-confidence" min="0" max="1" step="0.05" value="0.65">
+                <label for="gov-exploration-confidence">Exploration Confidence Threshold</label>
+                <input type="number" id="gov-exploration-confidence" min="0" max="1" step="0.05" value="0.55">
+                <small style="color: var(--text-muted);">Additive, reversible actions (internal links, title tests, blog ideas)</small>
+            </div>
+            <div class="form-group">
+                <label for="gov-preservation-confidence">Preservation Confidence Threshold</label>
+                <input type="number" id="gov-preservation-confidence" min="0" max="1" step="0.05" value="0.75">
+                <small style="color: var(--text-muted);">Irreversible, high-risk actions (canonical changes, URL structure)</small>
             </div>
             <div class="form-group">
                 <label for="gov-defensive">Defensive Action Weight</label>
@@ -153,7 +159,8 @@ async function loadConfig() {
         // Governance
         const gov = config.governance || {};
         document.getElementById('gov-regret').value = gov.regret_budget_year ?? 2;
-        document.getElementById('gov-confidence').value = gov.min_confidence_threshold ?? 0.65;
+        document.getElementById('gov-exploration-confidence').value = gov.exploration_confidence_threshold ?? 0.55;
+        document.getElementById('gov-preservation-confidence').value = gov.preservation_confidence_threshold ?? 0.75;
         document.getElementById('gov-defensive').value = gov.defensive_action_weight ?? 2.0;
         document.getElementById('gov-exploratory').value = gov.exploratory_action_penalty ?? 3.0;
         document.getElementById('gov-ratio').value = gov.profit_to_cost_ratio_gate ?? 5.0;
@@ -195,7 +202,8 @@ async function saveGovernance() {
     const payload = {
         governance: {
             regret_budget_year: parseInt(document.getElementById('gov-regret').value),
-            min_confidence_threshold: parseFloat(document.getElementById('gov-confidence').value),
+            exploration_confidence_threshold: parseFloat(document.getElementById('gov-exploration-confidence').value),
+            preservation_confidence_threshold: parseFloat(document.getElementById('gov-preservation-confidence').value),
             defensive_action_weight: parseFloat(document.getElementById('gov-defensive').value),
             exploratory_action_penalty: parseFloat(document.getElementById('gov-exploratory').value),
             profit_to_cost_ratio_gate: parseFloat(document.getElementById('gov-ratio').value),

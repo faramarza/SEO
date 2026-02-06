@@ -352,7 +352,7 @@ class ActionLedger:
         self,
         base_confidence: float,
         fingerprint: ActionFingerprint,
-        min_confidence_threshold: float = 0.65,
+        min_confidence_threshold: float = 0.55,
     ) -> tuple[float, LearningInsight]:
         """
         Apply learning rules to adjust confidence.

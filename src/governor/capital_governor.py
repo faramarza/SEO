@@ -28,7 +28,7 @@ from ..models.decision_envelope import (
 @dataclass
 class GovernorConfig:
     """Configuration for the Capital Governor."""
-    min_confidence_threshold: float = 0.65
+    min_confidence_threshold: float = 0.55
     profit_to_cost_ratio_gate: float = 5.0
     defensive_action_weight: float = 2.0
     exploratory_action_penalty: float = 3.0
@@ -45,7 +45,7 @@ class CapitalGovernor:
     1. Inaction is the default (60-80% NO ACTION)
     2. Pages are assets, keywords are noise
     3. Profit over traffic, always
-    4. Hard revenue gate: profit ≥ 5× cost, confidence ≥ 0.65
+    4. Hard revenue gate: profit ≥ 5× cost, confidence ≥ lane threshold
     5. Search engine hostility assumption
     6. Limited action types only
     7. Regret budget of 2/year

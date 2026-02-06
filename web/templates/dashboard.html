@@ -40,7 +40,8 @@
             <table class="config-table">
                 <tr><td>AOV</td><td id="config-aov">—</td></tr>
                 <tr><td>Margin</td><td id="config-margin">—</td></tr>
-                <tr><td>Confidence Gate</td><td>0.65</td></tr>
+                <tr><td>Exploration Gate</td><td id="config-exploration-gate">—</td></tr>
+                <tr><td>Preservation Gate</td><td id="config-preservation-gate">—</td></tr>
                 <tr><td>ROI Gate</td><td>5×</td></tr>
             </table>
         </div>
@@ -188,6 +189,14 @@ async function loadDashboard() {
         if (data.config) {
             document.getElementById('config-aov').textContent = '$' + (data.config.aov || 0).toFixed(2);
             document.getElementById('config-margin').textContent = ((data.config.margin || 0) * 100).toFixed(0) + '%';
+            document.getElementById('config-exploration-gate').textContent =
+                (data.config.exploration_confidence_threshold !== undefined)
+                    ? data.config.exploration_confidence_threshold.toFixed(2)
+                    : '0.55';
+            document.getElementById('config-preservation-gate').textContent =
+                (data.config.preservation_confidence_threshold !== undefined)
+                    ? data.config.preservation_confidence_threshold.toFixed(2)
+                    : '0.75';
         }
 
         // Ledger

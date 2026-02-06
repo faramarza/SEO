@@ -152,6 +152,8 @@ def api_dashboard():
             "aov": config.get("profit_model", {}).get("aov", 53.19),
             "margin": config.get("profit_model", {}).get("gross_margin_low", 0.27),
             "regret_budget": config.get("governance", {}).get("regret_budget_year", 2),
+            "exploration_confidence_threshold": config.get("governance", {}).get("exploration_confidence_threshold", 0.55),
+            "preservation_confidence_threshold": config.get("governance", {}).get("preservation_confidence_threshold", 0.75),
         },
         "last_run": eval_data.get("timestamp", "Never"),
     })
@@ -307,6 +309,11 @@ def api_ai_recommend():
 
     config = load_config()
     ai_config = config.get("ai", {})
+    gov_config = config.get("governance", {})
+
+    # Lane-aware confidence thresholds from admin config
+    exploration_threshold = gov_config.get("exploration_confidence_threshold", 0.55)
+    preservation_threshold = gov_config.get("preservation_confidence_threshold", 0.75)
 
     # Get API key from environment or config
     api_key = os.environ.get(ai_config.get("api_key_env", "OPENAI_API_KEY"))
@@ -342,21 +349,21 @@ def api_ai_recommend():
     }
 
     # ── Confidence short-circuit ─────────────────────────────────
-    # If confidence is below the EXPLORATION threshold (0.55),
+    # If confidence is below the EXPLORATION threshold (lowest lane),
     # no action lane applies — return NO_ACTION without an API call.
     confidence = opportunity.get("confidence", 0)
-    if confidence < 0.55:
+    if confidence < exploration_threshold:
         return jsonify({
             "success": True,
             "url": url,
             "page_analysis": page_analysis,
             "recommendations": {
                 "recommendation": "NO_ACTION",
-                "problem_statement": "System confidence below the 0.55 minimum threshold for any action lane.",
+                "problem_statement": f"System confidence below the {exploration_threshold} minimum threshold for any action lane.",
                 "rationale": (
                     f"The system-calculated confidence is {confidence:.2f}, "
-                    f"which is below the 0.55 minimum required for EXPLORATION actions "
-                    f"(the lowest confidence lane). PRESERVATION actions require ≥ 0.75. "
+                    f"which is below the {exploration_threshold} minimum required for EXPLORATION actions "
+                    f"(the lowest confidence lane). PRESERVATION actions require ≥ {preservation_threshold}. "
                     f"At this confidence level, the risk of a bad recommendation outweighs "
                     f"the expected value of ${opportunity.get('expected_value', 0):.2f}."
                 ),

@@ -163,7 +163,7 @@ class FullEvaluationWorkflow:
         governor_config = GovernorConfig(
             aov=config.aov,
             gross_margin=config.margin,
-            min_confidence_threshold=config.min_confidence_threshold,
+            min_confidence_threshold=config.exploration_confidence_threshold,
             profit_to_cost_ratio_gate=config.profit_to_cost_ratio_gate,
         )
 
@@ -822,7 +822,7 @@ class FullEvaluationWorkflow:
             adjusted_conf, insight = self.ledger.apply_learning_rules(
                 base_confidence=candidate["confidence"],
                 fingerprint=fingerprint,
-                min_confidence_threshold=self.config.min_confidence_threshold,
+                min_confidence_threshold=self.config.exploration_confidence_threshold,
             )
 
             candidate["original_confidence"] = candidate["confidence"]

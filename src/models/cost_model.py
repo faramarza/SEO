@@ -22,7 +22,7 @@ class ActionCostModel(BaseModel):
 
     Hard Revenue Gate (Doctrine #4):
     - Expected Incremental Gross Profit ≥ 5× cost of action
-    - Confidence ≥ 0.65
+    - Confidence ≥ lane threshold (exploration 0.55 / preservation 0.75)
     """
     cost_units: str = Field(default="operator_minutes")
     page_reinvestment: int = Field(
