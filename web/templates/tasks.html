@@ -46,6 +46,15 @@
     </div>
 </div>
 
+<!-- Task Detail Modal -->
+<div id="task-detail-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeTaskDetail()">&times;</span>
+        <h2 id="task-detail-title">Task Details</h2>
+        <div id="task-detail-body"></div>
+    </div>
+</div>
+
 <!-- Outcome Modal -->
 <div id="outcome-modal" class="modal hidden">
     <div class="modal-content">
@@ -71,6 +80,28 @@
         </form>
     </div>
 </div>
+
+<!-- Reject Modal -->
+<div id="reject-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeRejectModal()">&times;</span>
+        <h2>Reject Task</h2>
+        <form id="reject-form">
+            <input type="hidden" id="reject-action-id">
+            <div class="form-group">
+                <label>Reason for rejection</label>
+                <textarea id="reject-reason" rows="3" placeholder="Why is this task being rejected?"></textarea>
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeRejectModal()">Cancel</button>
+                <button type="submit" class="btn" style="background: var(--accent-red); color: white;">Reject</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
 {% endblock %}
 
 {% block scripts %}
@@ -93,12 +124,31 @@ async function loadTasks() {
 
 function renderTask(task, status) {
     const outcomeClass = task.outcome ? 'outcome-' + task.outcome : '';
+    const riskColor = task.risk_level === 'high' ? 'var(--accent-red)'
+        : task.risk_level === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-green)';
 
+    // Constraint display
+    const constraintLabel = task.primary_constraint
+        ? task.primary_constraint.replace(/_/g, ' ')
+        : '';
+
+    // Implementation summary: first step or summary
+    const summary = task.implementation_summary
+        || (task.implementation_steps && task.implementation_steps[0])
+        || '';
+
+    // Advance / Reject actions per status
     let actions = '';
     if (status === 'proposed') {
-        actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Approve</button>`;
+        actions = `
+            <button class="btn btn-small btn-approve-task" onclick="advanceTask('${task.action_id}')">Approve</button>
+            <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
+        `;
     } else if (status === 'approved') {
-        actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Mark Implemented</button>`;
+        actions = `
+            <button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Mark Implemented</button>
+            <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
+        `;
     } else if (status === 'implemented') {
         actions = `<button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Record Outcome</button>`;
     } else if (status === 'measured') {
@@ -106,25 +156,121 @@ function renderTask(task, status) {
     }
 
     return `
-        <div class="task-card ${outcomeClass}">
+        <div class="task-card ${outcomeClass}" onclick="showTaskDetail('${task.action_id}', '${status}')" style="cursor: pointer;">
             <div class="task-header">
                 <span class="task-id">${task.action_id}</span>
-                <span class="task-type">${task.action_type}</span>
+                <span class="action-badge action-${(task.action_type || '').toLowerCase()}" style="font-size: 11px; padding: 1px 6px;">${(task.action_type || '').replace(/_/g, ' ')}</span>
             </div>
-            <div class="task-url" title="${task.url}">${truncateUrl(task.url)}</div>
+            <div class="task-url" title="${task.url}">
+                <a href="${task.url}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>
+            </div>
+            ${constraintLabel ? `
+            <div style="margin: 4px 0; font-size: 12px; color: var(--text-muted);">
+                Constraint: <strong style="color: var(--text-secondary);">${constraintLabel}</strong>
+            </div>
+            ` : ''}
+            ${summary ? `
+            <div style="margin: 6px 0; font-size: 12px; color: var(--text-secondary); line-height: 1.4; border-left: 2px solid var(--border-color); padding-left: 8px;">
+                ${summary.length > 120 ? summary.slice(0, 120) + '...' : summary}
+            </div>
+            ` : ''}
             <div class="task-metrics">
-                <span>${task.score_type}: ${task.score_value}</span>
-                <span>Conf: ${task.confidence}</span>
+                <span title="Expected Value">EV: $${task.score_value}</span>
+                <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
+                <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
             </div>
-            ${task.outcome ? `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}</div>` : ''}
-            <div class="task-actions">${actions}</div>
+            ${task.outcome ? `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 50) : ''}</div>` : ''}
+            <div class="task-actions" onclick="event.stopPropagation();">${actions}</div>
         </div>
     `;
 }
 
-function truncateUrl(url) {
+function showTaskDetail(actionId, status) {
+    // Find the task in the data
+    const tasks = tasksData[status] || [];
+    const task = tasks.find(t => t.action_id === actionId);
+    if (!task) return;
+
+    document.getElementById('task-detail-title').textContent = `${task.action_type?.replace(/_/g, ' ') || 'Task'} — ${task.action_id}`;
+
+    const steps = task.implementation_steps || [];
+    const stepsHtml = steps.length > 0
+        ? '<ol style="margin: 8px 0; padding-left: 20px; line-height: 1.8;">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
+        : '<p style="color: var(--text-muted);">No implementation steps specified.</p>';
+
+    document.getElementById('task-detail-body').innerHTML = `
+        <div class="detail-grid" style="margin-bottom: 16px;">
+            <div class="detail-item">
+                <label>URL</label>
+                <p><a href="${task.url}" target="_blank" class="detail-link">${task.url}</a></p>
+            </div>
+            <div class="detail-item">
+                <label>Action Type</label>
+                <p><span class="action-badge action-${(task.action_type || '').toLowerCase()}">${(task.action_type || '').replace(/_/g, ' ')}</span></p>
+            </div>
+            <div class="detail-item">
+                <label>Expected Value</label>
+                <p class="detail-value">$${task.score_value}</p>
+            </div>
+            <div class="detail-item">
+                <label>Confidence</label>
+                <p class="detail-value">${(task.confidence * 100).toFixed(0)}%</p>
+            </div>
+            ${task.primary_constraint ? `
+            <div class="detail-item">
+                <label>Primary Constraint</label>
+                <p>${task.primary_constraint.replace(/_/g, ' ')}</p>
+            </div>` : ''}
+            <div class="detail-item">
+                <label>Risk Level</label>
+                <p><span class="risk-badge risk-${task.risk_level || 'low'}">${task.risk_level || 'low'}</span></p>
+            </div>
+            ${task.asset_type ? `
+            <div class="detail-item">
+                <label>Asset Type</label>
+                <p>${task.asset_type}</p>
+            </div>` : ''}
+            ${task.mode ? `
+            <div class="detail-item">
+                <label>Mode</label>
+                <p>${task.mode.replace(/_/g, ' ')}</p>
+            </div>` : ''}
+            <div class="detail-item">
+                <label>Created</label>
+                <p>${task.created_at ? new Date(task.created_at).toLocaleString() : '—'}</p>
+            </div>
+            ${task.implemented_at ? `
+            <div class="detail-item">
+                <label>Implemented</label>
+                <p>${new Date(task.implemented_at).toLocaleString()}</p>
+            </div>` : ''}
+        </div>
+        <div style="margin-bottom: 16px;">
+            <h4 style="margin-bottom: 8px;">Implementation Steps</h4>
+            ${stepsHtml}
+        </div>
+        ${task.outcome ? `
+        <div style="margin-bottom: 16px; padding: 12px; border-radius: 6px; background: ${task.outcome === 'positive' ? '#f0fdf4' : task.outcome === 'negative' ? '#fef2f2' : '#f9fafb'};">
+            <h4 style="margin-bottom: 4px;">Outcome: ${task.outcome.toUpperCase()}</h4>
+            ${task.notes ? `<p style="margin: 0; color: var(--text-secondary);">${task.notes}</p>` : ''}
+        </div>
+        ` : ''}
+        <div style="display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--border-color); padding-top: 12px;">
+            <button class="btn btn-secondary" onclick="closeTaskDetail()">Close</button>
+        </div>
+    `;
+
+    document.getElementById('task-detail-modal').classList.remove('hidden');
+}
+
+function closeTaskDetail() {
+    document.getElementById('task-detail-modal').classList.add('hidden');
+}
+
+function formatUrl(url) {
+    if (!url) return '—';
     const path = url.replace(/https?:\/\/[^\/]+/, '');
-    return path.length > 30 ? '...' + path.slice(-27) : path;
+    return path || '/';
 }
 
 async function advanceTask(actionId) {
@@ -132,11 +278,45 @@ async function advanceTask(actionId) {
     const data = await res.json();
 
     if (data.success) {
+        showToast(`Task ${actionId} advanced to ${data.new_status}`, 'success');
         loadTasks();
     } else {
-        alert('Error: ' + (data.error || 'Unknown error'));
+        showToast('Error: ' + (data.error || 'Unknown error'), 'error');
     }
 }
+
+function showRejectModal(actionId) {
+    document.getElementById('reject-action-id').value = actionId;
+    document.getElementById('reject-reason').value = '';
+    document.getElementById('reject-modal').classList.remove('hidden');
+}
+
+function closeRejectModal() {
+    document.getElementById('reject-modal').classList.add('hidden');
+}
+
+document.getElementById('reject-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const actionId = document.getElementById('reject-action-id').value;
+    const reason = document.getElementById('reject-reason').value;
+
+    const res = await fetch(`/api/tasks/${actionId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+        closeRejectModal();
+        showToast(`Task ${actionId} rejected`, 'info');
+        loadTasks();
+    } else {
+        showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+    }
+});
 
 function showOutcomeModal(actionId) {
     document.getElementById('outcome-action-id').value = actionId;
@@ -166,11 +346,20 @@ document.getElementById('outcome-form').addEventListener('submit', async (e) => 
 
     if (data.success) {
         closeOutcomeModal();
+        showToast(`Outcome recorded for ${actionId}`, 'success');
         loadTasks();
     } else {
-        alert('Error: ' + (data.error || 'Unknown error'));
+        showToast('Error: ' + (data.error || 'Unknown error'), 'error');
     }
 });
+
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = `toast toast-${type}`;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3000);
+}
 
 loadTasks();
 </script>

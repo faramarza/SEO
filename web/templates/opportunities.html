@@ -465,9 +465,9 @@ function showDetail(idx) {
             <p>${opp.learning_reference}</p>
         </div>
         ` : ''}
-        ${opp.page_metadata && opp.page_metadata.has_crawl_data ? `
+        ${opp.page_metadata ? `
         <div class="detail-section page-context-section">
-            <h4>Page Context</h4>
+            <h4>Page Context${!opp.page_metadata.has_crawl_data ? ' <span style="font-weight:normal;color:#9ca3af;font-size:12px;">(re-run with crawl to populate)</span>' : ''}</h4>
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
@@ -482,8 +482,12 @@ function showDetail(idx) {
                     <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '<em style="color: #999;">[Not found]</em>'}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Canonical</td>
-                    <td style="padding: 6px 10px;">${opp.page_metadata.canonical_url || '<em style="color: #999;">[Not set]</em>'}</td>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.canonical_url || '<em style="color: #999;">[Not set]</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Word Count</td>
+                    <td style="padding: 6px 10px;">${opp.page_metadata.word_count || '—'}</td>
                 </tr>
             </table>
         </div>
@@ -772,7 +776,7 @@ function exportToPDF(idx) {
                 </tr>
             </table>
 
-            ${opp.page_metadata && opp.page_metadata.has_crawl_data ? `
+            ${opp.page_metadata ? `
             <h3 style="color: #1a1a2e; margin-top: 20px;">Page Context</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px;">
                 <tr>
@@ -951,6 +955,10 @@ async function approveAction(idx) {
                 risk_level: opp.risk_level,
                 mode: opp.mode,
                 implementation_steps: opp.implementation_steps,
+                implementation_summary: opp.implementation_summary || (opp.implementation_steps && opp.implementation_steps[0]) || '',
+                primary_constraint: opp.primary_constraint,
+                asset_type: opp.asset_type,
+                demand_score: opp.demand_score,
                 page_type: opp.page_type || 'unknown',
                 intent_cluster: opp.intent_cluster || 'unknown',
                 action_surface: opp.action_surface || 'other',

@@ -202,6 +202,7 @@ def api_tasks():
 
     for action in ledger.get_all_actions():
         status = action.status.value
+        rec = action.recommendation_json or {}
         tasks_by_status[status].append({
             "action_id": action.action_id,
             "url": action.url,
@@ -210,7 +211,16 @@ def api_tasks():
             "score_value": round(action.score_value, 2),
             "confidence": round(action.confidence, 2),
             "created_at": action.created_at,
+            "implemented_at": action.implemented_at,
             "outcome": action.outcome.value if action.outcome else None,
+            "notes": action.notes,
+            "risk_level": rec.get("risk_level", "low"),
+            "mode": rec.get("mode"),
+            "primary_constraint": rec.get("primary_constraint"),
+            "asset_type": rec.get("asset_type"),
+            "implementation_steps": rec.get("implementation_steps", []),
+            "implementation_summary": rec.get("implementation_summary", ""),
+            "demand_score": rec.get("demand_score"),
         })
 
     return jsonify(tasks_by_status)
@@ -236,7 +246,7 @@ def api_approve_opportunity():
     # Generate action ID
     action_id = f"ACT-{uuid.uuid4().hex[:8].upper()}"
 
-    # Create action record
+    # Create action record — store full context for task board display
     action = ActionRecord(
         action_id=action_id,
         url=data.get("url", ""),
@@ -250,6 +260,10 @@ def api_approve_opportunity():
             "risk_level": data.get("risk_level"),
             "implementation_steps": data.get("implementation_steps", []),
             "source": data.get("source", "manual"),
+            "primary_constraint": data.get("primary_constraint"),
+            "asset_type": data.get("asset_type"),
+            "demand_score": data.get("demand_score"),
+            "implementation_summary": data.get("implementation_summary"),
         },
     )
 
@@ -735,6 +749,26 @@ def api_advance_task(action_id):
         return jsonify({"success": True, "new_status": action.status.value})
 
     return jsonify({"error": "Cannot advance from current status"}), 400
+
+
+@app.route("/api/tasks/<action_id>/reject", methods=["POST"])
+def api_reject_task(action_id):
+    """Reject a task — removes it from the board."""
+    ledger = ActionLedger()
+    data = request.json or {}
+    action = ledger.get_action(action_id)
+
+    if not action:
+        return jsonify({"error": "Action not found"}), 404
+
+    # Record rejection as negative outcome with notes, then close
+    from src.ledger.action_ledger import ActionOutcome
+    action.outcome = ActionOutcome.NEGATIVE
+    action.notes = f"REJECTED: {data.get('reason', 'No reason given')}"
+    action.update_status(ActionStatus.CLOSED)
+    ledger.update_action(action)
+
+    return jsonify({"success": True, "message": f"Task {action_id} rejected and closed"})
 
 
 @app.route("/api/tasks/<action_id>/outcome", methods=["POST"])
