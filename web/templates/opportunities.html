@@ -470,13 +470,7 @@ function showDetail(idx) {
         </div>
         ` : ''}
         <div class="detail-section page-context-section">
-            <h4 style="display:flex;align-items:center;gap:10px;">
-                Page Context
-                <button class="btn btn-secondary" onclick="fetchPageContext(${idx}, '${opp.url.replace(/'/g, "\\'")}')" id="fetch-page-btn-${idx}" style="font-size:12px;padding:3px 10px;">
-                    <span class="btn-icon">🔄</span> Fetch Page
-                </button>
-                <span id="page-context-status-${idx}" style="font-weight:normal;color:#9ca3af;font-size:12px;"></span>
-            </h4>
+            <h4>Page Context <span id="page-context-status-${idx}" style="font-weight:normal;color:#9ca3af;font-size:12px;"></span></h4>
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
@@ -513,8 +507,8 @@ function showDetail(idx) {
             <button class="btn btn-secondary" onclick="exportToPDF(${idx})">
                 <span class="btn-icon">📄</span> Export PDF
             </button>
-            <button class="btn btn-secondary" onclick="inspectUrl(${idx})" title="Check indexing status in GSC">
-                <span class="btn-icon">🔍</span> Inspect URL
+            <button class="btn btn-secondary" onclick="fetchPageContext(${idx}, '${opp.url.replace(/'/g, "\\'")}')" id="fetch-page-btn-${idx}">
+                <span class="btn-icon">🔍</span> Fetch Page
             </button>
             <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}" disabled style="opacity:0.5;cursor:not-allowed;" title="Fetch page first">
                 <span class="btn-icon">🤖</span> AI Recommend
@@ -585,43 +579,6 @@ async function fetchPageContext(idx, url) {
     }
 }
 
-async function inspectUrl(idx) {
-    const opp = filteredOpportunities[idx];
-    showToast('Inspecting URL in GSC...', 'info');
-
-    try {
-        const res = await fetch('/api/gsc/inspect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: opp.url })
-        });
-
-        const data = await res.json();
-
-        if (data.error) {
-            showToast('Inspect error: ' + data.error, 'error');
-            return;
-        }
-
-        // Show results in a simple alert for now
-        const status = `
-URL Inspection Results:
-━━━━━━━━━━━━━━━━━━━━━━
-Verdict: ${data.verdict}
-Coverage: ${data.coverage_state}
-Indexing: ${data.indexing_state}
-Last Crawl: ${data.last_crawl_time || 'Unknown'}
-Fetch State: ${data.page_fetch_state}
-Crawled As: ${data.crawled_as}
-        `.trim();
-
-        alert(status);
-
-    } catch (err) {
-        showToast('Failed to inspect URL', 'error');
-        console.error(err);
-    }
-}
 
 async function getAIRecommendations(idx) {
     const opp = filteredOpportunities[idx];

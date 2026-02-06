@@ -41,6 +41,8 @@ class CrawlResult:
 class HTMLMetaParser(HTMLParser):
     """Parser to extract SEO-relevant metadata from HTML."""
 
+    _SKIP_TAGS = frozenset({"script", "style", "noscript", "nav", "header", "footer", "svg", "iframe"})
+
     def __init__(self):
         super().__init__()
         self.canonical_url: Optional[str] = None
@@ -55,9 +57,13 @@ class HTMLMetaParser(HTMLParser):
         self._in_body = False
         self._body_text: list[str] = []
         self._h1_found = False
+        self._skip_depth = 0  # > 0 means we're inside a skipped element
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]):
         attrs_dict = {k.lower(): v for k, v in attrs if v is not None}
+
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
 
         if tag == "link" and attrs_dict.get("rel", "").lower() == "canonical":
             self.canonical_url = attrs_dict.get("href")
@@ -79,7 +85,9 @@ class HTMLMetaParser(HTMLParser):
             self._in_body = True
 
     def handle_endtag(self, tag: str):
-        if tag == "title":
+        if tag in self._SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+        elif tag == "title":
             self._in_title = False
         elif tag == "h1":
             self._in_h1 = False
@@ -92,8 +100,10 @@ class HTMLMetaParser(HTMLParser):
             self.title += data
         elif self._in_h1:
             self.h1 += data
-        elif self._in_body:
-            self._body_text.append(data)
+        elif self._in_body and self._skip_depth == 0:
+            stripped = data.strip()
+            if stripped:
+                self._body_text.append(stripped)
 
     def get_word_count(self) -> int:
         """Calculate word count from body text."""
