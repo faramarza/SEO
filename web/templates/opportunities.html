@@ -80,8 +80,6 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- html2pdf library for PDF export -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script>
 let allOpportunities = [];
 let filteredOpportunities = [];
@@ -935,44 +933,37 @@ function exportToPDF(idx) {
         </div>
     `;
 
-    // Generate filename from URL
-    const urlPath = new URL(opp.url).pathname.replace(/\//g, '-').replace(/^-|-$/g, '') || 'opportunity';
-    const filename = `seo-opportunity-${urlPath}-${new Date().toISOString().slice(0,10)}.pdf`;
-
-    // Append to DOM — positioned at 0,0 but invisible so html2canvas can render it
-    pdfContent.style.position = 'fixed';
-    pdfContent.style.left = '0';
-    pdfContent.style.top = '0';
-    pdfContent.style.width = '190mm';  // A4 minus margins
-    pdfContent.style.zIndex = '-9999';
-    pdfContent.style.opacity = '0';
-    pdfContent.style.pointerEvents = 'none';
-    document.body.appendChild(pdfContent);
-
-    const opt = {
-        margin: [10, 10, 10, 10],
-        filename: filename,
-        image: { type: 'jpeg', quality: 0.95 },
-        html2canvas: {
-            scale: 2,
-            useCORS: true,
-            logging: false,
-            scrollX: 0,
-            scrollY: 0,
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-    };
-
-    // Generate PDF
-    html2pdf().set(opt).from(pdfContent).save().then(() => {
-        document.body.removeChild(pdfContent);
-        showToast('PDF exported successfully!', 'success');
-    }).catch(err => {
-        document.body.removeChild(pdfContent);
-        console.error('PDF export failed:', err);
-        showToast('Failed to export PDF', 'error');
-    });
+    // Open a print-friendly window — browser's native Print/Save-as-PDF handles rendering
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        showToast('Pop-up blocked — please allow pop-ups for this site', 'error');
+        return;
+    }
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>SEO Opportunity Report — ${opp.url}</title>
+            <style>
+                @media print {
+                    body { margin: 0; }
+                    .no-print { display: none; }
+                }
+                body { font-family: Arial, sans-serif; color: #333; max-width: 800px; margin: 20px auto; padding: 0 20px; }
+                .print-btn { margin: 10px 0 20px; padding: 8px 20px; background: #4f46e5; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+                .print-btn:hover { background: #4338ca; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print">
+                <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+            </div>
+            ${pdfContent.innerHTML}
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+    showToast('Report opened — use Print or Ctrl+P to save as PDF', 'info');
 }
 
 async function quickApprove(idx) {
