@@ -278,7 +278,7 @@ function filterOpportunities() {
     let filtered = allOpportunities;
 
     if (actionFilter === '__actionable__') {
-        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action) && !o.has_active_task);
+        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action));
     } else if (actionFilter === '__has_task__') {
         filtered = filtered.filter(o => o.has_active_task);
     } else if (actionFilter) {
