@@ -328,40 +328,8 @@ def api_ai_recommend():
     max_issues = ai_config.get("max_issues_in_prompt", 0)
     min_context = ai_config.get("min_context_fields", 3)
 
-    # ── Page metadata: use cached if available, else live-fetch ──
+    # ── Page metadata from frontend (populated by Fetch Page button) ──
     pm = opportunity.get("page_metadata", {})
-    if not pm.get("has_crawl_data"):
-        # Live-fetch page metadata since crawl data is missing
-        from src.crawlers.simple_crawler import HTMLMetaParser
-        from urllib.parse import urljoin as _urljoin
-        try:
-            with httpx.Client(
-                headers={"User-Agent": "AlphabetTrains-SEO-Crawler/1.0"},
-                follow_redirects=True,
-                timeout=8.0,
-            ) as _client:
-                _resp = _client.get(url)
-            if _resp.status_code == 200:
-                _parser = HTMLMetaParser()
-                try:
-                    _parser.feed(_resp.text)
-                except Exception:
-                    pass
-                _canonical = _parser.canonical_url
-                if _canonical and not _canonical.startswith(("http://", "https://")):
-                    _canonical = _urljoin(url, _canonical)
-                pm = {
-                    "title": _parser.title.strip(),
-                    "h1": _parser.h1.strip(),
-                    "meta_description": _parser.meta_description.strip(),
-                    "canonical_url": _canonical,
-                    "word_count": _parser.get_word_count(),
-                    "content_preview": _parser.get_content_preview(200),
-                    "has_crawl_data": True,
-                }
-        except Exception:
-            pass  # Fall through with whatever pm had
-
     cached_title = pm.get("title", "")
     cached_h1 = pm.get("h1", "")
     cached_meta = pm.get("meta_description", "")

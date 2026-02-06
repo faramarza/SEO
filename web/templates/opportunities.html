@@ -470,23 +470,29 @@ function showDetail(idx) {
         </div>
         ` : ''}
         <div class="detail-section page-context-section">
-            <h4>Page Context <span id="page-context-status-${idx}" style="font-weight:normal;color:#9ca3af;font-size:12px;">(loading...)</span></h4>
+            <h4 style="display:flex;align-items:center;gap:10px;">
+                Page Context
+                <button class="btn btn-secondary" onclick="fetchPageContext(${idx}, '${opp.url.replace(/'/g, "\\'")}')" id="fetch-page-btn-${idx}" style="font-size:12px;padding:3px 10px;">
+                    <span class="btn-icon">🔄</span> Fetch Page
+                </button>
+                <span id="page-context-status-${idx}" style="font-weight:normal;color:#9ca3af;font-size:12px;"></span>
+            </h4>
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}"><code style="color:#999;">loading...</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}"><em style="color:#999;">—</em></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}"><code style="color:#999;">loading...</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}"><em style="color:#999;">—</em></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}"><em style="color:#999;">loading...</em></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}"><em style="color:#999;">—</em></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}"><em style="color:#999;">loading...</em></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}"><em style="color:#999;">—</em></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
@@ -494,7 +500,7 @@ function showDetail(idx) {
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Content Preview</td>
-                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);" id="page-ctx-preview-${idx}"><em style="color:#999;">loading...</em></td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);" id="page-ctx-preview-${idx}"><em style="color:#999;">—</em></td>
                 </tr>
             </table>
         </div>
@@ -510,7 +516,7 @@ function showDetail(idx) {
             <button class="btn btn-secondary" onclick="inspectUrl(${idx})" title="Check indexing status in GSC">
                 <span class="btn-icon">🔍</span> Inspect URL
             </button>
-            <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}">
+            <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}" disabled style="opacity:0.5;cursor:not-allowed;" title="Fetch page first">
                 <span class="btn-icon">🤖</span> AI Recommend
             </button>
             <button class="btn btn-primary" onclick="approveAction(${idx})">
@@ -520,12 +526,14 @@ function showDetail(idx) {
     `;
 
     document.getElementById('detail-modal').classList.remove('hidden');
-
-    // Live-fetch page metadata
-    fetchPageContext(idx, opp.url);
 }
 
 async function fetchPageContext(idx, url) {
+    const fetchBtn = document.getElementById(`fetch-page-btn-${idx}`);
+    const status = document.getElementById(`page-context-status-${idx}`);
+    if (fetchBtn) { fetchBtn.disabled = true; fetchBtn.innerHTML = '<span class="btn-icon">⏳</span> Fetching...'; }
+    if (status) status.textContent = '';
+
     try {
         const resp = await fetch('/api/page-metadata', {
             method: 'POST',
@@ -535,8 +543,6 @@ async function fetchPageContext(idx, url) {
         const data = await resp.json();
         if (resp.ok && data.has_crawl_data) {
             const el = (id) => document.getElementById(id);
-            const status = el(`page-context-status-${idx}`);
-            if (status) status.textContent = '';
             const titleEl = el(`page-ctx-title-${idx}`);
             if (titleEl) titleEl.innerHTML = `<code>${data.title || '[Not found]'}</code>`;
             const h1El = el(`page-ctx-h1-${idx}`);
@@ -550,7 +556,7 @@ async function fetchPageContext(idx, url) {
             const prevEl = el(`page-ctx-preview-${idx}`);
             if (prevEl) prevEl.textContent = data.content_preview || '[Not available]';
 
-            // Also update the cached data so AI recommendations can use it
+            // Update cached data so AI recommendations use it
             const opp = filteredOpportunities[idx];
             if (opp) {
                 if (!opp.page_metadata) opp.page_metadata = {};
@@ -562,13 +568,20 @@ async function fetchPageContext(idx, url) {
                 opp.page_metadata.content_preview = data.content_preview;
                 opp.page_metadata.has_crawl_data = true;
             }
+
+            // Enable AI Recommend button
+            const aiBtn = el(`ai-btn-${idx}`);
+            if (aiBtn) { aiBtn.disabled = false; aiBtn.style.opacity = '1'; aiBtn.style.cursor = 'pointer'; aiBtn.title = ''; }
+
+            if (fetchBtn) { fetchBtn.innerHTML = '<span class="btn-icon">✓</span> Fetched'; }
+            if (status) status.textContent = '';
         } else {
-            const status = document.getElementById(`page-context-status-${idx}`);
-            if (status) status.textContent = `(fetch failed: ${data.error || 'unknown'})`;
+            if (status) status.textContent = `(failed: ${data.error || 'unknown'})`;
+            if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.innerHTML = '<span class="btn-icon">🔄</span> Retry'; }
         }
     } catch (e) {
-        const status = document.getElementById(`page-context-status-${idx}`);
         if (status) status.textContent = '(fetch failed)';
+        if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.innerHTML = '<span class="btn-icon">🔄</span> Retry'; }
     }
 }
 
