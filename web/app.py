@@ -1317,6 +1317,7 @@ def api_run_evaluation():
                                         h1=parser.h1.strip(),
                                         word_count=parser.get_word_count(),
                                         meta_description=parser.meta_description.strip(),
+                                        content_preview=parser.get_content_preview(200),
                                     )
                                 else:
                                     result = CrawlResult(

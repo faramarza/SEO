@@ -905,6 +905,7 @@ class FullEvaluationWorkflow:
                     "meta_description": asset.meta_description,
                     "canonical_url": asset.canonical_url,
                     "word_count": asset.word_count,
+                    "content_preview": asset.content_preview,
                     "has_crawl_data": asset.has_crawl_data,
                 },
                 **constraint_data,  # Include constraint detection data
