@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -206,6 +207,72 @@ class FullEvaluationWorkflow:
         self._diagnostic_results: list = []
         self._evaluation_results: list = []
 
+    # Tracking/marketing query parameters to strip from URLs
+    _STRIP_PARAMS = {
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+        "gclid", "gclsrc", "gbraid", "wbraid", "dclid",
+        "fbclid", "msclkid", "twclid",
+        "mc_cid", "mc_eid",
+        "ref", "source",
+    }
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Strip tracking parameters from a URL and normalize."""
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query, keep_blank_values=False)
+        # Remove tracking params
+        cleaned = {
+            k: v for k, v in params.items()
+            if k.lower() not in FullEvaluationWorkflow._STRIP_PARAMS
+        }
+        # Rebuild query string (sorted for consistency)
+        new_query = urlencode(cleaned, doseq=True) if cleaned else ""
+        normalized = urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path.rstrip("/") or "/",
+            parsed.params,
+            new_query,
+            "",  # drop fragment
+        ))
+        return normalized
+
+    def _normalize_url_data(self, data: dict) -> dict:
+        """Normalize URL keys and merge metrics for duplicates."""
+        merged = {}
+        for raw_url, metrics in data.items():
+            clean_url = self._normalize_url(raw_url)
+            if clean_url not in merged:
+                merged[clean_url] = dict(metrics)
+            else:
+                # Merge: sum numeric metrics, keep best queries
+                existing = merged[clean_url]
+                for key in ("clicks", "impressions", "sessions", "users",
+                            "engaged_sessions", "conversions", "revenue"):
+                    if key in metrics:
+                        existing[key] = existing.get(key, 0) + metrics[key]
+                # Keep the better position (lower = better)
+                if "position" in metrics and "position" in existing:
+                    existing["position"] = min(existing["position"], metrics["position"])
+                # Keep the better CTR
+                if "ctr" in metrics and "ctr" in existing:
+                    existing["ctr"] = max(existing["ctr"], metrics["ctr"])
+                # Merge queries (deduplicate by query text)
+                if "queries" in metrics:
+                    existing_queries = {q["query"]: q for q in existing.get("queries", [])}
+                    for q in metrics["queries"]:
+                        if q["query"] not in existing_queries:
+                            existing_queries[q["query"]] = q
+                        else:
+                            eq = existing_queries[q["query"]]
+                            eq["clicks"] = eq.get("clicks", 0) + q.get("clicks", 0)
+                            eq["impressions"] = eq.get("impressions", 0) + q.get("impressions", 0)
+                            if q.get("position", 100) < eq.get("position", 100):
+                                eq["position"] = q["position"]
+                    existing["queries"] = list(existing_queries.values())
+        return merged
+
     def load_data(self, days: int = 28) -> list[PageAsset]:
         """
         Load data from GSC and GA4.
@@ -219,12 +286,17 @@ class FullEvaluationWorkflow:
         print(f"Loading data from GSC and GA4 ({days} days)...")
 
         # Get GSC data
-        gsc_data = self.gsc_client.get_page_data(days=days)
-        print(f"  GSC: {len(gsc_data)} URLs")
+        gsc_data_raw = self.gsc_client.get_page_data(days=days)
+        print(f"  GSC: {len(gsc_data_raw)} URLs (raw)")
 
         # Get GA4 data (organic only)
-        ga4_data = self.ga4_client.get_page_data(days=days, organic_only=True)
-        print(f"  GA4: {len(ga4_data)} URLs")
+        ga4_data_raw = self.ga4_client.get_page_data(days=days, organic_only=True)
+        print(f"  GA4: {len(ga4_data_raw)} URLs (raw)")
+
+        # Normalize URLs: strip tracking params, merge duplicates
+        gsc_data = self._normalize_url_data(gsc_data_raw)
+        ga4_data = self._normalize_url_data(ga4_data_raw)
+        print(f"  After normalization: GSC {len(gsc_data)}, GA4 {len(ga4_data)}")
 
         # Merge into PageAssets
         all_urls = set(gsc_data.keys()) | set(ga4_data.keys())
