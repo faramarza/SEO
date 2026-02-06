@@ -939,24 +939,26 @@ function exportToPDF(idx) {
     const urlPath = new URL(opp.url).pathname.replace(/\//g, '-').replace(/^-|-$/g, '') || 'opportunity';
     const filename = `seo-opportunity-${urlPath}-${new Date().toISOString().slice(0,10)}.pdf`;
 
-    // Append to DOM temporarily so html2canvas can measure/render it
-    pdfContent.style.position = 'absolute';
-    pdfContent.style.left = '-9999px';
+    // Append to DOM — positioned at 0,0 but invisible so html2canvas can render it
+    pdfContent.style.position = 'fixed';
+    pdfContent.style.left = '0';
     pdfContent.style.top = '0';
-    pdfContent.style.width = '210mm';  // A4 width
+    pdfContent.style.width = '190mm';  // A4 minus margins
+    pdfContent.style.zIndex = '-9999';
+    pdfContent.style.opacity = '0';
+    pdfContent.style.pointerEvents = 'none';
     document.body.appendChild(pdfContent);
 
-    // PDF options — scale 1 avoids oversized canvas causing blank pages
     const opt = {
         margin: [10, 10, 10, 10],
         filename: filename,
         image: { type: 'jpeg', quality: 0.95 },
         html2canvas: {
-            scale: 1,
+            scale: 2,
             useCORS: true,
             logging: false,
-            width: pdfContent.scrollWidth,
-            windowWidth: pdfContent.scrollWidth,
+            scrollX: 0,
+            scrollY: 0,
         },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
