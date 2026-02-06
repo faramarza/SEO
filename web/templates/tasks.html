@@ -100,6 +100,26 @@
     </div>
 </div>
 
+<!-- Send Back Modal -->
+<div id="sendback-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeSendBackModal()">&times;</span>
+        <h2>Send Back for Re-evaluation</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 12px;">This will close the task. The URL will be re-scored on the next evaluation run and may appear in the opportunities queue again with updated data.</p>
+        <form id="sendback-form">
+            <input type="hidden" id="sendback-action-id">
+            <div class="form-group">
+                <label>Reason (optional)</label>
+                <textarea id="sendback-reason" rows="2" placeholder="e.g. Data changed, need fresh scores"></textarea>
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeSendBackModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Send Back</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Toast -->
 <div id="toast" class="toast hidden"></div>
 {% endblock %}
@@ -137,20 +157,25 @@ function renderTask(task, status) {
         || (task.implementation_steps && task.implementation_steps[0])
         || '';
 
-    // Advance / Reject actions per status
+    // Advance / Reject / Send Back actions per status
     let actions = '';
     if (status === 'proposed') {
         actions = `
             <button class="btn btn-small btn-approve-task" onclick="advanceTask('${task.action_id}')">Approve</button>
+            <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
             <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
         `;
     } else if (status === 'approved') {
         actions = `
             <button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Mark Implemented</button>
+            <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
             <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
         `;
     } else if (status === 'implemented') {
-        actions = `<button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Record Outcome</button>`;
+        actions = `
+            <button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Record Outcome</button>
+            <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
+        `;
     } else if (status === 'measured') {
         actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Close</button>`;
     }
@@ -312,6 +337,39 @@ document.getElementById('reject-form').addEventListener('submit', async (e) => {
     if (data.success) {
         closeRejectModal();
         showToast(`Task ${actionId} rejected`, 'info');
+        loadTasks();
+    } else {
+        showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+    }
+});
+
+function showSendBackModal(actionId) {
+    document.getElementById('sendback-action-id').value = actionId;
+    document.getElementById('sendback-reason').value = '';
+    document.getElementById('sendback-modal').classList.remove('hidden');
+}
+
+function closeSendBackModal() {
+    document.getElementById('sendback-modal').classList.add('hidden');
+}
+
+document.getElementById('sendback-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const actionId = document.getElementById('sendback-action-id').value;
+    const reason = document.getElementById('sendback-reason').value;
+
+    const res = await fetch(`/api/tasks/${actionId}/send-back`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+        closeSendBackModal();
+        showToast(data.message, 'success');
         loadTasks();
     } else {
         showToast('Error: ' + (data.error || 'Unknown error'), 'error');

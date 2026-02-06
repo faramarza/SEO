@@ -915,6 +915,17 @@ body {
     color: white !important;
 }
 
+.btn-sendback-task {
+    background: transparent !important;
+    color: var(--accent-yellow) !important;
+    border: 1px solid var(--accent-yellow) !important;
+}
+
+.btn-sendback-task:hover {
+    background: var(--accent-yellow) !important;
+    color: white !important;
+}
+
 .empty-column {
     text-align: center;
     color: var(--text-muted);

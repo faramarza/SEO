@@ -762,13 +762,40 @@ def api_reject_task(action_id):
         return jsonify({"error": "Action not found"}), 404
 
     # Record rejection as negative outcome with notes, then close
-    from src.ledger.action_ledger import ActionOutcome
     action.outcome = ActionOutcome.NEGATIVE
     action.notes = f"REJECTED: {data.get('reason', 'No reason given')}"
     action.update_status(ActionStatus.CLOSED)
     ledger.update_action(action)
 
     return jsonify({"success": True, "message": f"Task {action_id} rejected and closed"})
+
+
+@app.route("/api/tasks/<action_id>/send-back", methods=["POST"])
+def api_send_back_task(action_id):
+    """Send a task back for re-evaluation. Removes it from the task board
+    so it will be re-scored on the next evaluation run."""
+    ledger = ActionLedger()
+    data = request.json or {}
+    action = ledger.get_action(action_id)
+
+    if not action:
+        return jsonify({"error": "Action not found"}), 404
+
+    if action.status in (ActionStatus.MEASURED, ActionStatus.CLOSED):
+        return jsonify({"error": "Cannot send back a task that is already measured or closed"}), 400
+
+    # Record why it was sent back, then remove from ledger
+    reason = data.get("reason", "")
+    action.notes = f"SENT BACK: {reason}" if reason else "SENT BACK for re-evaluation"
+    action.outcome = ActionOutcome.INCONCLUSIVE
+    action.update_status(ActionStatus.CLOSED)
+    ledger.update_action(action)
+
+    return jsonify({
+        "success": True,
+        "message": f"Task {action_id} sent back. URL will be re-evaluated on next run.",
+        "url": action.url,
+    })
 
 
 @app.route("/api/tasks/<action_id>/outcome", methods=["POST"])
