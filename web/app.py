@@ -173,7 +173,7 @@ def api_opportunities():
     )
 
     return jsonify({
-        "opportunities": all_results[:100],
+        "opportunities": all_results,
         "total": len(all_results),
         "actionable": sum(1 for r in all_results if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)),
     })
