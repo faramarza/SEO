@@ -1223,6 +1223,52 @@ def api_admin_ai_log():
     return jsonify({"calls": calls})
 
 
+@app.route("/api/page-metadata", methods=["POST"])
+def api_page_metadata():
+    """Live-fetch page metadata for a given URL."""
+    data = request.json or {}
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "URL required"}), 400
+
+    from src.crawlers.simple_crawler import HTMLMetaParser
+    import httpx
+    from urllib.parse import urljoin
+
+    try:
+        with httpx.Client(
+            headers={"User-Agent": "AlphabetTrains-SEO-Crawler/1.0"},
+            follow_redirects=True,
+            timeout=8.0,
+        ) as client:
+            response = client.get(url)
+
+        if response.status_code == 200:
+            parser = HTMLMetaParser()
+            try:
+                parser.feed(response.text)
+            except Exception:
+                pass
+
+            canonical = parser.canonical_url
+            if canonical and not canonical.startswith(("http://", "https://")):
+                canonical = urljoin(url, canonical)
+
+            return jsonify({
+                "title": parser.title.strip(),
+                "h1": parser.h1.strip(),
+                "meta_description": parser.meta_description.strip(),
+                "canonical_url": canonical,
+                "word_count": parser.get_word_count(),
+                "content_preview": parser.get_content_preview(200),
+                "has_crawl_data": True,
+            })
+        else:
+            return jsonify({"error": f"HTTP {response.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)[:100]}), 502
+
+
 @app.route("/api/run-evaluation", methods=["POST"])
 def api_run_evaluation():
     """Trigger a new evaluation run with optional crawling."""

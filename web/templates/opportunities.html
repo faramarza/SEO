@@ -469,37 +469,35 @@ function showDetail(idx) {
             <p>${opp.learning_reference}</p>
         </div>
         ` : ''}
-        ${opp.page_metadata ? `
         <div class="detail-section page-context-section">
-            <h4>Page Context${!opp.page_metadata.has_crawl_data ? ' <span style="font-weight:normal;color:#9ca3af;font-size:12px;">(re-run with crawl to populate)</span>' : ''}</h4>
+            <h4>Page Context <span id="page-context-status-${idx}" style="font-weight:normal;color:#9ca3af;font-size:12px;">(loading...)</span></h4>
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.title || '[Not found]'}</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}"><code style="color:#999;">loading...</code></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.h1 || '[Not found]'}</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}"><code style="color:#999;">loading...</code></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '<em style="color: #999;">[Not found]</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}"><em style="color:#999;">loading...</em></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.canonical_url || '<em style="color: #999;">[Not set]</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}"><em style="color:#999;">loading...</em></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.word_count || '—'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-wordcount-${idx}"><em style="color:#999;">—</em></td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Content Preview</td>
-                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);">${opp.page_metadata.content_preview || '<em style="color: #999;">[Not available — re-run with crawl]</em>'}</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);" id="page-ctx-preview-${idx}"><em style="color:#999;">loading...</em></td>
                 </tr>
             </table>
         </div>
-        ` : ''}
         <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: none;">
             <h4>AI Recommendations</h4>
             <div class="ai-content" id="ai-content-${idx}"></div>
@@ -522,6 +520,56 @@ function showDetail(idx) {
     `;
 
     document.getElementById('detail-modal').classList.remove('hidden');
+
+    // Live-fetch page metadata
+    fetchPageContext(idx, opp.url);
+}
+
+async function fetchPageContext(idx, url) {
+    try {
+        const resp = await fetch('/api/page-metadata', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url }),
+        });
+        const data = await resp.json();
+        if (resp.ok && data.has_crawl_data) {
+            const el = (id) => document.getElementById(id);
+            const status = el(`page-context-status-${idx}`);
+            if (status) status.textContent = '';
+            const titleEl = el(`page-ctx-title-${idx}`);
+            if (titleEl) titleEl.innerHTML = `<code>${data.title || '[Not found]'}</code>`;
+            const h1El = el(`page-ctx-h1-${idx}`);
+            if (h1El) h1El.innerHTML = `<code>${data.h1 || '[Not found]'}</code>`;
+            const metaEl = el(`page-ctx-meta-${idx}`);
+            if (metaEl) metaEl.innerHTML = data.meta_description || '<em style="color:#999;">[Not found]</em>';
+            const canEl = el(`page-ctx-canonical-${idx}`);
+            if (canEl) canEl.innerHTML = data.canonical_url || '<em style="color:#999;">[Not set]</em>';
+            const wcEl = el(`page-ctx-wordcount-${idx}`);
+            if (wcEl) wcEl.textContent = data.word_count || '—';
+            const prevEl = el(`page-ctx-preview-${idx}`);
+            if (prevEl) prevEl.textContent = data.content_preview || '[Not available]';
+
+            // Also update the cached data so AI recommendations can use it
+            const opp = filteredOpportunities[idx];
+            if (opp) {
+                if (!opp.page_metadata) opp.page_metadata = {};
+                opp.page_metadata.title = data.title;
+                opp.page_metadata.h1 = data.h1;
+                opp.page_metadata.meta_description = data.meta_description;
+                opp.page_metadata.canonical_url = data.canonical_url;
+                opp.page_metadata.word_count = data.word_count;
+                opp.page_metadata.content_preview = data.content_preview;
+                opp.page_metadata.has_crawl_data = true;
+            }
+        } else {
+            const status = document.getElementById(`page-context-status-${idx}`);
+            if (status) status.textContent = `(fetch failed: ${data.error || 'unknown'})`;
+        }
+    } catch (e) {
+        const status = document.getElementById(`page-context-status-${idx}`);
+        if (status) status.textContent = '(fetch failed)';
+    }
 }
 
 async function inspectUrl(idx) {
