@@ -59,8 +59,12 @@ class WorkflowConfig:
     aov: float = 53.19
     margin: float = 0.27
 
-    # Governance
-    min_confidence_threshold: float = 0.65
+    # Governance — lane-aware confidence thresholds
+    # EXPLORATION (additive, reversible): lower bar
+    # PRESERVATION (irreversible, high-risk): higher bar
+    exploration_confidence_threshold: float = 0.55
+    preservation_confidence_threshold: float = 0.75
+    min_confidence_threshold: float = 0.55  # Lowest threshold (backward compat)
     regret_budget_year: int = 2
     profit_to_cost_ratio_gate: float = 5.0
 
@@ -98,7 +102,9 @@ class WorkflowConfig:
             credentials_path=data["data_sources"]["gsc"]["credentials_path"],
             aov=data.get("profit_model", {}).get("aov", 53.19),
             margin=data.get("profit_model", {}).get("gross_margin_low", 0.27),
-            min_confidence_threshold=data.get("governance", {}).get("min_confidence_threshold", 0.65),
+            exploration_confidence_threshold=data.get("governance", {}).get("exploration_confidence_threshold", 0.55),
+            preservation_confidence_threshold=data.get("governance", {}).get("preservation_confidence_threshold", 0.75),
+            min_confidence_threshold=data.get("governance", {}).get("min_confidence_threshold", 0.55),
             regret_budget_year=data.get("governance", {}).get("regret_budget_year", 2),
             profit_to_cost_ratio_gate=data.get("governance", {}).get("profit_to_cost_ratio_gate", 5.0),
             google_ads_customer_id=ads_config.get("customer_id"),
@@ -846,8 +852,16 @@ class FullEvaluationWorkflow:
             candidates.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
             best = candidates[0]
 
-            # Check confidence threshold
-            if best["confidence"] < self.config.min_confidence_threshold:
+            # Check confidence threshold — lane-aware
+            # High-risk (irreversible) actions need PRESERVATION threshold (0.75)
+            # Low/medium-risk (reversible) actions need EXPLORATION threshold (0.55)
+            is_preservation = best.get("risk_level") == "high"
+            confidence_threshold = (
+                self.config.preservation_confidence_threshold if is_preservation
+                else self.config.exploration_confidence_threshold
+            )
+            if best["confidence"] < confidence_threshold:
+                lane = "PRESERVATION" if is_preservation else "EXPLORATION"
                 return {
                     "url": asset.url,
                     "asset_type": asset.asset_type.value,
@@ -856,9 +870,9 @@ class FullEvaluationWorkflow:
                     "expected_value": best["expected_value"],
                     "confidence": best["confidence"],
                     "priority_score": 0,
-                    "risk_level": "low",
+                    "risk_level": best.get("risk_level", "low"),
                     "implementation_steps": [],
-                    "reason": f"Confidence {best['confidence']:.2f} below threshold {self.config.min_confidence_threshold}",
+                    "reason": f"Confidence {best['confidence']:.2f} below {lane} threshold {confidence_threshold}",
                     "page_metadata": {
                         "title": asset.title,
                         "h1": asset.h1,

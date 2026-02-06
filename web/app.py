@@ -342,24 +342,25 @@ def api_ai_recommend():
     }
 
     # ── Confidence short-circuit ─────────────────────────────────
-    # If confidence is below the system threshold, return NO_ACTION
-    # immediately without spending an API call.
+    # If confidence is below the EXPLORATION threshold (0.55),
+    # no action lane applies — return NO_ACTION without an API call.
     confidence = opportunity.get("confidence", 0)
-    if confidence < 0.65:
+    if confidence < 0.55:
         return jsonify({
             "success": True,
             "url": url,
             "page_analysis": page_analysis,
             "recommendations": {
                 "recommendation": "NO_ACTION",
-                "problem_statement": "System confidence below the 0.65 minimum threshold for action.",
+                "problem_statement": "System confidence below the 0.55 minimum threshold for any action lane.",
                 "rationale": (
                     f"The system-calculated confidence is {confidence:.2f}, "
-                    f"which is below the 0.65 minimum required to propose any action. "
+                    f"which is below the 0.55 minimum required for EXPLORATION actions "
+                    f"(the lowest confidence lane). PRESERVATION actions require ≥ 0.75. "
                     f"At this confidence level, the risk of a bad recommendation outweighs "
                     f"the expected value of ${opportunity.get('expected_value', 0):.2f}."
                 ),
-                "action": {"surface": None, "instruction": None, "guardrails": {"must_not_change": "N/A", "must_preserve": "N/A"}},
+                "action": {"type": None, "surface": None, "instruction": None, "guardrails": {"must_not_change": "N/A", "must_preserve": "N/A"}},
                 "expected_impact": "None — no action proposed.",
                 "measurement": {"primary_metric": "N/A", "evaluation_window": "N/A", "abort_conditions": "N/A"},
                 "risk_notes": "Inaction is the safest path when confidence is insufficient.",
