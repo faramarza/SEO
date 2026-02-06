@@ -22,12 +22,15 @@
 
     <div class="filters">
         <select id="filter-action" onchange="filterOpportunities()">
-            <option value="">All Action Types</option>
+            <option value="">All Pages</option>
+            <option value="__actionable__" selected>Actionable Only</option>
             <option value="TITLE_META_TEST">Title/Meta Test</option>
             <option value="INTERNAL_LINK_REALLOCATION">Internal Links</option>
             <option value="CANONICAL_FIX">Canonical Fix</option>
             <option value="PAGE_REINVESTMENT">Page Reinvestment</option>
             <option value="NEW_ASSET_CREATION">New Asset</option>
+            <option value="OBSERVE_ONLY">Observe Only</option>
+            <option value="NO_ACTION">No Action</option>
         </select>
         <select id="filter-risk" onchange="filterOpportunities()">
             <option value="">All Risk Levels</option>
@@ -87,7 +90,7 @@ async function loadOpportunities() {
         const data = await res.json();
         allOpportunities = data.opportunities || [];
         sortOpportunities();
-        renderOpportunities(allOpportunities);
+        filterOpportunities();
     } catch (err) {
         console.error('Failed to load opportunities:', err);
         document.getElementById('opportunities-body').innerHTML =
@@ -147,15 +150,21 @@ function handleSort(field) {
 
 function renderOpportunities(opportunities) {
     const tbody = document.getElementById('opportunities-body');
-    document.getElementById('result-count').textContent = opportunities.length + ' opportunities';
+    const total = allOpportunities.length;
+    const shown = opportunities.length;
+    document.getElementById('result-count').textContent = shown === total
+        ? `${total} pages` : `${shown} of ${total} pages`;
 
     if (opportunities.length === 0) {
         tbody.innerHTML = '<tr><td colspan="9" class="empty">No opportunities match your filters.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = opportunities.map((opp, idx) => `
-        <tr class="opportunity-row" data-idx="${idx}">
+    tbody.innerHTML = opportunities.map((opp, idx) => {
+        const rowClass = opp.recommended_action === 'NO_ACTION' ? 'row-no-action'
+            : opp.recommended_action === 'OBSERVE_ONLY' ? 'row-observe-only' : '';
+        return `
+        <tr class="opportunity-row ${rowClass}" data-idx="${idx}">
             <td class="row-number">${idx + 1}</td>
             <td class="url-cell" title="${opp.url}">
                 <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
@@ -175,7 +184,7 @@ function renderOpportunities(opportunities) {
                 <button class="btn btn-small btn-approve" onclick="quickApprove(${idx})">Approve</button>
             </td>
         </tr>
-    `).join('');
+    `}).join('');
 }
 
 function truncateUrl(url) {
@@ -210,7 +219,9 @@ function filterOpportunities() {
 
     let filtered = allOpportunities;
 
-    if (actionFilter) {
+    if (actionFilter === '__actionable__') {
+        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action));
+    } else if (actionFilter) {
         filtered = filtered.filter(o => o.recommended_action === actionFilter);
     }
     if (riskFilter) {

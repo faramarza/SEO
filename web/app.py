@@ -160,17 +160,22 @@ def api_opportunities():
     with open(eval_path) as f:
         eval_data = json.load(f)
 
-    # Filter to actionable items and sort by priority
-    opportunities = [
-        r for r in eval_data.get("results", [])
-        if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
-    ]
+    # Return all evaluated pages — frontend handles filtering/visual treatment
+    all_results = eval_data.get("results", [])
 
-    opportunities.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
+    # Sort: actionable items first (by priority), then observe, then no-action
+    action_order = {"NO_ACTION": 2, "OBSERVE_ONLY": 1}
+    all_results.sort(
+        key=lambda x: (
+            action_order.get(x.get("recommended_action", ""), 0),
+            -(x.get("priority_score", 0)),
+        )
+    )
 
     return jsonify({
-        "opportunities": opportunities[:50],  # Top 50
-        "total": len(opportunities),
+        "opportunities": all_results[:100],
+        "total": len(all_results),
+        "actionable": sum(1 for r in all_results if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)),
     })
 
 

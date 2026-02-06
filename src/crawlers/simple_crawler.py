@@ -182,6 +182,7 @@ class SimpleCrawler:
                     indexable=parser.is_indexable,
                     title=parser.title.strip(),
                     h1=parser.h1.strip(),
+                    meta_description=parser.meta_description.strip(),
                     word_count=parser.get_word_count(),
                 )
 

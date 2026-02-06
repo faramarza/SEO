@@ -1263,6 +1263,25 @@ td.negative { color: var(--accent-red); font-weight: 600; }
     color: var(--accent-orange);
 }
 
+.action-badge.action-no_action {
+    background-color: rgba(107, 114, 128, 0.10);
+    color: #9ca3af;
+}
+
+.action-badge.action-observe_only {
+    background-color: rgba(245, 158, 11, 0.10);
+    color: #d97706;
+}
+
+/* Muted rows for non-actionable pages */
+.opportunity-row.row-no-action {
+    opacity: 0.55;
+}
+
+.opportunity-row.row-observe-only {
+    opacity: 0.75;
+}
+
 /* ============================================================
    Button Variants
    ============================================================ */
