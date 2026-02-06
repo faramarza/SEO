@@ -322,7 +322,7 @@ def api_ai_recommend():
 
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
-    max_tokens = ai_config.get("max_tokens", 1500)
+    max_tokens = ai_config.get("max_tokens", 2500)
     timeout_sec = ai_config.get("timeout", 30)
     max_queries = ai_config.get("max_queries_in_prompt", 0)
     max_issues = ai_config.get("max_issues_in_prompt", 0)
@@ -357,26 +357,31 @@ def api_ai_recommend():
             "url": url,
             "page_analysis": page_analysis,
             "recommendations": {
-                "recommendation": "NO_ACTION",
-                "problem_statement": f"System confidence below the {exploration_threshold} minimum threshold for any action lane.",
-                "rationale": (
-                    f"The system-calculated confidence is {confidence:.2f}, "
-                    f"which is below the {exploration_threshold} minimum required for EXPLORATION actions "
-                    f"(the lowest confidence lane). PRESERVATION actions require ≥ {preservation_threshold}. "
-                    f"At this confidence level, the risk of a bad recommendation outweighs "
-                    f"the expected value of ${opportunity.get('expected_value', 0):.2f}."
+                "summary": (
+                    f"Confidence {confidence:.2f} is below the {exploration_threshold} minimum for any action lane. "
+                    f"No action recommended."
                 ),
-                "action": {"type": None, "surface": None, "instruction": None, "guardrails": {"must_not_change": "N/A", "must_preserve": "N/A"}},
-                "expected_impact": "None — no action proposed.",
-                "measurement": {"primary_metric": "N/A", "evaluation_window": "N/A", "abort_conditions": "N/A"},
-                "risk_notes": "Inaction is the safest path when confidence is insufficient.",
+                "actions": [{
+                    "action_type": "NO_ACTION",
+                    "exact_changes": "None — confidence too low for any action lane.",
+                    "why_this_works": (
+                        f"System confidence is {confidence:.2f}, below {exploration_threshold} (EXPLORATION) "
+                        f"and {preservation_threshold} (PRESERVATION). EV: ${opportunity.get('expected_value', 0):.2f}."
+                    ),
+                    "risk_level": "low",
+                    "rollback_plan": "N/A — no action taken.",
+                    "measurement": {
+                        "primary_metric": "N/A",
+                        "expected_direction": "stable",
+                        "evaluation_window": "N/A",
+                        "stop_threshold": "N/A",
+                        "continue_threshold": "N/A",
+                    },
+                }],
             },
         })
 
     # ── Required context validation ──────────────────────────────
-    # Only block if truly critical context is missing (URL, asset type,
-    # performance data). Crawl metadata (title/H1) is nice-to-have
-    # but the AI can still make constraint-based recommendations without it.
     critical_context = {
         "has_url": bool(url),
         "has_asset_type": bool(opportunity.get("asset_type")),
@@ -389,7 +394,6 @@ def api_ai_recommend():
 
     missing_critical = [k for k, v in critical_context.items() if not v]
 
-    # Block if too many critical items are missing
     if len(missing_critical) >= min_context:
         return jsonify({
             "success": True,
@@ -402,322 +406,185 @@ def api_ai_recommend():
             },
         })
 
-    # ── Build structured prompt per AI Recommendation Subsystem ──
+    # ── Build structured inputs per new AI Recommendation spec ──
     asset_type = opportunity.get("asset_type", "other").upper()
-
-    # Determine operating mode from the opportunity data
-    mode = opportunity.get("mode", "")
-    if not mode:
-        # Infer from recommended action and asset type
-        if asset_type == "BLOG":
-            mode = "FUNNEL_ALIGNMENT"
-        elif opportunity.get("recommended_action") in ("PAGE_REINVESTMENT",):
-            mode = "PRESERVATION"
-        else:
-            mode = "OPPORTUNITY_DISCOVERY"
+    page_type = asset_type.lower()
+    if page_type not in ("product", "category", "blog"):
+        page_type = "other"
 
     # ── 1) Constraint evidence ──────────────────────────────────
-    constraint_evidence_lines = []
+    constraint_list = []
     if opportunity.get("constraints"):
         for c in opportunity.get("constraints", []):
-            evidence_str = ""
-            if c.get("evidence"):
-                evidence_str = f" | Evidence: {json.dumps(c['evidence'])}"
-            constraint_evidence_lines.append(
+            constraint_list.append(
                 f"- [{c.get('severity', 'medium')}] {c.get('constraint_type', 'unknown')}: "
-                f"{c.get('description', '')}{evidence_str}"
+                f"{c.get('description', '')}"
             )
-    constraint_evidence = "\n".join(constraint_evidence_lines) if constraint_evidence_lines else "No constraint evidence available."
+    constraints_str = "\n".join(constraint_list) if constraint_list else "None detected."
 
-    # ── 2) GSC summary ──────────────────────────────────────────
+    # ── 2) GSC query data ───────────────────────────────────────
     gsc_lines = []
     if opportunity.get("top_queries"):
         queries = opportunity.get("top_queries", [])
         for q in (queries[:max_queries] if max_queries else queries):
             gsc_lines.append(
-                f"  \"{q.get('query')}\" → pos: {q.get('position')}, "
-                f"impr: {q.get('impressions')}, clicks: {q.get('clicks', 'N/A')}, "
-                f"ctr: {q.get('ctr', 'N/A')}%"
+                f'  {{query: "{q.get("query")}", impressions: {q.get("impressions", 0)}, '
+                f'clicks: {q.get("clicks", 0)}, position: {q.get("position", 0)}, '
+                f'ctr: {q.get("ctr", 0)}%}}'
             )
-    gsc_summary = "\n".join(gsc_lines) if gsc_lines else "No GSC query data available."
+    gsc_str = "\n".join(gsc_lines) if gsc_lines else "null"
 
-    # ── 3) GA4 summary ──────────────────────────────────────────
-    ga4_parts = []
-    if opportunity.get("demand_score") is not None:
-        ga4_parts.append(f"Demand Score: {opportunity.get('demand_score')}")
-    if opportunity.get("intent_score") is not None:
-        ga4_parts.append(f"Intent Score: {opportunity.get('intent_score')}")
-    if opportunity.get("visibility_score") is not None:
-        ga4_parts.append(f"Visibility Score: {opportunity.get('visibility_score')}")
-    ga4_summary = ", ".join(ga4_parts) if ga4_parts else "No GA4 performance data available."
+    # ── 3) Internal outlinks from page metadata ─────────────────
+    outlinks = pm.get("internal_outlinks", [])
+    outlinks_lines = []
+    for ol in outlinks[:30]:  # Limit to 30 links for prompt size
+        outlinks_lines.append(
+            f'  {{target_url: "{ol.get("target_url", "")}", '
+            f'anchor_text: "{ol.get("anchor_text", "")}", '
+            f'location: "{ol.get("location", "body")}"}}'
+        )
+    outlinks_str = "\n".join(outlinks_lines) if outlinks_lines else "null"
 
-    # ── 4) Internal link summary ────────────────────────────────
-    link_parts = []
-    if opportunity.get("routing_data"):
-        rd = opportunity["routing_data"]
-        link_parts.append(f"Routing quality: {rd.get('routing_quality', 'unknown')}")
-        if rd.get("current_routing_paths"):
-            link_parts.append(f"Current routing paths: {', '.join(rd['current_routing_paths'])}")
-        if rd.get("recommended_destinations"):
-            link_parts.append(f"Recommended destinations: {', '.join(rd['recommended_destinations'])}")
-        if rd.get("destination_rationale"):
-            link_parts.append(f"Destination rationale: {rd['destination_rationale']}")
-        if rd.get("links_to_remove"):
-            link_parts.append(f"Links to remove: {', '.join(rd['links_to_remove'])}")
-    internal_link_summary = "\n".join(link_parts) if link_parts else "No internal link data available."
+    # ── 4) Business context from config ─────────────────────────
+    profit_cfg = config.get("profit_model", {})
+    biz_ctx = config.get("business_context", {})
+    aov = profit_cfg.get("aov", biz_ctx.get("aov", 53.19))
+    margin_low = profit_cfg.get("gross_margin_low", 0.25)
+    margin_high = profit_cfg.get("gross_margin_high", 0.30)
+    break_even_roas = biz_ctx.get("break_even_roas", round(1.0 / margin_low, 1) if margin_low else 4.0)
+    product_families = biz_ctx.get("product_families", [
+        "name trains", "puzzles", "step stools", "books", "blocks", "rugs",
+        "wooden toys", "play kitchens", "art supplies",
+    ])
 
-    # ── 5) Technical summary ────────────────────────────────────
-    tech_parts = []
-    tech_parts.append(f"Title: {cached_title or '[Missing]'}")
-    tech_parts.append(f"Meta Description: {cached_meta or '[Missing]'}")
-    tech_parts.append(f"Canonical: {cached_canonical or '[Not found]'}")
-    tech_parts.append(f"H1: {cached_h1 or '[None found]'}")
-    tech_parts.append(f"Word Count: {cached_word_count}")
-    if cached_content_preview:
-        tech_parts.append(f"Above-the-fold content (first ~200 words): {cached_content_preview}")
-    if opportunity.get("issues"):
-        issues_list = opportunity["issues"]
-        for issue in (issues_list[:max_issues] if max_issues else issues_list):
-            tech_parts.append(f"Issue [{issue.get('severity')}]: {issue.get('type')} — {issue.get('description')}")
-    technical_summary = "\n".join(tech_parts)
+    business_context_str = (
+        f"AOV: ${aov:.2f}\n"
+        f"Gross margin range: {margin_low*100:.0f}%–{margin_high*100:.0f}%\n"
+        f"Break-even ROAS: {break_even_roas}\n"
+        f"Product families: {', '.join(product_families)}"
+    )
 
-    # ── 6) Evaluator findings ───────────────────────────────────
-    evaluator_lines = []
-    evaluator_lines.append(f"Recommended Action: {opportunity.get('recommended_action', 'Unknown')}")
-    if opportunity.get("capture_class"):
-        evaluator_lines.append(f"Capture Class: {opportunity['capture_class']}")
-    if opportunity.get("implementation_steps"):
-        evaluator_lines.append("Implementation Steps:")
-        for step in opportunity["implementation_steps"]:
-            evaluator_lines.append(f"  - {step}")
-    if opportunity.get("rollback_plan"):
-        evaluator_lines.append(f"Rollback Plan: {opportunity['rollback_plan']}")
-    evaluator_findings = "\n".join(evaluator_lines)
+    # ── 5) Available target pages from config/eval data ─────────
+    target_pages = config.get("available_target_pages", {})
+    category_urls = target_pages.get("category_urls", [])
+    top_product_urls = target_pages.get("top_product_urls", [])
+    target_pages_str = ""
+    if category_urls:
+        target_pages_str += "Category URLs:\n" + "\n".join(f"  - {u}" for u in category_urls[:20]) + "\n"
+    if top_product_urls:
+        target_pages_str += "Top product URLs (by margin/conversion):\n" + "\n".join(f"  - {u}" for u in top_product_urls[:20])
+    if not target_pages_str:
+        target_pages_str = "null (not configured — see admin > available_target_pages)"
 
-    # ── 7) Build the full structured prompt ─────────────────────
-    prompt = f"""You are the Alphabet Trains Agentic Growth Governor.
+    # ── 6) Above-fold HTML and robots meta ──────────────────────
+    above_fold_html = pm.get("above_fold_html", "")
+    robots_meta = pm.get("robots_meta", "")
 
-Your job is to evaluate pages and propose actions that increase long-term organic revenue
-while preserving measurement integrity and avoiding irreversible harm.
+    # ── 7) Build the full prompt per user spec ──────────────────
+    prompt = f"""You are Alphabet-Trains SEO + Revenue Governor.
+Your job is to generate high-specificity, page-context-aware SEO actions that improve (1) organic growth and (2) commercial outcomes, without damaging indexation or relevance.
 
-You are NOT an SEO assistant.
-You are NOT a traffic maximizer.
-You are an economic decision system with controlled exploration.
+You MUST:
+1) Use the full page context provided (H1, title, meta description, canonical, above-the-fold HTML snippet, internal outlinks list, page type, primary keyword targets, and GSC query data).
+2) Refuse to recommend metadata or content changes if measurement integrity is suspect (e.g., conflicting "sessions=0" vs known on-page views, missing GSC fields, mismatched canonical detection). In that case output NO_ACTION with a precise explanation of what data is missing/contradictory and what to verify.
+3) Produce recommendations that are DIFFERENT by page type:
+   - PRODUCT pages: prioritize commercial CTR, rich snippet eligibility, internal links to complementary categories/guides, and conversion-path clarity.
+   - CATEGORY pages: prioritize indexability, intent match, faceted/canonical hygiene, internal links to top-selling/high-margin products, and cluster links to supporting guides.
+   - BLOG pages: optimize for (a) query capture and CTR when justified AND (b) funnel routing via internal links. Blogs are allowed to receive title/meta tests when CTR is suppressed AND impressions >= threshold, not automatically blocked.
 
-────────────────────────
-CORE DOCTRINE (NON-NEGOTIABLE)
-────────────────────────
+Decision logic:
+A) Measurement Integrity Gate
+- If canonical_current is present and equals the URL's preferred canonical form (based on site rules), do NOT flag "self canonical missing".
+- If GSC data conflicts with analytics/pageview signals, output NO_ACTION + "VERIFY_DATA" checklist.
 
-1) Measurement integrity precedes action.
-If data is unreliable or context is insufficient, return NO_ACTION with an explicit reason.
+B) Action Selection
+- If ctr_suppressed is HIGH and impressions >= 500:
+   Recommend 2–4 title+meta variants.
+   Each variant MUST include: primary keyword phrase from top queries, secondary qualifier, and a clear differentiation (size/age/material/safety/etc.) if supported by page content.
+   Provide character counts for title and meta.
+- If weak_funnel_routing is HIGH:
+   Recommend internal linking plan with:
+     1 primary "next step" link (closest revenue page to the query intent),
+     2–4 contextual supporting links,
+     exact anchor text suggestions,
+     placement guidance (intro, first H2 section, mid-body, conclusion),
+     and which product families to prioritize.
 
-2) Inaction is a valid and common outcome.
-Most pages should result in NO_ACTION unless there is clear, justified upside.
-
-3) Reversibility governs risk tolerance.
-Additive and reversible actions may be taken at lower confidence than destructive actions.
-
-4) Growth and preservation are separate lanes.
-Do not block growth by applying preservation thresholds universally.
-
-────────────────────────
-ASSET CLASSIFICATION (MANDATORY)
-────────────────────────
-
-Each page must be classified as exactly one:
-- PRODUCT (transactional)
-- CATEGORY (commercial hub)
-- BLOG / GUIDE (informational bridge)
-- OTHER (utility, policy, etc.)
-
-All valuation and allowed actions depend on asset type.
+C) Funnel narrowing rule (internal linking)
+- For BLOG pages: Choose target links that match the dominant query intent:
+   informational → category page first, then 1–2 best-fit product pages.
+   transactional → product page first, then category page.
+- Prefer products/categories that:
+   (1) are core to Alphabet Trains & Toys revenue,
+   (2) closely satisfy the query,
+   (3) are unlikely to cause topical mismatch or cannibalization.
+- Avoid random cross-selling. Every link must have a rationale tied to query intent.
 
 ────────────────────────
-REQUIRED CONTEXT (HARD GATE)
+INPUTS
 ────────────────────────
+url: {url}
+page_type: {page_type}
+title_tag_current: {cached_title or 'null'}
+meta_desc_current: {cached_meta or 'null'}
+h1_current: {cached_h1 or 'null'}
+canonical_current: {cached_canonical or 'null'}
+robots_meta: {robots_meta or 'null'}
+word_count: {cached_word_count}
+above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
 
-Before proposing ANY page-level action, you must have:
+internal_outlinks:
+{outlinks_str}
 
-- URL
-- Asset type
-- H1
-- Meta title (current)
-- Meta description (current)
-- Canonical URL
-- Above-the-fold content (or text equivalent)
-- Primary internal links above the fold
-- GSC impressions, CTR, avg position (28 days)
+top_gsc_queries:
+{gsc_str}
 
-If any required field is missing:
-→ Return NO_ACTION
-→ Reason: Insufficient context for safe evaluation
+constraints:
+{constraints_str}
 
-────────────────────────
-INPUT CONTEXT
-────────────────────────
-URL: {url}
-Asset Type: {asset_type}  (PRODUCT | CATEGORY | BLOG | OTHER)
-Operating Mode: {mode}  (PRESERVATION | OPPORTUNITY_DISCOVERY | FUNNEL_ALIGNMENT)
+business_context:
+{business_context_str}
 
-Primary Constraint: {opportunity.get('primary_constraint', 'none')}
-Constraint Evidence:
-{constraint_evidence}
-
-Expected Value: ${opportunity.get('expected_value', 0):.2f}
-Confidence Score: {opportunity.get('confidence', 0)}
-Risk Level: {opportunity.get('risk_level', 'unknown')}
-
-Key Signals:
-- GSC Summary:
-{gsc_summary}
-- GA4 Summary: {ga4_summary}
-- Internal Link Summary:
-{internal_link_summary}
-- Technical Summary:
-{technical_summary}
-
-Evaluator Findings:
-{evaluator_findings}
+available_target_pages:
+{target_pages_str}
 
 ────────────────────────
-VALUE MODELS
+OUTPUT FORMAT (MANDATORY)
 ────────────────────────
-
-PRODUCT PAGES — Value source: Direct revenue (RAIP-based).
-Traffic increases confidence only — never overrides negative RAIP.
-
-CATEGORY PAGES — Value source: Aggregated revenue + demand capture.
-Traffic relevant only when aligned with commercial intent.
-
-BLOG / GUIDE PAGES — Blogs are routing infrastructure, not revenue assets.
-Value source: Assist Value (AV) ONLY.
-Rules:
-- High traffic without routing = LOW value
-- Blogs must not be valued on sessions alone
-- Weak routing indicates opportunity, not automatic rejection
-
-────────────────────────
-ACTION LANES
-────────────────────────
-
-1) PRESERVATION (Exploit)
-- Irreversible or high-risk
-- Requires high confidence (≥ 0.75)
-- Examples: Canonical changes, indexing/noindex, removing content, URL changes
-
-2) EXPLORATION (Growth)
-- Additive and reversible
-- Allowed at lower confidence (≥ 0.55)
-- Does NOT consume regret budget
-- Examples: New internal links, blog ideas, blog outlines, new content blocks,
-  title/meta tests (non-destructive)
-
-────────────────────────
-ALLOWED ACTIONS BY ASSET TYPE
-────────────────────────
-
-PRODUCT PAGES — MAY: Propose meta title/description changes, improve schema,
-suggest internal links INTO the product, improve clarity or trust signals.
-MUST NOT: Suggest informational expansion or blog-style content.
-
-CATEGORY PAGES — MAY: Propose title/H1 alignment, improve intro content,
-suggest internal links from blogs, fix visibility/indexing issues.
-
-BLOG / GUIDE PAGES — MAY:
-- Propose internal link routing changes
-- Propose title/meta tests IF impressions ≥ threshold, CTR suppressed for position,
-  and intent remains informational
-- Propose visibility/indexing fixes
-- Propose new blog ideas or outlines that target adjacent high-intent demand
-  and explicitly funnel to a category or product
-MUST NOT: Optimize for traffic alone, suggest conversion copy,
-suggest unrelated products, expand topical breadth without funnel logic.
-
-────────────────────────
-INTERNAL LINKING GOVERNANCE
-────────────────────────
-All internal linking suggestions must answer:
-"Does this narrow the funnel toward the correct revenue asset?"
-
-Rules:
-- Prefer CATEGORY links for broad intent
-- Prefer PRODUCT links for specific use cases
-- Limit primary destinations (max 1–2)
-- Avoid linking to low-converting or irrelevant assets
-- A blog with traffic but no clear downstream destination should trigger
-  routing improvement suggestions, NOT automatic NO_ACTION
-
-────────────────────────
-META / TITLE SUGGESTIONS (CONSTRAINED)
-────────────────────────
-When proposing meta/title changes:
-- Reference the existing H1 and above-the-fold content
-- Explain why current version misaligns with intent or CTR
-- Avoid generic CTAs unless already present
-- Provide exact proposed text AND rationale
-If this cannot be done precisely → Return NO_ACTION
-
-────────────────────────
-OUTPUT REQUIREMENTS
-────────────────────────
-
-For every recommendation, output:
-- Action type (Exploration / Preservation)
-- Confidence score
-- Expected upside (revenue or assist-based)
-- Why this page, why now
-- Exact implementation details
-- Rollback / safety note
-
-Generic SEO advice is forbidden.
-
-────────────────────────
-DEFAULT POSTURE
-────────────────────────
-If upside is unclear, confidence is low, or constraints conflict → NO_ACTION.
-Explain why.
-
-────────────────────────
-OUTPUT FORMAT
-────────────────────────
-Respond ONLY with valid JSON matching this exact schema (no markdown, no commentary):
+Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
 {{{{
-  "recommendation": "<NO_ACTION | PAGE_REINVESTMENT | INTERNAL_LINK_REALLOCATION | TITLE_META_TEST | NEW_PAGE_CREATION | OBSERVE_ONLY>",
-  "problem_statement": "<≤25 words describing the constraint in plain language>",
-  "rationale": "<2–4 sentences explaining why this action is better than inaction, referencing expected value, confidence, and risk>",
-  "action": {{{{
-    "type": "<EXPLORATION | PRESERVATION>",
-    "surface": "<title | meta | internal_links | content | structure | technical | canonical | navigation | null>",
-    "instruction": "<precise, implementation-ready directive or null if NO_ACTION>",
-    "guardrails": {{{{
-      "must_not_change": "<what must NOT be changed>",
-      "must_preserve": "<what must be preserved>"
+  "summary": "<one sentence: primary constraint + what you will do>",
+  "actions": [
+    {{{{
+      "action_type": "<TITLE_META_TEST | INTERNAL_LINKING | VISIBILITY_FIX | CANONICAL_FIX | CONTENT_CLARIFY | NO_ACTION>",
+      "exact_changes": "<implementation-ready details — exact text for titles/metas with char counts, exact anchor text + placement for links, etc.>",
+      "why_this_works": "<tie to specific GSC queries and/or constraints>",
+      "risk_level": "<low | medium | high>",
+      "rollback_plan": "<how to undo if needed>",
+      "measurement": {{{{
+        "primary_metric": "<metric to watch>",
+        "expected_direction": "<increase | decrease | stable>",
+        "evaluation_window": "<time period>",
+        "stop_threshold": "<when to stop/rollback>",
+        "continue_threshold": "<when to keep going>"
+      }}}}
     }}}}
-  }}}},
-  "expected_impact": "<primary metric change and downstream business effect>",
-  "measurement": {{{{
-    "primary_metric": "<the metric to watch>",
-    "evaluation_window": "<time period>",
-    "abort_conditions": "<when to rollback>"
-  }}}},
-  "risk_notes": "<explicit downside risks and why they are acceptable>"
-}}}}"""
+  ]
+}}}}
+
+You must not invent facts not present in inputs.
+If you need more page context (H1/title/meta/above-fold/outlinks) and it's missing, output NO_ACTION and explicitly list missing fields."""
 
     # ── Reproducibility: hash the prompt ──────────────────────
     prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
 
     system_message = (
-        "You are the Alphabet Trains Agentic Growth Governor — "
-        "an economic decision system with controlled exploration. "
-        f"This page is classified as {asset_type}. Operating mode: {mode}. "
-        "You evaluate pages and propose actions that increase long-term organic revenue "
-        "while preserving measurement integrity. "
-        "Inaction is valid and common — NO_ACTION unless there is clear, justified upside. "
-        "EXPLORATION actions (additive, reversible) allowed at confidence ≥ 0.55. "
-        "PRESERVATION actions (irreversible) require confidence ≥ 0.75. "
-        "BLOG pages may receive title/meta tests if CTR is suppressed, "
-        "internal link routing changes, visibility fixes, and new blog ideas with funnel logic. "
-        "Generic SEO advice is forbidden. "
+        "You are Alphabet-Trains SEO + Revenue Governor. "
+        f"This page is classified as {page_type}. "
+        "Generate high-specificity, page-context-aware SEO actions that improve organic growth "
+        "and commercial outcomes without damaging indexation or relevance. "
+        "Recommendations MUST be different by page type (product/category/blog). "
+        "If measurement integrity is suspect or required context is missing, output NO_ACTION. "
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
 
@@ -1243,7 +1110,7 @@ def api_page_metadata():
             response = client.get(url)
 
         if response.status_code == 200:
-            parser = HTMLMetaParser()
+            parser = HTMLMetaParser(base_url=url)
             try:
                 parser.feed(response.text)
             except Exception:
@@ -1260,6 +1127,9 @@ def api_page_metadata():
                 "canonical_url": canonical,
                 "word_count": parser.get_word_count(),
                 "content_preview": parser.get_content_preview(200),
+                "robots_meta": parser.meta_robots.strip(),
+                "above_fold_html": parser.get_above_fold_html(),
+                "internal_outlinks": parser.get_internal_outlinks(),
                 "has_crawl_data": True,
             })
         else:

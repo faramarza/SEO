@@ -42,8 +42,9 @@ class HTMLMetaParser(HTMLParser):
     """Parser to extract SEO-relevant metadata from HTML."""
 
     _SKIP_TAGS = frozenset({"script", "style", "noscript", "nav", "header", "footer", "svg", "iframe"})
+    _ABOVE_FOLD_TAGS = frozenset({"script", "style", "noscript", "svg", "iframe"})
 
-    def __init__(self):
+    def __init__(self, base_url: str = ""):
         super().__init__()
         self.canonical_url: Optional[str] = None
         self.title: str = ""
@@ -52,6 +53,7 @@ class HTMLMetaParser(HTMLParser):
         self.meta_robots: str = ""
         self.word_count: int = 0
 
+        self._base_url = base_url
         self._in_title = False
         self._in_h1 = False
         self._in_body = False
@@ -59,11 +61,48 @@ class HTMLMetaParser(HTMLParser):
         self._h1_found = False
         self._skip_depth = 0  # > 0 means we're inside a skipped element
 
+        # Above-fold HTML: collect raw HTML after H1 up to ~1500 chars
+        self._above_fold_parts: list[str] = []
+        self._above_fold_len = 0
+        self._above_fold_skip_depth = 0
+
+        # Internal outlinks
+        self._links: list[dict] = []
+        self._in_link = False
+        self._current_link_href: str = ""
+        self._current_link_text: list[str] = []
+        self._current_link_location: str = "body"
+        self._in_main = False
+        self._section_tag: str = ""
+
+    def _is_internal(self, href: str) -> bool:
+        """Check if a URL is internal based on base_url."""
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            return False
+        if not self._base_url:
+            return href.startswith("/") and not href.startswith("//")
+        try:
+            base_parsed = urlparse(self._base_url)
+            full = urljoin(self._base_url, href)
+            link_parsed = urlparse(full)
+            return link_parsed.netloc == base_parsed.netloc
+        except Exception:
+            return False
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]):
         attrs_dict = {k.lower(): v for k, v in attrs if v is not None}
 
         if tag in self._SKIP_TAGS:
             self._skip_depth += 1
+
+        if tag in self._ABOVE_FOLD_TAGS:
+            self._above_fold_skip_depth += 1
+
+        # Track section context for link location
+        if tag == "main":
+            self._in_main = True
+        if tag in ("h2", "h3", "h4"):
+            self._section_tag = tag
 
         if tag == "link" and attrs_dict.get("rel", "").lower() == "canonical":
             self.canonical_url = attrs_dict.get("href")
@@ -84,16 +123,58 @@ class HTMLMetaParser(HTMLParser):
         elif tag == "body":
             self._in_body = True
 
+        # Track <a> tags for internal outlinks
+        if tag == "a" and self._in_body:
+            href = attrs_dict.get("href", "")
+            if href and self._is_internal(href):
+                self._in_link = True
+                self._current_link_href = href
+                self._current_link_text = []
+
+        # Above-fold HTML collection (after H1, skip nav/footer but allow content tags)
+        if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0:
+            if tag not in self._SKIP_TAGS:
+                attr_str = " ".join(f'{k}="{v}"' for k, v in attrs if v is not None and k in ("class", "id"))
+                html_piece = f"<{tag}" + (f" {attr_str}" if attr_str else "") + ">"
+                self._above_fold_parts.append(html_piece)
+                self._above_fold_len += len(html_piece)
+
     def handle_endtag(self, tag: str):
         if tag in self._SKIP_TAGS and self._skip_depth > 0:
             self._skip_depth -= 1
-        elif tag == "title":
+        if tag in self._ABOVE_FOLD_TAGS and self._above_fold_skip_depth > 0:
+            self._above_fold_skip_depth -= 1
+        if tag == "title":
             self._in_title = False
         elif tag == "h1":
             self._in_h1 = False
             self._h1_found = True
         elif tag == "body":
             self._in_body = False
+
+        # Close link tag
+        if tag == "a" and self._in_link:
+            self._in_link = False
+            anchor = " ".join(self._current_link_text).strip()
+            if self._current_link_href and anchor:
+                # Determine location
+                location = "body"
+                if self._section_tag:
+                    location = self._section_tag + "_section"
+                self._links.append({
+                    "target_url": self._current_link_href,
+                    "anchor_text": anchor,
+                    "location": location,
+                })
+            self._current_link_href = ""
+            self._current_link_text = []
+
+        # Above-fold closing tag
+        if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0:
+            if tag not in self._SKIP_TAGS:
+                piece = f"</{tag}>"
+                self._above_fold_parts.append(piece)
+                self._above_fold_len += len(piece)
 
     def handle_data(self, data: str):
         if self._in_title:
@@ -104,6 +185,17 @@ class HTMLMetaParser(HTMLParser):
             stripped = data.strip()
             if stripped:
                 self._body_text.append(stripped)
+
+        # Link anchor text
+        if self._in_link:
+            self._current_link_text.append(data)
+
+        # Above-fold text
+        if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0 and self._skip_depth == 0:
+            stripped = data.strip()
+            if stripped:
+                self._above_fold_parts.append(stripped)
+                self._above_fold_len += len(stripped)
 
     def get_word_count(self) -> int:
         """Calculate word count from body text."""
@@ -118,6 +210,35 @@ class HTMLMetaParser(HTMLParser):
         text = re.sub(r'\s+', ' ', text).strip()
         words = text.split()
         return " ".join(words[:max_words])
+
+    def get_above_fold_html(self) -> str:
+        """Get above-the-fold HTML snippet (after H1, ~800-1500 chars, no nav/footer)."""
+        raw = " ".join(self._above_fold_parts)
+        # Collapse whitespace
+        return re.sub(r'\s+', ' ', raw).strip()[:1500]
+
+    def get_internal_outlinks(self) -> list[dict]:
+        """Get list of internal outlinks found on the page.
+
+        Returns list of {target_url, anchor_text, location}.
+        Resolves relative URLs to absolute if base_url was provided.
+        """
+        resolved = []
+        seen = set()
+        for link in self._links:
+            href = link["target_url"]
+            if self._base_url and not href.startswith(("http://", "https://")):
+                href = urljoin(self._base_url, href)
+            # Deduplicate by (target_url, anchor_text)
+            key = (href, link["anchor_text"])
+            if key not in seen:
+                seen.add(key)
+                resolved.append({
+                    "target_url": href,
+                    "anchor_text": link["anchor_text"],
+                    "location": link["location"],
+                })
+        return resolved
 
     @property
     def is_indexable(self) -> bool:
