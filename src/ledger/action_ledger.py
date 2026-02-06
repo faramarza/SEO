@@ -240,6 +240,14 @@ class ActionLedger:
             self._actions[action.action_id] = action
             self._save()
 
+    def delete_action(self, action_id: str) -> bool:
+        """Remove an action from the ledger entirely."""
+        if action_id in self._actions:
+            del self._actions[action_id]
+            self._save()
+            return True
+        return False
+
     def get_all_actions(self) -> list[ActionRecord]:
         """Get all actions."""
         return list(self._actions.values())

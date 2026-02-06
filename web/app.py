@@ -795,12 +795,8 @@ def api_send_back_task(action_id):
     if action.status in (ActionStatus.MEASURED, ActionStatus.CLOSED):
         return jsonify({"error": "Cannot send back a task that is already measured or closed"}), 400
 
-    # Record why it was sent back, then remove from ledger
-    reason = data.get("reason", "")
-    action.notes = f"SENT BACK: {reason}" if reason else "SENT BACK for re-evaluation"
-    action.outcome = ActionOutcome.INCONCLUSIVE
-    action.update_status(ActionStatus.CLOSED)
-    ledger.update_action(action)
+    # Remove the task from the ledger so the URL rejoins the opportunity pool
+    ledger.delete_action(action_id)
 
     return jsonify({
         "success": True,
