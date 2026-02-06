@@ -297,6 +297,7 @@ function filterOpportunities() {
 
 function showDetail(idx) {
     const opp = filteredOpportunities[idx];
+    const pm = opp.page_metadata || {};
     document.getElementById('modal-title').textContent = opp.recommended_action || 'Details';
 
     const steps = opp.implementation_steps || [];
@@ -474,33 +475,33 @@ function showDetail(idx) {
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}"><em style="color:#999;">—</em></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}">${pm.has_crawl_data ? `<code>${pm.title || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}"><em style="color:#999;">—</em></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}">${pm.has_crawl_data ? `<code>${pm.h1 || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}"><em style="color:#999;">—</em></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}">${pm.has_crawl_data ? (pm.meta_description || '<em style="color:#999;">[Not found]</em>') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}"><em style="color:#999;">—</em></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}">${pm.has_crawl_data ? (pm.canonical_url || '<em style="color:#999;">[Not set]</em>') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-wordcount-${idx}"><em style="color:#999;">—</em></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-wordcount-${idx}">${pm.has_crawl_data ? (pm.word_count || '—') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Content Preview</td>
-                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);" id="page-ctx-preview-${idx}"><em style="color:#999;">—</em></td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);" id="page-ctx-preview-${idx}">${pm.has_crawl_data ? (pm.content_preview || '[Not available]') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
             </table>
         </div>
-        <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: none;">
+        <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: ${opp._ai_html ? 'block' : 'none'};">
             <h4>AI Recommendations</h4>
-            <div class="ai-content" id="ai-content-${idx}"></div>
+            <div class="ai-content" id="ai-content-${idx}">${opp._ai_html || ''}</div>
         </div>
         <div class="detail-actions">
             <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -508,10 +509,10 @@ function showDetail(idx) {
                 <span class="btn-icon">📄</span> Export PDF
             </button>
             <button class="btn btn-secondary" onclick="fetchPageContext(${idx}, '${opp.url.replace(/'/g, "\\'")}')" id="fetch-page-btn-${idx}">
-                <span class="btn-icon">🔍</span> Fetch Page
+                <span class="btn-icon">${pm.has_crawl_data ? '🔄' : '🔍'}</span> ${pm.has_crawl_data ? 'Re-fetch' : 'Fetch Page'}
             </button>
-            <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}" disabled style="opacity:0.5;cursor:not-allowed;" title="Fetch page first">
-                <span class="btn-icon">🤖</span> AI Recommend
+            <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}" ${pm.has_crawl_data ? '' : 'disabled style="opacity:0.5;cursor:not-allowed;" title="Fetch page first"'}>
+                <span class="btn-icon">${opp._ai_html ? '🔄' : '🤖'}</span> ${opp._ai_html ? 'Re-run AI' : 'AI Recommend'}
             </button>
             <button class="btn btn-primary" onclick="approveAction(${idx})">
                 <span class="btn-icon">✓</span> Approve
@@ -623,6 +624,7 @@ async function getAIRecommendations(idx) {
                     </div>
                 </div>
             `;
+            opp._ai_html = content.innerHTML;
             btn.innerHTML = '<span class="btn-icon">⚠️</span> Insufficient Context';
             btn.disabled = false;
             return;
@@ -638,6 +640,7 @@ async function getAIRecommendations(idx) {
                     </div>
                 </div>
             `;
+            opp._ai_html = content.innerHTML;
             btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
             showToast('AI recommendations loaded!', 'success');
             return;
@@ -724,6 +727,7 @@ async function getAIRecommendations(idx) {
             `;
         }
 
+        opp._ai_html = content.innerHTML;
         btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
         showToast('AI recommendations loaded!', 'success');
 
