@@ -92,6 +92,14 @@ async function loadOpportunities() {
         const res = await fetch('/api/opportunities');
         const data = await res.json();
         allOpportunities = data.opportunities || [];
+
+        // Hydrate persisted AI recommendations so they survive page refresh
+        for (const opp of allOpportunities) {
+            if (opp.ai_recommendations && !opp._ai_html) {
+                opp._ai_html = buildAIHtml(opp.ai_recommendations, opp.ai_reproducibility);
+            }
+        }
+
         sortOpportunities();
         filterOpportunities();
     } catch (err) {
@@ -608,6 +616,174 @@ async function fetchPageContext(idx, url) {
 }
 
 
+// ── Shared AI rendering function — used for both live + persisted data ──
+function buildAIHtml(rec, reproducibility) {
+    // Handle NO ACTION from context validation
+    if (rec.no_action) {
+        return `<div class="ai-recommendation">
+            <div class="rec-item critical">
+                <h5>No Action</h5>
+                <p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>
+                ${rec.missing_context ? `<p><strong>Missing:</strong> ${rec.missing_context.join(', ')}</p>` : ''}
+            </div>
+        </div>`;
+    }
+
+    // Handle raw_response fallback (JSON parse failed)
+    if (rec.raw_response) {
+        return `<div class="ai-recommendation">
+            <div class="rec-item">
+                <h5>AI Response</h5>
+                <pre style="white-space: pre-wrap;">${rec.raw_response}</pre>
+            </div>
+        </div>`;
+    }
+
+    const va = rec.validity_audit || {};
+    const fa = rec.funnel_analysis || {};
+    const ca = rec.constraint_accountability || {};
+    const actions = rec.recommendations || rec.actions || [];
+    const noActions = rec.no_actions || [];
+    const isAllNoAction = actions.length === 0 || actions.every(a => a.action_type === 'NO_ACTION');
+
+    const vBadge = (status) => {
+        const s = (status || '').split('—')[0].trim().toUpperCase();
+        const color = s === 'VALID' ? '#059669' : s === 'INVALID' ? '#dc2626' : '#ca8a04';
+        return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${color}18;color:${color};font-weight:600;font-size:11px;">${s}</span> <span style="color:#6b7280;font-size:12px;">${(status || '').includes('—') ? status.split('—').slice(1).join('—').trim() : ''}</span>`;
+    };
+
+    let validityHtml = '';
+    if (Object.keys(va).length > 0) {
+        validityHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Step 1: Validity Audit</h5>
+            <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                ${Object.entries(va).map(([k, v]) => `<tr><td style="padding:3px 8px;font-weight:bold;text-transform:capitalize;width:140px;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td><td style="padding:3px 8px;border-bottom:1px solid #f0f0f0;">${vBadge(v)}</td></tr>`).join('')}
+            </table>
+        </div>`;
+    }
+
+    let funnelHtml = '';
+    if (Object.keys(fa).length > 0) {
+        funnelHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Step 2: Funnel Analysis</h5>
+            <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${fa.opportunity_estimate || '—'}</td></tr>
+            </table>
+        </div>`;
+    }
+
+    let accountabilityHtml = '';
+    if (Object.keys(ca).length > 0) {
+        const dispBadge = (d) => {
+            const colors = { ACTIONED: '#059669', DEFERRED: '#ca8a04', SUPERSEDED: '#6b7280' };
+            const c = colors[(d||'').toUpperCase()] || '#6b7280';
+            return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${c}18;color:${c};font-weight:600;font-size:11px;">${(d||'UNKNOWN').toUpperCase()}</span>`;
+        };
+        accountabilityHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Constraint Accountability</h5>
+            <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                <tr style="background:#f8fafc;">
+                    <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:150px;">Constraint</th>
+                    <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:100px;">Disposition</th>
+                    <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;">Reasoning</th>
+                </tr>
+                ${Object.entries(ca).map(([k, v]) => `<tr>
+                    <td style="padding:4px 8px;font-weight:bold;text-transform:capitalize;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td>
+                    <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${dispBadge(v.disposition)}${v.action_ref ? ` <span style="font-size:11px;color:#6b7280;">(→ #${v.action_ref})</span>` : ''}</td>
+                    <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">${v.reasoning || '—'}</td>
+                </tr>`).join('')}
+            </table>
+        </div>`;
+    }
+
+    let actionsHtml = '';
+    if (actions.length > 0) {
+        actionsHtml = `<h5 style="margin: 12px 0 4px 0;">Step 3: Recommendations</h5>` + actions.map((a, i) => {
+            const isNoAct = a.action_type === 'NO_ACTION';
+            const riskColor = a.risk_level === 'high' ? '#dc2626' : a.risk_level === 'medium' ? '#ea580c' : '#059669';
+            return `
+            <div class="rec-item ${isNoAct ? 'critical' : ''}" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <h5 style="margin: 0;">Action ${i + 1}: ${(a.action_type || 'NO_ACTION').replace(/_/g, ' ')}</h5>
+                    <span style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: ${riskColor}20; color: ${riskColor}; font-weight: 600;">
+                        ${a.risk_level || 'low'} risk
+                    </span>
+                </div>
+                ${a.diagnosed_constraint ? `<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ${a.diagnosed_constraint}</p>` : ''}
+                <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
+                    <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
+                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${a.exact_changes || 'N/A'}</pre>
+                </div>
+                <p style="margin: 6px 0;"><strong>Why:</strong> ${a.why_this_works || 'N/A'}</p>
+                <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${a.rollback_plan || 'N/A'}</p>
+                ${a.measurement ? `
+                <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; background: #f9fafb; border-radius: 4px;">
+                    <tr>
+                        <td style="padding: 3px 8px; font-weight: bold;">Metric</td>
+                        <td style="padding: 3px 8px;">${a.measurement.primary_metric || '—'}</td>
+                        <td style="padding: 3px 8px; font-weight: bold;">Direction</td>
+                        <td style="padding: 3px 8px;">${a.measurement.expected_direction || '—'}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 3px 8px; font-weight: bold;">Window</td>
+                        <td style="padding: 3px 8px;">${a.measurement.evaluation_window || '—'}</td>
+                        <td style="padding: 3px 8px; font-weight: bold;">Stop if</td>
+                        <td style="padding: 3px 8px; color: #dc2626;">${a.measurement.stop_threshold || '—'}</td>
+                    </tr>
+                </table>
+                ` : ''}
+            </div>
+            `;
+        }).join('');
+    }
+
+    let noActionsHtml = '';
+    if (noActions.length > 0) {
+        noActionsHtml = `
+        <div class="rec-item" style="margin-top: 8px; background: #f0fdf4; padding: 10px; border-radius: 6px;">
+            <h5 style="margin: 0 0 6px 0;">Explicitly Preserved (No Change)</h5>
+            <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #059669;">
+                ${noActions.map(n => `<li style="margin: 2px 0;">${n}</li>`).join('')}
+            </ul>
+        </div>`;
+    }
+
+    let html = `
+        <div class="ai-recommendation">
+            <div class="rec-item" style="background: ${isAllNoAction ? '#fef2f2' : '#f0fdf4'}; padding: 12px; border-radius: 6px;">
+                <p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || (isAllNoAction ? 'No actionable issues found — all elements valid.' : 'Analysis complete.')}</p>
+            </div>
+            ${validityHtml}
+            ${funnelHtml}
+            ${accountabilityHtml}
+            ${actionsHtml}
+            ${noActionsHtml}
+        </div>
+    `;
+
+    if (reproducibility) {
+        const r = reproducibility;
+        html += `
+            <div class="rec-item" style="margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 4px; font-size: 12px; color: #6b7280;">
+                <strong>Reproducibility</strong>
+                <span style="margin-left: 12px;">Hash: <code>${r.prompt_hash || '—'}</code></span>
+                <span style="margin-left: 12px;">Model: ${r.model || '—'}</span>
+                <span style="margin-left: 12px;">Temp: ${r.temperature ?? '—'}</span>
+                <span style="margin-left: 12px;">Tokens: ${r.tokens_used?.total ?? '—'}</span>
+            </div>
+        `;
+    }
+
+    return html;
+}
+
 async function getAIRecommendations(idx) {
     const opp = filteredOpportunities[idx];
     const btn = document.getElementById('ai-btn-' + idx);
@@ -639,188 +815,19 @@ async function getAIRecommendations(idx) {
         }
 
         const rec = data.recommendations;
-
-        // Handle NO ACTION response from context validation (server-side)
-        if (rec.no_action) {
-            content.innerHTML = `
-                <div class="ai-recommendation">
-                    <div class="rec-item critical">
-                        <h5>No Action</h5>
-                        <p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>
-                        ${rec.missing_context ? `<p><strong>Missing:</strong> ${rec.missing_context.join(', ')}</p>` : ''}
-                    </div>
-                </div>
-            `;
-            opp._ai_html = content.innerHTML;
-            btn.innerHTML = '<span class="btn-icon">⚠️</span> Insufficient Context';
-            btn.disabled = false;
-            return;
-        }
-
-        // Handle raw_response fallback (JSON parse failed)
-        if (rec.raw_response) {
-            content.innerHTML = `
-                <div class="ai-recommendation">
-                    <div class="rec-item">
-                        <h5>AI Response</h5>
-                        <pre style="white-space: pre-wrap;">${rec.raw_response}</pre>
-                    </div>
-                </div>
-            `;
-            opp._ai_html = content.innerHTML;
-            btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
-            showToast('AI recommendations loaded!', 'success');
-            return;
-        }
-
-        // ── New structured format: validity + funnel + constraint_accountability + recommendations + no_actions ──
-        const va = rec.validity_audit || {};
-        const fa = rec.funnel_analysis || {};
-        const ca = rec.constraint_accountability || {};
-        const actions = rec.recommendations || rec.actions || [];
-        const noActions = rec.no_actions || [];
-        const isAllNoAction = actions.length === 0 || actions.every(a => a.action_type === 'NO_ACTION');
-
-        // Validity audit badges
-        const vBadge = (status) => {
-            const s = (status || '').split('—')[0].trim().toUpperCase();
-            const color = s === 'VALID' ? '#059669' : s === 'INVALID' ? '#dc2626' : '#ca8a04';
-            return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${color}18;color:${color};font-weight:600;font-size:11px;">${s}</span> <span style="color:#6b7280;font-size:12px;">${(status || '').includes('—') ? status.split('—').slice(1).join('—').trim() : ''}</span>`;
-        };
-
-        let validityHtml = '';
-        if (Object.keys(va).length > 0) {
-            validityHtml = `
-            <div class="rec-item" style="margin-top: 8px;">
-                <h5 style="margin: 0 0 8px 0;">Step 1: Validity Audit</h5>
-                <table style="width:100%;font-size:12px;border-collapse:collapse;">
-                    ${Object.entries(va).map(([k, v]) => `<tr><td style="padding:3px 8px;font-weight:bold;text-transform:capitalize;width:140px;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td><td style="padding:3px 8px;border-bottom:1px solid #f0f0f0;">${vBadge(v)}</td></tr>`).join('')}
-                </table>
-            </div>`;
-        }
-
-        let funnelHtml = '';
-        if (Object.keys(fa).length > 0) {
-            funnelHtml = `
-            <div class="rec-item" style="margin-top: 8px;">
-                <h5 style="margin: 0 0 8px 0;">Step 2: Funnel Analysis</h5>
-                <table style="width:100%;font-size:12px;border-collapse:collapse;">
-                    <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
-                    <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
-                    <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
-                    <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
-                    <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${fa.opportunity_estimate || '—'}</td></tr>
-                </table>
-            </div>`;
-        }
-
-        let accountabilityHtml = '';
-        if (Object.keys(ca).length > 0) {
-            const dispBadge = (d) => {
-                const colors = { ACTIONED: '#059669', DEFERRED: '#ca8a04', SUPERSEDED: '#6b7280' };
-                const c = colors[(d||'').toUpperCase()] || '#6b7280';
-                return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${c}18;color:${c};font-weight:600;font-size:11px;">${(d||'UNKNOWN').toUpperCase()}</span>`;
-            };
-            accountabilityHtml = `
-            <div class="rec-item" style="margin-top: 8px;">
-                <h5 style="margin: 0 0 8px 0;">Constraint Accountability</h5>
-                <table style="width:100%;font-size:12px;border-collapse:collapse;">
-                    <tr style="background:#f8fafc;">
-                        <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:150px;">Constraint</th>
-                        <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:100px;">Disposition</th>
-                        <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;">Reasoning</th>
-                    </tr>
-                    ${Object.entries(ca).map(([k, v]) => `<tr>
-                        <td style="padding:4px 8px;font-weight:bold;text-transform:capitalize;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td>
-                        <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${dispBadge(v.disposition)}${v.action_ref ? ` <span style="font-size:11px;color:#6b7280;">(→ #${v.action_ref})</span>` : ''}</td>
-                        <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">${v.reasoning || '—'}</td>
-                    </tr>`).join('')}
-                </table>
-            </div>`;
-        }
-
-        let actionsHtml = '';
-        if (actions.length > 0) {
-            actionsHtml = `<h5 style="margin: 12px 0 4px 0;">Step 3: Recommendations</h5>` + actions.map((a, i) => {
-                const isNoAct = a.action_type === 'NO_ACTION';
-                const riskColor = a.risk_level === 'high' ? '#dc2626' : a.risk_level === 'medium' ? '#ea580c' : '#059669';
-                return `
-                <div class="rec-item ${isNoAct ? 'critical' : ''}" style="margin-top: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <h5 style="margin: 0;">Action ${i + 1}: ${(a.action_type || 'NO_ACTION').replace(/_/g, ' ')}</h5>
-                        <span style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: ${riskColor}20; color: ${riskColor}; font-weight: 600;">
-                            ${a.risk_level || 'low'} risk
-                        </span>
-                    </div>
-                    ${a.diagnosed_constraint ? `<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ${a.diagnosed_constraint}</p>` : ''}
-                    <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
-                        <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
-                        <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${a.exact_changes || 'N/A'}</pre>
-                    </div>
-                    <p style="margin: 6px 0;"><strong>Why:</strong> ${a.why_this_works || 'N/A'}</p>
-                    <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${a.rollback_plan || 'N/A'}</p>
-                    ${a.measurement ? `
-                    <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; background: #f9fafb; border-radius: 4px;">
-                        <tr>
-                            <td style="padding: 3px 8px; font-weight: bold;">Metric</td>
-                            <td style="padding: 3px 8px;">${a.measurement.primary_metric || '—'}</td>
-                            <td style="padding: 3px 8px; font-weight: bold;">Direction</td>
-                            <td style="padding: 3px 8px;">${a.measurement.expected_direction || '—'}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 3px 8px; font-weight: bold;">Window</td>
-                            <td style="padding: 3px 8px;">${a.measurement.evaluation_window || '—'}</td>
-                            <td style="padding: 3px 8px; font-weight: bold;">Stop if</td>
-                            <td style="padding: 3px 8px; color: #dc2626;">${a.measurement.stop_threshold || '—'}</td>
-                        </tr>
-                    </table>
-                    ` : ''}
-                </div>
-                `;
-            }).join('');
-        }
-
-        let noActionsHtml = '';
-        if (noActions.length > 0) {
-            noActionsHtml = `
-            <div class="rec-item" style="margin-top: 8px; background: #f0fdf4; padding: 10px; border-radius: 6px;">
-                <h5 style="margin: 0 0 6px 0;">Explicitly Preserved (No Change)</h5>
-                <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #059669;">
-                    ${noActions.map(n => `<li style="margin: 2px 0;">${n}</li>`).join('')}
-                </ul>
-            </div>`;
-        }
-
-        content.innerHTML = `
-            <div class="ai-recommendation">
-                <div class="rec-item" style="background: ${isAllNoAction ? '#fef2f2' : '#f0fdf4'}; padding: 12px; border-radius: 6px;">
-                    <p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || (isAllNoAction ? 'No actionable issues found — all elements valid.' : 'Analysis complete.')}</p>
-                </div>
-                ${validityHtml}
-                ${funnelHtml}
-                ${accountabilityHtml}
-                ${actionsHtml}
-                ${noActionsHtml}
-            </div>
-        `;
-
-        // Append reproducibility info if available
-        if (data.reproducibility) {
-            const r = data.reproducibility;
-            content.innerHTML += `
-                <div class="rec-item" style="margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 4px; font-size: 12px; color: #6b7280;">
-                    <strong>Reproducibility</strong>
-                    <span style="margin-left: 12px;">Hash: <code>${r.prompt_hash}</code></span>
-                    <span style="margin-left: 12px;">Model: ${r.model}</span>
-                    <span style="margin-left: 12px;">Temp: ${r.temperature}</span>
-                    <span style="margin-left: 12px;">Tokens: ${r.tokens_used?.total ?? '—'}</span>
-                </div>
-            `;
-        }
-
+        content.innerHTML = buildAIHtml(rec, data.reproducibility);
         opp._ai_html = content.innerHTML;
-        btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
-        showToast('AI recommendations loaded!', 'success');
+
+        // Store the raw JSON for persistence (already saved server-side)
+        opp.ai_recommendations = rec;
+        opp.ai_reproducibility = data.reproducibility;
+
+        const isNoAction = rec.no_action;
+        btn.innerHTML = isNoAction
+            ? '<span class="btn-icon">⚠️</span> Insufficient Context'
+            : '<span class="btn-icon">✅</span> AI Done';
+        if (!isNoAction) showToast('AI recommendations loaded!', 'success');
+        btn.disabled = isNoAction;
 
     } catch (err) {
         content.innerHTML = `<p class="error-msg">Failed to get AI recommendations: ${err.message}</p>`;

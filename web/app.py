@@ -53,6 +53,31 @@ def load_config():
     return {}
 
 
+def _persist_opportunity_update(url: str, updates: dict):
+    """Update a specific opportunity in latest_evaluation.json by URL.
+
+    Used to persist fetched page metadata and AI recommendations so they
+    survive page refresh.
+    """
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return
+
+    try:
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+
+        for result in eval_data.get("results", []):
+            if result.get("url") == url:
+                result.update(updates)
+                break
+
+        with open(eval_path, "w") as f:
+            json.dump(eval_data, f, indent=2)
+    except Exception:
+        pass  # Don't fail requests over persistence
+
+
 def load_cached_data(filename):
     """Load cached JSON data."""
     path = DATA_PATH / filename
@@ -889,7 +914,7 @@ If nothing is broken or improvable:
         except Exception:
             recommendations = {"raw_response": ai_content}
 
-        return jsonify({
+        response_data = {
             "success": True,
             "url": url,
             "page_analysis": page_analysis,
@@ -901,7 +926,16 @@ If nothing is broken or improvable:
                 "max_tokens": max_tokens,
                 "tokens_used": log_entry["tokens_used"],
             },
+        }
+
+        # Persist AI recommendations so they survive page refresh
+        _persist_opportunity_update(url, {
+            "ai_recommendations": recommendations,
+            "ai_reproducibility": response_data["reproducibility"],
+            "ai_timestamp": datetime.now(timezone.utc).isoformat(),
         })
+
+        return jsonify(response_data)
 
     except Exception as e:
         return jsonify({"error": f"AI request failed: {e}"}), 500
@@ -1351,7 +1385,7 @@ def api_page_metadata():
             if canonical and not canonical.startswith(("http://", "https://")):
                 canonical = urljoin(url, canonical)
 
-            return jsonify({
+            metadata = {
                 "title": parser.title.strip(),
                 "h1": parser.h1.strip(),
                 "meta_description": parser.meta_description.strip(),
@@ -1362,7 +1396,12 @@ def api_page_metadata():
                 "above_fold_html": parser.get_above_fold_html(),
                 "internal_outlinks": parser.get_internal_outlinks(),
                 "has_crawl_data": True,
-            })
+            }
+
+            # Persist to evaluation file so data survives page refresh
+            _persist_opportunity_update(url, {"page_metadata": metadata})
+
+            return jsonify(metadata)
         else:
             return jsonify({"error": f"HTTP {response.status_code}"}), 502
     except Exception as e:
