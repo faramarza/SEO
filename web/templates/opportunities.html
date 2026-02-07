@@ -948,6 +948,18 @@ function exportToPDF(idx) {
                     <td style="padding: 6px 10px; font-weight: bold;">Content Preview</td>
                     <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5;">${pm.content_preview || '[Not available]'}</td>
                 </tr>
+                ${pm.robots_meta ? `<tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee;">Robots</td>
+                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-family: monospace;">${pm.robots_meta}</td>
+                </tr>` : ''}
+                ${pm.above_fold_html ? `<tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee; vertical-align: top;">Above Fold</td>
+                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-size: 11px; font-family: monospace; word-break: break-all;">${(pm.above_fold_html || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,500)}</td>
+                </tr>` : ''}
+                ${pm.internal_outlinks && pm.internal_outlinks.length > 0 ? `<tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee; vertical-align: top;">Outlinks</td>
+                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-size: 11px;">${pm.internal_outlinks.slice(0,10).map(l => l.anchor_text + ' → ' + l.target_url).join('<br/>')}</td>
+                </tr>` : ''}
             </table>
             ` : ''}
 

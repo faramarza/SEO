@@ -62,10 +62,12 @@ class HTMLMetaParser(HTMLParser):
         self._h1_found = False
         self._skip_depth = 0  # > 0 means we're inside a skipped element
 
-        # Above-fold HTML: collect raw HTML after H1 up to ~1500 chars
+        # Above-fold HTML: collect TEXT CONTENT after H1 up to ~1500 chars
+        # We capture text and semantic tags only — structural wrappers (empty divs) are skipped
         self._above_fold_parts: list[str] = []
         self._above_fold_len = 0
         self._above_fold_skip_depth = 0
+        self._above_fold_pending_tags: list[str] = []  # Tags waiting for text content
 
         # Internal outlinks
         self._links: list[dict] = []
@@ -132,13 +134,16 @@ class HTMLMetaParser(HTMLParser):
                 self._current_link_href = href
                 self._current_link_text = []
 
-        # Above-fold HTML collection (after H1, skip nav/footer but allow content tags)
+        # Above-fold HTML collection (after H1, content-only — empty structural tags are skipped)
         if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0:
             if tag not in self._SKIP_TAGS:
-                attr_str = " ".join(f'{k}="{v}"' for k, v in attrs if v is not None and k in ("class", "id"))
+                # Semantic tags (p, h2-h6, a, strong, em, ul, ol, li, blockquote, img)
+                # are buffered; they'll be emitted when text content follows.
+                # Structural tags (div, span, section, article, etc.) are buffered too
+                # but dropped if no text content follows before their close tag.
+                attr_str = " ".join(f'{k}="{v}"' for k, v in attrs if v is not None and k in ("class", "id", "href", "src", "alt"))
                 html_piece = f"<{tag}" + (f" {attr_str}" if attr_str else "") + ">"
-                self._above_fold_parts.append(html_piece)
-                self._above_fold_len += len(html_piece)
+                self._above_fold_pending_tags.append(html_piece)
 
     def handle_endtag(self, tag: str):
         if tag in self._SKIP_TAGS and self._skip_depth > 0:
@@ -170,12 +175,22 @@ class HTMLMetaParser(HTMLParser):
             self._current_link_href = ""
             self._current_link_text = []
 
-        # Above-fold closing tag
+        # Above-fold closing tag — drop pending tags if they had no text content
         if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0:
             if tag not in self._SKIP_TAGS:
-                piece = f"</{tag}>"
-                self._above_fold_parts.append(piece)
-                self._above_fold_len += len(piece)
+                # Check if there are pending (unemitted) tags — if so, the tag being
+                # closed never had text content, so drop its opening tag from pending
+                if self._above_fold_pending_tags:
+                    # Remove the last pending opening tag for this tag type
+                    for i in range(len(self._above_fold_pending_tags) - 1, -1, -1):
+                        if self._above_fold_pending_tags[i].startswith(f"<{tag}"):
+                            self._above_fold_pending_tags.pop(i)
+                            break
+                else:
+                    # Tag was already emitted (had text content), so close it
+                    piece = f"</{tag}>"
+                    self._above_fold_parts.append(piece)
+                    self._above_fold_len += len(piece)
 
     def handle_data(self, data: str):
         if self._in_title:
@@ -191,10 +206,16 @@ class HTMLMetaParser(HTMLParser):
         if self._in_link:
             self._current_link_text.append(data)
 
-        # Above-fold text
+        # Above-fold text — finding text content flushes pending tags
         if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0 and self._skip_depth == 0:
             stripped = data.strip()
             if stripped:
+                # Flush pending tags — they have text content, so they're worth keeping
+                for pending in self._above_fold_pending_tags:
+                    self._above_fold_parts.append(pending)
+                    self._above_fold_len += len(pending)
+                self._above_fold_pending_tags.clear()
+                # Now add the text
                 self._above_fold_parts.append(stripped)
                 self._above_fold_len += len(stripped)
 
