@@ -347,7 +347,7 @@ def api_ai_recommend():
 
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
-    max_tokens = ai_config.get("max_tokens", 4000)
+    max_tokens = ai_config.get("max_tokens", 4500)
     timeout_sec = ai_config.get("timeout", 30)
     max_queries = ai_config.get("max_queries_in_prompt", 0)
     max_issues = ai_config.get("max_issues_in_prompt", 0)
@@ -799,6 +799,134 @@ Before proposing any title/meta change, you MUST:
 
 If you cannot do all of the above:
 → NO_ACTION on title/meta
+
+════════════════════════════════
+CORRECTION LAYER (FINAL OVERRIDE)
+════════════════════════════════
+This is a CORRECTION LAYER.
+You must preserve all existing correct reasoning, validity checks, and governance behavior.
+You are NOT allowed to re-evaluate or loosen previously validated constraints.
+Your task is ONLY to correct the specific failure modes listed below.
+
+────────────────────────────────
+GLOBAL LOCK (DO NOT TOUCH)
+────────────────────────────────
+The following components are CONFIRMED CORRECT and MUST NOT be altered, reinterpreted, or re-weighted:
+
+• Validity audit logic (canonical, indexability, intent alignment, robots)
+• Funnel structure reasoning (entry intent → ideal path → routing diagnosis)
+• Non-destructive governance rules
+• Action reversibility classification
+• Internal linking specificity requirements
+• Asset-type behavior separation
+• Action sequencing discipline
+• NO_ACTION discipline
+
+If your reasoning conflicts with any of the above, STOP and return NO_ACTION.
+
+────────────────────────────────
+EXPLICIT PROBLEM AREAS TO FIX
+────────────────────────────────
+You are permitted to modify logic ONLY in the following areas:
+
+### 1) ASSIST VALUE & FUNNEL VALUE MODEL (CRITICAL)
+Problem:
+- Blog pages with high demand exposure are being systematically undervalued.
+- Routing probabilities and assisted conversion impact are unrealistically pessimistic.
+- Funnel opportunities are treated as de minimis even at large impression scale.
+
+Correction Rules:
+- Blogs must be valued as ASSIST / OPTION CREATION assets, not terminal converters.
+- Funnel value must consider:
+  • demand exposure (impressions)
+  • realistic routing probability ranges (not single worst-case)
+  • downstream category/product conversion potential
+  • margin contribution
+- You MUST provide a low / base / high scenario for funnel value.
+- If uncertainty is high, reduce CONFIDENCE — do not collapse VALUE to near zero.
+
+Forbidden:
+- Do NOT cap blog value to trivial dollar amounts by default.
+- Do NOT treat weak routing as evidence of low opportunity.
+
+### 2) CTR SUPPRESSION LOGIC (ACQUISITION vs MONETIZATION)
+Problem:
+- CTR suppression is being deferred under the assumption that internal linking fixes acquisition.
+- This conflates SERP acquisition with post-click routing.
+
+Correction Rules:
+- Treat CTR suppression and funnel routing as INDEPENDENT constraints.
+- If CTR is materially suppressed relative to position AND title/meta are generic:
+  → You MAY propose a TITLE/META TEST even if routing is weak.
+- Internal linking fixes monetization; title/meta fixes acquisition.
+- These actions may be proposed in PARALLEL if both are reversible.
+
+Forbidden:
+- Do NOT defer CTR fixes solely because routing is weak.
+- Do NOT assume routing changes improve SERP CTR.
+
+### 3) INTENT-CONSTRAINED INTERNAL LINK TARGETING
+Problem:
+- Some internal links are being suggested to utility or navigational pages.
+- This breaks funnel narrowing and relevance.
+
+Correction Rules:
+- Internal links MUST point to:
+  • a category page OR
+  • a product page
+- Utility, search, or navigational pages are forbidden unless query intent is explicitly navigational.
+- Every suggested link must include:
+  • why this destination matches dominant intent
+  • why alternative revenue pages were rejected
+
+────────────────────────────────
+PARALLEL ACTION RULE (LIMITED)
+────────────────────────────────
+You MAY propose multiple actions ONLY IF:
+• They address DIFFERENT diagnosed constraints
+• They are reversible
+• They do not interfere with each other
+
+Example allowed:
+- Internal linking (routing)
+- Title/meta test (CTR)
+
+Example forbidden:
+- Multiple title rewrites
+- Structural URL changes
+- Broad content expansion
+
+────────────────────────────────
+CORRECTION OUTPUT REQUIREMENTS
+────────────────────────────────
+When producing recommendations:
+
+1) Explicitly state:
+   "All validity and governance checks PASSED and remain unchanged."
+
+2) Clearly label which of the three problem areas each action addresses:
+   • Assist Value correction
+   • CTR acquisition
+   • Funnel routing
+
+3) Provide:
+   • Exact implementation
+   • Conservative but realistic value estimate (with low/base/high scenarios)
+   • Confidence score (do not inflate to compensate for uncertainty)
+   • Rollback criteria
+
+4) If none of the above corrections apply:
+   → Return NO_ACTION
+   → State: "No growth correction required; existing reasoning remains valid."
+
+────────────────────────────────
+DEFAULT POSTURE
+────────────────────────────────
+Preserve correctness.
+Fix only under-valuation, false deferral, or intent leakage.
+Never trade safety for growth.
+
+END CORRECTION LAYER
 
 ────────────────────────────────
 INPUTS
