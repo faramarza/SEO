@@ -257,26 +257,51 @@ class ConstraintDetector:
 
     def _evaluate_intent(self, asset: PageAsset) -> float:
         """
-        Evaluate commercial intent from behavior signals.
+        Evaluate commercial intent from behavior AND query signals.
 
         Intent is semantic and behavioral, not financial.
+        Blogs with commercial-informational queries (e.g. "best X for Y")
+        have real intent even with zero GA4 conversions.
         """
         score = 0.0
 
-        # Asset type implies intent
+        # Asset type implies baseline intent
         if asset.asset_type == AssetType.PRODUCT:
             score += 0.4  # Product pages have inherent commercial intent
         elif asset.asset_type == AssetType.CATEGORY:
             score += 0.3
+        elif asset.asset_type == AssetType.BLOG:
+            score += 0.05  # Blogs have minimal baseline, but queries can boost
+
+        # GSC query commercial intent signals
+        # Queries reveal what users actually want — this is the strongest
+        # semantic signal for blogs that lack GA4 conversion data.
+        if asset.gsc.top_queries:
+            commercial_patterns = (
+                "best", "buy", "review", "top", "vs", "compare", "price",
+                "cheap", "affordable", "worth", "recommend", "guide",
+                "for toddlers", "for kids", "for baby", "for children",
+                "gift", "set", "kit",
+            )
+            total_impressions = sum(q.impressions for q in asset.gsc.top_queries)
+            commercial_impressions = 0
+            for q in asset.gsc.top_queries:
+                query_lower = q.query.lower()
+                if any(p in query_lower for p in commercial_patterns):
+                    commercial_impressions += q.impressions
+            if total_impressions > 0:
+                commercial_ratio = commercial_impressions / total_impressions
+                # Up to 0.35 from query intent (significant weight)
+                score += commercial_ratio * 0.35
 
         # GA4 engagement signals
         if asset.ga4.sessions_28d > 0:
             engagement_rate = asset.ga4.engaged_sessions_28d / asset.ga4.sessions_28d
-            score += engagement_rate * 0.3
+            score += engagement_rate * 0.2
 
-        # Add-to-cart behavior (strongest intent signal)
+        # Add-to-cart behavior (strongest behavioral intent signal)
         if asset.ga4.add_to_carts_28d > 0:
-            score += 0.3
+            score += 0.25
 
         # Revenue existence (but don't penalize absence)
         if asset.ga4.revenue_28d > 0:
@@ -701,28 +726,53 @@ class ConstraintDetector:
         """
         Calculate confidence in the assessment.
 
-        More data = higher confidence.
+        More data = higher confidence. Missing data = lower confidence.
+        A page with 0 GA4 sessions, 0% intent, and 1 click should NOT
+        be 85% confident — that's a data-poor assessment.
         """
         confidence = 0.5  # Base
 
-        # More impressions = more confident about demand
+        # ── Rewards: more data → higher confidence ──
+        # Impressions (demand signal strength)
         if asset.gsc.impressions_28d >= 5000:
-            confidence += 0.2
-        elif asset.gsc.impressions_28d >= 1000:
-            confidence += 0.1
-
-        # More clicks = more confident about behavior
-        if asset.gsc.clicks_28d >= 100:
             confidence += 0.15
-        elif asset.gsc.clicks_28d >= 20:
-            confidence += 0.1
+        elif asset.gsc.impressions_28d >= 1000:
+            confidence += 0.08
+        elif asset.gsc.impressions_28d >= 100:
+            confidence += 0.03
 
-        # GA4 data present
+        # Clicks (behavioral validation)
+        if asset.gsc.clicks_28d >= 100:
+            confidence += 0.1
+        elif asset.gsc.clicks_28d >= 20:
+            confidence += 0.05
+
+        # GA4 data present (on-site behavior observed)
         if asset.ga4.sessions_28d > 0:
             confidence += 0.1
 
-        # Query data present
+        # Query data richness
         if asset.gsc.top_queries and len(asset.gsc.top_queries) >= 3:
             confidence += 0.05
 
-        return min(confidence, 0.95)
+        # ── Penalties: missing data → lower confidence ──
+        # No GA4 sessions means we have ZERO on-site behavior data
+        if asset.ga4.sessions_28d == 0:
+            confidence -= 0.1
+
+        # Very low intent means we don't understand user needs well
+        if intent_score < 0.1:
+            confidence -= 0.1
+        elif intent_score < 0.2:
+            confidence -= 0.05
+
+        # Very few clicks means behavioral signal is weak
+        if asset.gsc.clicks_28d < 5:
+            confidence -= 0.1
+
+        # No query data means we can't assess search intent
+        if not asset.gsc.top_queries:
+            confidence -= 0.05
+
+        # Floor at 0.2 (never zero — we still have URL + type)
+        return min(max(confidence, 0.2), 0.95)

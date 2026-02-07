@@ -574,7 +574,13 @@ def api_ai_recommend():
     above_fold_html = pm.get("above_fold_html", "")
     robots_meta = pm.get("robots_meta", "")
 
-    # ── 7) Build the full prompt per governor spec ──────────────
+    # ── 7) Pipeline scores — pass to AI for anchoring ─────────
+    pipeline_ev = opportunity.get("expected_value", 0)
+    pipeline_confidence = opportunity.get("confidence", 0)
+    pipeline_intent = opportunity.get("intent_score", 0)
+    pipeline_mode = opportunity.get("mode", "unknown")
+
+    # ── 8) Build the full prompt per governor spec ──────────────
     prompt = f"""You are the Alphabet Trains Agentic Growth Governor.
 
 Your role is to evaluate pages and propose actions that improve organic revenue
@@ -952,6 +958,16 @@ Forbidden:
 • Single-scenario estimates
 • Inflated confidence to compensate for uncertainty
 
+PIPELINE EV ANCHORING:
+The pipeline has pre-calculated an Expected Value for this page (see pipeline_expected_value in INPUTS).
+Your value estimate in opportunity_estimate MUST acknowledge and reconcile with this figure:
+• If your math produces a similar range (within 2×), state agreement.
+• If your math diverges significantly (>2× difference), you MUST explain WHY:
+  – e.g. "Pipeline uses 5% CTR assumption; actual routing is lower because [reason]"
+  – e.g. "Pipeline underestimates because it ignores assisted value through [path]"
+• NEVER ignore the pipeline figure. The user sees BOTH numbers side by side.
+  A 10× mismatch with no explanation is a model integrity failure.
+
 ────────────────────────────────
 3) INTERNAL LINK TARGET INTENT CONTROL
 ────────────────────────────────
@@ -1022,6 +1038,10 @@ INPUTS
 ────────────────────────────────
 url: {url}
 page_type: {page_type}
+pipeline_expected_value: ${pipeline_ev:.2f}
+pipeline_confidence: {pipeline_confidence:.0%}
+pipeline_intent_score: {pipeline_intent:.0%}
+pipeline_mode: {pipeline_mode}
 title_tag_current: {cached_title or 'null'}
 meta_desc_current: {cached_meta or 'null'}
 h1_current: {cached_h1 or 'null'}
@@ -1063,7 +1083,8 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "current_paths": "<where users currently go from this page, or 'No observable downstream path'>",
     "ideal_paths": "<proposed funnel path and WHY this path matches dominant intent>",
     "routing_diagnosis": "<failure type(s) or VALID>",
-    "opportunity_estimate": "<SHOW MATH line by line — base + upside scenarios. For blogs: direct + assisted value>"
+    "opportunity_estimate": "<SHOW MATH line by line — base + upside scenarios. For blogs: direct + assisted value>",
+    "pipeline_reconciliation": "<Compare your estimate to pipeline_expected_value. Explain agreement or divergence.>"
   }}}},
   "constraint_accountability": {{{{
     "<constraint_type>": {{{{
