@@ -445,12 +445,30 @@ def api_ai_recommend():
         page_type = "other"
 
     # ── 1) Constraint evidence ──────────────────────────────────
+    # Patch stale constraint descriptions with live data when available.
+    # The batch evaluation may have run without --crawl, producing "0 outlinks"
+    # even when the page has real outlinks (discovered via live Fetch Page).
+    live_outlinks = pm.get("internal_outlinks", [])
+    live_outlink_count = len(live_outlinks) if live_outlinks else 0
+
     constraint_list = []
     if opportunity.get("constraints"):
         for c in opportunity.get("constraints", []):
+            ctype = c.get("constraint_type", "unknown")
+            desc = c.get("description", "")
+            severity = c.get("severity", "medium")
+
+            # Override stale weak_funnel_routing when live outlinks exist
+            if ctype == "weak_funnel_routing" and live_outlink_count >= 3:
+                desc = (
+                    f"[OVERRIDDEN BY LIVE DATA] Batch evaluation reported 0 outlinks, "
+                    f"but live fetch found {live_outlink_count} content outlinks. "
+                    f"Routing may still need improvement but is not absent."
+                )
+                severity = "low"
+
             constraint_list.append(
-                f"- [{c.get('severity', 'medium')}] {c.get('constraint_type', 'unknown')}: "
-                f"{c.get('description', '')}"
+                f"- [{severity}] {ctype}: {desc}"
             )
     constraints_str = "\n".join(constraint_list) if constraint_list else "None detected."
 
