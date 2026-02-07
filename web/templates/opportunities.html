@@ -603,7 +603,7 @@ async function fetchPageContext(idx, url) {
             const aiBtn = el(`ai-btn-${idx}`);
             if (aiBtn) { aiBtn.disabled = false; aiBtn.style.opacity = '1'; aiBtn.style.cursor = 'pointer'; aiBtn.title = ''; }
 
-            if (fetchBtn) { fetchBtn.innerHTML = '<span class="btn-icon">✓</span> Fetched'; }
+            if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.innerHTML = '<span class="btn-icon">🔄</span> Re-fetch'; }
             if (status) status.textContent = '';
         } else {
             if (status) status.textContent = `(failed: ${data.error || 'unknown'})`;
@@ -793,7 +793,7 @@ async function getAIRecommendations(idx) {
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
     section.style.display = 'block';
-    content.innerHTML = '<p class="loading-ai">Fetching page and generating AI recommendations...</p>';
+    content.innerHTML = '<p class="loading-ai">Generating AI recommendations from cached page data...</p>';
 
     try {
         const res = await fetch('/api/ai/recommend', {
