@@ -818,22 +818,26 @@ If funnel_role is INVALID → you MUST address it.
 INTERNAL LINK URL VERIFICATION (MANDATORY):
 
 CRITICAL DISTINCTION:
-  – "internal_outlinks" (in INPUTS) = links that ALREADY EXIST on this page. These are DIAGNOSTIC data.
-    Do NOT recommend these URLs — they're already linked. Do NOT treat outlinks as a target pool.
-  – "site_pages" (in INPUTS) = ALL known pages on the site, grouped by type. This is your ONLY source
-    for recommending new internal links.
+  – "internal_outlinks" (in INPUTS) = links that ALREADY EXIST on this page. Use these to understand
+    the CURRENT state of routing. Do NOT recommend adding a link that already appears in outlinks —
+    it's already there. If routing is weak DESPITE existing links, recommend repositioning or
+    adding NEW links to DIFFERENT pages.
+  – "site_pages" (in INPUTS) = ALL known pages on the site, grouped by type. Your target URLs
+    for NEW links must come from this list.
 
 RULES:
-  – EVERY target URL you recommend MUST be copy-pasted verbatim from the site_pages list.
+  – Check outlinks FIRST. If the page already links to relevant product/category pages,
+    the weak_funnel_routing constraint may be less severe than stated.
+  – For NEW link recommendations: target URLs MUST come from site_pages AND must NOT
+    already appear in internal_outlinks.
   – If a URL does not appear in site_pages, it DOES NOT EXIST. Do NOT:
     • Invent or guess URLs (e.g. /category/wooden-blocks)
-    • Copy URLs from the internal_outlinks section (those are existing diagnostic links, not targets)
     • Recommend utility pages: /catalogsearch/*, /customer/*, /wishlist, /contact, /enable-cookies
     • Example: /catalogsearch/advanced/ is a utility page — NEVER recommend linking to it
-  – If no suitable target page exists in site_pages, state "No suitable target pages in site map"
-    and set action_type to NO_ACTION for internal linking.
-  – The target_urls array in your output MUST contain ONLY URLs from site_pages.
-    VALIDATION: Before outputting, confirm each target_url appears in the site_pages section of INPUTS.
+  – If no suitable NEW target page exists (all good targets are already linked), state this
+    and either recommend strengthening existing link placement or NO_ACTION.
+  – The target_urls array in your output MUST contain ONLY URLs from site_pages that are
+    NOT already in internal_outlinks.
 
 ────────────────────────────────
 ALLOWED ACTIONS BY ASSET TYPE
@@ -1148,15 +1152,12 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "ideal_paths": "<proposed funnel path and WHY this path matches dominant intent>",
     "routing_diagnosis": "<failure type(s) or VALID>",
     "opportunity_estimate": {{{{
-      "low":  {{{{ "routing_pct": <number e.g. 2>,  "math": "<21804 × 2% × 2.1% × $53.19 × 25% = $X>", "total": <number — must equal the math> }}}},
-      "base": {{{{ "routing_pct": <number e.g. 5>,  "math": "<21804 × 5% × 2.1% × $53.19 × 25% = $X>", "total": <number — must equal the math> }}}},
-      "high": {{{{ "routing_pct": <number e.g. 8>,  "math": "<21804 × 8% × 2.1% × $53.19 × 25% = $X>", "total": <number — must equal the math> }}}},
-      "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: justify the BASE routing% — LOW is ~40-60% of base, HIGH is ~40-60% above base>",
+      "low":  {{{{ "routing_pct": <number MUST be less than base e.g. 2>,  "math": "<21804 × 2% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
+      "base": {{{{ "routing_pct": <number — your best estimate e.g. 5>,  "math": "<21804 × 5% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
+      "high": {{{{ "routing_pct": <number MUST be greater than base e.g. 8>,  "math": "<21804 × 8% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
+      "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: justify the BASE routing%>",
       "summary": "<Total value range: $[low.total]–$[high.total]/mo (base: $[base.total])>"
     }}}},
-    IMPORTANT: low.routing_pct MUST be lower than base.routing_pct, which MUST be lower than high.routing_pct.
-    If all three routing_pct values are the same number, your output is INVALID.
-    Example valid routing_pcts: low=2, base=5, high=8. Example INVALID: low=5, base=5, high=5.
     "pipeline_reconciliation": "<Pipeline estimates $X/mo (missed_clicks × AOV × margin). My base estimate is $Y/mo. [AGREES | DIVERGES: specific assumption difference].>"
   }}}},
   "constraint_accountability": {{{{
@@ -1211,8 +1212,12 @@ If nothing is broken or improvable:
         "Do NOT defer CTR tests just because you also proposed internal linking. "
         "3) Cannibalization MUST be classified (BLOCKING/CAUTIONARY/INFORMATIONAL) and resolved, not just logged. "
         "4) Internal links MUST target conversion surfaces (product, category, curated guides) — NEVER utility/search/account pages. "
-        "5) Funnel math MUST show low/base/high sensitivity bands with explicit arithmetic per scenario. "
+        "5) Funnel math: low/base/high MUST each use a DIFFERENT routing_pct. "
+        "Example: low=2%, base=5%, high=8%. If your three routing_pct values are identical, your output is WRONG. "
+        "The math field MUST use the routing_pct for that scenario, not the base % for all three. "
         "Blogs are option creators — assisted value often exceeds direct. If total blog value < $100/mo on 20k+ impressions, priors are too low. "
+        "ALSO: Check internal_outlinks before recommending links. If a page already links to a target, "
+        "do NOT recommend adding that same link again. Recommend NEW links to pages NOT in outlinks. "
         "6) CONFIDENCE COHERENCE: Your stated confidence must be consistent with your assumptions. "
         "If you cite 'no GA4 data' or 'unknown routing' as limitations, confidence MUST be ≤0.5. "
         "If your routing % is speculative (INFERRED), confidence MUST be ≤0.6. "
