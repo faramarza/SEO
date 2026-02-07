@@ -571,8 +571,21 @@ def api_ai_recommend():
         target_pages_str = "null (no evaluation data — run evaluation first)"
 
     # ── 6) Above-fold HTML and robots meta ──────────────────────
-    above_fold_html = pm.get("above_fold_html", "")
+    above_fold_html_raw = pm.get("above_fold_html", "")
     robots_meta = pm.get("robots_meta", "")
+    # Clean above-fold HTML: strip structural tags, keep semantic content
+    # This gives the AI a readable view of what's above the fold
+    if above_fold_html_raw:
+        import re as _re
+        # Remove structural tags (div, span, section, article, figure, etc.) but keep their content
+        above_fold_html = _re.sub(
+            r'</?(?:div|span|section|article|figure|figcaption|main|aside|header|footer|nav|form|input|button|label|textarea|select|option|table|thead|tbody|tr|td|th|dl|dt|dd|details|summary|fieldset|legend|picture|source|video|audio|canvas|map|area)(?:\s[^>]*)?>', '',
+            above_fold_html_raw
+        )
+        # Collapse whitespace
+        above_fold_html = _re.sub(r'\s+', ' ', above_fold_html).strip()
+    else:
+        above_fold_html = ""
 
     # ── 7) Pipeline scores — pass to AI for anchoring ─────────
     pipeline_ev = opportunity.get("expected_value", 0)
@@ -803,10 +816,16 @@ If internal_links is INVALID → you MUST address it (usually via INTERNAL_LINKI
 If funnel_role is INVALID → you MUST address it.
 
 INTERNAL LINK URL VERIFICATION (MANDATORY):
-You MUST ONLY recommend internal links to URLs that appear in the
-available_target_pages list below. If a URL is not in that list, it does not exist.
-Do NOT invent, guess, or construct URLs. If no suitable target page exists in the
-list, state this explicitly and recommend NO_ACTION for internal linking.
+You MUST ONLY recommend internal links to URLs that appear in the site_pages list in INPUTS.
+If a URL is not in that list, it DOES NOT EXIST on this site. Do NOT:
+  – Invent URLs based on what "sounds right" (e.g. /wooden-blocks.html, /category/wooden-blocks)
+  – Construct URLs by combining words from queries
+  – Guess URL patterns from other sites
+EVERY URL in your exact_changes field MUST be copy-pasted from the site_pages list.
+If no suitable target page exists in the site_pages list, set action_type to NO_ACTION
+for internal linking and state "No suitable target pages found in site map."
+VALIDATION: Before outputting any INTERNAL_LINKING recommendation, verify each URL
+by confirming it appears verbatim in the site_pages input. If you cannot find it, remove it.
 
 ────────────────────────────────
 ALLOWED ACTIONS BY ASSET TYPE
@@ -953,7 +972,10 @@ ROUTING PROBABILITY EVIDENCE RULE:
 Every routing % you assume MUST cite ONE of these sources AND justify the specific number:
   – OBSERVED: "outlink CTR to /category-page is X% based on Y clicks / Z pageviews from internal_outlinks data"
   – BENCHMARK: "industry avg blog→category CTR is 3-5% (source: [named benchmark]). Using [low/mid/high] end because [reason]."
-  – INFERRED: "[specific page feature] → [why this implies N% routing]. E.g. 'no CTA above fold, 1 text link in paragraph 8 → ~2% routing (low end of 1-5% range for buried links)'"
+  – INFERRED: "[specific page feature from above_fold_html or internal_outlinks] → [why this implies N% routing]."
+    E.g. 'no CTA above fold, 1 text link in paragraph 8 → ~2% routing (low end of 1-5% range for buried links)'
+    IMPORTANT: INFERRED evidence REQUIRES above_fold_html or internal_outlinks data.
+    If above_fold_html is null AND internal_outlinks is null, you CANNOT use INFERRED — use BENCHMARK instead.
 The routing_evidence field must contain BOTH the evidence type AND the number justification.
 "INFERRED: based on typical blog to category routing" is NOT acceptable — it restates the assumption without justifying it.
 Unsourced or unjustified routing assumptions are forbidden. If you cannot justify a routing %, use 0% and state NO_ACTION.
@@ -961,11 +983,11 @@ Unsourced or unjustified routing assumptions are forbidden. If you cannot justif
 SELF-CONSISTENCY CHECK (mandatory before output):
 After computing your scenario values, verify:
   – LOW < BASE < HIGH (monotonic)
+  – LOW/BASE/HIGH MUST use DIFFERENT routing percentages (this is the primary sensitivity variable)
+  – low.routing_pct < base.routing_pct < high.routing_pct (e.g. 2% / 5% / 8%)
+  – If all three scenarios use the same routing%, your range is INVALID — fix it
   – Your total value summary matches the BASE scenario (not LOW, not HIGH)
-  – Your total value range [LOW..HIGH] is stated, not just BASE
-  – pipeline_upside_value is a CONDITIONAL figure (value if constraint is fixed)
-  – Your BASE is a CURRENT-STATE figure. These are intentionally different.
-  – pipeline_reconciliation MUST explain what assumption drives the gap
+  – pipeline_reconciliation MUST reconcile with pipeline_est_value using specific assumptions
 
 Interpretation rules:
 • If assumptions are weak or speculative → LOWER CONFIDENCE, not VALUE
@@ -977,15 +999,15 @@ Forbidden:
 • Inflated confidence to compensate for uncertainty
 • Routing % without evidence citation
 
-PIPELINE UPSIDE ANCHORING:
-The pipeline has pre-calculated an "Upside (if fixed)" value for this page (see pipeline_upside_value in INPUTS).
-This is the conditional value IF the primary constraint is resolved — not a base expectation.
-Your BASE scenario in opportunity_estimate is the CURRENT-STATE estimate.
-These numbers WILL differ. Your job is to explain the gap clearly:
-• State: "Pipeline upside: $X assumes [constraint] is fixed. My base: $Y reflects current state."
-• If the gap is >5×, explain which specific assumption drives it (routing %, CTR lift, conversion rate)
-• The user sees the pipeline upside as the headline and your base estimate in the AI section.
-  They need to understand that upside ≠ base, and WHY the numbers differ.
+PIPELINE VALUE RECONCILIATION:
+The pipeline has pre-calculated a monthly value estimate for this page (see pipeline_est_value in INPUTS).
+This is computed as: missed_clicks × AOV × margin × conversion_factor.
+It represents what the page SHOULD generate monthly if it performed at position-expected CTR.
+Your opportunity_estimate scenarios represent what you project based on routing analysis.
+Your job is to explain the relationship:
+• State: "Pipeline estimates $X/mo based on [formula]. My base estimate is $Y/mo. [Agreement or divergence reason]."
+• If your base is lower, explain which assumption differs (routing %, CVR, margin).
+• If your base is higher, explain what additional value you identified (assisted value, multi-path routing).
 
 ────────────────────────────────
 3) INTERNAL LINK TARGET INTENT CONTROL
@@ -1057,7 +1079,7 @@ INPUTS
 ────────────────────────────────
 url: {url}
 page_type: {page_type}
-pipeline_upside_value: ${pipeline_ev:.2f} (this is the value IF the primary constraint is resolved — not current base value)
+pipeline_est_value: ${pipeline_ev:.2f} (pipeline's monthly value estimate: missed_clicks × AOV × margin × conversion_factor, based on position-expected CTR)
 pipeline_confidence: {pipeline_confidence:.0%}
 pipeline_intent_score: {pipeline_intent:.0%}
 pipeline_mode: {pipeline_mode}
@@ -1103,12 +1125,13 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "ideal_paths": "<proposed funnel path and WHY this path matches dominant intent>",
     "routing_diagnosis": "<failure type(s) or VALID>",
     "opportunity_estimate": {{{{
-      "low": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
-      "base": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
-      "high": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
-      "summary": "<fill in with actual numbers: Total value range: $[low_total]–$[high_total]/mo (base: $[base_total]). For blogs add: direct $[direct_value] + assisted $[assisted_value]. DO NOT output placeholder variables — use your computed numbers.>"
+      "low": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X — use PESSIMISTIC routing%>", "routing_pct": <number>, "total": <number> }}}},
+      "base": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X — use REALISTIC routing%>", "routing_pct": <number>, "total": <number> }}}},
+      "high": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X — use OPTIMISTIC routing%>", "routing_pct": <number>, "total": <number> }}}},
+      "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: justify the BASE routing% with evidence. LOW and HIGH are -/+ 40-60% of base.>",
+      "summary": "<fill in: Total value range: $[low]–$[high]/mo (base: $[base]). DO NOT use placeholder variables.>"
     }}}},
-    "pipeline_reconciliation": "<Pipeline upside ($X) assumes [constraint] is fixed. My base estimate ($Y) reflects current state. Gap driven by [specific assumption].>"
+    "pipeline_reconciliation": "<Pipeline estimates $X/mo (missed_clicks × AOV × margin). My base estimate is $Y/mo. [AGREES | DIVERGES: specific assumption difference].>"
   }}}},
   "constraint_accountability": {{{{
     "<constraint_type>": {{{{
@@ -1121,7 +1144,8 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     {{{{
       "action_type": "<TITLE_META_TEST | INTERNAL_LINKING | VISIBILITY_FIX | CANONICAL_FIX | CONTENT_CLARIFY | CONSOLIDATION_REVIEW | NO_ACTION>",
       "diagnosed_constraint": "<the specific constraint this fixes>",
-      "exact_changes": "<implementation-ready details — for INTERNAL_LINKING: exact URLs, placement, count, primary/secondary>",
+      "target_urls": ["<ONLY for INTERNAL_LINKING: list each target URL here — must be copy-pasted from site_pages>"],
+      "exact_changes": "<implementation-ready details — for INTERNAL_LINKING: exact URLs from target_urls, placement, count, primary/secondary>",
       "why_this_works": "<tie to diagnosed constraint + GSC data>",
       "risk_level": "<low | medium | high>",
       "rollback_plan": "<how to undo>",
@@ -1168,8 +1192,7 @@ If nothing is broken or improvable:
         "If your routing % is speculative (INFERRED), confidence MUST be ≤0.6. "
         "Only OBSERVED evidence supports confidence >0.7. "
         "7) VALUE COHERENCE: The total in your opportunity_estimate.summary MUST equal your base scenario total. "
-        "The pipeline_reconciliation MUST explain the gap between pipeline_upside_value (conditional) and your base (current-state). "
-        "These numbers are SUPPOSED to differ — the pipeline upside assumes the constraint is fixed. "
+        "The pipeline_reconciliation MUST reconcile your estimate with pipeline_est_value using specific assumptions. "
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
 
