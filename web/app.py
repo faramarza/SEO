@@ -348,7 +348,7 @@ def api_ai_recommend():
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
     max_tokens = ai_config.get("max_tokens", 4500)
-    timeout_sec = ai_config.get("timeout", 30)
+    timeout_sec = ai_config.get("timeout", 120)
     max_queries = ai_config.get("max_queries_in_prompt", 0)
     max_issues = ai_config.get("max_issues_in_prompt", 0)
     min_context = ai_config.get("min_context_fields", 3)
@@ -1283,6 +1283,8 @@ If nothing is broken or improvable:
     try:
         import json as json_module
         is_anthropic = model.startswith("claude-")
+        # Short connect timeout, long read timeout for slow models (Claude, o-series)
+        api_timeout = httpx.Timeout(connect=10.0, read=float(timeout_sec), write=10.0, pool=10.0)
 
         if is_anthropic:
             anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -1304,7 +1306,7 @@ If nothing is broken or improvable:
                         {"role": "user", "content": prompt},
                     ],
                 },
-                timeout=float(timeout_sec),
+                timeout=api_timeout,
             )
             if api_response.status_code != 200:
                 return jsonify({"error": f"Anthropic API error: {api_response.text}"}), 500
@@ -1345,7 +1347,7 @@ If nothing is broken or improvable:
                     "Content-Type": "application/json",
                 },
                 json=openai_payload,
-                timeout=float(timeout_sec),
+                timeout=api_timeout,
             )
             if api_response.status_code != 200:
                 return jsonify({"error": f"OpenAI API error: {api_response.text}"}), 500
