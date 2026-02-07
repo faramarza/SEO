@@ -729,28 +729,16 @@ C) Ideal Funnel Paths (Proposed)
 Explain WHY this path is correct for the dominant intent.
 
 D) Weak Routing Diagnosis
-You MUST provide TWO independent verdicts:
+Classify the failure as ONE OR MORE of:
+- Missing next step
+- Misaligned destination
+- Poor placement/visibility
+- Competing exits
+- SERP pogo-stick behavior
 
-  structural_routing: VALID | INVALID
-    Based on DETECTED link presence — do commerce links exist on the page?
-    This is answerable from the outlinks list alone.
-
-  performance_routing: VALID | INVALID | UNKNOWN
-    Based on OBSERVED click-through data — do users actually click those links?
-    If no GA4/event data is provided, this MUST be UNKNOWN (not VALID).
-
-Then classify any failure as ONE OR MORE of:
-- Missing next step (structural — no commerce links exist)
-- Misaligned destination (structural — links go to wrong pages)
-- Poor placement/visibility (structural — links exist but are buried/below fold)
-- Competing exits (structural — non-commerce links distract from funnel)
-- Low click-through (performance — links exist but users don't click them)
-- SERP pogo-stick behavior (performance — users bounce back to SERP)
-
-If structural routing is VALID and performance routing is UNKNOWN:
-→ Mark routing as "Structurally VALID, performance UNKNOWN"
-→ Do NOT conflate "links exist" with "routing works"
-→ You may propose VISIBILITY_FIX (reposition existing links) but not INTERNAL_LINKING
+If no routing weakness exists:
+→ Mark routing as VALID
+→ Do NOT propose internal linking changes
 
 E) Funnel Opportunity Estimate (REQUIRED — SHOW YOUR MATH)
 Do NOT invent percentages. Use this framework with THREE sensitivity bands:
@@ -900,33 +888,6 @@ RULES:
     and either recommend strengthening existing link placement or NO_ACTION.
   – The target_urls array in your output MUST contain ONLY URLs from site_pages that are
     NOT already in internal_outlinks.
-
-────────────────────────────────
-COUNT ACCURACY RULE (HARD CONSTRAINT)
-────────────────────────────────
-Counts must match the displayed evidence exactly.
-If N links are provided in internal_outlinks, you must say "N provided" — not a higher number.
-You may NOT reference quantities beyond the provided list unless a separate total_count field
-is explicitly included in the inputs. If ambiguity exists, state it explicitly:
-  "10 outlinks provided (page may contain additional links not shown)."
-Fabricating counts is a correctness failure.
-
-────────────────────────────────
-LINK TAXONOMY RULE (MANDATORY)
-────────────────────────────────
-Before making ANY aggregate claim about link counts by type, you MUST first classify
-every link individually using this taxonomy:
-
-  product        = PDP (product detail page)
-  category       = PLP / collection / category listing page
-  brand-category = brand archive page (counts as category class)
-  blog           = blog post or article
-  author         = author page
-  utility        = search, account, cart, sitemap, etc. (NEVER recommend as funnel link)
-
-Include a link_taxonomy array in your output with each link classified.
-THEN — and only then — make aggregate statements like "5 commercial links (2 product, 3 category)."
-If the split is wrong (e.g., saying 3 product when only 2 are product), the output is INVALID.
 
 ────────────────────────────────
 ALLOWED ACTIONS BY ASSET TYPE
@@ -1085,28 +1046,15 @@ You MUST express the calculation as explicit arithmetic, for example:
 21,000 impressions × 3% routing × 2.1% CVR × $53.19 AOV × 27% margin = $X
 
 ROUTING PROBABILITY EVIDENCE RULE:
-Every routing % you assume MUST cite ONE of these evidence labels AND justify the specific number.
-You may ONLY use these four labels. Mislabeling is a correctness failure.
-
-  OBSERVED  = measured behavioral data (GA4 clicks, events, click-through rates between pages).
-             Requires explicit data: "X clicks / Y pageviews = Z% CTR from GA4/event data."
-             If no click data exists, you MUST state: "No OBSERVED routing data provided."
-  DETECTED  = structural facts extracted from the provided HTML, outlinks list, or above_fold_html.
-             E.g. "DETECTED: 10 outlinks provided; 5 commercial (2 product, 3 category). No CTA above fold."
-             DETECTED describes what IS on the page, not how users behave.
-  BENCHMARK = industry priors, averages, heuristics applied when no page-specific data exists.
-             E.g. "BENCHMARK: blog in-content CTA routing prior 3-5%. Using 5% because [reason]."
-  ASSUMED   = model inference with no direct support. Any estimate using ASSUMED inputs
-             must reduce the final value by at least 25% vs the same estimate using DETECTED
-             or BENCHMARK inputs, and must state: "ASSUMED — [reason], confidence discounted."
-
-CRITICAL DISTINCTIONS:
-  – Link existence (from outlinks list) is DETECTED, never OBSERVED. You have not observed anyone clicking those links.
-  – "Page has 5 commercial links" is DETECTED. "5% of visitors click through" without click data is BENCHMARK or ASSUMED.
-  – Routing percentage from click data is OBSERVED. Routing percentage from link count and placement is BENCHMARK.
-
-The routing_evidence field must contain BOTH the evidence label AND the number justification.
-"BENCHMARK: based on typical blog to category routing" is NOT acceptable — it restates the assumption without justifying it.
+Every routing % you assume MUST cite ONE of these sources AND justify the specific number:
+  – OBSERVED: "outlink CTR to /category-page is X% based on Y clicks / Z pageviews from internal_outlinks data"
+  – BENCHMARK: "industry avg blog→category CTR is 3-5% (source: [named benchmark]). Using [low/mid/high] end because [reason]."
+  – INFERRED: "[specific page feature from above_fold_html or internal_outlinks] → [why this implies N% routing]."
+    E.g. 'no CTA above fold, 1 text link in paragraph 8 → ~2% routing (low end of 1-5% range for buried links)'
+    IMPORTANT: INFERRED evidence REQUIRES above_fold_html or internal_outlinks data.
+    If above_fold_html is null AND internal_outlinks is null, you CANNOT use INFERRED — use BENCHMARK instead.
+The routing_evidence field must contain BOTH the evidence type AND the number justification.
+"INFERRED: based on typical blog to category routing" is NOT acceptable — it restates the assumption without justifying it.
 Unsourced or unjustified routing assumptions are forbidden. If you cannot justify a routing %, use 0% and state NO_ACTION.
 
 SELF-CONSISTENCY CHECK (mandatory before output):
@@ -1252,21 +1200,12 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "entry_intent": "<dominant query clusters, impression share, what users expect next>",
     "current_paths": "<where users currently go from this page, or 'No observable downstream path'>",
     "ideal_paths": "<proposed funnel path and WHY this path matches dominant intent>",
-    "routing_diagnosis": {{{{
-      "structural_routing": "<VALID | INVALID> — based on DETECTED link presence",
-      "performance_routing": "<VALID | INVALID | UNKNOWN> — based on OBSERVED click data. MUST be UNKNOWN if no GA4/event data provided",
-      "failure_types": ["<list of: missing_next_step | misaligned_destination | poor_placement | competing_exits | low_clickthrough | serp_pogostick>"],
-      "summary": "<one-line diagnosis>"
-    }}}},
-    "link_taxonomy": [
-      {{{{"url": "<url>", "type": "<product | category | brand-category | blog | author | utility>", "justification": "<PDP | PLP | brand archive | etc.>"}}}}
-    ],
+    "routing_diagnosis": "<failure type(s) or VALID>",
     "opportunity_estimate": {{{{
-      "low":  {{{{ "routing_pct": <number MUST be less than base e.g. 2>,  "math": "<1243 × 2% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
-      "base": {{{{ "routing_pct": <number — your best estimate e.g. 5>,  "math": "<1243 × 5% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
-      "high": {{{{ "routing_pct": <number MUST be greater than base e.g. 8>,  "math": "<1243 × 8% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
-      "routing_evidence": "<OBSERVED|DETECTED|BENCHMARK|ASSUMED: justify the BASE routing%. Link existence is DETECTED, not OBSERVED. No click data = 'No OBSERVED routing data provided.'  >",
-      "confidence": "<percentage> — <one-line derivation referencing inputs, e.g. 'stable rankings + no CTR uplift history + BENCHMARK variance +/-30%'. No derivation = invalid output.>",
+      "low":  {{{{ "routing_pct": <number MUST be less than base e.g. 2>,  "math": "<21804 × 2% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
+      "base": {{{{ "routing_pct": <number — your best estimate e.g. 5>,  "math": "<21804 × 5% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
+      "high": {{{{ "routing_pct": <number MUST be greater than base e.g. 8>,  "math": "<21804 × 8% × 2.1% × $53.19 × 25% = $X>", "total": <number> }}}},
+      "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: justify the BASE routing%>",
       "summary": "<Total value range: $[low.total]–$[high.total]/mo (base: $[base.total])>"
     }}}},
     "pipeline_reconciliation": "<Pipeline estimates $X/mo (missed_clicks × AOV × margin). My base estimate is $Y/mo. [AGREES | DIVERGES: specific assumption difference].>"
@@ -1331,20 +1270,11 @@ If nothing is broken or improvable:
         "If a URL appears in the BLOCKLIST or internal_outlinks, it ALREADY EXISTS on the page — "
         "recommending it again is an ERROR. Only recommend URLs from site_pages that are NOT in the BLOCKLIST. "
         "If ALL relevant targets are already linked, recommend repositioning existing links or NO_ACTION for routing. "
-        "6) EVIDENCE LABELS: Use ONLY these four labels — OBSERVED (measured click data), DETECTED (structural facts from HTML/links), "
-        "BENCHMARK (industry priors), ASSUMED (model guess, requires 25% confidence discount). "
-        "Link existence is DETECTED, never OBSERVED. Mislabeling is a correctness failure. "
-        "7) CONFIDENCE COHERENCE: Your stated confidence must be consistent with your assumptions. "
+        "6) CONFIDENCE COHERENCE: Your stated confidence must be consistent with your assumptions. "
         "If you cite 'no GA4 data' or 'unknown routing' as limitations, confidence MUST be ≤0.5. "
-        "If your routing % is ASSUMED, confidence MUST be ≤0.5. "
-        "If your routing % is BENCHMARK, confidence MUST be ≤0.6. "
+        "If your routing % is speculative (INFERRED), confidence MUST be ≤0.6. "
         "Only OBSERVED evidence supports confidence >0.7. "
-        "Every confidence label MUST include a one-line derivation. No derivation = invalid output. "
-        "8) COUNT ACCURACY: Outlink counts must exactly match the provided list. Do not fabricate link counts. "
-        "9) LINK TAXONOMY: Classify every outlink (product/category/brand-category/blog/author/utility) BEFORE making aggregate claims. "
-        "10) ROUTING SPLIT: Provide TWO independent verdicts — structural_routing (links exist?) and performance_routing (users click them?). "
-        "If no click data provided, performance_routing MUST be UNKNOWN. "
-        "11) VALUE COHERENCE: The total in your opportunity_estimate.summary MUST equal your base scenario total. "
+        "7) VALUE COHERENCE: The total in your opportunity_estimate.summary MUST equal your base scenario total. "
         "The pipeline_reconciliation MUST reconcile your estimate with pipeline_est_value using specific assumptions. "
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
