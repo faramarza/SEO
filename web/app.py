@@ -922,12 +922,24 @@ Any TITLE_META_TEST recommendation MUST include the EXACT proposed text:
   2. The complete new meta description text (not a description — the actual text)
   3. WHY this specific wording — tie to dominant GSC queries by name
 
+YEAR RULE: If any variant includes a year, it MUST use current_year from INPUTS (currently {datetime.now().year}).
+NEVER use a past year. Stale years make the page look outdated in SERPs.
+
+SEQUENTIAL TEST RULE: Title tags cannot be A/B tested — Google shows one title at a time.
+When proposing multiple variants, present them as PRIORITY-RANKED sequential options:
+  - "Deploy Variant A first. Evaluate in GSC after 28 days."
+  - "If CTR does not improve by [threshold], replace with Variant B and re-evaluate."
+Do NOT frame variants as parallel A/B splits. Be honest about the execution reality:
+one change at a time, ~28 days per test cycle.
+
 "Propose new title and meta description to better align with queries" is NOT acceptable.
-"Test title: 'Best Wooden Blocks for Kids: Complete Buying Guide 2025'
- Test meta: 'Compare top wooden block brands for toddlers. Materials, sizes, safety
+"PRIORITY 1 — Deploy first:
+ Title: 'Best Wooden Blocks for Kids: Complete Buying Guide {datetime.now().year}'
+ Meta: 'Compare top wooden block brands for toddlers. Materials, sizes, safety
  standards, and age-appropriate picks from Community Playthings to Guidecraft.'
  Why: Incorporates 'best wooden blocks' (133 impr) and 'building blocks for kids' (71 impr)
- into title. Meta targets 'brands' and 'toddlers' clusters." IS acceptable.
+ into title. Meta targets 'brands' and 'toddlers' clusters.
+ Evaluate after 28 days. If CTR does not improve by 50%, move to Priority 2." IS acceptable.
 
 ────────────────────────────────
 INTERNAL LINKING SPECIFICITY RULE
@@ -1154,6 +1166,7 @@ END CORRECTION LAYER
 ────────────────────────────────
 INPUTS
 ────────────────────────────────
+current_year: {datetime.now().year}
 url: {url}
 page_type: {page_type}
 pipeline_est_value: ${pipeline_ev:.2f} (pipeline's monthly value estimate: missed_clicks × AOV × margin × conversion_factor, based on position-expected CTR)
