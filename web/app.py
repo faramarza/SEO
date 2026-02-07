@@ -507,6 +507,12 @@ def api_ai_recommend():
         )
     outlinks_str = "\n".join(outlinks_lines) if outlinks_lines else "null"
 
+    # Build explicit blocklist of existing outlink target URLs for dedup enforcement
+    existing_outlink_urls = sorted(set(
+        ol.get("target_url", "") for ol in outlinks
+    )) if outlinks else []
+    outlink_blocklist_str = "\n".join(f"  - {u}" for u in existing_outlink_urls) if existing_outlink_urls else ""
+
     # ── 4) Business context from config ─────────────────────────
     profit_cfg = config.get("profit_model", {})
     biz_ctx = config.get("business_context", {})
@@ -826,10 +832,12 @@ CRITICAL DISTINCTION:
     for NEW links must come from this list.
 
 RULES:
-  – Check outlinks FIRST. If the page already links to relevant product/category pages,
-    the weak_funnel_routing constraint may be less severe than stated.
+  – Check outlinks FIRST. Count how many link to product/category pages.
+    If the page already links to relevant product/category pages, mark internal_links
+    as VALID (not INVALID), and note the existing links. The weak_funnel_routing constraint
+    is based on batch data that may undercount — the outlinks list above is ground truth.
   – For NEW link recommendations: target URLs MUST come from site_pages AND must NOT
-    already appear in internal_outlinks.
+    already appear in internal_outlinks or the BLOCKLIST.
   – If a URL does not appear in site_pages, it DOES NOT EXIST. Do NOT:
     • Invent or guess URLs (e.g. /category/wooden-blocks)
     • Recommend utility pages: /catalogsearch/*, /customer/*, /wishlist, /contact, /enable-cookies
@@ -1120,7 +1128,12 @@ above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
 
 internal_outlinks (DIAGNOSTIC ONLY — these links ALREADY EXIST on this page, do NOT recommend these):
 {outlinks_str}
-
+{f"""
+BLOCKLIST — the following URLs are ALREADY linked from this page.
+Do NOT recommend any of these as target_urls. They are NOT new links:
+{outlink_blocklist_str}
+If the weak_funnel_routing constraint says '0 outlinks', IGNORE that number — the outlinks above are the real data.
+""" if outlink_blocklist_str else ""}
 top_gsc_queries:
 {gsc_str}
 
@@ -1216,8 +1229,10 @@ If nothing is broken or improvable:
         "Example: low=2%, base=5%, high=8%. If your three routing_pct values are identical, your output is WRONG. "
         "The math field MUST use the routing_pct for that scenario, not the base % for all three. "
         "Blogs are option creators — assisted value often exceeds direct. If total blog value < $100/mo on 20k+ impressions, priors are too low. "
-        "ALSO: Check internal_outlinks before recommending links. If a page already links to a target, "
-        "do NOT recommend adding that same link again. Recommend NEW links to pages NOT in outlinks. "
+        "CRITICAL DEDUP: Before recommending any internal link, check the BLOCKLIST in the inputs. "
+        "If a URL appears in the BLOCKLIST or internal_outlinks, it ALREADY EXISTS on the page — "
+        "recommending it again is an ERROR. Only recommend URLs from site_pages that are NOT in the BLOCKLIST. "
+        "If ALL relevant targets are already linked, recommend repositioning existing links or NO_ACTION for routing. "
         "6) CONFIDENCE COHERENCE: Your stated confidence must be consistent with your assumptions. "
         "If you cite 'no GA4 data' or 'unknown routing' as limitations, confidence MUST be ≤0.5. "
         "If your routing % is speculative (INFERRED), confidence MUST be ≤0.6. "
