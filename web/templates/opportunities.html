@@ -668,23 +668,60 @@ async function getAIRecommendations(idx) {
             return;
         }
 
-        // ── New structured format: summary + actions array ──
-        const actions = rec.actions || [];
+        // ── New structured format: validity + funnel + recommendations + no_actions ──
+        const va = rec.validity_audit || {};
+        const fa = rec.funnel_analysis || {};
+        const actions = rec.recommendations || rec.actions || [];
+        const noActions = rec.no_actions || [];
         const isAllNoAction = actions.length === 0 || actions.every(a => a.action_type === 'NO_ACTION');
+
+        // Validity audit badges
+        const vBadge = (status) => {
+            const s = (status || '').split('—')[0].trim().toUpperCase();
+            const color = s === 'VALID' ? '#059669' : s === 'INVALID' ? '#dc2626' : '#ca8a04';
+            return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${color}18;color:${color};font-weight:600;font-size:11px;">${s}</span> <span style="color:#6b7280;font-size:12px;">${(status || '').includes('—') ? status.split('—').slice(1).join('—').trim() : ''}</span>`;
+        };
+
+        let validityHtml = '';
+        if (Object.keys(va).length > 0) {
+            validityHtml = `
+            <div class="rec-item" style="margin-top: 8px;">
+                <h5 style="margin: 0 0 8px 0;">Step 1: Validity Audit</h5>
+                <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                    ${Object.entries(va).map(([k, v]) => `<tr><td style="padding:3px 8px;font-weight:bold;text-transform:capitalize;width:140px;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td><td style="padding:3px 8px;border-bottom:1px solid #f0f0f0;">${vBadge(v)}</td></tr>`).join('')}
+                </table>
+            </div>`;
+        }
+
+        let funnelHtml = '';
+        if (Object.keys(fa).length > 0) {
+            funnelHtml = `
+            <div class="rec-item" style="margin-top: 8px;">
+                <h5 style="margin: 0 0 8px 0;">Step 2: Funnel Analysis</h5>
+                <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                    <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
+                    <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
+                    <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
+                    <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
+                    <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${fa.opportunity_estimate || '—'}</td></tr>
+                </table>
+            </div>`;
+        }
 
         let actionsHtml = '';
         if (actions.length > 0) {
-            actionsHtml = actions.map((a, i) => {
+            actionsHtml = `<h5 style="margin: 12px 0 4px 0;">Step 3: Recommendations</h5>` + actions.map((a, i) => {
                 const isNoAct = a.action_type === 'NO_ACTION';
                 const riskColor = a.risk_level === 'high' ? '#dc2626' : a.risk_level === 'medium' ? '#ea580c' : '#059669';
                 return `
-                <div class="rec-item ${isNoAct ? 'critical' : ''}" style="margin-top: 10px;">
+                <div class="rec-item ${isNoAct ? 'critical' : ''}" style="margin-top: 8px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                         <h5 style="margin: 0;">Action ${i + 1}: ${(a.action_type || 'NO_ACTION').replace(/_/g, ' ')}</h5>
                         <span style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: ${riskColor}20; color: ${riskColor}; font-weight: 600;">
                             ${a.risk_level || 'low'} risk
                         </span>
                     </div>
+                    ${a.diagnosed_constraint ? `<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ${a.diagnosed_constraint}</p>` : ''}
                     <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
                         <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
                         <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${a.exact_changes || 'N/A'}</pre>
@@ -712,12 +749,26 @@ async function getAIRecommendations(idx) {
             }).join('');
         }
 
+        let noActionsHtml = '';
+        if (noActions.length > 0) {
+            noActionsHtml = `
+            <div class="rec-item" style="margin-top: 8px; background: #f0fdf4; padding: 10px; border-radius: 6px;">
+                <h5 style="margin: 0 0 6px 0;">Explicitly Preserved (No Change)</h5>
+                <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #059669;">
+                    ${noActions.map(n => `<li style="margin: 2px 0;">${n}</li>`).join('')}
+                </ul>
+            </div>`;
+        }
+
         content.innerHTML = `
             <div class="ai-recommendation">
                 <div class="rec-item" style="background: ${isAllNoAction ? '#fef2f2' : '#f0fdf4'}; padding: 12px; border-radius: 6px;">
-                    <p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || 'No summary provided.'}</p>
+                    <p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || (isAllNoAction ? 'No actionable issues found — all elements valid.' : 'Analysis complete.')}</p>
                 </div>
+                ${validityHtml}
+                ${funnelHtml}
                 ${actionsHtml}
+                ${noActionsHtml}
             </div>
         `;
 
