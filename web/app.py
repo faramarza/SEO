@@ -1751,9 +1751,9 @@ def api_page_metadata():
 
     try:
         with httpx.Client(
-            headers={"User-Agent": "AlphabetTrains-SEO-Crawler/1.0"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; AlphabetTrains-SEO/1.0)"},
             follow_redirects=True,
-            timeout=8.0,
+            timeout=15.0,
         ) as client:
             response = client.get(url)
 
@@ -1787,6 +1787,8 @@ def api_page_metadata():
             return jsonify(metadata)
         else:
             return jsonify({"error": f"HTTP {response.status_code}"}), 502
+    except httpx.TimeoutException:
+        return jsonify({"error": "Timeout (15s) — site may be slow or blocking crawlers"}), 502
     except Exception as e:
         return jsonify({"error": str(e)[:100]}), 502
 
