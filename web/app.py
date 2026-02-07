@@ -466,6 +466,36 @@ def api_ai_recommend():
             )
     gsc_str = "\n".join(gsc_lines) if gsc_lines else "null"
 
+    # ── 2b) Server-side CTR suppression detection ────────────────
+    # If CTR is heavily suppressed relative to position, inject a hard
+    # instruction so the model cannot defer the title/meta test.
+    ctr_suppression_flag = ""
+    if opportunity.get("top_queries"):
+        queries = opportunity.get("top_queries", [])
+        total_impressions = sum(q.get("impressions", 0) for q in queries)
+        total_clicks = sum(q.get("clicks", 0) for q in queries)
+        if total_impressions > 500:
+            actual_ctr = (total_clicks / total_impressions) * 100 if total_impressions else 0
+            # Weighted average position
+            weighted_pos = sum(
+                q.get("position", 50) * q.get("impressions", 0) for q in queries
+            ) / total_impressions if total_impressions else 50
+            # Expected CTR by position (industry benchmarks)
+            expected_ctr_map = {1: 28, 2: 15, 3: 10, 4: 7, 5: 5, 6: 4, 7: 3, 8: 2.5, 9: 2, 10: 1.5}
+            expected_ctr = expected_ctr_map.get(round(weighted_pos), max(0.5, 30 / (weighted_pos + 1)))
+            suppression_ratio = expected_ctr / actual_ctr if actual_ctr > 0 else 999
+
+            if suppression_ratio > 5:  # CTR is 5x+ below expected
+                ctr_suppression_flag = (
+                    f"\n\n⚠️ SERVER-ENFORCED CTR ALERT ⚠️\n"
+                    f"CTR is {suppression_ratio:.0f}x below position-expected rate "
+                    f"(actual: {actual_ctr:.2f}%, expected: {expected_ctr:.1f}% at position {weighted_pos:.1f}).\n"
+                    f"This is a {total_impressions:,} impression page.\n"
+                    f"MANDATORY: You MUST propose a TITLE_META_TEST action for this page.\n"
+                    f"You MUST NOT defer this. Title/meta fixes SERP acquisition; routing fixes monetization.\n"
+                    f"These are independent. Propose BOTH in parallel.\n"
+                )
+
     # ── 3) Internal outlinks from page metadata ─────────────────
     outlinks = pm.get("internal_outlinks", [])
     outlinks_lines = []
@@ -496,17 +526,49 @@ def api_ai_recommend():
         f"Product families: {', '.join(product_families)}"
     )
 
-    # ── 5) Available target pages from config/eval data ─────────
-    target_pages = config.get("available_target_pages", {})
-    category_urls = target_pages.get("category_urls", [])
-    top_product_urls = target_pages.get("top_product_urls", [])
+    # ── 5) Available target pages — auto-populated from evaluation data ──
+    # Read all crawled pages from evaluation so AI knows what actually exists
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    site_pages = {"category": [], "product": [], "blog": [], "other": []}
+    if eval_path.exists():
+        try:
+            with open(eval_path) as f:
+                eval_data = json.load(f)
+            for r in eval_data.get("results", []):
+                r_url = r.get("url", "")
+                if r_url == url:
+                    continue  # Skip the current page
+                r_type = r.get("asset_type", "other").lower()
+                if r_type not in site_pages:
+                    r_type = "other"
+                pm_r = r.get("page_metadata", {})
+                title_r = pm_r.get("title", "") or pm_r.get("h1", "")
+                # Include basic performance signal for prioritization
+                ev = r.get("expected_value", 0)
+                conf = r.get("confidence", 0)
+                site_pages[r_type].append({
+                    "url": r_url,
+                    "title": title_r[:80],
+                    "ev": round(ev, 2) if ev else 0,
+                })
+        except Exception:
+            pass
+
+    # Format site map — compact but informative
     target_pages_str = ""
-    if category_urls:
-        target_pages_str += "Category URLs:\n" + "\n".join(f"  - {u}" for u in category_urls[:20]) + "\n"
-    if top_product_urls:
-        target_pages_str += "Top product URLs (by margin/conversion):\n" + "\n".join(f"  - {u}" for u in top_product_urls[:20])
+    for ptype in ("category", "product", "blog"):
+        pages = site_pages.get(ptype, [])
+        if pages:
+            # Sort by expected value descending, show top 30
+            pages.sort(key=lambda p: p["ev"], reverse=True)
+            target_pages_str += f"\n{ptype.upper()} pages ({len(pages)} total):\n"
+            for p in pages[:30]:
+                target_pages_str += f'  - {p["url"]}  [{p["title"]}]  EV=${p["ev"]}\n'
+            if len(pages) > 30:
+                target_pages_str += f"  ... and {len(pages) - 30} more\n"
+
     if not target_pages_str:
-        target_pages_str = "null (not configured — see admin > available_target_pages)"
+        target_pages_str = "null (no evaluation data — run evaluation first)"
 
     # ── 6) Above-fold HTML and robots meta ──────────────────────
     above_fold_html = pm.get("above_fold_html", "")
@@ -724,6 +786,21 @@ Specifically:
 
 Multiple constraints → multiple actions. Default is PARALLEL, not sequential.
 "I only proposed one action" is NOT acceptable if multiple constraints were diagnosed.
+
+VALIDITY AUDIT → ACTION MAPPING (MANDATORY):
+Every element you mark INVALID in Step 1 MUST result in EITHER:
+  a) A recommendation in Step 3 that addresses it, OR
+  b) An explicit entry in constraint_accountability explaining why it was deferred
+You CANNOT mark an element INVALID and then produce no action and no deferral for it.
+If serp_alignment is INVALID → you MUST address it (usually via TITLE_META_TEST).
+If internal_links is INVALID → you MUST address it (usually via INTERNAL_LINKING).
+If funnel_role is INVALID → you MUST address it.
+
+INTERNAL LINK URL VERIFICATION (MANDATORY):
+You MUST ONLY recommend internal links to URLs that appear in the
+available_target_pages list below. If a URL is not in that list, it does not exist.
+Do NOT invent, guess, or construct URLs. If no suitable target page exists in the
+list, state this explicitly and recommend NO_ACTION for internal linking.
 
 ────────────────────────────────
 ALLOWED ACTIONS BY ASSET TYPE
@@ -965,9 +1042,9 @@ constraints:
 business_context:
 {business_context_str}
 
-available_target_pages:
+site_pages (ALL known pages by type — ONLY link to URLs in this list):
 {target_pages_str}
-
+{ctr_suppression_flag}
 ────────────────────────────────
 OUTPUT FORMAT (STRICT)
 ────────────────────────────────
