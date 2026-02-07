@@ -673,9 +673,10 @@ async function getAIRecommendations(idx) {
             return;
         }
 
-        // ── New structured format: validity + funnel + recommendations + no_actions ──
+        // ── New structured format: validity + funnel + constraint_accountability + recommendations + no_actions ──
         const va = rec.validity_audit || {};
         const fa = rec.funnel_analysis || {};
+        const ca = rec.constraint_accountability || {};
         const actions = rec.recommendations || rec.actions || [];
         const noActions = rec.no_actions || [];
         const isAllNoAction = actions.length === 0 || actions.every(a => a.action_type === 'NO_ACTION');
@@ -709,6 +710,31 @@ async function getAIRecommendations(idx) {
                     <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
                     <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
                     <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${fa.opportunity_estimate || '—'}</td></tr>
+                </table>
+            </div>`;
+        }
+
+        let accountabilityHtml = '';
+        if (Object.keys(ca).length > 0) {
+            const dispBadge = (d) => {
+                const colors = { ACTIONED: '#059669', DEFERRED: '#ca8a04', SUPERSEDED: '#6b7280' };
+                const c = colors[(d||'').toUpperCase()] || '#6b7280';
+                return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${c}18;color:${c};font-weight:600;font-size:11px;">${(d||'UNKNOWN').toUpperCase()}</span>`;
+            };
+            accountabilityHtml = `
+            <div class="rec-item" style="margin-top: 8px;">
+                <h5 style="margin: 0 0 8px 0;">Constraint Accountability</h5>
+                <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                    <tr style="background:#f8fafc;">
+                        <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:150px;">Constraint</th>
+                        <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:100px;">Disposition</th>
+                        <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;">Reasoning</th>
+                    </tr>
+                    ${Object.entries(ca).map(([k, v]) => `<tr>
+                        <td style="padding:4px 8px;font-weight:bold;text-transform:capitalize;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td>
+                        <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${dispBadge(v.disposition)}${v.action_ref ? ` <span style="font-size:11px;color:#6b7280;">(→ #${v.action_ref})</span>` : ''}</td>
+                        <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">${v.reasoning || '—'}</td>
+                    </tr>`).join('')}
                 </table>
             </div>`;
         }
@@ -772,6 +798,7 @@ async function getAIRecommendations(idx) {
                 </div>
                 ${validityHtml}
                 ${funnelHtml}
+                ${accountabilityHtml}
                 ${actionsHtml}
                 ${noActionsHtml}
             </div>

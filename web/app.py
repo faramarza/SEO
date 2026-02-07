@@ -322,7 +322,7 @@ def api_ai_recommend():
 
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
-    max_tokens = ai_config.get("max_tokens", 3500)
+    max_tokens = ai_config.get("max_tokens", 4000)
     timeout_sec = ai_config.get("timeout", 30)
     max_queries = ai_config.get("max_queries_in_prompt", 0)
     max_issues = ai_config.get("max_issues_in_prompt", 0)
@@ -363,6 +363,7 @@ def api_ai_recommend():
                 ),
                 "validity_audit": {},
                 "funnel_analysis": {},
+                "constraint_accountability": {},
                 "recommendations": [{
                     "action_type": "NO_ACTION",
                     "diagnosed_constraint": "Confidence below threshold",
@@ -585,10 +586,51 @@ If no routing weakness exists:
 → Mark routing as VALID
 → Do NOT propose internal linking changes
 
-E) Funnel Opportunity Estimate
-Provide a conservative estimate:
-- Impressions × plausible routing % × downstream CVR × margin
-Explain assumptions briefly.
+E) Funnel Opportunity Estimate (REQUIRED — SHOW YOUR MATH)
+Do NOT invent percentages. Use this framework:
+
+For INTERNAL LINKING / ROUTING actions:
+  Base scenario:   impressions × routing_pct × downstream_CVR × AOV × margin = $X
+  Upside scenario: impressions × (routing_pct × 1.5) × downstream_CVR × AOV × margin = $X
+  Where:
+    routing_pct: If you have actual click data between pages → use it.
+                 If not → use 1–3% as base (industry standard for in-content links).
+                 NEVER use >5% without evidence. State why you chose the number.
+    downstream_CVR: Use site average or state "assumed [X]% — no page-level data"
+
+For BLOG / GUIDE pages (CRITICAL — blogs are ASSIST assets, not terminal):
+  Direct value:   impressions × routing_pct × downstream_CVR × AOV × margin
+  Assisted value: impressions × assist_engagement_rate × assisted_CVR × AOV × margin
+    assist_engagement_rate: 2–5% of sessions (users who read blog then later convert)
+    assisted_CVR: typically 0.5–2% of assisted sessions
+  Report BOTH values. Do NOT evaluate blogs on direct conversion alone.
+
+For TITLE / META TESTS:
+  Value: impressions × (target_CTR − current_CTR) × existing_downstream_CVR × AOV × margin
+  target_CTR MUST reference position-appropriate benchmarks (e.g., position 5 ≈ 5% CTR)
+
+Show each number on its own line. State every assumption explicitly.
+
+────────────────────────────────
+CANNIBALIZATION HANDLING (MANDATORY IF DETECTED)
+────────────────────────────────
+If ANY constraint mentions cannibalization, query overlap, or competing pages:
+
+1. State which queries are affected and which page(s) compete
+2. Classify the impact:
+   BLOCKING — cannibalization likely explains the primary symptom (e.g., low CTR,
+     position instability). In this case:
+     → Defer CTR/title tests (they will be unreliable)
+     → Recommend consolidation review as primary action
+     → Explain why other actions should wait
+   CAUTIONARY — cannibalization exists but is not the primary cause:
+     → Proceed with other actions but add explicit warning
+     → Note which metrics may be unreliable due to cannibalization
+   INFORMATIONAL — minor overlap, not materially affecting performance:
+     → Note in no_actions with reasoning
+
+You MUST NOT detect cannibalization and then ignore it.
+It MUST appear in constraint_accountability with a clear disposition.
 
 ────────────────────────────────
 STEP 3 — CONSTRAINT-TO-ACTION MAPPING
@@ -602,6 +644,23 @@ Each proposed action MUST:
 
 If an action does not clearly fix a diagnosed issue:
 → Do NOT propose it
+
+MULTI-CONSTRAINT ACCOUNTABILITY RULE (CRITICAL):
+Every constraint listed in the inputs MUST be accounted for in the output.
+For EACH constraint, you MUST do ONE of:
+  a) Produce a recommendation that directly addresses it
+  b) Explicitly defer it with reasoning in constraint_accountability
+  c) Explain why it's superseded by another action
+
+You may NOT detect a constraint and then silently drop it in Step 3.
+Specifically:
+  - CTR suppression detected → MUST propose a title/meta test OR explain why not
+  - Cannibalization detected → MUST follow cannibalization handling rules above
+  - Routing failure detected → MUST propose specific linking changes OR explain why not
+  - Content gap detected → MUST propose content action OR explain why not
+
+Multiple constraints → multiple actions OR explicit justification for omission.
+"I only proposed one action" is NOT acceptable if multiple constraints were diagnosed.
 
 ────────────────────────────────
 ALLOWED ACTIONS BY ASSET TYPE
@@ -627,6 +686,23 @@ BLOG / GUIDE
   – Title/meta are shown to misalign with dominant queries
   – Change does not alter informational intent
 - Do NOT optimize for traffic alone
+
+────────────────────────────────
+INTERNAL LINKING SPECIFICITY RULE
+────────────────────────────────
+Any INTERNAL_LINKING recommendation MUST include ALL of:
+  1. EXACT target URL(s) — from available_target_pages or discovered outlinks
+  2. WHY this target (not another) — tie to funnel analysis and query intent
+  3. WHERE in the content — e.g., "after paragraph 2 where [topic] is discussed",
+     "in a CTA block below the product comparison"
+  4. HOW MANY links — specific count with reasoning (e.g., "2 links: 1 primary, 1 secondary")
+  5. PRIMARY vs SECONDARY — which is the main funnel step, which are supporting
+
+"Add internal links to relevant category pages" is NOT acceptable.
+"Add 2 links to /collections/wooden-trains: 1 in paragraph 3 after the
+comparison section (primary funnel step) and 1 in the summary CTA
+(secondary reinforcement), because the dominant query cluster is
+purchase-oriented and this category is the logical next step" IS acceptable.
 
 ────────────────────────────────
 META / TITLE CHANGE SAFETY RULE
@@ -683,17 +759,24 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "funnel_role": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>"
   }}}},
   "funnel_analysis": {{{{
-    "entry_intent": "<dominant query clusters and what users expect>",
-    "current_paths": "<where users currently go from this page>",
-    "ideal_paths": "<proposed funnel path and why>",
-    "routing_diagnosis": "<failure type or VALID>",
-    "opportunity_estimate": "<impressions × routing % × CVR × margin = $X>"
+    "entry_intent": "<dominant query clusters, impression share, what users expect next>",
+    "current_paths": "<where users currently go from this page, or 'No observable downstream path'>",
+    "ideal_paths": "<proposed funnel path and WHY this path matches dominant intent>",
+    "routing_diagnosis": "<failure type(s) or VALID>",
+    "opportunity_estimate": "<SHOW MATH line by line — base + upside scenarios. For blogs: direct + assisted value>"
+  }}}},
+  "constraint_accountability": {{{{
+    "<constraint_type>": {{{{
+      "disposition": "<ACTIONED | DEFERRED | SUPERSEDED>",
+      "action_ref": "<which recommendation # addresses it, or null if deferred>",
+      "reasoning": "<why this disposition — if DEFERRED, explain what blocks action>"
+    }}}}
   }}}},
   "recommendations": [
     {{{{
-      "action_type": "<TITLE_META_TEST | INTERNAL_LINKING | VISIBILITY_FIX | CANONICAL_FIX | CONTENT_CLARIFY | NO_ACTION>",
+      "action_type": "<TITLE_META_TEST | INTERNAL_LINKING | VISIBILITY_FIX | CANONICAL_FIX | CONTENT_CLARIFY | CONSOLIDATION_REVIEW | NO_ACTION>",
       "diagnosed_constraint": "<the specific constraint this fixes>",
-      "exact_changes": "<implementation-ready details>",
+      "exact_changes": "<implementation-ready details — for INTERNAL_LINKING: exact URLs, placement, count, primary/secondary>",
       "why_this_works": "<tie to diagnosed constraint + GSC data>",
       "risk_level": "<low | medium | high>",
       "rollback_plan": "<how to undo>",
@@ -726,6 +809,13 @@ If nothing is broken or improvable:
         "broken, weak, or misaligned before proposing change. "
         "NEVER suggest changing valid elements. "
         "Follow the 3-step process: validity audit → funnel analysis → constraint-to-action mapping. "
+        "CRITICAL RULES: "
+        "1) Every input constraint MUST be accounted for — either actioned, deferred, or superseded. "
+        "Never silently drop a constraint. "
+        "2) Cannibalization MUST be classified (BLOCKING/CAUTIONARY/INFORMATIONAL) and resolved, not just logged. "
+        "3) Internal linking MUST specify exact URLs, placement, count, and primary vs secondary. "
+        "4) Funnel math MUST show line-by-line calculations with base + upside scenarios. "
+        "Blogs are assist assets — report both direct and assisted conversion value. "
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
 
