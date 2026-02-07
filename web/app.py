@@ -1279,33 +1279,66 @@ If nothing is broken or improvable:
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
 
-    # Call OpenAI API
+    # Call AI API — route to Anthropic or OpenAI based on model prefix
     try:
         import json as json_module
-        openai_response = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-            timeout=float(timeout_sec),
-        )
+        is_anthropic = model.startswith("claude-")
 
-        if openai_response.status_code != 200:
-            return jsonify({"error": f"OpenAI API error: {openai_response.text}"}), 500
-
-        result = openai_response.json()
-        ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        usage = result.get("usage", {})
+        if is_anthropic:
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if not anthropic_key:
+                return jsonify({"error": "ANTHROPIC_API_KEY not set. Add it to your environment."}), 400
+            api_response = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "system": system_message,
+                    "messages": [
+                        {"role": "user", "content": prompt},
+                    ],
+                },
+                timeout=float(timeout_sec),
+            )
+            if api_response.status_code != 200:
+                return jsonify({"error": f"Anthropic API error: {api_response.text}"}), 500
+            result = api_response.json()
+            ai_content = result.get("content", [{}])[0].get("text", "")
+            usage = result.get("usage", {})
+            usage = {
+                "prompt_tokens": usage.get("input_tokens"),
+                "completion_tokens": usage.get("output_tokens"),
+                "total_tokens": (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0),
+            }
+        else:
+            api_response = httpx.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=float(timeout_sec),
+            )
+            if api_response.status_code != 200:
+                return jsonify({"error": f"OpenAI API error: {api_response.text}"}), 500
+            result = api_response.json()
+            ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = result.get("usage", {})
 
         # ── Reproducibility log entry ──────────────────────────
         log_entry = {
