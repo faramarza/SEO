@@ -1317,21 +1317,34 @@ If nothing is broken or improvable:
                 "total_tokens": (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0),
             }
         else:
+            # Build OpenAI payload — handle parameter differences across model generations
+            _m = model.lower()
+            _needs_new_token_param = any(_m.startswith(p) for p in ("o1", "o3", "gpt-4.1", "gpt-4.5", "gpt-5"))
+            _is_reasoning_model = _m.startswith(("o1", "o3"))
+
+            openai_payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                ],
+            }
+            # Newer models require max_completion_tokens; older ones use max_tokens
+            if _needs_new_token_param:
+                openai_payload["max_completion_tokens"] = max_tokens
+            else:
+                openai_payload["max_tokens"] = max_tokens
+            # o-series reasoning models don't support temperature
+            if not _is_reasoning_model:
+                openai_payload["temperature"] = temperature
+
             api_response = httpx.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_message},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                },
+                json=openai_payload,
                 timeout=float(timeout_sec),
             )
             if api_response.status_code != 200:
