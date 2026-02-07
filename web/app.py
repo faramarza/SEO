@@ -612,29 +612,49 @@ If no routing weakness exists:
 → Do NOT propose internal linking changes
 
 E) Funnel Opportunity Estimate (REQUIRED — SHOW YOUR MATH)
-Do NOT invent percentages. Use this framework:
+Do NOT invent percentages. Use this framework with THREE sensitivity bands:
 
 For INTERNAL LINKING / ROUTING actions:
-  Base scenario:   impressions × routing_pct × downstream_CVR × AOV × margin = $X
-  Upside scenario: impressions × (routing_pct × 1.5) × downstream_CVR × AOV × margin = $X
+  Low:  impressions × routing_low  × CVR × AOV × margin = $X
+  Base: impressions × routing_base × CVR × AOV × margin = $X
+  High: impressions × routing_high × CVR × AOV × margin = $X
   Where:
-    routing_pct: If you have actual click data between pages → use it.
-                 If not → use 1–3% as base (industry standard for in-content links).
-                 NEVER use >5% without evidence. State why you chose the number.
+    routing_low / base / high:
+      If you have actual click data between pages → use it ± 30%
+      If not → use 3% / 5% / 8% for in-content links on relevant content
+      These are realistic priors for well-placed contextual links.
+      Only go below 3% if the page has very low engagement or misaligned intent.
     downstream_CVR: Use site average or state "assumed [X]% — no page-level data"
 
-For BLOG / GUIDE pages (CRITICAL — blogs are ASSIST assets, not terminal):
-  Direct value:   impressions × routing_pct × downstream_CVR × AOV × margin
-  Assisted value: impressions × assist_engagement_rate × assisted_CVR × AOV × margin
-    assist_engagement_rate: 2–5% of sessions (users who read blog then later convert)
-    assisted_CVR: typically 0.5–2% of assisted sessions
-  Report BOTH values. Do NOT evaluate blogs on direct conversion alone.
+For BLOG / GUIDE pages (CRITICAL — blogs are OPTION CREATORS, not cash registers):
+  Blogs create purchase options. They introduce products, educate on categories,
+  and seed future purchase intent. They are the TOP of the funnel.
+
+  Direct routing value:
+    Low:  impressions × 0.03 × downstream_CVR × AOV × margin
+    Base: impressions × 0.05 × downstream_CVR × AOV × margin
+    High: impressions × 0.08 × downstream_CVR × AOV × margin
+
+  Assisted conversion value (THIS IS THE PRIMARY VALUE OF BLOGS):
+    Low:  impressions × 0.03 × assisted_CVR × AOV × margin
+    Base: impressions × 0.05 × assisted_CVR × AOV × margin
+    High: impressions × 0.08 × assisted_CVR × AOV × margin
+    Where assisted_CVR: 1–3% of assisted sessions (users who read, leave, return to buy)
+
+  TOTAL blog value = direct + assisted. Report both rows AND the total.
+  The assisted value will often EXCEED direct value. This is expected and correct.
+  If your total blog value < $100/mo on 20,000+ impressions, your priors are too low.
 
 For TITLE / META TESTS:
-  Value: impressions × (target_CTR − current_CTR) × existing_downstream_CVR × AOV × margin
-  target_CTR MUST reference position-appropriate benchmarks (e.g., position 5 ≈ 5% CTR)
+  Low:  impressions × (current_CTR × 1.3 − current_CTR) × downstream_CVR × AOV × margin
+  Base: impressions × (target_CTR − current_CTR) × downstream_CVR × AOV × margin
+  High: impressions × (target_CTR × 1.2 − current_CTR) × downstream_CVR × AOV × margin
+  target_CTR MUST reference position-appropriate benchmarks:
+    Position 1: ~28%  Position 3: ~10%  Position 5: ~5%
+    Position 7: ~3%   Position 10: ~1.5%
 
-Show each number on its own line. State every assumption explicitly.
+Show each number on its own line. State every assumption.
+Use the HIGH scenario for prioritization — blogs are strategic assets.
 
 ────────────────────────────────
 CANNIBALIZATION HANDLING (MANDATORY IF DETECTED)
@@ -670,21 +690,39 @@ Each proposed action MUST:
 If an action does not clearly fix a diagnosed issue:
 → Do NOT propose it
 
+PARALLEL ACTION RULE (CRITICAL — DO NOT OVER-DEFER):
+Actions that target DIFFERENT surfaces are non-conflicting and SHOULD be proposed together:
+  - TITLE_META_TEST improves SERP click acquisition (CTR)
+  - INTERNAL_LINKING improves post-click monetization (routing)
+  - CONTENT_CLARIFY improves on-page engagement
+These are ORTHOGONAL. One does not need to "finish" before the other starts.
+
+Do NOT defer a CTR test just because you also proposed internal linking.
+Internal linking fixes post-click flow, NOT SERP attractiveness.
+Title/meta fixes SERP attractiveness, NOT post-click flow.
+Both can and should run in parallel when both constraints exist.
+
+The ONLY valid reason to defer a CTR test is:
+  - BLOCKING cannibalization (competing pages make CTR data unreliable)
+  - Insufficient data to construct a valid test (no query patterns, no CTR data)
+"Low CTR is likely caused by poor routing" is NOT a valid deferral reason.
+
 MULTI-CONSTRAINT ACCOUNTABILITY RULE (CRITICAL):
 Every constraint listed in the inputs MUST be accounted for in the output.
 For EACH constraint, you MUST do ONE of:
   a) Produce a recommendation that directly addresses it
-  b) Explicitly defer it with reasoning in constraint_accountability
+  b) Explicitly defer it with a VALID reason in constraint_accountability
   c) Explain why it's superseded by another action
 
 You may NOT detect a constraint and then silently drop it in Step 3.
 Specifically:
-  - CTR suppression detected → MUST propose a title/meta test OR explain why not
+  - CTR suppression detected → MUST propose a title/meta test (parallel with other actions)
+    UNLESS cannibalization is BLOCKING
   - Cannibalization detected → MUST follow cannibalization handling rules above
   - Routing failure detected → MUST propose specific linking changes OR explain why not
   - Content gap detected → MUST propose content action OR explain why not
 
-Multiple constraints → multiple actions OR explicit justification for omission.
+Multiple constraints → multiple actions. Default is PARALLEL, not sequential.
 "I only proposed one action" is NOT acceptable if multiple constraints were diagnosed.
 
 ────────────────────────────────
@@ -728,6 +766,26 @@ Any INTERNAL_LINKING recommendation MUST include ALL of:
 comparison section (primary funnel step) and 1 in the summary CTA
 (secondary reinforcement), because the dominant query cluster is
 purchase-oriented and this category is the logical next step" IS acceptable.
+
+────────────────────────────────
+LINK TARGET INTENT GUARDRAILS
+────────────────────────────────
+NEVER recommend internal links to:
+  - Search pages (/search, /catalogsearch/, /s?q=)
+  - Account/login pages (/account, /login, /register)
+  - Cart/checkout pages (/cart, /checkout)
+  - Utility pages (/sitemap, /privacy, /terms, /contact, /about)
+  - Advanced search or filter pages (/catalogsearch/advanced, /filter)
+  - Any page whose purpose is navigational infrastructure, not content or commerce
+
+Link targets MUST be one of:
+  - Product pages (direct conversion surface)
+  - Category/collection pages (product discovery surface)
+  - Curated guide/comparison pages (consideration surface)
+  - Related blog posts (only if they deepen the funnel, not widen it)
+
+If a URL in the current outlinks looks like a utility/infrastructure page,
+explicitly note it as a misplaced link in the funnel analysis.
 
 ────────────────────────────────
 META / TITLE CHANGE SAFETY RULE
@@ -837,10 +895,12 @@ If nothing is broken or improvable:
         "CRITICAL RULES: "
         "1) Every input constraint MUST be accounted for — either actioned, deferred, or superseded. "
         "Never silently drop a constraint. "
-        "2) Cannibalization MUST be classified (BLOCKING/CAUTIONARY/INFORMATIONAL) and resolved, not just logged. "
-        "3) Internal linking MUST specify exact URLs, placement, count, and primary vs secondary. "
-        "4) Funnel math MUST show line-by-line calculations with base + upside scenarios. "
-        "Blogs are assist assets — report both direct and assisted conversion value. "
+        "2) Actions on different surfaces (CTR vs routing vs content) are ORTHOGONAL — propose them in PARALLEL, not sequentially. "
+        "Do NOT defer CTR tests just because you also proposed internal linking. "
+        "3) Cannibalization MUST be classified (BLOCKING/CAUTIONARY/INFORMATIONAL) and resolved, not just logged. "
+        "4) Internal links MUST target conversion surfaces (product, category, curated guides) — NEVER utility/search/account pages. "
+        "5) Funnel math MUST show low/base/high sensitivity bands. "
+        "Blogs are option creators — assisted value often exceeds direct. If total blog value < $100/mo on 20k+ impressions, priors are too low. "
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
 
