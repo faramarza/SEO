@@ -511,7 +511,15 @@ def api_ai_recommend():
     existing_outlink_urls = sorted(set(
         ol.get("target_url", "") for ol in outlinks
     )) if outlinks else []
-    outlink_blocklist_str = "\n".join(f"  - {u}" for u in existing_outlink_urls) if existing_outlink_urls else ""
+    if existing_outlink_urls:
+        outlink_blocklist_section = (
+            "\nBLOCKLIST -- the following URLs are ALREADY linked from this page.\n"
+            "Do NOT recommend any of these as target_urls. They are NOT new links:\n"
+            + "\n".join(f"  - {u}" for u in existing_outlink_urls) + "\n"
+            "If the weak_funnel_routing constraint says '0 outlinks', IGNORE that number -- the outlinks above are the real data.\n"
+        )
+    else:
+        outlink_blocklist_section = ""
 
     # ── 4) Business context from config ─────────────────────────
     profit_cfg = config.get("profit_model", {})
@@ -1135,12 +1143,7 @@ above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
 
 internal_outlinks (DIAGNOSTIC ONLY — these links ALREADY EXIST on this page, do NOT recommend these):
 {outlinks_str}
-{f"""
-BLOCKLIST — the following URLs are ALREADY linked from this page.
-Do NOT recommend any of these as target_urls. They are NOT new links:
-{outlink_blocklist_str}
-If the weak_funnel_routing constraint says '0 outlinks', IGNORE that number — the outlinks above are the real data.
-""" if outlink_blocklist_str else ""}
+{outlink_blocklist_section}
 top_gsc_queries:
 {gsc_str}
 
@@ -1316,6 +1319,29 @@ If nothing is broken or improvable:
             clean = clean.strip()
 
             recommendations = json_module.loads(clean)
+
+            # ── Server-side dedup: strip existing outlink URLs from target_urls ──
+            # gpt-4o-mini copies URLs from the outlinks section despite rules.
+            # This programmatic guardrail catches it post-hoc.
+            if existing_outlink_url_set and isinstance(recommendations, dict):
+                recs_list = recommendations.get("recommendations", [])
+                if isinstance(recs_list, list):
+                    for rec in recs_list:
+                        if not isinstance(rec, dict):
+                            continue
+                        target_urls = rec.get("target_urls", [])
+                        if not isinstance(target_urls, list):
+                            continue
+                        dupes = [u for u in target_urls if u in existing_outlink_url_set]
+                        if dupes:
+                            rec["target_urls"] = [u for u in target_urls if u not in existing_outlink_url_set]
+                            existing_note = rec.get("exact_changes", "")
+                            rec["exact_changes"] = (
+                                f"[SERVER NOTE: Removed {len(dupes)} URL(s) already on this page: "
+                                f"{', '.join(dupes)}. These links already exist — "
+                                f"consider repositioning them or linking to different pages.]\n\n"
+                                + existing_note
+                            )
         except Exception:
             recommendations = {"raw_response": ai_content}
 
