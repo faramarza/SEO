@@ -816,16 +816,24 @@ If internal_links is INVALID → you MUST address it (usually via INTERNAL_LINKI
 If funnel_role is INVALID → you MUST address it.
 
 INTERNAL LINK URL VERIFICATION (MANDATORY):
-You MUST ONLY recommend internal links to URLs that appear in the site_pages list in INPUTS.
-If a URL is not in that list, it DOES NOT EXIST on this site. Do NOT:
-  – Invent URLs based on what "sounds right" (e.g. /wooden-blocks.html, /category/wooden-blocks)
-  – Construct URLs by combining words from queries
-  – Guess URL patterns from other sites
-EVERY URL in your exact_changes field MUST be copy-pasted from the site_pages list.
-If no suitable target page exists in the site_pages list, set action_type to NO_ACTION
-for internal linking and state "No suitable target pages found in site map."
-VALIDATION: Before outputting any INTERNAL_LINKING recommendation, verify each URL
-by confirming it appears verbatim in the site_pages input. If you cannot find it, remove it.
+
+CRITICAL DISTINCTION:
+  – "internal_outlinks" (in INPUTS) = links that ALREADY EXIST on this page. These are DIAGNOSTIC data.
+    Do NOT recommend these URLs — they're already linked. Do NOT treat outlinks as a target pool.
+  – "site_pages" (in INPUTS) = ALL known pages on the site, grouped by type. This is your ONLY source
+    for recommending new internal links.
+
+RULES:
+  – EVERY target URL you recommend MUST be copy-pasted verbatim from the site_pages list.
+  – If a URL does not appear in site_pages, it DOES NOT EXIST. Do NOT:
+    • Invent or guess URLs (e.g. /category/wooden-blocks)
+    • Copy URLs from the internal_outlinks section (those are existing diagnostic links, not targets)
+    • Recommend utility pages: /catalogsearch/*, /customer/*, /wishlist, /contact, /enable-cookies
+    • Example: /catalogsearch/advanced/ is a utility page — NEVER recommend linking to it
+  – If no suitable target page exists in site_pages, state "No suitable target pages in site map"
+    and set action_type to NO_ACTION for internal linking.
+  – The target_urls array in your output MUST contain ONLY URLs from site_pages.
+    VALIDATION: Before outputting, confirm each target_url appears in the site_pages section of INPUTS.
 
 ────────────────────────────────
 ALLOWED ACTIONS BY ASSET TYPE
@@ -853,10 +861,25 @@ BLOG / GUIDE
 - Do NOT optimize for traffic alone
 
 ────────────────────────────────
+TITLE/META TEST SPECIFICITY RULE
+────────────────────────────────
+Any TITLE_META_TEST recommendation MUST include the EXACT proposed text:
+  1. The complete new title tag text (not a description — the actual title)
+  2. The complete new meta description text (not a description — the actual text)
+  3. WHY this specific wording — tie to dominant GSC queries by name
+
+"Propose new title and meta description to better align with queries" is NOT acceptable.
+"Test title: 'Best Wooden Blocks for Kids: Complete Buying Guide 2025'
+ Test meta: 'Compare top wooden block brands for toddlers. Materials, sizes, safety
+ standards, and age-appropriate picks from Community Playthings to Guidecraft.'
+ Why: Incorporates 'best wooden blocks' (133 impr) and 'building blocks for kids' (71 impr)
+ into title. Meta targets 'brands' and 'toddlers' clusters." IS acceptable.
+
+────────────────────────────────
 INTERNAL LINKING SPECIFICITY RULE
 ────────────────────────────────
 Any INTERNAL_LINKING recommendation MUST include ALL of:
-  1. EXACT target URL(s) — from available_target_pages or discovered outlinks
+  1. EXACT target URL(s) — copy-pasted from the site_pages list in INPUTS (NOT from outlinks)
   2. WHY this target (not another) — tie to funnel analysis and query intent
   3. WHERE in the content — e.g., "after paragraph 2 where [topic] is discussed",
      "in a CTA block below the product comparison"
@@ -1091,7 +1114,7 @@ robots_meta: {robots_meta or 'null'}
 word_count: {cached_word_count}
 above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
 
-internal_outlinks:
+internal_outlinks (DIAGNOSTIC ONLY — these links ALREADY EXIST on this page, do NOT recommend these):
 {outlinks_str}
 
 top_gsc_queries:
@@ -1103,7 +1126,7 @@ constraints:
 business_context:
 {business_context_str}
 
-site_pages (ALL known pages by type — ONLY link to URLs in this list):
+site_pages (YOUR ONLY SOURCE for recommending new internal links — copy-paste URLs from here):
 {target_pages_str}
 {ctr_suppression_flag}
 ────────────────────────────────
@@ -1125,12 +1148,15 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "ideal_paths": "<proposed funnel path and WHY this path matches dominant intent>",
     "routing_diagnosis": "<failure type(s) or VALID>",
     "opportunity_estimate": {{{{
-      "low": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X — use PESSIMISTIC routing%>", "routing_pct": <number>, "total": <number> }}}},
-      "base": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X — use REALISTIC routing%>", "routing_pct": <number>, "total": <number> }}}},
-      "high": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X — use OPTIMISTIC routing%>", "routing_pct": <number>, "total": <number> }}}},
-      "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: justify the BASE routing% with evidence. LOW and HIGH are -/+ 40-60% of base.>",
-      "summary": "<fill in: Total value range: $[low]–$[high]/mo (base: $[base]). DO NOT use placeholder variables.>"
+      "low":  {{{{ "routing_pct": <number e.g. 2>,  "math": "<21804 × 2% × 2.1% × $53.19 × 25% = $X>", "total": <number — must equal the math> }}}},
+      "base": {{{{ "routing_pct": <number e.g. 5>,  "math": "<21804 × 5% × 2.1% × $53.19 × 25% = $X>", "total": <number — must equal the math> }}}},
+      "high": {{{{ "routing_pct": <number e.g. 8>,  "math": "<21804 × 8% × 2.1% × $53.19 × 25% = $X>", "total": <number — must equal the math> }}}},
+      "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: justify the BASE routing% — LOW is ~40-60% of base, HIGH is ~40-60% above base>",
+      "summary": "<Total value range: $[low.total]–$[high.total]/mo (base: $[base.total])>"
     }}}},
+    IMPORTANT: low.routing_pct MUST be lower than base.routing_pct, which MUST be lower than high.routing_pct.
+    If all three routing_pct values are the same number, your output is INVALID.
+    Example valid routing_pcts: low=2, base=5, high=8. Example INVALID: low=5, base=5, high=5.
     "pipeline_reconciliation": "<Pipeline estimates $X/mo (missed_clicks × AOV × margin). My base estimate is $Y/mo. [AGREES | DIVERGES: specific assumption difference].>"
   }}}},
   "constraint_accountability": {{{{
@@ -1145,7 +1171,7 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
       "action_type": "<TITLE_META_TEST | INTERNAL_LINKING | VISIBILITY_FIX | CANONICAL_FIX | CONTENT_CLARIFY | CONSOLIDATION_REVIEW | NO_ACTION>",
       "diagnosed_constraint": "<the specific constraint this fixes>",
       "target_urls": ["<ONLY for INTERNAL_LINKING: list each target URL here — must be copy-pasted from site_pages>"],
-      "exact_changes": "<implementation-ready details — for INTERNAL_LINKING: exact URLs from target_urls, placement, count, primary/secondary>",
+      "exact_changes": "<implementation-ready details. For TITLE_META_TEST: write the EXACT proposed title tag and meta description text — not a description of what to do. For INTERNAL_LINKING: exact URLs from target_urls, anchor text, placement location, primary/secondary>",
       "why_this_works": "<tie to diagnosed constraint + GSC data>",
       "risk_level": "<low | medium | high>",
       "rollback_plan": "<how to undo>",
