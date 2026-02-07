@@ -680,7 +680,18 @@ function buildAIHtml(rec, reproducibility) {
                 <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
                 <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
                 <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
-                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${(() => {
+                    const rd = fa.routing_diagnosis;
+                    if (!rd) return '—';
+                    if (typeof rd === 'string') return rd;
+                    let parts = [];
+                    if (rd.structural_routing) parts.push('<span style="font-weight:600;">Structural:</span> ' + rd.structural_routing);
+                    if (rd.performance_routing) parts.push('<span style="font-weight:600;">Performance:</span> ' + rd.performance_routing);
+                    if (rd.failure_types && rd.failure_types.length) parts.push('<span style="font-weight:600;">Issues:</span> ' + rd.failure_types.join(', '));
+                    if (rd.summary) parts.push(rd.summary);
+                    return parts.join('<br>');
+                })()}</td></tr>
+                ${fa.link_taxonomy && Array.isArray(fa.link_taxonomy) && fa.link_taxonomy.length ? '<tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Link Taxonomy</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;"><table style="width:100%;font-size:11px;border-collapse:collapse;"><tr style="background:#f8fafc;"><th style="padding:2px 6px;text-align:left;border-bottom:1px solid #e5e7eb;">URL</th><th style="padding:2px 6px;text-align:left;border-bottom:1px solid #e5e7eb;">Type</th><th style="padding:2px 6px;text-align:left;border-bottom:1px solid #e5e7eb;">Justification</th></tr>' + fa.link_taxonomy.map(l => '<tr><td style="padding:2px 6px;border-bottom:1px solid #f0f0f0;word-break:break-all;">' + (l.url||'') + '</td><td style="padding:2px 6px;border-bottom:1px solid #f0f0f0;">' + (l.type||'') + '</td><td style="padding:2px 6px;border-bottom:1px solid #f0f0f0;">' + (l.justification||'') + '</td></tr>').join('') + '</table></td></tr>' : ''}
                 <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${(() => {
                     const oe = fa.opportunity_estimate;
                     if (!oe) return '—';
@@ -696,6 +707,7 @@ function buildAIHtml(rec, reproducibility) {
                     if (oe.base?.math) parts.push('<br><small style="font-weight:400;color:#6b7280;">Base: ' + oe.base.math + '</small>');
                     if (oe.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.routing_evidence + '</small>');
                     else if (oe.base?.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.base.routing_evidence + '</small>');
+                    if (oe.confidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Confidence: ' + oe.confidence + '</small>');
                     return parts.join('');
                 })()}</td></tr>
                 ${fa.pipeline_reconciliation ? '<tr><td style="padding:4px 8px;font-weight:bold;border-top:1px solid #f0f0f0;vertical-align:top;">Pipeline Check</td><td style="padding:4px 8px;border-top:1px solid #f0f0f0;font-size:11px;color:#6b7280;">' + fa.pipeline_reconciliation + '</td></tr>' : ''}
