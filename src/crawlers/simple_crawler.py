@@ -36,7 +36,12 @@ class CrawlResult:
     meta_description: str = ""
     content_preview: str = ""
     above_fold_html: str = ""
+    internal_outlinks: list = None  # List of {target_url, anchor_text, location}
     error: Optional[str] = None
+
+    def __post_init__(self):
+        if self.internal_outlinks is None:
+            self.internal_outlinks = []
 
 
 class HTMLMetaParser(HTMLParser):
@@ -367,6 +372,7 @@ class SimpleCrawler:
                     word_count=parser.get_word_count(),
                     content_preview=parser.get_content_preview(200),
                     above_fold_html=parser.get_above_fold_html(),
+                    internal_outlinks=parser.get_internal_outlinks(),
                 )
 
             except httpx.TimeoutException:
@@ -462,6 +468,10 @@ class SimpleCrawler:
             asset.word_count = result.word_count or asset.word_count
             asset.content_preview = result.content_preview or asset.content_preview
             asset.above_fold_html = result.above_fold_html or asset.above_fold_html
+            # Set outlink count and detailed outlinks from crawl
+            if result.internal_outlinks:
+                asset.outlinks = len(result.internal_outlinks)
+                asset.internal_outlinks = result.internal_outlinks
 
         return asset
 

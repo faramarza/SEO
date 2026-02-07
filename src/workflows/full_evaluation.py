@@ -534,7 +534,11 @@ class FullEvaluationWorkflow:
                 metrics = self.link_graph.get_page_metrics(asset.url)
                 if metrics:
                     asset.inlinks = metrics.inlinks
-                    asset.outlinks = metrics.outlinks
+                    # Only use link_graph outlinks if crawler didn't already populate them.
+                    # The crawler parses actual on-page links (accurate); the link_graph
+                    # builds from PageInventory which may have empty placeholders.
+                    if not asset.internal_outlinks:
+                        asset.outlinks = metrics.outlinks
                     asset.link_authority_score = metrics.authority_score
 
         summary = self.link_graph.summary()
@@ -885,6 +889,7 @@ class FullEvaluationWorkflow:
                         "word_count": asset.word_count,
                         "content_preview": asset.content_preview,
                         "above_fold_html": asset.above_fold_html,
+                        "internal_outlinks": asset.internal_outlinks,
                         "has_crawl_data": asset.has_crawl_data,
                     },
                     **constraint_data,  # Include constraint detection data
@@ -915,6 +920,7 @@ class FullEvaluationWorkflow:
                     "word_count": asset.word_count,
                     "content_preview": asset.content_preview,
                     "above_fold_html": asset.above_fold_html,
+                    "internal_outlinks": asset.internal_outlinks,
                     "has_crawl_data": asset.has_crawl_data,
                 },
                 **constraint_data,  # Include constraint detection data
@@ -952,6 +958,7 @@ class FullEvaluationWorkflow:
                 "word_count": asset.word_count,
                 "content_preview": asset.content_preview,
                 "above_fold_html": asset.above_fold_html,
+                "internal_outlinks": asset.internal_outlinks,
                 "has_crawl_data": asset.has_crawl_data,
             },
             **constraint_data,  # Include constraint detection data
