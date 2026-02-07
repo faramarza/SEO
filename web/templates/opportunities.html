@@ -509,7 +509,7 @@ function showDetail(idx) {
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Internal Outlinks</td>
-                    <td style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #eee;" id="page-ctx-outlinks-${idx}">${pm.has_crawl_data && pm.internal_outlinks ? `${pm.internal_outlinks.length} links found` : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #eee;" id="page-ctx-outlinks-${idx}">${pm.has_crawl_data && pm.internal_outlinks && pm.internal_outlinks.length > 0 ? pm.internal_outlinks.slice(0,15).map(l => `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${l.anchor_text}</span> → <code style="font-size:11px;">${l.target_url}</code></div>`).join('') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Above Fold</td>
@@ -571,7 +571,15 @@ async function fetchPageContext(idx, url) {
             const robotsEl = el(`page-ctx-robots-${idx}`);
             if (robotsEl) robotsEl.innerHTML = `<code>${data.robots_meta || '[None]'}</code>`;
             const outlinksEl = el(`page-ctx-outlinks-${idx}`);
-            if (outlinksEl) outlinksEl.textContent = data.internal_outlinks ? `${data.internal_outlinks.length} links found` : '—';
+            if (outlinksEl) {
+                if (data.internal_outlinks && data.internal_outlinks.length > 0) {
+                    outlinksEl.innerHTML = data.internal_outlinks.slice(0,15).map(l =>
+                        `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${l.anchor_text}</span> → <code style="font-size:11px;">${l.target_url}</code></div>`
+                    ).join('');
+                } else {
+                    outlinksEl.innerHTML = '—';
+                }
+            }
             const aboveFoldEl = el(`page-ctx-abovefold-${idx}`);
             if (aboveFoldEl) {
                 const af = data.above_fold_html || '';

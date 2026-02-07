@@ -560,11 +560,18 @@ def api_ai_recommend():
         except Exception:
             pass
 
+    # Filter out URLs that already appear as outlinks on this page.
+    # This prevents the AI from recommending links that already exist,
+    # even if it ignores the prompt rules.
+    existing_outlink_url_set = set(ol.get("target_url", "") for ol in outlinks)
+
     # Format site map — compact but informative
     target_pages_str = ""
     for ptype in ("category", "product", "blog"):
         pages = site_pages.get(ptype, [])
         if pages:
+            # Remove pages already linked from this page
+            pages = [p for p in pages if p["url"] not in existing_outlink_url_set]
             # Sort by expected value descending, show top 30
             pages.sort(key=lambda p: p["ev"], reverse=True)
             target_pages_str += f"\n{ptype.upper()} pages ({len(pages)} total):\n"
