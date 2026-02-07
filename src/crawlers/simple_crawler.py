@@ -127,7 +127,11 @@ class HTMLMetaParser(HTMLParser):
             self._in_body = True
 
         # Track <a> tags for internal outlinks
-        if tag == "a" and self._in_body:
+        # Only collect links that are:
+        #   1. After the H1 (content area, not nav/header)
+        #   2. Not inside skipped tags (nav, header, footer)
+        # This prevents nav/footer chrome links from being reported as outlinks
+        if tag == "a" and self._in_body and self._h1_found and self._skip_depth == 0:
             href = attrs_dict.get("href", "")
             if href and self._is_internal(href):
                 self._in_link = True
@@ -239,11 +243,22 @@ class HTMLMetaParser(HTMLParser):
         # Collapse whitespace
         return re.sub(r'\s+', ' ', raw).strip()[:1500]
 
+    # URL path patterns that indicate nav/footer/utility pages, not content
+    _UTILITY_PATHS = (
+        "/customer/", "/account", "/login", "/register", "/create",
+        "/wishlist", "/cart", "/checkout",
+        "/catalogsearch/", "/search",
+        "/contact", "/about", "/privacy", "/terms",
+        "/shipping", "/returns", "/faq",
+        "/enable-cookies", "/sitemap",
+    )
+
     def get_internal_outlinks(self) -> list[dict]:
         """Get list of internal outlinks found on the page.
 
         Returns list of {target_url, anchor_text, location}.
         Resolves relative URLs to absolute if base_url was provided.
+        Filters out nav/footer/utility links by URL pattern.
         """
         resolved = []
         seen = set()
@@ -251,6 +266,11 @@ class HTMLMetaParser(HTMLParser):
             href = link["target_url"]
             if self._base_url and not href.startswith(("http://", "https://")):
                 href = urljoin(self._base_url, href)
+            # Filter out utility/nav/footer links by URL path
+            path = href.split("//", 1)[-1].split("/", 1)[-1] if "//" in href else href
+            path_lower = ("/" + path).lower()
+            if any(p in path_lower for p in self._UTILITY_PATHS):
+                continue
             # Deduplicate by (target_url, anchor_text)
             key = (href, link["anchor_text"])
             if key not in seen:
