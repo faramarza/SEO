@@ -467,6 +467,15 @@ def api_ai_recommend():
                 )
                 severity = "low"
 
+            # Enrich vague cannibalization with competing page URLs from evidence
+            if ctype == "cannibalization":
+                evidence = c.get("evidence", {})
+                competing = evidence.get("competing_pages", [])
+                query = evidence.get("query", "")
+                if competing:
+                    pages_str = ", ".join(competing[:3])
+                    desc = f"Query '{query}' also targets: {pages_str}"
+
             constraint_list.append(
                 f"- [{severity}] {ctype}: {desc}"
             )

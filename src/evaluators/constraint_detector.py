@@ -405,15 +405,22 @@ class ConstraintDetector:
                             competing_pages.append(other.url)
 
                 if len(competing_pages) > 0:
+                    competing_display = ", ".join(competing_pages[:3])
                     constraints.append(ConstraintSignal(
                         constraint_type=ConstraintType.CANNIBALIZATION,
                         severity="medium",
-                        description=f"Query '{top_query}' also targets {len(competing_pages)} other page(s)",
+                        description=(
+                            f"Query '{top_query}' also targets {len(competing_pages)} other page(s): "
+                            f"{competing_display}"
+                        ),
                         evidence={
                             "query": top_query,
-                            "competing_pages": competing_pages[:3],  # Limit for display
+                            "competing_pages": competing_pages[:3],
                         },
-                        recommended_action="Consolidate content or differentiate targeting",
+                        recommended_action=(
+                            f"Review competing page(s) ({competing_display}) and either "
+                            f"consolidate content or differentiate targeting for '{top_query}'"
+                        ),
                         reversibility="slow",
                     ))
 
