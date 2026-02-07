@@ -673,7 +673,22 @@ function buildAIHtml(rec, reproducibility) {
                 <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
                 <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
                 <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
-                <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${fa.opportunity_estimate || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${(() => {
+                    const oe = fa.opportunity_estimate;
+                    if (!oe) return '—';
+                    if (typeof oe === 'string') return oe;
+                    // Structured object with low/base/high scenarios
+                    let parts = [];
+                    if (oe.summary) parts.push(oe.summary);
+                    else {
+                        const lo = oe.low?.total ?? '?', ba = oe.base?.total ?? '?', hi = oe.high?.total ?? '?';
+                        parts.push('$' + lo + ' / $' + ba + ' / $' + hi + ' (low/base/high)');
+                    }
+                    if (oe.base?.math) parts.push('<br><small style="font-weight:400;color:#6b7280;">Base: ' + oe.base.math + '</small>');
+                    if (oe.base?.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.base.routing_evidence + '</small>');
+                    return parts.join('');
+                })()}</td></tr>
+                ${fa.pipeline_reconciliation ? '<tr><td style="padding:4px 8px;font-weight:bold;border-top:1px solid #f0f0f0;vertical-align:top;">Pipeline Check</td><td style="padding:4px 8px;border-top:1px solid #f0f0f0;font-size:11px;color:#6b7280;">' + fa.pipeline_reconciliation + '</td></tr>' : ''}
             </table>
         </div>`;
     }

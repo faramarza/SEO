@@ -940,14 +940,29 @@ you MUST explicitly show how the value was derived.
 
 For EACH scenario (LOW / BASE / HIGH), you MUST provide:
 
-• Demand input used (impressions or sessions)
-• Routing probability assumed (with rationale)
-• Downstream conversion rate assumed (with rationale)
-• Revenue proxy used (AOV or equivalent)
-• Margin applied (if applicable)
+• Demand input used (impressions or sessions) — cite the exact number from INPUTS
+• Routing probability assumed — cite evidence: observed CTR, link density, or industry benchmark
+• Downstream conversion rate assumed — cite evidence: site avg, GA4 data, or benchmark
+• Revenue proxy used (AOV or equivalent) — must match business_context AOV
+• Margin applied (if applicable) — must match business_context margin range
 
-You MUST express the calculation in plain math, for example:
-impressions × routing % × conversion % × AOV × margin
+You MUST express the calculation as explicit arithmetic, for example:
+21,000 impressions × 3% routing × 2.1% CVR × $53.19 AOV × 27% margin = $X
+
+ROUTING PROBABILITY EVIDENCE RULE:
+Every routing % you assume MUST cite ONE of these sources:
+  – OBSERVED: actual outlink CTR from internal_outlinks data
+  – BENCHMARK: named industry benchmark (e.g. "avg blog→category CTR is 3-5%")
+  – INFERRED: explicit reasoning from page layout/content (e.g. "no CTA above fold → low routing")
+Unsourced routing assumptions are forbidden. If you cannot justify a routing %, use 0% and state NO_ACTION.
+
+SELF-CONSISTENCY CHECK (mandatory before output):
+After computing your scenario values, verify:
+  – LOW < BASE < HIGH (monotonic)
+  – Your total value summary matches the BASE scenario (not LOW, not HIGH)
+  – Your total value range [LOW..HIGH] is stated, not just BASE
+  – If pipeline_expected_value falls within [LOW..HIGH], state agreement
+  – If pipeline_expected_value falls OUTSIDE [LOW..HIGH], explain the divergence
 
 Interpretation rules:
 • If assumptions are weak or speculative → LOWER CONFIDENCE, not VALUE
@@ -957,6 +972,7 @@ Forbidden:
 • Unexplained dollar figures
 • Single-scenario estimates
 • Inflated confidence to compensate for uncertainty
+• Routing % without evidence citation
 
 PIPELINE EV ANCHORING:
 The pipeline has pre-calculated an Expected Value for this page (see pipeline_expected_value in INPUTS).
@@ -1083,8 +1099,13 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "current_paths": "<where users currently go from this page, or 'No observable downstream path'>",
     "ideal_paths": "<proposed funnel path and WHY this path matches dominant intent>",
     "routing_diagnosis": "<failure type(s) or VALID>",
-    "opportunity_estimate": "<SHOW MATH line by line — base + upside scenarios. For blogs: direct + assisted value>",
-    "pipeline_reconciliation": "<Compare your estimate to pipeline_expected_value. Explain agreement or divergence.>"
+    "opportunity_estimate": {{{{
+      "low": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
+      "base": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
+      "high": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
+      "summary": "<Total value range: $LOW–$HIGH/mo (base: $BASE). For blogs: direct $X + assisted $Y>"
+    }}}},
+    "pipeline_reconciliation": "<Pipeline EV is $X. My base estimate is $Y. [AGREES within 2× | DIVERGES because: reason]>"
   }}}},
   "constraint_accountability": {{{{
     "<constraint_type>": {{{{
@@ -1137,8 +1158,14 @@ If nothing is broken or improvable:
         "Do NOT defer CTR tests just because you also proposed internal linking. "
         "3) Cannibalization MUST be classified (BLOCKING/CAUTIONARY/INFORMATIONAL) and resolved, not just logged. "
         "4) Internal links MUST target conversion surfaces (product, category, curated guides) — NEVER utility/search/account pages. "
-        "5) Funnel math MUST show low/base/high sensitivity bands. "
+        "5) Funnel math MUST show low/base/high sensitivity bands with explicit arithmetic per scenario. "
         "Blogs are option creators — assisted value often exceeds direct. If total blog value < $100/mo on 20k+ impressions, priors are too low. "
+        "6) CONFIDENCE COHERENCE: Your stated confidence must be consistent with your assumptions. "
+        "If you cite 'no GA4 data' or 'unknown routing' as limitations, confidence MUST be ≤0.5. "
+        "If your routing % is speculative (INFERRED), confidence MUST be ≤0.6. "
+        "Only OBSERVED evidence supports confidence >0.7. "
+        "7) VALUE COHERENCE: The total in your opportunity_estimate.summary MUST equal your base scenario total. "
+        "The pipeline_reconciliation field MUST reference the pipeline_expected_value from INPUTS. "
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
 
