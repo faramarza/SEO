@@ -592,11 +592,14 @@ class FullEvaluationWorkflow:
         constraint_result = self.constraint_detector.evaluate(asset, self._assets)
 
         # Store constraint data to include in all results
+        # data_confidence = constraint_detector's assessment of data quality for this page
+        # This is separate from action-specific confidence of the winning candidate.
         constraint_data = {
             "capture_class": constraint_result.capture_class.value,
             "demand_score": round(constraint_result.demand_score, 2),
             "intent_score": round(constraint_result.intent_score, 2),
             "visibility_score": round(constraint_result.visibility_score, 2),
+            "data_confidence": round(constraint_result.confidence, 2),
             "primary_constraint": constraint_result.primary_constraint.value if constraint_result.primary_constraint else None,
             "constraints": [
                 {
@@ -868,11 +871,12 @@ class FullEvaluationWorkflow:
                     "recommended_action": "OBSERVE_ONLY",
                     "mode": best["mode"],
                     "expected_value": best["expected_value"],
-                    "confidence": best["confidence"],
+                    "confidence": round(constraint_result.confidence, 2),
+                    "action_confidence": round(best["confidence"], 2),
                     "priority_score": 0,
                     "risk_level": best.get("risk_level", "low"),
                     "implementation_steps": [],
-                    "reason": f"Confidence {best['confidence']:.2f} below {lane} threshold {confidence_threshold}",
+                    "reason": f"Action confidence {best['confidence']:.2f} below {lane} threshold {confidence_threshold}",
                     "page_metadata": {
                         "title": asset.title,
                         "h1": asset.h1,
@@ -892,7 +896,10 @@ class FullEvaluationWorkflow:
                 "recommended_action": best["action"],
                 "mode": best["mode"],
                 "expected_value": best["expected_value"],
-                "confidence": best["confidence"],
+                # Use data quality confidence (from constraint_detector) as headline.
+                # This reflects how much data we have, not action-specific confidence.
+                "confidence": round(constraint_result.confidence, 2),
+                "action_confidence": round(best["confidence"], 2),
                 "priority_score": best.get("priority_score", 0),
                 "risk_level": best["risk_level"],
                 "implementation_steps": best["implementation_steps"],
