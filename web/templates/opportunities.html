@@ -52,7 +52,7 @@
                     <th data-sort="primary_constraint" class="sortable-header">Constraint</th>
                     <th data-sort="recommended_action" class="sortable-header">Action</th>
                     <th data-sort="demand_score" class="sortable-header">Demand</th>
-                    <th data-sort="expected_value" class="sortable-header sorted-desc">Expected Value <span class="sort-icon">▼</span></th>
+                    <th data-sort="expected_value" class="sortable-header sorted-desc" title="Value if primary constraint is resolved">Upside (if fixed) <span class="sort-icon">▼</span></th>
                     <th data-sort="confidence" class="sortable-header">Confidence <span class="sort-icon"></span></th>
                     <th data-sort="risk_level" class="sortable-header">Risk <span class="sort-icon"></span></th>
                     <th>Actions</th>
@@ -423,8 +423,8 @@ function showDetail(idx) {
                 <p><span class="capture-class-badge ${(opp.capture_class || 'no_action').replace(/_/g, '-')}">${captureClassLabel(opp.capture_class)}</span></p>
             </div>
             <div class="detail-item">
-                <label>Expected Value</label>
-                <p class="detail-value">$${(opp.expected_value || 0).toFixed(2)}</p>
+                <label>Upside (if fixed)</label>
+                <p class="detail-value" title="Value if primary constraint is resolved — not current base value">$${(opp.expected_value || 0).toFixed(2)}</p>
             </div>
             <div class="detail-item">
                 <label>Confidence</label>
@@ -901,7 +901,7 @@ function exportToPDF(idx) {
                     <td style="padding: 8px; border: 1px solid #ddd;">${captureClassLabel(opp.capture_class)}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Expected Value</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Upside (if fixed)</td>
                     <td style="padding: 8px; border: 1px solid #ddd;">$${(opp.expected_value || 0).toFixed(2)}</td>
                 </tr>
                 <tr>

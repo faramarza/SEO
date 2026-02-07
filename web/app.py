@@ -950,19 +950,22 @@ You MUST express the calculation as explicit arithmetic, for example:
 21,000 impressions × 3% routing × 2.1% CVR × $53.19 AOV × 27% margin = $X
 
 ROUTING PROBABILITY EVIDENCE RULE:
-Every routing % you assume MUST cite ONE of these sources:
-  – OBSERVED: actual outlink CTR from internal_outlinks data
-  – BENCHMARK: named industry benchmark (e.g. "avg blog→category CTR is 3-5%")
-  – INFERRED: explicit reasoning from page layout/content (e.g. "no CTA above fold → low routing")
-Unsourced routing assumptions are forbidden. If you cannot justify a routing %, use 0% and state NO_ACTION.
+Every routing % you assume MUST cite ONE of these sources AND justify the specific number:
+  – OBSERVED: "outlink CTR to /category-page is X% based on Y clicks / Z pageviews from internal_outlinks data"
+  – BENCHMARK: "industry avg blog→category CTR is 3-5% (source: [named benchmark]). Using [low/mid/high] end because [reason]."
+  – INFERRED: "[specific page feature] → [why this implies N% routing]. E.g. 'no CTA above fold, 1 text link in paragraph 8 → ~2% routing (low end of 1-5% range for buried links)'"
+The routing_evidence field must contain BOTH the evidence type AND the number justification.
+"INFERRED: based on typical blog to category routing" is NOT acceptable — it restates the assumption without justifying it.
+Unsourced or unjustified routing assumptions are forbidden. If you cannot justify a routing %, use 0% and state NO_ACTION.
 
 SELF-CONSISTENCY CHECK (mandatory before output):
 After computing your scenario values, verify:
   – LOW < BASE < HIGH (monotonic)
   – Your total value summary matches the BASE scenario (not LOW, not HIGH)
   – Your total value range [LOW..HIGH] is stated, not just BASE
-  – If pipeline_expected_value falls within [LOW..HIGH], state agreement
-  – If pipeline_expected_value falls OUTSIDE [LOW..HIGH], explain the divergence
+  – pipeline_upside_value is a CONDITIONAL figure (value if constraint is fixed)
+  – Your BASE is a CURRENT-STATE figure. These are intentionally different.
+  – pipeline_reconciliation MUST explain what assumption drives the gap
 
 Interpretation rules:
 • If assumptions are weak or speculative → LOWER CONFIDENCE, not VALUE
@@ -974,15 +977,15 @@ Forbidden:
 • Inflated confidence to compensate for uncertainty
 • Routing % without evidence citation
 
-PIPELINE EV ANCHORING:
-The pipeline has pre-calculated an Expected Value for this page (see pipeline_expected_value in INPUTS).
-Your value estimate in opportunity_estimate MUST acknowledge and reconcile with this figure:
-• If your math produces a similar range (within 2×), state agreement.
-• If your math diverges significantly (>2× difference), you MUST explain WHY:
-  – e.g. "Pipeline uses 5% CTR assumption; actual routing is lower because [reason]"
-  – e.g. "Pipeline underestimates because it ignores assisted value through [path]"
-• NEVER ignore the pipeline figure. The user sees BOTH numbers side by side.
-  A 10× mismatch with no explanation is a model integrity failure.
+PIPELINE UPSIDE ANCHORING:
+The pipeline has pre-calculated an "Upside (if fixed)" value for this page (see pipeline_upside_value in INPUTS).
+This is the conditional value IF the primary constraint is resolved — not a base expectation.
+Your BASE scenario in opportunity_estimate is the CURRENT-STATE estimate.
+These numbers WILL differ. Your job is to explain the gap clearly:
+• State: "Pipeline upside: $X assumes [constraint] is fixed. My base: $Y reflects current state."
+• If the gap is >5×, explain which specific assumption drives it (routing %, CTR lift, conversion rate)
+• The user sees the pipeline upside as the headline and your base estimate in the AI section.
+  They need to understand that upside ≠ base, and WHY the numbers differ.
 
 ────────────────────────────────
 3) INTERNAL LINK TARGET INTENT CONTROL
@@ -1054,7 +1057,7 @@ INPUTS
 ────────────────────────────────
 url: {url}
 page_type: {page_type}
-pipeline_expected_value: ${pipeline_ev:.2f}
+pipeline_upside_value: ${pipeline_ev:.2f} (this is the value IF the primary constraint is resolved — not current base value)
 pipeline_confidence: {pipeline_confidence:.0%}
 pipeline_intent_score: {pipeline_intent:.0%}
 pipeline_mode: {pipeline_mode}
@@ -1103,9 +1106,9 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
       "low": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
       "base": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
       "high": {{{{ "math": "<impressions × routing% × CVR × AOV × margin = $X>", "routing_evidence": "<OBSERVED|BENCHMARK|INFERRED: source>", "total": <number> }}}},
-      "summary": "<Total value range: $LOW–$HIGH/mo (base: $BASE). For blogs: direct $X + assisted $Y>"
+      "summary": "<fill in with actual numbers: Total value range: $[low_total]–$[high_total]/mo (base: $[base_total]). For blogs add: direct $[direct_value] + assisted $[assisted_value]. DO NOT output placeholder variables — use your computed numbers.>"
     }}}},
-    "pipeline_reconciliation": "<Pipeline EV is $X. My base estimate is $Y. [AGREES within 2× | DIVERGES because: reason]>"
+    "pipeline_reconciliation": "<Pipeline upside ($X) assumes [constraint] is fixed. My base estimate ($Y) reflects current state. Gap driven by [specific assumption].>"
   }}}},
   "constraint_accountability": {{{{
     "<constraint_type>": {{{{
@@ -1165,7 +1168,8 @@ If nothing is broken or improvable:
         "If your routing % is speculative (INFERRED), confidence MUST be ≤0.6. "
         "Only OBSERVED evidence supports confidence >0.7. "
         "7) VALUE COHERENCE: The total in your opportunity_estimate.summary MUST equal your base scenario total. "
-        "The pipeline_reconciliation field MUST reference the pipeline_expected_value from INPUTS. "
+        "The pipeline_reconciliation MUST explain the gap between pipeline_upside_value (conditional) and your base (current-state). "
+        "These numbers are SUPPOSED to differ — the pipeline upside assumes the constraint is fixed. "
         "Respond ONLY with valid JSON. No markdown fences, no commentary outside the JSON."
     )
 
