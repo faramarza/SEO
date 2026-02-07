@@ -35,6 +35,7 @@ class CrawlResult:
     word_count: int
     meta_description: str = ""
     content_preview: str = ""
+    above_fold_html: str = ""
     error: Optional[str] = None
 
 
@@ -303,7 +304,7 @@ class SimpleCrawler:
                     )
 
                 # Parse HTML
-                parser = HTMLMetaParser()
+                parser = HTMLMetaParser(base_url=url)
                 try:
                     parser.feed(response.text)
                 except Exception:
@@ -324,6 +325,7 @@ class SimpleCrawler:
                     meta_description=parser.meta_description.strip(),
                     word_count=parser.get_word_count(),
                     content_preview=parser.get_content_preview(200),
+                    above_fold_html=parser.get_above_fold_html(),
                 )
 
             except httpx.TimeoutException:
@@ -418,6 +420,7 @@ class SimpleCrawler:
             asset.meta_description = result.meta_description or asset.meta_description
             asset.word_count = result.word_count or asset.word_count
             asset.content_preview = result.content_preview or asset.content_preview
+            asset.above_fold_html = result.above_fold_html or asset.above_fold_html
 
         return asset
 

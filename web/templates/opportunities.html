@@ -505,7 +505,7 @@ function showDetail(idx) {
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Above Fold</td>
-                    <td style="padding: 6px 10px; font-size: 11px; line-height: 1.4; color: var(--text-secondary); max-height: 80px; overflow: auto;" id="page-ctx-abovefold-${idx}">${pm.has_crawl_data ? (pm.above_fold_html ? `<code style="word-break:break-all;">${(pm.above_fold_html || '').substring(0,300)}${(pm.above_fold_html||'').length > 300 ? '...' : ''}</code>` : '[Not available]') : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; font-size: 11px; line-height: 1.4; color: var(--text-secondary); max-height: 80px; overflow: auto;" id="page-ctx-abovefold-${idx}">${pm.has_crawl_data ? (pm.above_fold_html ? `<code style="word-break:break-all;">${(pm.above_fold_html || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,300)}${(pm.above_fold_html||'').length > 300 ? '...' : ''}</code>` : '[Not available]') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
             </table>
         </div>
@@ -567,7 +567,12 @@ async function fetchPageContext(idx, url) {
             const aboveFoldEl = el(`page-ctx-abovefold-${idx}`);
             if (aboveFoldEl) {
                 const af = data.above_fold_html || '';
-                aboveFoldEl.innerHTML = af ? `<code style="word-break:break-all;">${af.substring(0,300)}${af.length > 300 ? '...' : ''}</code>` : '[Not available]';
+                if (af) {
+                    const escaped = af.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    aboveFoldEl.innerHTML = `<code style="word-break:break-all;">${escaped.substring(0,300)}${af.length > 300 ? '...' : ''}</code>`;
+                } else {
+                    aboveFoldEl.innerHTML = '[Not available]';
+                }
             }
 
             // Update cached data so AI recommendations use it

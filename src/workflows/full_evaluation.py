@@ -880,6 +880,7 @@ class FullEvaluationWorkflow:
                         "canonical_url": asset.canonical_url,
                         "word_count": asset.word_count,
                         "content_preview": asset.content_preview,
+                        "above_fold_html": asset.above_fold_html,
                         "has_crawl_data": asset.has_crawl_data,
                     },
                     **constraint_data,  # Include constraint detection data
@@ -906,6 +907,7 @@ class FullEvaluationWorkflow:
                     "canonical_url": asset.canonical_url,
                     "word_count": asset.word_count,
                     "content_preview": asset.content_preview,
+                    "above_fold_html": asset.above_fold_html,
                     "has_crawl_data": asset.has_crawl_data,
                 },
                 **constraint_data,  # Include constraint detection data
@@ -942,6 +944,7 @@ class FullEvaluationWorkflow:
                 "canonical_url": asset.canonical_url,
                 "word_count": asset.word_count,
                 "content_preview": asset.content_preview,
+                "above_fold_html": asset.above_fold_html,
                 "has_crawl_data": asset.has_crawl_data,
             },
             **constraint_data,  # Include constraint detection data

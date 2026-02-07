@@ -1354,7 +1354,7 @@ def api_run_evaluation():
                                 response = await client.get(url, timeout=5.0)
 
                                 if response.status_code == 200:
-                                    parser = HTMLMetaParser()
+                                    parser = HTMLMetaParser(base_url=url)
                                     try:
                                         parser.feed(response.text)
                                     except:
@@ -1374,6 +1374,7 @@ def api_run_evaluation():
                                         word_count=parser.get_word_count(),
                                         meta_description=parser.meta_description.strip(),
                                         content_preview=parser.get_content_preview(200),
+                                        above_fold_html=parser.get_above_fold_html(),
                                     )
                                 else:
                                     result = CrawlResult(
