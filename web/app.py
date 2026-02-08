@@ -2204,6 +2204,57 @@ def api_run_evaluation():
     })
 
 
+@app.route("/api/ai/batch-estimate", methods=["POST"])
+def api_ai_batch_estimate():
+    """Estimate cost and page count for batch AI analysis without running it."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"error": "No evaluation data. Run evaluation first."}), 400
+
+    with open(eval_path) as f:
+        eval_data = json.load(f)
+
+    results_list = eval_data.get("results", [])
+    data = request.json or {}
+    skip_analyzed = data.get("skip_analyzed", True)
+
+    total_pages = len(results_list)
+    actionable = [
+        opp for opp in results_list
+        if opp.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
+    ]
+    already_analyzed = [opp for opp in actionable if opp.get("ai_revised_value")]
+    to_analyze = [opp for opp in actionable if not opp.get("ai_revised_value")] if skip_analyzed else actionable
+
+    # Cost estimate based on ~13K input + ~8K output tokens per page
+    config = load_config()
+    model = config.get("ai", {}).get("model", "gpt-4o-mini")
+
+    # Per-million-token pricing
+    cost_table = {
+        "claude-opus-4-6": (5.0, 25.0),
+        "claude-sonnet-4-5-20250929": (3.0, 15.0),
+        "gpt-4o-mini": (0.15, 0.60),
+        "gpt-5.2": (2.0, 8.0),
+        "gpt-4.1": (2.0, 8.0),
+    }
+    input_price, output_price = cost_table.get(model, (3.0, 15.0))
+    est_input_tokens = 13000
+    est_output_tokens = 8000
+    cost_per_page = (est_input_tokens * input_price + est_output_tokens * output_price) / 1_000_000
+    total_cost = cost_per_page * len(to_analyze)
+
+    return jsonify({
+        "total_pages": total_pages,
+        "actionable": len(actionable),
+        "already_analyzed": len(already_analyzed),
+        "to_analyze": len(to_analyze),
+        "model": model,
+        "cost_per_page": round(cost_per_page, 3),
+        "estimated_cost": round(total_cost, 2),
+    })
+
+
 @app.route("/api/ai/batch-analyze", methods=["POST"])
 def api_ai_batch_analyze():
     """Run fetch + AI analysis on all opportunities sequentially."""

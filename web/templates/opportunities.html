@@ -1314,6 +1314,42 @@ async function checkJobStatus() {
 }
 
 async function runBatchAI() {
+    // First get cost estimate
+    try {
+        const estRes = await fetch('/api/ai/batch-estimate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: true }),
+        });
+        const est = await estRes.json();
+
+        if (est.error) {
+            showToast(est.error, 'error');
+            return;
+        }
+
+        if (est.to_analyze === 0) {
+            showToast('All actionable pages already analyzed!', 'info');
+            return;
+        }
+
+        const msg = `Batch AI Analysis\n\n` +
+            `Total pages: ${est.total_pages}\n` +
+            `Actionable: ${est.actionable}\n` +
+            `Already analyzed: ${est.already_analyzed}\n` +
+            `To analyze: ${est.to_analyze}\n\n` +
+            `Model: ${est.model}\n` +
+            `Est. cost: ~$${est.estimated_cost.toFixed(2)} ($${est.cost_per_page.toFixed(3)}/page)\n\n` +
+            `Proceed?`;
+
+        if (!confirm(msg)) return;
+
+    } catch (err) {
+        showToast('Failed to get cost estimate', 'error');
+        return;
+    }
+
+    // Start the batch
     const btnRun = document.getElementById('btn-run');
     const btnCrawl = document.getElementById('btn-crawl');
     const btnBatch = document.getElementById('btn-batch-ai');
