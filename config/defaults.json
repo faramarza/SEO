@@ -36,12 +36,12 @@
     "profit_to_cost_ratio_gate": 5.0
   },
   "ai": {
-    "provider": "anthropic",
-    "model": "claude-opus-4-6",
-    "api_key_env": "ANTHROPIC_API_KEY",
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "api_key_env": "OPENAI_API_KEY",
     "temperature": 0.4,
-    "max_tokens": 4500,
-    "timeout": 180,
+    "max_tokens": 8000,
+    "timeout": 120,
     "max_queries_in_prompt": 0,
     "max_issues_in_prompt": 0,
     "min_context_fields": 3
