@@ -1964,21 +1964,45 @@ def api_admin_ai_log():
 @app.route("/api/admin/import-sitemap", methods=["POST"])
 def api_admin_import_sitemap():
     """Fetch sitemap and merge URLs into the evaluation data as COVERAGE_GAP."""
+    import xml.etree.ElementTree as ET
+
     data = request.json or {}
     sitemap_url = data.get("sitemap_url", "").strip()
     if not sitemap_url:
         return jsonify({"error": "sitemap_url required"}), 400
 
-    # Fetch and parse sitemap
-    from src.crawlers.page_inventory import PageInventory
-    config = load_config()
-    gsc_config = config.get("gsc", {})
-    # Extract domain from property_url (e.g. "sc-domain:example.com" -> "example.com")
-    property_url = gsc_config.get("property_url", "")
-    base_domain = property_url.replace("sc-domain:", "").replace("https://", "").replace("http://", "").rstrip("/")
+    def fetch_sitemap_urls(url, depth=0):
+        """Recursively fetch URLs from sitemap (handles sitemap index)."""
+        if depth > 3:
+            return []
+        try:
+            resp = httpx.get(url, timeout=30.0, follow_redirects=True)
+            if resp.status_code != 200:
+                return []
+            root = ET.fromstring(resp.text)
+            # Strip namespace for easier tag matching
+            ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
+            urls = []
+            # Check for sitemap index
+            for sitemap in root.findall(f"{ns}sitemap"):
+                loc = sitemap.find(f"{ns}loc")
+                if loc is not None and loc.text:
+                    urls.extend(fetch_sitemap_urls(loc.text.strip(), depth + 1))
+            # Regular sitemap URLs
+            for url_tag in root.findall(f"{ns}url"):
+                loc = url_tag.find(f"{ns}loc")
+                if loc is not None and loc.text:
+                    urls.append(loc.text.strip())
+            return urls
+        except Exception as e:
+            if depth == 0:
+                raise e
+            return []
 
-    inventory = PageInventory(base_domain=base_domain)
-    urls = inventory.load_from_sitemap(sitemap_url)
+    try:
+        urls = fetch_sitemap_urls(sitemap_url)
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch sitemap: {e}"}), 400
 
     if not urls:
         return jsonify({"error": "No URLs found in sitemap. Check the URL."}), 400
