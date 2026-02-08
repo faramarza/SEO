@@ -259,9 +259,18 @@ def api_opportunities():
                 sitemap_types = json.load(f)
             for r in all_results:
                 stype = sitemap_types.get(r.get("url", ""))
-                if stype and r.get("asset_type") != stype:
-                    r["asset_type"] = stype
-                    reclassified += 1
+                if stype:
+                    # Safety net: don't let sitemap override /blog/ URLs
+                    # to "other" — some sitemaps put blog posts in generic
+                    # sub-sitemaps (e.g. sitemap_pages.xml).
+                    if stype == "other":
+                        from urllib.parse import urlparse as _up
+                        _path = _up(r.get("url", "").lower()).path
+                        if "/blog" in _path or "/article" in _path:
+                            stype = "blog"
+                    if r.get("asset_type") != stype:
+                        r["asset_type"] = stype
+                        reclassified += 1
         except (json.JSONDecodeError, IOError):
             pass
 
@@ -2294,6 +2303,13 @@ def api_admin_import_sitemap():
     sitemap_type_map = {}
     for page_url, stype in url_type_pairs:
         if stype:
+            # Safety net: /blog/ or /article/ URLs should always be "blog"
+            # even if the sub-sitemap name didn't indicate blog content.
+            if stype == "other":
+                from urllib.parse import urlparse as _up2
+                _path = _up2(page_url.lower()).path
+                if "/blog" in _path or "/article" in _path:
+                    stype = "blog"
             sitemap_type_map[page_url] = stype
 
     if sitemap_type_map:

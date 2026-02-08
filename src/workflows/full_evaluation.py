@@ -521,7 +521,16 @@ class FullEvaluationWorkflow:
             type_map = {"product": AssetType.PRODUCT, "category": AssetType.CATEGORY,
                         "blog": AssetType.BLOG, "other": AssetType.OTHER}
             if sitemap_type in type_map:
-                return type_map[sitemap_type]
+                mapped = type_map[sitemap_type]
+                # Safety net: some sitemaps put blog posts in a generic
+                # sub-sitemap (e.g. sitemap_pages.xml) causing them to be
+                # classified as "other".  If the URL clearly lives under
+                # /blog/ or /article/, override to BLOG.
+                if mapped == AssetType.OTHER:
+                    _path = urlparse(url.lower()).path
+                    if "/blog" in _path or "/article" in _path:
+                        return AssetType.BLOG
+                return mapped
 
         parsed = urlparse(url.lower())
         path = parsed.path.rstrip("/")
