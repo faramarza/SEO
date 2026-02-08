@@ -38,6 +38,7 @@
             <option value="NEW_ASSET_CREATION">New Asset</option>
             <option value="OBSERVE_ONLY">Observe Only</option>
             <option value="NO_ACTION">No Action</option>
+            <option value="__sitemap__">Sitemap Import</option>
             <option value="__has_task__">Has Active Task</option>
         </select>
         <select id="filter-type" onchange="filterOpportunities()">
@@ -330,7 +331,9 @@ function filterOpportunities() {
     let filtered = allOpportunities;
 
     if (actionFilter === '__actionable__') {
-        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action));
+        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action) || o.source === 'sitemap_import');
+    } else if (actionFilter === '__sitemap__') {
+        filtered = filtered.filter(o => o.source === 'sitemap_import');
     } else if (actionFilter === '__has_task__') {
         filtered = filtered.filter(o => o.has_active_task);
     } else if (actionFilter) {
