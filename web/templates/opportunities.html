@@ -522,8 +522,7 @@ function showDetail(idx) {
             <div class="ai-content" id="ai-content-${idx}">${opp._ai_html || ''}</div>
         </div>
         <div class="detail-actions">
-            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-secondary" onclick="exportToPDF(${idx})">
+<button class="btn btn-secondary" onclick="exportToPDF(${idx})">
                 <span class="btn-icon">📄</span> Export PDF
             </button>
             <button class="btn btn-secondary" onclick="fetchPageContext(${idx}, '${opp.url.replace(/'/g, "\\'")}')" id="fetch-page-btn-${idx}">
