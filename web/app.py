@@ -435,6 +435,10 @@ def api_ai_recommend():
             or opportunity.get("demand_score") is not None
         ),
         "has_constraint": bool(opportunity.get("primary_constraint")),
+        "has_page_metadata": bool(
+            pm.get("has_crawl_data")
+            and (pm.get("title") or pm.get("h1"))
+        ),
     }
 
     missing_critical = [k for k, v in critical_context.items() if not v]
@@ -1955,6 +1959,97 @@ def api_admin_ai_log():
     # Most recent first
     calls.reverse()
     return jsonify({"calls": calls})
+
+
+@app.route("/api/admin/import-sitemap", methods=["POST"])
+def api_admin_import_sitemap():
+    """Fetch sitemap and merge URLs into the evaluation data as COVERAGE_GAP."""
+    data = request.json or {}
+    sitemap_url = data.get("sitemap_url", "").strip()
+    if not sitemap_url:
+        return jsonify({"error": "sitemap_url required"}), 400
+
+    # Fetch and parse sitemap
+    from src.crawlers.page_inventory import PageInventory
+    config = load_config()
+    gsc_config = config.get("gsc", {})
+    # Extract domain from property_url (e.g. "sc-domain:example.com" -> "example.com")
+    property_url = gsc_config.get("property_url", "")
+    base_domain = property_url.replace("sc-domain:", "").replace("https://", "").replace("http://", "").rstrip("/")
+
+    inventory = PageInventory(base_domain=base_domain)
+    urls = inventory.load_from_sitemap(sitemap_url)
+
+    if not urls:
+        return jsonify({"error": "No URLs found in sitemap. Check the URL."}), 400
+
+    # Load existing evaluation data
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if eval_path.exists():
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+    else:
+        eval_data = {"results": [], "metadata": {}}
+
+    existing_urls = {r["url"] for r in eval_data.get("results", [])}
+
+    # Classify asset type from URL pattern (same logic as full_evaluation)
+    def classify_url(url):
+        url_lower = url.lower()
+        if "/product" in url_lower or "/p/" in url_lower:
+            return "product"
+        elif "/category" in url_lower or "/c/" in url_lower or "/collections" in url_lower:
+            return "category"
+        elif "/blog" in url_lower or "/article" in url_lower or "/post" in url_lower:
+            return "blog"
+        elif url_lower.endswith("/") and url_lower.count("/") <= 3:
+            return "category"
+        return "other"
+
+    new_count = 0
+    for url in urls:
+        if url in existing_urls:
+            continue
+
+        asset_type = classify_url(url)
+        eval_data["results"].append({
+            "url": url,
+            "asset_type": asset_type,
+            "recommended_action": "OBSERVE_ONLY",
+            "mode": "OPPORTUNITY_DISCOVERY",
+            "expected_value": 0,
+            "confidence": 0,
+            "action_confidence": 0,
+            "priority_score": 0,
+            "risk_level": "low",
+            "implementation_steps": [],
+            "primary_constraint": "coverage_gap",
+            "constraints": [{
+                "constraint_type": "coverage_gap",
+                "severity": "medium",
+                "description": "Page exists in sitemap but has no organic search data. May need indexing help or internal links.",
+                "evidence": {"source": "sitemap_import"},
+                "recommended_action": "Audit page content and internal linking",
+            }],
+            "demand_score": 0,
+            "intent_score": 0,
+            "visibility_score": 0,
+            "data_confidence": 0,
+            "source": "sitemap_import",
+            "page_metadata": {"has_crawl_data": False},
+        })
+        new_count += 1
+
+    # Save updated evaluation data
+    with open(eval_path, "w") as f:
+        json.dump(eval_data, f, indent=2)
+        f.write("\n")
+
+    return jsonify({
+        "imported": len(urls),
+        "new": new_count,
+        "existing": len(urls) - new_count,
+    })
 
 
 @app.route("/api/page-metadata", methods=["POST"])
