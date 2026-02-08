@@ -336,8 +336,42 @@ class FullEvaluationWorkflow:
 
         # Normalize URLs: strip tracking params, merge duplicates
         gsc_data = self._normalize_url_data(gsc_data_raw)
-        ga4_data = self._normalize_url_data(ga4_data_raw)
-        print(f"  After normalization: GSC {len(gsc_data)}, GA4 {len(ga4_data)}")
+        ga4_data_normalized = self._normalize_url_data(ga4_data_raw)
+        print(f"  After normalization: GSC {len(gsc_data)}, GA4 {len(ga4_data_normalized)}")
+
+        # GA4 returns paths ("/page.html"), GSC returns full URLs
+        # ("https://domain.com/page.html").  Align GA4 keys to full URLs
+        # so the merge matches correctly.
+        gsc_prop = self.config.gsc_property
+        if gsc_prop.startswith("sc-domain:"):
+            domain = gsc_prop.replace("sc-domain:", "").strip("/")
+            base_url = f"https://{domain}"
+        elif gsc_prop.startswith("http"):
+            # URL-prefix property (e.g. "https://alphabet-trains.com/")
+            base_url = gsc_prop.rstrip("/")
+        else:
+            base_url = f"https://{gsc_prop.strip('/')}"
+
+        ga4_data = {}
+        for key, value in ga4_data_normalized.items():
+            if key.startswith("http://") or key.startswith("https://"):
+                full_url = key  # Already a full URL
+            elif key.startswith("/"):
+                full_url = base_url + key
+            else:
+                full_url = base_url + "/" + key
+            # Normalize through the same pipeline as GSC URLs
+            full_url = self._normalize_url(full_url)
+            if full_url in ga4_data:
+                # Merge duplicate (same page reached via different GA4 paths)
+                existing = ga4_data[full_url]
+                for k in ("sessions", "users", "engaged_sessions",
+                          "conversions", "revenue", "add_to_carts"):
+                    if k in value:
+                        existing[k] = existing.get(k, 0) + value[k]
+            else:
+                ga4_data[full_url] = value
+        print(f"  GA4 after URL alignment: {len(ga4_data)}")
 
         # Merge into PageAssets
         all_urls = set(gsc_data.keys()) | set(ga4_data.keys())
