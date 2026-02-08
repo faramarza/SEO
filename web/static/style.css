@@ -266,6 +266,13 @@ body {
     color: var(--text-primary);
 }
 
+.kpi-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
 .section-row {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -595,6 +602,15 @@ body {
 
 .btn-secondary:hover:not(:disabled) {
     background-color: #0e7490;
+}
+
+.btn-accent {
+    background-color: var(--accent-blue, #3b82f6);
+    color: white;
+}
+
+.btn-accent:hover:not(:disabled) {
+    background-color: #2563eb;
 }
 
 .job-progress {

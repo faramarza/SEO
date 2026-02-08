@@ -161,12 +161,25 @@ def api_dashboard():
         posture = "MONITORING"
         posture_color = "yellow"
 
+    # Compute AI-revised total from individual results
+    ai_values = [
+        r.get("ai_revised_value")
+        for r in eval_data.get("results", [])
+        if r.get("ai_revised_value") is not None
+    ]
+    ai_total = round(sum(ai_values), 2) if ai_values else None
+    ai_analyzed_count = len(ai_values)
+    ai_total_pages = len(eval_data.get("results", []))
+
     return jsonify({
         "kpis": {
             "total_pages": eval_data.get("total_pages", 0),
             "pages_with_action": eval_data.get("pages_with_action", 0),
             "action_rate": eval_data.get("action_rate", 0),
             "total_expected_value": eval_data.get("total_expected_value", 0),
+            "ai_revised_total": ai_total,
+            "ai_analyzed_count": ai_analyzed_count,
+            "ai_total_pages": ai_total_pages,
         },
         "posture": {
             "mode": posture,
@@ -2188,6 +2201,157 @@ def api_run_evaluation():
         "message": "Evaluation started",
         "status": "running",
         "crawl": run_crawl,
+    })
+
+
+@app.route("/api/ai/batch-analyze", methods=["POST"])
+def api_ai_batch_analyze():
+    """Run fetch + AI analysis on all opportunities sequentially."""
+    global job_state
+
+    if job_state["running"]:
+        return jsonify({"error": "A job is already running", "status": "busy"}), 400
+
+    # Load opportunities from evaluation data
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"error": "No evaluation data. Run evaluation first."}), 400
+
+    with open(eval_path) as f:
+        eval_data = json.load(f)
+
+    results_list = eval_data.get("results", [])
+    if not results_list:
+        return jsonify({"error": "No opportunities found in evaluation data."}), 400
+
+    data = request.json or {}
+    skip_analyzed = data.get("skip_analyzed", True)
+
+    def run_batch():
+        global job_state
+        import traceback
+        try:
+            job_state["running"] = True
+            job_state["type"] = "batch_ai"
+            job_state["error"] = None
+
+            # Re-read fresh data inside thread
+            with open(eval_path) as f:
+                fresh_data = json.load(f)
+            opps = fresh_data.get("results", [])
+
+            # Filter to actionable opportunities (skip NO_ACTION, OBSERVE_ONLY)
+            actionable = [
+                opp for opp in opps
+                if opp.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
+            ]
+
+            # Optionally skip already-analyzed
+            if skip_analyzed:
+                actionable = [
+                    opp for opp in actionable
+                    if not opp.get("ai_revised_value")
+                ]
+
+            job_state["total"] = len(actionable)
+            job_state["progress"] = 0
+
+            if not actionable:
+                job_state["message"] = "All actionable opportunities already analyzed."
+                return
+
+            analyzed = 0
+            errors = 0
+
+            for i, opp in enumerate(actionable):
+                url = opp.get("url", "")
+                short_url = url.replace("https://", "").replace("http://", "")
+                if len(short_url) > 50:
+                    short_url = short_url[:47] + "..."
+
+                # Step 1: Fetch page metadata if missing
+                pm = opp.get("page_metadata", {})
+                if not pm.get("has_crawl_data"):
+                    job_state["message"] = f"[{i+1}/{len(actionable)}] Fetching {short_url}..."
+                    try:
+                        with app.test_client() as client:
+                            resp = client.post(
+                                "/api/page-metadata",
+                                json={"url": url},
+                                content_type="application/json",
+                            )
+                            if resp.status_code == 200:
+                                pm = resp.get_json()
+                                opp["page_metadata"] = pm
+                    except Exception as e:
+                        job_state["message"] = f"[{i+1}/{len(actionable)}] Fetch failed for {short_url}: {e}"
+                        errors += 1
+                        job_state["progress"] = i + 1
+                        continue
+
+                # Step 2: Run AI analysis
+                job_state["message"] = f"[{i+1}/{len(actionable)}] Analyzing {short_url}..."
+                try:
+                    with app.test_client() as client:
+                        resp = client.post(
+                            "/api/ai/recommend",
+                            json={"url": url, "opportunity": opp},
+                            content_type="application/json",
+                        )
+                        if resp.status_code == 200:
+                            ai_data = resp.get_json()
+                            if ai_data.get("success"):
+                                rv = ai_data.get("ai_revised_value")
+                                analyzed += 1
+                                if rv is not None:
+                                    job_state["message"] = (
+                                        f"[{i+1}/{len(actionable)}] {short_url} → "
+                                        f"AI Est: ${rv:,.2f}"
+                                    )
+                            else:
+                                err_msg = ai_data.get("error", "Unknown error")
+                                job_state["message"] = f"[{i+1}/{len(actionable)}] {short_url}: {err_msg}"
+                                errors += 1
+                        else:
+                            errors += 1
+                except Exception as e:
+                    job_state["message"] = f"[{i+1}/{len(actionable)}] AI failed for {short_url}: {e}"
+                    errors += 1
+
+                job_state["progress"] = i + 1
+
+            # Compute AI total from persisted data
+            with open(eval_path) as f:
+                final_data = json.load(f)
+            ai_total = sum(
+                r.get("ai_revised_value", 0)
+                for r in final_data.get("results", [])
+                if r.get("ai_revised_value") is not None
+            )
+            ai_count = sum(
+                1 for r in final_data.get("results", [])
+                if r.get("ai_revised_value") is not None
+            )
+
+            summary = f"Batch complete: {analyzed} analyzed"
+            if errors:
+                summary += f", {errors} errors"
+            summary += f". AI Est. Total: ${ai_total:,.2f} ({ai_count} pages)"
+            job_state["message"] = summary
+
+        except Exception as e:
+            tb = traceback.format_exc()
+            job_state["error"] = f"{e}\n\nTraceback:\n{tb}"
+            job_state["message"] = f"Error: {e}"
+        finally:
+            job_state["running"] = False
+
+    thread = threading.Thread(target=run_batch)
+    thread.start()
+
+    return jsonify({
+        "message": "Batch AI analysis started",
+        "status": "running",
     })
 
 

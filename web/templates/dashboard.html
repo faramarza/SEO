@@ -16,8 +16,13 @@
             <span class="kpi-value" id="kpi-action-rate">—</span>
         </div>
         <div class="kpi-card">
-            <span class="kpi-label">Expected Value</span>
+            <span class="kpi-label">Est. Value</span>
             <span class="kpi-value" id="kpi-ev">—</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">AI Est. Value</span>
+            <span class="kpi-value" id="kpi-ai-ev">—</span>
+            <span class="kpi-sub" id="kpi-ai-coverage"></span>
         </div>
         <div class="kpi-card">
             <span class="kpi-label">Regret Budget</span>
@@ -168,6 +173,17 @@ async function loadDashboard() {
             (actionRate !== undefined && actionRate !== null) ? actionRate.toFixed(1) + '%' : '—';
         document.getElementById('kpi-ev').textContent =
             (ev !== undefined && ev !== null) ? '$' + ev.toLocaleString() : '—';
+
+        const aiEv = data.kpis?.ai_revised_total;
+        const aiCount = data.kpis?.ai_analyzed_count || 0;
+        const aiTotalPages = data.kpis?.ai_total_pages || 0;
+        document.getElementById('kpi-ai-ev').textContent =
+            (aiEv !== undefined && aiEv !== null) ? '$' + aiEv.toLocaleString() : '—';
+        const coverageEl = document.getElementById('kpi-ai-coverage');
+        if (coverageEl && aiCount > 0) {
+            coverageEl.textContent = `${aiCount}/${aiTotalPages} analyzed`;
+        }
+
         document.getElementById('kpi-regret').textContent =
             (data.config?.regret_budget ?? 2) + '/2';
 

@@ -12,6 +12,9 @@
         <button class="btn btn-secondary" onclick="runEvaluation(true)" id="btn-crawl">
             Run with Crawl
         </button>
+        <button class="btn btn-accent" onclick="runBatchAI()" id="btn-batch-ai" title="Fetch page data and run AI analysis on all actionable opportunities">
+            Run All AI
+        </button>
         <div id="job-progress" class="job-progress hidden">
             <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill"></div>
@@ -1279,6 +1282,7 @@ async function checkJobStatus() {
             progressDiv.classList.remove('hidden');
             document.getElementById('btn-run').disabled = true;
             document.getElementById('btn-crawl').disabled = true;
+            document.getElementById('btn-batch-ai').disabled = true;
 
             const pct = status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
             progressFill.style.width = pct + '%';
@@ -1297,8 +1301,8 @@ async function checkJobStatus() {
 
             if (status.error) {
                 showToast('Error: ' + status.error, 'error');
-            } else if (status.message && status.message.includes('complete')) {
-                showToast('Evaluation complete! Refreshing...', 'success');
+            } else if (status.message && (status.message.includes('complete') || status.message.includes('Batch complete'))) {
+                showToast(status.message.includes('Batch') ? 'Batch AI analysis complete! Refreshing...' : 'Evaluation complete! Refreshing...', 'success');
                 setTimeout(() => loadOpportunities(), 500);
             }
 
@@ -1309,9 +1313,45 @@ async function checkJobStatus() {
     }
 }
 
+async function runBatchAI() {
+    const btnRun = document.getElementById('btn-run');
+    const btnCrawl = document.getElementById('btn-crawl');
+    const btnBatch = document.getElementById('btn-batch-ai');
+    const progressDiv = document.getElementById('job-progress');
+
+    btnRun.disabled = true;
+    btnCrawl.disabled = true;
+    btnBatch.disabled = true;
+    progressDiv.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/ai/batch-analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: true }),
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetJobUI();
+            return;
+        }
+
+        showToast('Batch AI analysis started...', 'info');
+        jobPollInterval = setInterval(checkJobStatus, 1000);
+
+    } catch (err) {
+        showToast('Failed to start batch AI analysis', 'error');
+        resetJobUI();
+    }
+}
+
 function resetJobUI() {
     document.getElementById('btn-run').disabled = false;
     document.getElementById('btn-crawl').disabled = false;
+    document.getElementById('btn-batch-ai').disabled = false;
     document.getElementById('job-progress').classList.add('hidden');
     document.getElementById('progress-fill').style.width = '0%';
 }
