@@ -806,6 +806,24 @@ If ANY constraint mentions cannibalization, query overlap, or competing pages:
 You MUST NOT detect cannibalization and then ignore it.
 It MUST appear in constraint_accountability with a clear disposition.
 
+NO HOMEWORK RULE (CRITICAL):
+You have the GSC data. You have the competing URLs. You have the positions and CTR.
+DO NOT tell the operator to "run a review" or "check GSC" — they are looking at the same
+data you are. YOUR JOB is to analyze it and make the call.
+
+For cannibalization specifically:
+  – If a query has position 1 + 0% CTR across hundreds of impressions, that is NOT
+    cannibalization — that is query-intent mismatch. The query is irrelevant to this page.
+    Say so: "Query 'X' is a junk match — position 1 with 0% CTR over N impressions means
+    the SERP intent does not match this page. Ignore this query for optimization purposes."
+  – If two pages alternate in rankings (position instability) for the same query, that IS
+    cannibalization. State which page should own the query and why, based on intent match.
+  – If you can make the decision from the provided data, MAKE IT. Do not defer.
+  – "Run a cannibalization check in GSC" is NOT an acceptable recommendation when the
+    GSC data is already in the inputs. Analyze it NOW and state the conclusion.
+  – Only recommend a manual review if genuinely missing data (e.g., "competing page's
+    content/title is not provided — cannot determine intent match without it").
+
 ────────────────────────────────
 STEP 3 — CONSTRAINT-TO-ACTION MAPPING
 ────────────────────────────────
