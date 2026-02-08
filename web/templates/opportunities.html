@@ -40,6 +40,13 @@
             <option value="NO_ACTION">No Action</option>
             <option value="__has_task__">Has Active Task</option>
         </select>
+        <select id="filter-type" onchange="filterOpportunities()">
+            <option value="">All Page Types</option>
+            <option value="product">Product</option>
+            <option value="category">Category</option>
+            <option value="blog">Blog</option>
+            <option value="other">Other</option>
+        </select>
         <select id="filter-risk" onchange="filterOpportunities()">
             <option value="">All Risk Levels</option>
             <option value="low">Low Risk</option>
@@ -56,6 +63,7 @@
                 <tr>
                     <th data-sort="index" class="sortable-header">#</th>
                     <th data-sort="url" class="sortable-header">URL</th>
+                    <th data-sort="asset_type" class="sortable-header">Type <span class="sort-icon"></span></th>
                     <th data-sort="primary_constraint" class="sortable-header">Constraint</th>
                     <th data-sort="recommended_action" class="sortable-header">Action</th>
                     <th data-sort="demand_score" class="sortable-header">Demand</th>
@@ -67,7 +75,7 @@
                 </tr>
             </thead>
             <tbody id="opportunities-body">
-                <tr><td colspan="10" class="loading">Loading...</td></tr>
+                <tr><td colspan="11" class="loading">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -121,7 +129,7 @@ async function loadOpportunities() {
     } catch (err) {
         console.error('Failed to load opportunities:', err);
         document.getElementById('opportunities-body').innerHTML =
-            '<tr><td colspan="10" class="error">Failed to load data</td></tr>';
+            '<tr><td colspan="11" class="error">Failed to load data</td></tr>';
     }
 }
 
@@ -184,7 +192,7 @@ function renderOpportunities(opportunities) {
         ? `${total} pages` : `${shown} of ${total} pages`;
 
     if (opportunities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="empty">No opportunities match your filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="empty">No opportunities match your filters.</td></tr>';
         document.getElementById('pagination-controls').innerHTML = '';
         return;
     }
@@ -206,6 +214,7 @@ function renderOpportunities(opportunities) {
             <td class="url-cell" title="${opp.url}">
                 <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
             </td>
+            <td><span class="type-badge type-${opp.asset_type || 'other'}">${formatAssetType(opp.asset_type)}</span></td>
             <td><span class="constraint-badge constraint-${(opp.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(opp.primary_constraint)}</span></td>
             <td><span class="action-badge action-${(opp.recommended_action || '').toLowerCase()}">${opp.recommended_action || 'N/A'}</span></td>
             <td class="number demand-cell">
@@ -293,8 +302,19 @@ function formatConstraint(constraint) {
     return labels[constraint] || constraint.replace(/_/g, ' ');
 }
 
+function formatAssetType(type) {
+    const labels = {
+        'product': 'Product',
+        'category': 'Category',
+        'blog': 'Blog',
+        'other': 'Other',
+    };
+    return labels[type] || type || 'Other';
+}
+
 function filterOpportunities() {
     const actionFilter = document.getElementById('filter-action').value;
+    const typeFilter = document.getElementById('filter-type').value;
     const riskFilter = document.getElementById('filter-risk').value;
     const searchFilter = document.getElementById('filter-search').value.toLowerCase();
 
@@ -306,6 +326,9 @@ function filterOpportunities() {
         filtered = filtered.filter(o => o.has_active_task);
     } else if (actionFilter) {
         filtered = filtered.filter(o => o.recommended_action === actionFilter);
+    }
+    if (typeFilter) {
+        filtered = filtered.filter(o => (o.asset_type || 'other') === typeFilter);
     }
     if (riskFilter) {
         filtered = filtered.filter(o => o.risk_level === riskFilter);
@@ -1360,14 +1383,15 @@ async function checkJobStatus() {
 }
 
 async function runBatchAI() {
-    // First get cost estimate
+    // First get cost estimate with type breakdown
+    let est;
     try {
         const estRes = await fetch('/api/ai/batch-estimate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ skip_analyzed: true }),
         });
-        const est = await estRes.json();
+        est = await estRes.json();
 
         if (est.error) {
             showToast(est.error, 'error');
@@ -1378,22 +1402,91 @@ async function runBatchAI() {
             showToast('All actionable pages already analyzed!', 'info');
             return;
         }
-
-        const msg = `Batch AI Analysis\n\n` +
-            `Total pages: ${est.total_pages}\n` +
-            `Actionable: ${est.actionable}\n` +
-            `Already analyzed: ${est.already_analyzed}\n` +
-            `To analyze: ${est.to_analyze}\n\n` +
-            `Model: ${est.model}\n` +
-            `Est. cost: ~$${est.estimated_cost.toFixed(2)} ($${est.cost_per_page.toFixed(3)}/page)\n\n` +
-            `Proceed?`;
-
-        if (!confirm(msg)) return;
-
     } catch (err) {
         showToast('Failed to get cost estimate', 'error');
         return;
     }
+
+    // Show batch AI modal with type checkboxes
+    const typeCounts = est.type_counts || {};
+    const typeOrder = ['category', 'product', 'blog', 'other'];
+    const typeLabels = { category: 'Category', product: 'Product', blog: 'Blog', other: 'Other' };
+
+    let typeCheckboxesHtml = '';
+    for (const t of typeOrder) {
+        const tc = typeCounts[t];
+        if (!tc || tc.total === 0) continue;
+        const typeCost = (tc.to_analyze * est.cost_per_page).toFixed(2);
+        typeCheckboxesHtml += `
+            <label class="batch-type-option">
+                <input type="checkbox" class="batch-type-cb" value="${t}" checked
+                    onchange="updateBatchEstimate()">
+                <span class="batch-type-label">${typeLabels[t] || t}</span>
+                <span class="batch-type-counts">${tc.to_analyze} to analyze / ${tc.analyzed} done / ${tc.total} total</span>
+                <span class="batch-type-cost">~$${typeCost}</span>
+            </label>`;
+    }
+
+    const modalHtml = `
+        <div class="batch-modal-body">
+            <h3>Batch AI Analysis</h3>
+            <div class="batch-summary">
+                <div>Model: <strong>${est.model}</strong></div>
+                <div>Cost per page: <strong>$${est.cost_per_page.toFixed(3)}</strong></div>
+            </div>
+            <div class="batch-type-section">
+                <h4>Select page types to analyze:</h4>
+                ${typeCheckboxesHtml}
+            </div>
+            <div class="batch-total" id="batch-total-line">
+                <span>Selected: <strong id="batch-selected-count">${est.to_analyze}</strong> pages</span>
+                <span>Est. cost: <strong id="batch-selected-cost">~$${est.estimated_cost.toFixed(2)}</strong></span>
+            </div>
+            <div class="batch-actions">
+                <button class="btn btn-primary" onclick="confirmBatchAI()">Run Selected</button>
+                <button class="btn btn-secondary" onclick="closeBatchModal()">Cancel</button>
+            </div>
+        </div>`;
+
+    // Store estimate data for recalculation
+    window._batchEstimate = est;
+
+    const modal = document.getElementById('detail-modal');
+    document.getElementById('modal-title').textContent = 'Run AI Batch';
+    document.getElementById('modal-body').innerHTML = modalHtml;
+    modal.classList.remove('hidden');
+}
+
+function updateBatchEstimate() {
+    const est = window._batchEstimate;
+    if (!est) return;
+
+    const checked = Array.from(document.querySelectorAll('.batch-type-cb:checked')).map(cb => cb.value);
+    const typeCounts = est.type_counts || {};
+
+    let totalToAnalyze = 0;
+    for (const t of checked) {
+        if (typeCounts[t]) totalToAnalyze += typeCounts[t].to_analyze;
+    }
+
+    const totalCost = (totalToAnalyze * est.cost_per_page).toFixed(2);
+    document.getElementById('batch-selected-count').textContent = totalToAnalyze;
+    document.getElementById('batch-selected-cost').textContent = `~$${totalCost}`;
+}
+
+function closeBatchModal() {
+    document.getElementById('detail-modal').classList.add('hidden');
+    window._batchEstimate = null;
+}
+
+async function confirmBatchAI() {
+    const checked = Array.from(document.querySelectorAll('.batch-type-cb:checked')).map(cb => cb.value);
+    if (checked.length === 0) {
+        showToast('Select at least one page type', 'error');
+        return;
+    }
+
+    closeBatchModal();
 
     // Start the batch
     const btnRun = document.getElementById('btn-run');
@@ -1410,7 +1503,7 @@ async function runBatchAI() {
         const res = await fetch('/api/ai/batch-analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ skip_analyzed: true }),
+            body: JSON.stringify({ skip_analyzed: true, page_types: checked }),
         });
 
         const data = await res.json();
@@ -1421,7 +1514,7 @@ async function runBatchAI() {
             return;
         }
 
-        showToast('Batch AI analysis started...', 'info');
+        showToast(`Batch AI started for ${checked.map(t => t).join(', ')} pages...`, 'info');
         jobPollInterval = setInterval(checkJobStatus, 1000);
 
     } catch (err) {

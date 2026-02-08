@@ -2217,12 +2217,21 @@ def api_ai_batch_estimate():
     results_list = eval_data.get("results", [])
     data = request.json or {}
     skip_analyzed = data.get("skip_analyzed", True)
+    page_types = data.get("page_types", [])  # e.g. ["product", "category"]
 
     total_pages = len(results_list)
     actionable = [
         opp for opp in results_list
         if opp.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
     ]
+
+    # Filter by page type if specified
+    if page_types:
+        actionable = [
+            opp for opp in actionable
+            if (opp.get("asset_type") or "other") in page_types
+        ]
+
     already_analyzed = [opp for opp in actionable if opp.get("ai_revised_value")]
     to_analyze = [opp for opp in actionable if not opp.get("ai_revised_value")] if skip_analyzed else actionable
 
@@ -2244,6 +2253,22 @@ def api_ai_batch_estimate():
     cost_per_page = (est_input_tokens * input_price + est_output_tokens * output_price) / 1_000_000
     total_cost = cost_per_page * len(to_analyze)
 
+    # Build per-type breakdown for all actionable (before skip_analyzed filter)
+    all_actionable = [
+        opp for opp in results_list
+        if opp.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
+    ]
+    type_counts = {}
+    for opp in all_actionable:
+        t = opp.get("asset_type") or "other"
+        if t not in type_counts:
+            type_counts[t] = {"total": 0, "analyzed": 0, "to_analyze": 0}
+        type_counts[t]["total"] += 1
+        if opp.get("ai_revised_value"):
+            type_counts[t]["analyzed"] += 1
+        else:
+            type_counts[t]["to_analyze"] += 1
+
     return jsonify({
         "total_pages": total_pages,
         "actionable": len(actionable),
@@ -2252,6 +2277,7 @@ def api_ai_batch_estimate():
         "model": model,
         "cost_per_page": round(cost_per_page, 3),
         "estimated_cost": round(total_cost, 2),
+        "type_counts": type_counts,
     })
 
 
@@ -2277,6 +2303,7 @@ def api_ai_batch_analyze():
 
     data = request.json or {}
     skip_analyzed = data.get("skip_analyzed", True)
+    page_types = data.get("page_types", [])  # e.g. ["product", "category"]
 
     def run_batch():
         global job_state
@@ -2296,6 +2323,13 @@ def api_ai_batch_analyze():
                 opp for opp in opps
                 if opp.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
             ]
+
+            # Filter by page type if specified
+            if page_types:
+                actionable = [
+                    opp for opp in actionable
+                    if (opp.get("asset_type") or "other") in page_types
+                ]
 
             # Optionally skip already-analyzed
             if skip_analyzed:
