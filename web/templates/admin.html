@@ -125,6 +125,37 @@
         </div>
     </div>
 
+    <!-- Run Evaluation -->
+    <div class="admin-card" style="margin-top: 20px;">
+        <h3>Run Evaluation</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 12px;">
+            Pull fresh data from GSC &amp; GA4, run diagnostics, and evaluate all pages.
+        </p>
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="runEvaluation(false)" id="btn-run-eval">
+                Run Evaluation
+            </button>
+            <button class="btn btn-secondary" onclick="runEvaluation(true)" id="btn-run-crawl">
+                Run with Crawl
+            </button>
+            <span style="font-size: 12px; color: var(--text-muted);">
+                Crawl fetches page titles, canonicals &amp; meta descriptions (slower but needed for AI recommendations)
+            </span>
+        </div>
+        <div id="eval-status" style="margin-top: 12px; display: none;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div id="eval-spinner" style="width:16px; height:16px; border:2px solid var(--border-color); border-top-color:var(--accent-blue); border-radius:50%; animation: spin 0.8s linear infinite;"></div>
+                <span id="eval-message" style="font-size: 13px; color: var(--text-secondary);">Starting...</span>
+            </div>
+            <div id="eval-progress-bar" style="margin-top: 8px; height: 4px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
+                <div id="eval-progress-fill" style="width: 0%; height: 100%; background: var(--accent-blue); transition: width 0.3s;"></div>
+            </div>
+        </div>
+        <div id="eval-error" style="margin-top: 12px; display: none; color: var(--accent-red); font-size: 13px;"></div>
+        <div id="eval-done" style="margin-top: 12px; display: none; color: var(--accent-green); font-size: 13px; font-weight: 600;"></div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    </div>
+
     <!-- AI Call Log (Reproducibility) -->
     <div class="admin-card" style="margin-top: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -348,6 +379,81 @@ function showToast(message, type = 'info') {
     toast.className = `toast toast-${type}`;
     toast.classList.remove('hidden');
     setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+
+async function runEvaluation(withCrawl) {
+    const statusEl = document.getElementById('eval-status');
+    const errorEl = document.getElementById('eval-error');
+    const doneEl = document.getElementById('eval-done');
+    const msgEl = document.getElementById('eval-message');
+    const fillEl = document.getElementById('eval-progress-fill');
+    const btnRun = document.getElementById('btn-run-eval');
+    const btnCrawl = document.getElementById('btn-run-crawl');
+
+    // Reset UI
+    statusEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    doneEl.style.display = 'none';
+    fillEl.style.width = '0%';
+    btnRun.disabled = true;
+    btnCrawl.disabled = true;
+    msgEl.textContent = withCrawl ? 'Starting evaluation with crawl...' : 'Starting evaluation...';
+
+    try {
+        const res = await fetch('/api/run-evaluation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ crawl: withCrawl }),
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            statusEl.style.display = 'none';
+            errorEl.style.display = 'block';
+            errorEl.textContent = data.error;
+            btnRun.disabled = false;
+            btnCrawl.disabled = false;
+            return;
+        }
+
+        // Poll job status
+        const poll = setInterval(async () => {
+            try {
+                const jr = await fetch('/api/job-status');
+                const job = await jr.json();
+
+                msgEl.textContent = job.message || 'Working...';
+
+                if (job.total > 0 && job.progress > 0) {
+                    fillEl.style.width = Math.round(job.progress / job.total * 100) + '%';
+                }
+
+                if (!job.running) {
+                    clearInterval(poll);
+                    statusEl.style.display = 'none';
+                    btnRun.disabled = false;
+                    btnCrawl.disabled = false;
+
+                    if (job.error) {
+                        errorEl.style.display = 'block';
+                        errorEl.textContent = job.error;
+                    } else {
+                        doneEl.style.display = 'block';
+                        doneEl.textContent = 'Evaluation complete! Go to Tracking > Data Quality to see results.';
+                    }
+                }
+            } catch (e) {
+                // Network blip, keep polling
+            }
+        }, 1500);
+
+    } catch (err) {
+        statusEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        errorEl.textContent = 'Failed to start: ' + err.message;
+        btnRun.disabled = false;
+        btnCrawl.disabled = false;
+    }
 }
 
 // Load on page ready
