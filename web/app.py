@@ -235,8 +235,24 @@ def api_opportunities():
 
     # Re-classify asset types from sitemap_types.json (source of truth).
     # This corrects stale classifications left over from old heuristic runs.
+    # Also fix non-page resources (images, media) that were misclassified.
+    _MEDIA_EXTS = {
+        ".jpeg", ".jpg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp",
+        ".pdf", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot",
+        ".mp4", ".webm", ".mp3", ".ogg", ".zip", ".gz",
+    }
     sitemap_types_path = DATA_PATH / "sitemap_types.json"
     reclassified = 0
+
+    # Fix media files misclassified as pages
+    from urllib.parse import urlparse as _urlparse
+    for r in all_results:
+        url = r.get("url", "")
+        ext = Path(_urlparse(url).path).suffix.lower()
+        if ext in _MEDIA_EXTS and r.get("asset_type") != "other":
+            r["asset_type"] = "other"
+            reclassified += 1
+
     if sitemap_types_path.exists():
         try:
             with open(sitemap_types_path) as f:
@@ -2134,8 +2150,18 @@ def api_admin_import_sitemap():
     # Fall back to URL-pattern classifier for URLs without a sitemap-derived type
     def classify_url_fallback(url):
         from urllib.parse import urlparse
+        from pathlib import Path as _P
         parsed = urlparse(url.lower())
         path = parsed.path.rstrip("/")
+
+        # Non-page resources (images, fonts, scripts, etc.)
+        _MEDIA_EXTS = {
+            ".jpeg", ".jpg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp",
+            ".pdf", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot",
+            ".mp4", ".webm", ".mp3", ".ogg", ".zip", ".gz",
+        }
+        if _P(path).suffix.lower() in _MEDIA_EXTS:
+            return "other"
 
         if "/blog" in path or "/article" in path:
             return "blog"

@@ -492,6 +492,16 @@ class FullEvaluationWorkflow:
         parsed = urlparse(url.lower())
         path = parsed.path.rstrip("/")
 
+        # ── Non-page resources (images, fonts, scripts, etc.) ──
+        _MEDIA_EXTS = {
+            ".jpeg", ".jpg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp",
+            ".pdf", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot",
+            ".mp4", ".webm", ".mp3", ".ogg", ".zip", ".gz",
+        }
+        ext = Path(path).suffix.lower()
+        if ext in _MEDIA_EXTS:
+            return AssetType.OTHER
+
         # ── Blog ──
         if "/blog" in path or "/article" in path:
             return AssetType.BLOG
