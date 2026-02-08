@@ -15,6 +15,10 @@
         <button class="btn btn-accent" onclick="runBatchAI()" id="btn-batch-ai" title="Fetch page data and run AI analysis on all actionable opportunities">
             Run All AI
         </button>
+        <label class="auto-ai-toggle" title="Automatically run AI analysis on all actionable pages after evaluation completes">
+            <input type="checkbox" id="auto-ai-checkbox" onchange="updateAutoAILabel()">
+            <span id="auto-ai-label">+ Auto AI</span>
+        </label>
         <div id="job-progress" class="job-progress hidden">
             <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill"></div>
@@ -1232,6 +1236,35 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 let jobPollInterval = null;
+let autoAIAfterEval = false;
+
+async function updateAutoAILabel() {
+    const cb = document.getElementById('auto-ai-checkbox');
+    const label = document.getElementById('auto-ai-label');
+    autoAIAfterEval = cb.checked;
+
+    if (!cb.checked) {
+        label.textContent = '+ Auto AI';
+        return;
+    }
+
+    label.textContent = '+ Auto AI (checking cost...)';
+    try {
+        const res = await fetch('/api/ai/batch-estimate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: false }),
+        });
+        const est = await res.json();
+        if (est.error) {
+            label.textContent = '+ Auto AI';
+            return;
+        }
+        label.textContent = `+ Auto AI (${est.model}, ~$${est.estimated_cost.toFixed(2)} for ${est.actionable} pages)`;
+    } catch {
+        label.textContent = '+ Auto AI';
+    }
+}
 
 async function runEvaluation(withCrawl) {
     const btnRun = document.getElementById('btn-run');
@@ -1301,12 +1334,25 @@ async function checkJobStatus() {
 
             if (status.error) {
                 showToast('Error: ' + status.error, 'error');
-            } else if (status.message && (status.message.includes('complete') || status.message.includes('Batch complete'))) {
-                showToast(status.message.includes('Batch') ? 'Batch AI analysis complete! Refreshing...' : 'Evaluation complete! Refreshing...', 'success');
+                resetJobUI();
+            } else if (status.message && status.message.includes('Batch complete')) {
+                showToast('Batch AI analysis complete! Refreshing...', 'success');
                 setTimeout(() => loadOpportunities(), 500);
+                resetJobUI();
+            } else if (status.message && status.message.includes('complete') && status.type === 'evaluation') {
+                // Evaluation finished — chain AI batch if auto-run is checked
+                if (autoAIAfterEval) {
+                    showToast('Evaluation complete! Starting AI analysis...', 'success');
+                    setTimeout(() => loadOpportunities(), 500);
+                    startBatchAIJob();
+                } else {
+                    showToast('Evaluation complete! Refreshing...', 'success');
+                    setTimeout(() => loadOpportunities(), 500);
+                    resetJobUI();
+                }
+            } else {
+                resetJobUI();
             }
-
-            resetJobUI();
         }
     } catch (err) {
         // Ignore polling errors
@@ -1380,6 +1426,37 @@ async function runBatchAI() {
 
     } catch (err) {
         showToast('Failed to start batch AI analysis', 'error');
+        resetJobUI();
+    }
+}
+
+async function startBatchAIJob() {
+    // Start batch AI without confirmation (called after evaluation when auto-AI is on)
+    const progressDiv = document.getElementById('job-progress');
+    document.getElementById('btn-run').disabled = true;
+    document.getElementById('btn-crawl').disabled = true;
+    document.getElementById('btn-batch-ai').disabled = true;
+    progressDiv.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/ai/batch-analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: false }),
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetJobUI();
+            return;
+        }
+
+        showToast('AI analysis started automatically...', 'info');
+        jobPollInterval = setInterval(checkJobStatus, 1000);
+
+    } catch (err) {
+        showToast('Failed to start batch AI', 'error');
         resetJobUI();
     }
 }
