@@ -228,6 +228,20 @@ class FullEvaluationWorkflow:
                 slug = slug[:-1]
             self._product_family_slugs.append(slug)
 
+        # Load sitemap-derived type map if available.  The sitemap import
+        # in the dashboard writes data/sitemap_types.json with URL→type
+        # derived from sub-sitemap filenames (e.g. sitemap_products_1.xml).
+        # This is the most reliable classification source.
+        self._sitemap_types: dict[str, str] = {}
+        sitemap_types_path = Path(__file__).parent.parent.parent / "data" / "sitemap_types.json"
+        if sitemap_types_path.exists():
+            try:
+                with open(sitemap_types_path) as f:
+                    self._sitemap_types = json.load(f)
+                print(f"  Loaded sitemap type map: {len(self._sitemap_types)} URLs")
+            except (json.JSONDecodeError, IOError):
+                pass
+
     # Tracking/marketing query parameters to strip from URLs
     _STRIP_PARAMS = {
         "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -456,10 +470,19 @@ class FullEvaluationWorkflow:
         """
         Classify URL into asset type.
 
+        Priority: sitemap-derived type (most reliable) → URL pattern heuristics.
         Handles both structured URLs (/product/..., /category/...) and flat
         URL schemes where products and categories sit at the root level
         (e.g. /name-trains.html, /3-letter-name-train.html).
         """
+        # ── Sitemap-derived type (highest priority) ──
+        sitemap_type = self._sitemap_types.get(url)
+        if sitemap_type:
+            type_map = {"product": AssetType.PRODUCT, "category": AssetType.CATEGORY,
+                        "blog": AssetType.BLOG, "other": AssetType.OTHER}
+            if sitemap_type in type_map:
+                return type_map[sitemap_type]
+
         parsed = urlparse(url.lower())
         path = parsed.path.rstrip("/")
 

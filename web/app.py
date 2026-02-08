@@ -1963,7 +1963,13 @@ def api_admin_ai_log():
 
 @app.route("/api/admin/import-sitemap", methods=["POST"])
 def api_admin_import_sitemap():
-    """Fetch sitemap and merge URLs into the evaluation data as COVERAGE_GAP."""
+    """Fetch sitemap and merge URLs into the evaluation data.
+
+    When the sitemap is a sitemap index with sub-sitemaps (e.g.
+    sitemap_products_1.xml, sitemap_categories.xml, sitemap_blogs_1.xml),
+    the sub-sitemap filename is used to classify each URL's asset type.
+    This is far more reliable than URL-pattern heuristics.
+    """
     import xml.etree.ElementTree as ET
     import httpx
 
@@ -1972,8 +1978,39 @@ def api_admin_import_sitemap():
     if not sitemap_url:
         return jsonify({"error": "sitemap_url required"}), 400
 
-    def fetch_sitemap_urls(url, depth=0):
-        """Recursively fetch URLs from sitemap (handles sitemap index)."""
+    def _type_from_sitemap_name(sitemap_url_str):
+        """Infer asset type from the sub-sitemap filename.
+
+        Common patterns across e-commerce platforms:
+          sitemap_products_1.xml   → product
+          sitemap_categories.xml   → category
+          sitemap_blogs_1.xml      → blog
+          sitemap_pages.xml        → other
+          sitemap_collections_1.xml → category
+        """
+        name = sitemap_url_str.rsplit("/", 1)[-1].lower()
+        # Remove .xml extension and "sitemap_" prefix
+        name = name.replace(".xml", "").replace("sitemap_", "").replace("sitemap-", "")
+        # Strip trailing numbers (e.g. "products_1" → "products")
+        parts = name.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            name = parts[0]
+
+        if any(kw in name for kw in ("product",)):
+            return "product"
+        elif any(kw in name for kw in ("categor", "collection")):
+            return "category"
+        elif any(kw in name for kw in ("blog", "article", "post")):
+            return "blog"
+        elif any(kw in name for kw in ("page",)):
+            return "other"
+        return None  # Unknown — will fall back to URL classifier
+
+    def fetch_sitemap_urls(url, depth=0, parent_type=None):
+        """Recursively fetch URLs from sitemap (handles sitemap index).
+
+        Returns list of (url, asset_type) tuples.
+        """
         if depth > 3:
             return []
         try:
@@ -1983,43 +2020,54 @@ def api_admin_import_sitemap():
             root = ET.fromstring(resp.text)
             # Strip namespace for easier tag matching
             ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
-            urls = []
+            results = []
             # Check for sitemap index
             for sitemap in root.findall(f"{ns}sitemap"):
                 loc = sitemap.find(f"{ns}loc")
                 if loc is not None and loc.text:
-                    urls.extend(fetch_sitemap_urls(loc.text.strip(), depth + 1))
+                    sub_url = loc.text.strip()
+                    sub_type = _type_from_sitemap_name(sub_url)
+                    results.extend(fetch_sitemap_urls(sub_url, depth + 1, parent_type=sub_type))
             # Regular sitemap URLs
             for url_tag in root.findall(f"{ns}url"):
                 loc = url_tag.find(f"{ns}loc")
                 if loc is not None and loc.text:
-                    urls.append(loc.text.strip())
-            return urls
+                    results.append((loc.text.strip(), parent_type))
+            return results
         except Exception as e:
             if depth == 0:
                 raise e
             return []
 
     try:
-        urls = fetch_sitemap_urls(sitemap_url)
+        url_type_pairs = fetch_sitemap_urls(sitemap_url)
     except Exception as e:
         return jsonify({"error": f"Failed to fetch sitemap: {e}"}), 400
 
-    if not urls:
+    if not url_type_pairs:
         return jsonify({"error": "No URLs found in sitemap. Check the URL."}), 400
 
-    # Load existing evaluation data
-    eval_path = DATA_PATH / "latest_evaluation.json"
-    if eval_path.exists():
-        with open(eval_path) as f:
-            eval_data = json.load(f)
-    else:
-        eval_data = {"results": [], "metadata": {}}
+    # Build sitemap type map (URL → asset_type) for all URLs with a known type.
+    # Save this so the evaluation workflow can use it as the primary classifier.
+    sitemap_type_map = {}
+    for page_url, stype in url_type_pairs:
+        if stype:
+            sitemap_type_map[page_url] = stype
 
-    existing_urls = {r["url"] for r in eval_data.get("results", [])}
+    if sitemap_type_map:
+        type_map_path = DATA_PATH / "sitemap_types.json"
+        # Merge with existing map (don't lose types from previous imports)
+        existing_map = {}
+        if type_map_path.exists():
+            with open(type_map_path) as f:
+                existing_map = json.load(f)
+        existing_map.update(sitemap_type_map)
+        with open(type_map_path, "w") as f:
+            json.dump(existing_map, f, indent=2)
+            f.write("\n")
 
-    # Classify asset type from URL pattern (same logic as full_evaluation)
-    def classify_url(url):
+    # Fall back to URL-pattern classifier for URLs without a sitemap-derived type
+    def classify_url_fallback(url):
         from urllib.parse import urlparse
         parsed = urlparse(url.lower())
         path = parsed.path.rstrip("/")
@@ -2050,10 +2098,6 @@ def api_admin_import_sitemap():
         if slug_no_ext in _cat_slugs:
             return "category"
 
-        # Use product families from config to detect category pages.
-        # Short slugs (≤4 words, no leading digit) that contain a family
-        # name are category/listing pages.  Specific variant products
-        # (e.g. "3-letter-name-train") start with digits or are longer.
         cfg = load_config()
         families = cfg.get("business_context", {}).get("product_families", [])
         word_count = len(slug_no_ext.split("-"))
@@ -2066,19 +2110,35 @@ def api_admin_import_sitemap():
                 if not starts_with_digit and word_count <= 4:
                     return "category"
 
-        # Flat URL structure: root-level pages default to product
         if path.count("/") <= 1:
             return "product"
         return "other"
 
+    # Load existing evaluation data
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if eval_path.exists():
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+    else:
+        eval_data = {"results": [], "metadata": {}}
+
+    # Build lookup of existing results by URL for fast update
+    existing_by_url = {r["url"]: r for r in eval_data.get("results", [])}
+
     new_count = 0
-    for url in urls:
-        if url in existing_urls:
+    updated_count = 0
+    for page_url, sitemap_type in url_type_pairs:
+        asset_type = sitemap_type or classify_url_fallback(page_url)
+
+        if page_url in existing_by_url:
+            # Update asset_type on existing entries (sitemap is source of truth)
+            if sitemap_type and existing_by_url[page_url].get("asset_type") != asset_type:
+                existing_by_url[page_url]["asset_type"] = asset_type
+                updated_count += 1
             continue
 
-        asset_type = classify_url(url)
         eval_data["results"].append({
-            "url": url,
+            "url": page_url,
             "asset_type": asset_type,
             "recommended_action": "OBSERVE_ONLY",
             "mode": "OPPORTUNITY_DISCOVERY",
@@ -2110,10 +2170,18 @@ def api_admin_import_sitemap():
         json.dump(eval_data, f, indent=2)
         f.write("\n")
 
+    # Summary of types from sitemap
+    type_counts = {}
+    for _, stype in url_type_pairs:
+        t = stype or "unknown"
+        type_counts[t] = type_counts.get(t, 0) + 1
+
     return jsonify({
-        "imported": len(urls),
+        "imported": len(url_type_pairs),
         "new": new_count,
-        "existing": len(urls) - new_count,
+        "existing": len(url_type_pairs) - new_count,
+        "updated_types": updated_count,
+        "type_breakdown": type_counts,
     })
 
 
