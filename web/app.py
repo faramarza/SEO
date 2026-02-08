@@ -386,9 +386,12 @@ def api_ai_recommend():
     }
 
     # ── Confidence short-circuit ─────────────────────────────────
-    # If confidence is below the EXPLORATION threshold (lowest lane),
-    # no action lane applies — return NO_ACTION without an API call.
-    confidence = opportunity.get("confidence", 0)
+    # Gate on ACTION confidence (already lane-gated by the evaluator),
+    # not data_confidence (raw data quality score).  The evaluator
+    # already verified that action_confidence ≥ threshold before
+    # recommending an action, so re-gating on the lower data_confidence
+    # here would silently block pages that the evaluator approved.
+    confidence = opportunity.get("action_confidence", opportunity.get("confidence", 0))
     if confidence < exploration_threshold:
         return jsonify({
             "success": True,
@@ -2125,6 +2128,13 @@ def api_admin_import_sitemap():
     # Build lookup of existing results by URL for fast update
     existing_by_url = {r["url"]: r for r in eval_data.get("results", [])}
 
+    # Default confidence for sitemap-imported pages.  These are confirmed
+    # real pages (present in sitemap), so they deserve at least the minimum
+    # action confidence.  Without this, they'd be blocked by the AI
+    # recommend endpoint's confidence gate.
+    cfg = load_config()
+    default_confidence = cfg.get("governance", {}).get("exploration_confidence_threshold", 0.55)
+
     new_count = 0
     updated_count = 0
     for page_url, sitemap_type in url_type_pairs:
@@ -2140,14 +2150,18 @@ def api_admin_import_sitemap():
         eval_data["results"].append({
             "url": page_url,
             "asset_type": asset_type,
-            "recommended_action": "OBSERVE_ONLY",
+            "recommended_action": "VISIBILITY_FIX",
             "mode": "OPPORTUNITY_DISCOVERY",
             "expected_value": 0,
-            "confidence": 0,
-            "action_confidence": 0,
+            "confidence": default_confidence,
+            "action_confidence": default_confidence,
             "priority_score": 0,
             "risk_level": "low",
-            "implementation_steps": [],
+            "implementation_steps": [
+                "Check if page is indexed (use URL Inspection in GSC)",
+                "Verify page has internal links from category/navigation",
+                "Review title tag, meta description, and on-page content",
+            ],
             "primary_constraint": "coverage_gap",
             "constraints": [{
                 "constraint_type": "coverage_gap",
@@ -2159,7 +2173,7 @@ def api_admin_import_sitemap():
             "demand_score": 0,
             "intent_score": 0,
             "visibility_score": 0,
-            "data_confidence": 0,
+            "data_confidence": 0.3,
             "source": "sitemap_import",
             "page_metadata": {"has_crawl_data": False},
         })
