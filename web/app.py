@@ -2077,6 +2077,8 @@ def api_admin_import_sitemap():
 
         if "/blog" in path or "/article" in path:
             return "blog"
+        if "/faq" in path or "/help" in path:
+            return "other"
         if "/product" in path or "/p/" in path:
             return "product"
         if "/category" in path or "/c/" in path or "/collections" in path:
@@ -2110,7 +2112,9 @@ def api_admin_import_sitemap():
             if fam_slug.endswith("s"):
                 fam_slug = fam_slug[:-1]
             if fam_slug in slug_no_ext:
-                if not starts_with_digit and word_count <= 4:
+                family_words = len(fam_slug.split("-"))
+                max_words = family_words + 2
+                if not starts_with_digit and word_count <= max_words:
                     return "category"
 
         if path.count("/") <= 1:

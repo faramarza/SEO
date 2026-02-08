@@ -490,6 +490,10 @@ class FullEvaluationWorkflow:
         if "/blog" in path or "/article" in path:
             return AssetType.BLOG
 
+        # ── FAQ / help pages ──
+        if "/faq" in path or "/help" in path:
+            return AssetType.OTHER
+
         # ── Structured paths (sites with /product/ or /category/) ──
         if "/product" in path or "/p/" in path:
             return AssetType.PRODUCT
@@ -517,14 +521,17 @@ class FullEvaluationWorkflow:
 
         # ── Product-family matching ──
         # Config-driven: if the slug contains a product family name AND
-        # is a short generic slug (≤4 words, no leading digit), it's a
-        # category page.  Product pages also contain family names but with
-        # specific variant identifiers (e.g. "3-letter-name-train").
+        # is a short generic slug, it's a category page.  The max word
+        # count scales with family slug length so short families like
+        # "rug" (1 word) don't over-match specific product names like
+        # "literacy-squares-seating-rug" (4 words).
         word_count = len(slug_no_ext.split("-"))
         starts_with_digit = slug_no_ext[0].isdigit() if slug_no_ext else False
         for family_slug in self._product_family_slugs:
             if family_slug in slug_no_ext:
-                if not starts_with_digit and word_count <= 4:
+                family_words = len(family_slug.split("-"))
+                max_words = family_words + 2  # e.g. "rug"→3, "name-train"→4
+                if not starts_with_digit and word_count <= max_words:
                     return AssetType.CATEGORY
 
         # ── Default: root-level pages are products ──
