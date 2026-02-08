@@ -249,6 +249,12 @@ class FullEvaluationWorkflow:
         "fbclid", "msclkid", "twclid",
         "mc_cid", "mc_eid",
         "ref", "source",
+        # Pagination & filtering — these create duplicate entries for the
+        # same underlying page.  Metrics should merge into the canonical URL.
+        "p", "page", "pg", "start", "offset",
+        "product_list_limit", "limit", "product_list_order", "product_list_dir",
+        "product_list_mode", "order", "dir", "sort", "sortby", "sort_by",
+        "mode", "view",
     }
 
     @staticmethod

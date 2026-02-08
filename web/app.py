@@ -1964,6 +1964,29 @@ def api_admin_ai_log():
     return jsonify({"calls": calls})
 
 
+def _normalize_url(url):
+    """Strip tracking, pagination, and filter params from a URL."""
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    _STRIP = {
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+        "gclid", "gclsrc", "gbraid", "wbraid", "dclid",
+        "fbclid", "msclkid", "twclid", "mc_cid", "mc_eid", "ref", "source",
+        "p", "page", "pg", "start", "offset",
+        "product_list_limit", "limit", "product_list_order", "product_list_dir",
+        "product_list_mode", "order", "dir", "sort", "sortby", "sort_by",
+        "mode", "view",
+    }
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query, keep_blank_values=False)
+    cleaned = {k: v for k, v in params.items() if k.lower() not in _STRIP}
+    new_query = urlencode(cleaned, doseq=True) if cleaned else ""
+    return urlunparse((
+        parsed.scheme, parsed.netloc,
+        parsed.path.rstrip("/") or "/",
+        parsed.params, new_query, "",
+    ))
+
+
 @app.route("/api/admin/import-sitemap", methods=["POST"])
 def api_admin_import_sitemap():
     """Fetch sitemap and merge URLs into the evaluation data.
@@ -2031,11 +2054,11 @@ def api_admin_import_sitemap():
                     sub_url = loc.text.strip()
                     sub_type = _type_from_sitemap_name(sub_url)
                     results.extend(fetch_sitemap_urls(sub_url, depth + 1, parent_type=sub_type))
-            # Regular sitemap URLs
+            # Regular sitemap URLs (normalize to strip pagination params)
             for url_tag in root.findall(f"{ns}url"):
                 loc = url_tag.find(f"{ns}loc")
                 if loc is not None and loc.text:
-                    results.append((loc.text.strip(), parent_type))
+                    results.append((_normalize_url(loc.text.strip()), parent_type))
             return results
         except Exception as e:
             if depth == 0:
