@@ -233,8 +233,24 @@ def api_opportunities():
 
     all_results = list(seen.values())
 
-    # Persist cleanup if duplicates were removed
-    if len(all_results) < len(raw_results):
+    # Re-classify asset types from sitemap_types.json (source of truth).
+    # This corrects stale classifications left over from old heuristic runs.
+    sitemap_types_path = DATA_PATH / "sitemap_types.json"
+    reclassified = 0
+    if sitemap_types_path.exists():
+        try:
+            with open(sitemap_types_path) as f:
+                sitemap_types = json.load(f)
+            for r in all_results:
+                stype = sitemap_types.get(r.get("url", ""))
+                if stype and r.get("asset_type") != stype:
+                    r["asset_type"] = stype
+                    reclassified += 1
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # Persist cleanup if anything changed
+    if len(all_results) < len(raw_results) or reclassified > 0:
         eval_data["results"] = all_results
         with open(eval_path, "w") as f:
             json.dump(eval_data, f, indent=2)
