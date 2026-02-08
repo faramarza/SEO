@@ -754,6 +754,18 @@ class FullEvaluationWorkflow:
             "has_ads_data": constraint_result.has_ads_data,
             "monetization_score": round(constraint_result.monetization_score, 2),
             "coverage_gap_score": round(constraint_result.coverage_gap_score, 2),
+            # Raw GSC/GA4 metrics for data quality comparison
+            "gsc_impressions": asset.gsc.impressions_28d,
+            "gsc_clicks": asset.gsc.clicks_28d,
+            "gsc_ctr": round(asset.gsc.ctr_28d, 4),
+            "gsc_position": round(asset.gsc.avg_position_28d, 1),
+            "ga4_sessions": asset.ga4.sessions_28d,
+            "ga4_users": asset.ga4.users_28d,
+            "ga4_engaged_sessions": asset.ga4.engaged_sessions_28d,
+            "ga4_engagement_rate": round(asset.ga4.engagement_rate_28d, 4),
+            "ga4_revenue": round(asset.ga4.revenue_28d, 2),
+            "ga4_purchases": asset.ga4.purchases_28d,
+            "ga4_bounce_rate": round(asset.ga4.bounce_rate_28d, 4),
         }
 
         candidates = []

@@ -1868,6 +1868,167 @@ def api_tracking():
     })
 
 
+@app.route("/api/data-quality")
+def api_data_quality():
+    """
+    Data quality comparison between GSC and GA4.
+
+    Computes per-page metrics comparison, flags mismatches, and returns
+    aggregate statistics to help diagnose tracking issues.
+    """
+    eval_path = DATA_PATH / "latest_evaluation.json"
+
+    if not eval_path.exists():
+        return jsonify({
+            "status": "no_data",
+            "message": "No evaluation data. Run workflow first.",
+            "summary": {},
+            "pages": [],
+        })
+
+    with open(eval_path) as f:
+        eval_data = json.load(f)
+
+    results = eval_data.get("results", [])
+
+    # ── Per-page data quality analysis ──
+    pages = []
+    # Aggregate counters
+    total = 0
+    gsc_only = 0        # Has GSC data but no GA4
+    ga4_only = 0        # Has GA4 data but no GSC
+    both_sources = 0    # Has both
+    neither_source = 0  # Has neither (sitemap-only imports)
+    ratio_ok = 0
+    ratio_low = 0       # GA4 sessions < GSC clicks (tracking loss)
+    ratio_high = 0      # GA4 sessions > GSC clicks (misattribution)
+    zero_sessions = 0   # GSC clicks > 0 but GA4 sessions = 0
+    total_gsc_clicks = 0
+    total_ga4_sessions = 0
+    total_gsc_impressions = 0
+    total_ga4_revenue = 0
+
+    for r in results:
+        gsc_clicks = r.get("gsc_clicks", 0)
+        gsc_impressions = r.get("gsc_impressions", 0)
+        gsc_ctr = r.get("gsc_ctr", 0)
+        gsc_position = r.get("gsc_position", 0)
+        ga4_sessions = r.get("ga4_sessions", 0)
+        ga4_users = r.get("ga4_users", 0)
+        ga4_engaged = r.get("ga4_engaged_sessions", 0)
+        ga4_engagement_rate = r.get("ga4_engagement_rate", 0)
+        ga4_revenue = r.get("ga4_revenue", 0)
+        ga4_purchases = r.get("ga4_purchases", 0)
+        ga4_bounce_rate = r.get("ga4_bounce_rate", 0)
+
+        has_gsc = gsc_clicks > 0 or gsc_impressions > 0
+        has_ga4 = ga4_sessions > 0
+
+        total += 1
+        total_gsc_clicks += gsc_clicks
+        total_ga4_sessions += ga4_sessions
+        total_gsc_impressions += gsc_impressions
+        total_ga4_revenue += ga4_revenue
+
+        # Source coverage
+        if has_gsc and has_ga4:
+            both_sources += 1
+        elif has_gsc:
+            gsc_only += 1
+        elif has_ga4:
+            ga4_only += 1
+        else:
+            neither_source += 1
+
+        # Clicks-to-sessions ratio (only meaningful with ≥5 clicks)
+        ratio = None
+        ratio_status = "insufficient_data"
+        if gsc_clicks >= 5:
+            if ga4_sessions == 0:
+                ratio = 0.0
+                ratio_status = "zero_sessions"
+                zero_sessions += 1
+            else:
+                ratio = round(ga4_sessions / gsc_clicks, 2)
+                if 0.7 <= ratio <= 1.3:
+                    ratio_status = "healthy"
+                    ratio_ok += 1
+                elif ratio < 0.7:
+                    ratio_status = "low"
+                    ratio_low += 1
+                else:
+                    ratio_status = "high"
+                    ratio_high += 1
+
+        page_entry = {
+            "url": r.get("url", ""),
+            "asset_type": r.get("asset_type", "other"),
+            "gsc_impressions": gsc_impressions,
+            "gsc_clicks": gsc_clicks,
+            "gsc_ctr": round(gsc_ctr * 100, 2),
+            "gsc_position": gsc_position,
+            "ga4_sessions": ga4_sessions,
+            "ga4_users": ga4_users,
+            "ga4_engaged_sessions": ga4_engaged,
+            "ga4_engagement_rate": round(ga4_engagement_rate * 100, 1),
+            "ga4_revenue": ga4_revenue,
+            "ga4_purchases": ga4_purchases,
+            "ga4_bounce_rate": round(ga4_bounce_rate * 100, 1),
+            "clicks_sessions_ratio": ratio,
+            "ratio_status": ratio_status,
+            "data_confidence": r.get("data_confidence", 0),
+        }
+        pages.append(page_entry)
+
+    # Sort: problems first (zero_sessions, low ratio, high ratio), then by clicks desc
+    status_priority = {"zero_sessions": 0, "low": 1, "high": 2, "healthy": 3, "insufficient_data": 4}
+    pages.sort(key=lambda p: (status_priority.get(p["ratio_status"], 5), -p["gsc_clicks"]))
+
+    # Aggregate ratio for site-wide check
+    site_ratio = round(total_ga4_sessions / total_gsc_clicks, 2) if total_gsc_clicks > 0 else None
+
+    # Determine overall status
+    ratio_checked = ratio_ok + ratio_low + ratio_high + zero_sessions
+    problem_pages = ratio_low + ratio_high + zero_sessions
+    if ratio_checked == 0:
+        overall_status = "no_data"
+        status_color = "gray"
+    elif zero_sessions > 5 or (ratio_checked > 0 and problem_pages / ratio_checked > 0.3):
+        overall_status = "critical"
+        status_color = "red"
+    elif problem_pages > 3 or (ratio_checked > 0 and problem_pages / ratio_checked > 0.15):
+        overall_status = "warning"
+        status_color = "orange"
+    else:
+        overall_status = "healthy"
+        status_color = "green"
+
+    summary = {
+        "total_pages": total,
+        "both_sources": both_sources,
+        "gsc_only": gsc_only,
+        "ga4_only": ga4_only,
+        "neither_source": neither_source,
+        "ratio_healthy": ratio_ok,
+        "ratio_low": ratio_low,
+        "ratio_high": ratio_high,
+        "zero_sessions": zero_sessions,
+        "ratio_checked": ratio_checked,
+        "total_gsc_clicks": total_gsc_clicks,
+        "total_ga4_sessions": total_ga4_sessions,
+        "total_gsc_impressions": total_gsc_impressions,
+        "total_ga4_revenue": round(total_ga4_revenue, 2),
+        "site_ratio": site_ratio,
+        "status": overall_status,
+        "status_color": status_color,
+    }
+
+    return jsonify({
+        "summary": summary,
+        "pages": pages,
+    })
+
+
 @app.route("/api/ads")
 def api_ads():
     """Get Google Ads campaign and monetization data."""
