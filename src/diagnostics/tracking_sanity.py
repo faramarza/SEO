@@ -372,6 +372,10 @@ class TrackingSanityDiagnostics:
         for other in all_assets:
             if other.url == asset.url:
                 continue
+            # Skip media files as competitors
+            other_ext = Path(self.normalize_url(other.url)).suffix.lower()
+            if other_ext in self._MEDIA_EXTS:
+                continue
             if not other.gsc.top_queries:
                 continue
 
@@ -534,6 +538,13 @@ class TrackingSanityDiagnostics:
             special_classification=special,
         )
 
+    # Non-page file extensions — skip these in diagnostics entirely.
+    _MEDIA_EXTS = {
+        ".jpeg", ".jpg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp",
+        ".pdf", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot",
+        ".mp4", ".webm", ".mp3", ".ogg", ".zip", ".gz",
+    }
+
     def diagnose_all(
         self,
         assets: list[PageAsset],
@@ -553,6 +564,12 @@ class TrackingSanityDiagnostics:
 
         results = []
         for asset in assets:
+            # Skip media/non-page resources — they produce false cannibalization flags.
+            path = self.normalize_url(asset.url)
+            ext = Path(path).suffix.lower()
+            if ext in self._MEDIA_EXTS:
+                continue
+
             diag = self.diagnose_page(
                 asset=asset,
                 all_assets=assets,
