@@ -333,8 +333,10 @@ class ConstraintDetector:
         else:
             visibility_score = 0.1
 
-        # CONSTRAINT: Visibility blocked (high impressions, poor position)
-        if impressions >= 500 and position > 10:
+        # CONSTRAINT: Visibility blocked (impressions exist, poor position)
+        # Lowered from 500 to 50: any meaningful impression signal with poor
+        # position represents blocked demand worth surfacing to operators.
+        if impressions >= 50 and position > 10:
             severity = "critical" if impressions >= 5000 else "high" if impressions >= 1000 else "medium"
             constraints.append(ConstraintSignal(
                 constraint_type=ConstraintType.VISIBILITY_BLOCKED,
@@ -351,7 +353,9 @@ class ConstraintDetector:
             ))
 
         # CONSTRAINT: CTR suppressed (good position but low CTR)
-        if position <= 10 and impressions >= 500:
+        # Lowered from 500 to 100: pages ranking on page 1 with any
+        # meaningful impressions deserve CTR analysis.
+        if position <= 10 and impressions >= 100:
             expected_ctr = self.expected_ctr_by_position.get(int(position), 0.01)
             if actual_ctr < expected_ctr * 0.5:  # Less than half expected
                 constraints.append(ConstraintSignal(

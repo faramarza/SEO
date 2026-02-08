@@ -637,8 +637,9 @@ class FullEvaluationWorkflow:
         is_blog = asset.asset_type == AssetType.BLOG
 
         # If visibility is blocked but demand exists, prioritize visibility fix
+        # Lowered from 0.4 to 0.2 (≥100 impressions) to surface more blocked pages.
         if (constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
-            and constraint_result.demand_score >= 0.4):
+            and constraint_result.demand_score >= 0.2):
             # Calculate expected value based on potential, not current revenue
             potential_clicks = asset.gsc.impressions_28d * 0.05  # ~5% CTR at good position
             expected_value = potential_clicks * self.config.aov * self.config.margin * 0.1
@@ -749,8 +750,9 @@ class FullEvaluationWorkflow:
                 })
 
         # Run specialized evaluators
-        # Title/Meta evaluation
-        if asset.gsc.impressions_28d >= 500:
+        # Title/Meta evaluation — lowered from 500 to 100 so more pages
+        # get title analysis; confidence scores handle data-quality risk.
+        if asset.gsc.impressions_28d >= 100:
             title_result = self.title_evaluator.evaluate(asset)
             # TitleTestResult uses should_test and expected_ctr_lift
             if title_result.should_test and title_result.recommended_variant:
@@ -816,6 +818,51 @@ class FullEvaluationWorkflow:
                     link_candidate["routing_data"]["routing_quality"] = link_result.routing_assessment.routing_quality
                     link_candidate["routing_data"]["has_primary_destination"] = link_result.routing_assessment.has_primary_destination
             candidates.append(link_candidate)
+
+        # FALLBACK: Create opportunities for pages that no specific evaluator
+        # caught. The system should surface ALL pages with demand signals so
+        # operators can see the full inventory, not just the high-traffic tail.
+        if not candidates:
+            if asset.gsc.impressions_28d > 0:
+                # Any impressions = demand exists. Create a basic opportunity.
+                potential_ctr = 0.03 if asset.gsc.avg_position_28d > 20 else 0.05
+                potential_clicks = asset.gsc.impressions_28d * potential_ctr
+                expected_value = potential_clicks * self.config.aov * self.config.margin * 0.1
+
+                steps = constraint_result.recommended_actions if constraint_result.recommended_actions else [
+                    "Review title tag, meta description, and on-page content",
+                    "Add internal links from relevant category or blog pages",
+                    "Monitor for 28 days",
+                ]
+
+                candidates.append({
+                    "mode": "OPPORTUNITY_DISCOVERY",
+                    "action": "PAGE_REINVESTMENT",
+                    "expected_value": max(expected_value, 0.50),
+                    "confidence": constraint_result.confidence * 0.8,
+                    "risk_level": "low",
+                    "implementation_steps": steps,
+                    "source": "demand_coverage_gap",
+                })
+
+            elif asset.asset_type in (AssetType.PRODUCT, AssetType.CATEGORY):
+                # Product/category pages with zero impressions need visibility review.
+                # Zero impressions could mean: not indexed, not in sitemap,
+                # no internal links, cannibalised, or simply new.
+                candidates.append({
+                    "mode": "OPPORTUNITY_DISCOVERY",
+                    "action": "VISIBILITY_FIX",
+                    "expected_value": self.config.aov * self.config.margin * 0.1,
+                    "confidence": 0.40,
+                    "risk_level": "low",
+                    "implementation_steps": [
+                        "Check if page is indexed (use URL Inspection in GSC)",
+                        "Verify page is in XML sitemap",
+                        "Review meta robots and canonical tag",
+                        "Ensure page has internal links from category/navigation",
+                    ],
+                    "source": "zero_visibility_review",
+                })
 
         # Apply learning rules to adjust confidence
         for candidate in candidates:
