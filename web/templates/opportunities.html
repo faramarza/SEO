@@ -618,6 +618,26 @@ async function fetchPageContext(idx, url) {
                 opp.page_metadata.has_crawl_data = true;
             }
 
+            // Update constraint display to reflect live outlink data
+            const liveLinks = data.internal_outlinks || [];
+            if (liveLinks.length >= 3 && opp.constraints) {
+                const constraintsList = document.querySelector(`#detail-modal .constraints-list`);
+                if (constraintsList) {
+                    opp.constraints.forEach((c, ci) => {
+                        if (c.constraint_type === 'weak_funnel_routing') {
+                            const items = constraintsList.querySelectorAll('.constraint-item');
+                            if (items[ci]) {
+                                items[ci].className = 'constraint-item severity-low';
+                                const desc = items[ci].querySelector('.constraint-description');
+                                if (desc) desc.textContent = `[OVERRIDDEN] Batch reported ${c.evidence?.outlinks ?? 0} outlinks, but live fetch found ${liveLinks.length}. Routing is present.`;
+                                const badge = items[ci].querySelector('.severity-badge');
+                                if (badge) { badge.className = 'severity-badge severity-low'; badge.textContent = 'low'; }
+                            }
+                        }
+                    });
+                }
+            }
+
             // Enable AI Recommend button
             const aiBtn = el(`ai-btn-${idx}`);
             if (aiBtn) { aiBtn.disabled = false; aiBtn.style.opacity = '1'; aiBtn.style.cursor = 'pointer'; aiBtn.title = ''; }
@@ -877,6 +897,9 @@ async function getAIRecommendations(idx) {
 function closeModal() {
     document.getElementById('detail-modal').classList.add('hidden');
 }
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+});
 
 function exportToPDF(idx) {
     const opp = filteredOpportunities[idx];
