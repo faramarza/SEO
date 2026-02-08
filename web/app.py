@@ -2235,9 +2235,13 @@ def api_ai_batch_estimate():
     already_analyzed = [opp for opp in actionable if opp.get("ai_revised_value")]
     to_analyze = [opp for opp in actionable if not opp.get("ai_revised_value")] if skip_analyzed else actionable
 
-    # Cost estimate based on ~13K input + ~8K output tokens per page
+    # Cost estimate: use actual max_tokens from config for output,
+    # and estimate input based on prompt content settings
     config = load_config()
-    model = config.get("ai", {}).get("model", "gpt-4o-mini")
+    ai_config = config.get("ai", {})
+    model = ai_config.get("model", "gpt-4o-mini")
+    max_tokens = ai_config.get("max_tokens", 4500)
+    max_queries = ai_config.get("max_queries_in_prompt", 0)
 
     # Per-million-token pricing
     cost_table = {
@@ -2248,8 +2252,12 @@ def api_ai_batch_estimate():
         "gpt-4.1": (2.0, 8.0),
     }
     input_price, output_price = cost_table.get(model, (3.0, 15.0))
-    est_input_tokens = 13000
-    est_output_tokens = 8000
+
+    # Input estimate: ~4K base prompt + ~2K page metadata + ~150 per query
+    est_input_tokens = 6000 + (max_queries * 150)
+    # Output estimate: actual max_tokens cap (models rarely hit 100%, use 90%)
+    est_output_tokens = int(max_tokens * 0.9)
+
     cost_per_page = (est_input_tokens * input_price + est_output_tokens * output_price) / 1_000_000
     total_cost = cost_per_page * len(to_analyze)
 
