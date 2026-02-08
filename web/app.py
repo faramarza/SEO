@@ -216,8 +216,31 @@ def api_opportunities():
         for action in ledger.get_actions_by_status(status):
             active_task_urls.add(action.url)
 
+    # Deduplicate: normalize URLs to strip pagination/filter params,
+    # keeping the entry with the highest priority_score for each canonical URL.
+    raw_results = eval_data.get("results", [])
+    seen = {}
+    for r in raw_results:
+        canonical = _normalize_url(r.get("url", ""))
+        r["url"] = canonical  # Fix the URL in-place
+        existing = seen.get(canonical)
+        if existing is None:
+            seen[canonical] = r
+        else:
+            # Keep the one with higher priority; merge impression data
+            if r.get("priority_score", 0) > existing.get("priority_score", 0):
+                seen[canonical] = r
+
+    all_results = list(seen.values())
+
+    # Persist cleanup if duplicates were removed
+    if len(all_results) < len(raw_results):
+        eval_data["results"] = all_results
+        with open(eval_path, "w") as f:
+            json.dump(eval_data, f, indent=2)
+            f.write("\n")
+
     # Return all evaluated pages, but mark those with active tasks
-    all_results = eval_data.get("results", [])
     for r in all_results:
         r["has_active_task"] = r.get("url", "") in active_task_urls
 
