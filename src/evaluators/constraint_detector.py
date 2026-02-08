@@ -605,9 +605,13 @@ class ConstraintDetector:
                          if a.asset_type in (AssetType.PRODUCT, AssetType.CATEGORY)]
         total_revenue_pages = len(revenue_pages)
 
+        # Prefer live-fetched internal_outlinks (accurate) over batch outlinks count
+        # Batch crawl may report 0 outlinks if run without --crawl; live fetch is ground truth
+        effective_outlinks = len(asset.internal_outlinks) if asset.internal_outlinks else asset.outlinks
+
         # If blog has meaningful traffic but few outlinks, it's poorly routed
         has_traffic = asset.ga4.sessions_28d >= 10 or asset.gsc.impressions_28d >= 500
-        has_few_outlinks = asset.outlinks < 3
+        has_few_outlinks = effective_outlinks < 3
 
         if has_traffic and has_few_outlinks:
             severity = "high" if asset.gsc.impressions_28d >= 2000 else "medium"
@@ -616,13 +620,13 @@ class ConstraintDetector:
                 severity=severity,
                 description=(
                     f"Blog has {asset.gsc.impressions_28d:,} impressions and "
-                    f"{asset.ga4.sessions_28d} sessions but only {asset.outlinks} outlinks. "
+                    f"{asset.ga4.sessions_28d} sessions but only {effective_outlinks} outlinks. "
                     f"Traffic without routing to revenue pages has low value."
                 ),
                 evidence={
                     "impressions": asset.gsc.impressions_28d,
                     "sessions": asset.ga4.sessions_28d,
-                    "outlinks": asset.outlinks,
+                    "outlinks": effective_outlinks,
                     "total_revenue_pages_on_site": total_revenue_pages,
                 },
                 recommended_action=(
