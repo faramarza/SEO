@@ -820,8 +820,8 @@ class FullEvaluationWorkflow:
             candidates.append(link_candidate)
 
         # FALLBACK: Create opportunities for pages that no specific evaluator
-        # caught. The system should surface ALL pages with demand signals so
-        # operators can see the full inventory, not just the high-traffic tail.
+        # caught. The system should surface ALL pages so operators can see the
+        # full inventory, not just the high-traffic tail.
         if not candidates:
             if asset.gsc.impressions_28d > 0:
                 # Any impressions = demand exists. Create a basic opportunity.
@@ -839,21 +839,23 @@ class FullEvaluationWorkflow:
                     "mode": "OPPORTUNITY_DISCOVERY",
                     "action": "PAGE_REINVESTMENT",
                     "expected_value": max(expected_value, 0.50),
-                    "confidence": constraint_result.confidence * 0.8,
+                    # Use constraint confidence directly — PAGE_REINVESTMENT is a
+                    # low-risk review action, no need to penalize further.
+                    "confidence": max(constraint_result.confidence, self.config.exploration_confidence_threshold),
                     "risk_level": "low",
                     "implementation_steps": steps,
                     "source": "demand_coverage_gap",
                 })
 
-            elif asset.asset_type in (AssetType.PRODUCT, AssetType.CATEGORY):
-                # Product/category pages with zero impressions need visibility review.
-                # Zero impressions could mean: not indexed, not in sitemap,
-                # no internal links, cannibalised, or simply new.
+            else:
+                # Zero impressions — page may not be indexed, missing from
+                # sitemap, lacking internal links, or cannibalised.
+                # Surface ALL asset types so operators can investigate.
                 candidates.append({
                     "mode": "OPPORTUNITY_DISCOVERY",
                     "action": "VISIBILITY_FIX",
                     "expected_value": self.config.aov * self.config.margin * 0.1,
-                    "confidence": 0.40,
+                    "confidence": self.config.exploration_confidence_threshold,
                     "risk_level": "low",
                     "implementation_steps": [
                         "Check if page is indexed (use URL Inspection in GSC)",
