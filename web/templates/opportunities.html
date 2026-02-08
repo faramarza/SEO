@@ -154,7 +154,16 @@ function sortOpportunities() {
 
         if (aVal < bVal) return direction === 'asc' ? -1 : 1;
         if (aVal > bVal) return direction === 'asc' ? 1 : -1;
-        return 0;
+
+        // Secondary sort: AI Est desc, then Est Value desc for pages without AI Est
+        const aAI = a.ai_revised_value;
+        const bAI = b.ai_revised_value;
+        const aHasAI = aAI != null;
+        const bHasAI = bAI != null;
+        if (aHasAI && bHasAI) return bAI - aAI;
+        if (aHasAI && !bHasAI) return -1;
+        if (!aHasAI && bHasAI) return 1;
+        return (b.expected_value ?? 0) - (a.expected_value ?? 0);
     });
 }
 
