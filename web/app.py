@@ -2005,7 +2005,7 @@ def api_admin_import_sitemap():
             return "category"
         elif any(kw in name for kw in ("blog", "article", "post")):
             return "blog"
-        elif any(kw in name for kw in ("page",)):
+        elif any(kw in name for kw in ("page", "cms", "other")):
             return "other"
         return None  # Unknown — will fall back to URL classifier
 
