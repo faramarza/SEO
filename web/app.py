@@ -1965,6 +1965,7 @@ def api_admin_ai_log():
 def api_admin_import_sitemap():
     """Fetch sitemap and merge URLs into the evaluation data as COVERAGE_GAP."""
     import xml.etree.ElementTree as ET
+    import httpx
 
     data = request.json or {}
     sitemap_url = data.get("sitemap_url", "").strip()
