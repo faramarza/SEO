@@ -2020,15 +2020,55 @@ def api_admin_import_sitemap():
 
     # Classify asset type from URL pattern (same logic as full_evaluation)
     def classify_url(url):
-        url_lower = url.lower()
-        if "/product" in url_lower or "/p/" in url_lower:
-            return "product"
-        elif "/category" in url_lower or "/c/" in url_lower or "/collections" in url_lower:
-            return "category"
-        elif "/blog" in url_lower or "/article" in url_lower or "/post" in url_lower:
+        from urllib.parse import urlparse
+        parsed = urlparse(url.lower())
+        path = parsed.path.rstrip("/")
+
+        if "/blog" in path or "/article" in path:
             return "blog"
-        elif url_lower.endswith("/") and url_lower.count("/") <= 3:
+        if "/product" in path or "/p/" in path:
+            return "product"
+        if "/category" in path or "/c/" in path or "/collections" in path:
             return "category"
+        if not path or path == "/":
+            return "category"
+
+        slug = path.split("/")[-1]
+        slug_no_ext = slug.rsplit(".", 1)[0] if "." in slug else slug
+
+        _utility = {"faq", "faqs", "about", "about-us", "contact", "contact-us",
+                     "return-policy", "privacy-policy", "terms-of-service", "terms",
+                     "shipping", "shipping-policy", "price-match-policy", "testimonials",
+                     "reviews", "sitemap", "search", "cart", "checkout", "account",
+                     "login", "register", "wishlist", "gift-cards", "gift-certificates"}
+        if slug_no_ext in _utility or "policy" in slug_no_ext:
+            return "other"
+
+        _cat_slugs = {"all-products", "featured-products", "latest-products",
+                      "new-arrivals", "best-sellers", "sale", "clearance",
+                      "shop-all", "shop-by", "made-in-usa-montessori-toys"}
+        if slug_no_ext in _cat_slugs:
+            return "category"
+
+        # Use product families from config to detect category pages.
+        # Short slugs (≤4 words, no leading digit) that contain a family
+        # name are category/listing pages.  Specific variant products
+        # (e.g. "3-letter-name-train") start with digits or are longer.
+        cfg = load_config()
+        families = cfg.get("business_context", {}).get("product_families", [])
+        word_count = len(slug_no_ext.split("-"))
+        starts_with_digit = slug_no_ext[0].isdigit() if slug_no_ext else False
+        for fam in families:
+            fam_slug = fam.lower().strip().replace(" ", "-")
+            if fam_slug.endswith("s"):
+                fam_slug = fam_slug[:-1]
+            if fam_slug in slug_no_ext:
+                if not starts_with_digit and word_count <= 4:
+                    return "category"
+
+        # Flat URL structure: root-level pages default to product
+        if path.count("/") <= 1:
+            return "product"
         return "other"
 
     new_count = 0

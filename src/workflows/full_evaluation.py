@@ -86,6 +86,7 @@ class WorkflowConfig:
     google_ads_login_customer_id: Optional[str] = None
     google_ads_use_service_account: bool = False
     brand_terms: Optional[list[str]] = None
+    product_families: Optional[list[str]] = None
 
     @classmethod
     def from_json(cls, path: Path) -> "WorkflowConfig":
@@ -113,6 +114,7 @@ class WorkflowConfig:
             google_ads_login_customer_id=ads_config.get("login_customer_id"),
             google_ads_use_service_account=ads_config.get("use_service_account", False),
             brand_terms=ads_config.get("brand_terms", []),
+            product_families=data.get("business_context", {}).get("product_families", []),
         )
 
 
@@ -212,6 +214,19 @@ class FullEvaluationWorkflow:
         self._assets: list[PageAsset] = []
         self._diagnostic_results: list = []
         self._evaluation_results: list = []
+
+        # Build product-family slugs for URL classification.
+        # Config product_families like ["name trains", "step stools"] become
+        # slug fragments ["name-train", "step-stool"] to match URL patterns.
+        families = config.product_families or []
+        self._product_family_slugs = []
+        for fam in families:
+            slug = fam.lower().strip().replace(" ", "-")
+            # Strip trailing 's' to match both singular and plural URLs
+            # "name trains" → "name-train" matches /name-trains.html
+            if slug.endswith("s"):
+                slug = slug[:-1]
+            self._product_family_slugs.append(slug)
 
     # Tracking/marketing query parameters to strip from URLs
     _STRIP_PARAMS = {
@@ -421,20 +436,82 @@ class FullEvaluationWorkflow:
             # Absence of Ads data is neutral, not a failure
             self.ads_data = None
 
-    def _classify_asset_type(self, url: str) -> AssetType:
-        """Classify URL into asset type."""
-        url_lower = url.lower()
+    # Utility / info page slugs — these are never products or categories.
+    _UTILITY_SLUGS = {
+        "faq", "faqs", "about", "about-us", "contact", "contact-us",
+        "return-policy", "privacy-policy", "terms-of-service", "terms",
+        "shipping", "shipping-policy", "price-match-policy", "testimonials",
+        "reviews", "sitemap", "search", "cart", "checkout", "account",
+        "login", "register", "wishlist", "gift-cards", "gift-certificates",
+    }
 
-        if "/product" in url_lower or "/p/" in url_lower:
-            return AssetType.PRODUCT
-        elif "/category" in url_lower or "/c/" in url_lower or "/collections" in url_lower:
-            return AssetType.CATEGORY
-        elif "/blog" in url_lower or "/article" in url_lower or "/post" in url_lower:
+    # Generic listing-page slugs that indicate category / collection pages.
+    _CATEGORY_SLUGS = {
+        "all-products", "featured-products", "latest-products", "new-arrivals",
+        "best-sellers", "sale", "clearance", "shop-all", "shop-by",
+        "made-in-usa-montessori-toys",
+    }
+
+    def _classify_asset_type(self, url: str) -> AssetType:
+        """
+        Classify URL into asset type.
+
+        Handles both structured URLs (/product/..., /category/...) and flat
+        URL schemes where products and categories sit at the root level
+        (e.g. /name-trains.html, /3-letter-name-train.html).
+        """
+        parsed = urlparse(url.lower())
+        path = parsed.path.rstrip("/")
+
+        # ── Blog ──
+        if "/blog" in path or "/article" in path:
             return AssetType.BLOG
-        elif url_lower.endswith("/") and url_lower.count("/") <= 3:
-            return AssetType.CATEGORY  # Likely homepage or main category
-        else:
+
+        # ── Structured paths (sites with /product/ or /category/) ──
+        if "/product" in path or "/p/" in path:
+            return AssetType.PRODUCT
+        if "/category" in path or "/c/" in path or "/collections" in path:
+            return AssetType.CATEGORY
+
+        # ── Homepage ──
+        if not path or path == "/":
+            return AssetType.CATEGORY
+
+        # Extract slug (last path component, without extension)
+        slug = path.split("/")[-1]
+        slug_no_ext = slug.rsplit(".", 1)[0] if "." in slug else slug
+
+        # ── Utility / info pages ──
+        if slug_no_ext in self._UTILITY_SLUGS:
             return AssetType.OTHER
+        # Catch policy-like pages by keyword
+        if any(kw in slug_no_ext for kw in ("policy", "terms-of")):
+            return AssetType.OTHER
+
+        # ── Known category slugs ──
+        if slug_no_ext in self._CATEGORY_SLUGS:
+            return AssetType.CATEGORY
+
+        # ── Product-family matching ──
+        # Config-driven: if the slug contains a product family name AND
+        # is a short generic slug (≤4 words, no leading digit), it's a
+        # category page.  Product pages also contain family names but with
+        # specific variant identifiers (e.g. "3-letter-name-train").
+        word_count = len(slug_no_ext.split("-"))
+        starts_with_digit = slug_no_ext[0].isdigit() if slug_no_ext else False
+        for family_slug in self._product_family_slugs:
+            if family_slug in slug_no_ext:
+                if not starts_with_digit and word_count <= 4:
+                    return AssetType.CATEGORY
+
+        # ── Default: root-level pages are products ──
+        # On e-commerce sites with flat URL structures, products vastly
+        # outnumber categories (typically 50-100x).  Root-level .html
+        # pages that don't match any category pattern are products.
+        if path.count("/") <= 1:
+            return AssetType.PRODUCT
+
+        return AssetType.OTHER
 
     def _load_crawl_data(self, csv_path: str) -> None:
         """
