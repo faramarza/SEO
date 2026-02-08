@@ -1442,7 +1442,24 @@ If nothing is broken or improvable:
                 clean = clean[:-3]
             clean = clean.strip()
 
-            recommendations = json_module.loads(clean)
+            try:
+                recommendations = json_module.loads(clean)
+            except json_module.JSONDecodeError:
+                # Response may be truncated (hit max_tokens). Try to repair by closing open braces.
+                repair = clean
+                open_braces = repair.count('{') - repair.count('}')
+                open_brackets = repair.count('[') - repair.count(']')
+                # Trim trailing partial key/value (after last comma or colon)
+                for trim_char in [',', ':']:
+                    last = repair.rfind(trim_char)
+                    if last > repair.rfind('}') and last > repair.rfind(']'):
+                        repair = repair[:last]
+                        break
+                repair += ']' * max(0, open_brackets) + '}' * max(0, open_braces)
+                try:
+                    recommendations = json_module.loads(repair)
+                except Exception:
+                    recommendations = {"raw_response": ai_content}
 
             # ── Server-side dedup: strip existing outlink URLs from target_urls ──
             # gpt-4o-mini copies URLs from the outlinks section despite rules.
