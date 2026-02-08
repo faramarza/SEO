@@ -1486,11 +1486,26 @@ If nothing is broken or improvable:
         except Exception:
             recommendations = {"raw_response": ai_content}
 
+        # Extract AI's revised value estimate from funnel_analysis
+        ai_revised_value = None
+        if isinstance(recommendations, dict):
+            fa = recommendations.get("funnel_analysis", {})
+            if isinstance(fa, dict):
+                oe = fa.get("opportunity_estimate", {})
+                if isinstance(oe, dict):
+                    base = oe.get("base", {})
+                    if isinstance(base, dict) and base.get("total") is not None:
+                        try:
+                            ai_revised_value = float(base["total"])
+                        except (ValueError, TypeError):
+                            pass
+
         response_data = {
             "success": True,
             "url": url,
             "page_analysis": page_analysis,
             "recommendations": recommendations,
+            "ai_revised_value": ai_revised_value,
             "reproducibility": {
                 "prompt_hash": prompt_hash,
                 "model": model,
@@ -1501,11 +1516,14 @@ If nothing is broken or improvable:
         }
 
         # Persist AI recommendations so they survive page refresh
-        _persist_opportunity_update(url, {
+        persist_updates = {
             "ai_recommendations": recommendations,
             "ai_reproducibility": response_data["reproducibility"],
             "ai_timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        }
+        if ai_revised_value is not None:
+            persist_updates["ai_revised_value"] = ai_revised_value
+        _persist_opportunity_update(url, persist_updates)
 
         return jsonify(response_data)
 

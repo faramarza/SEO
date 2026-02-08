@@ -53,13 +53,14 @@
                     <th data-sort="recommended_action" class="sortable-header">Action</th>
                     <th data-sort="demand_score" class="sortable-header">Demand</th>
                     <th data-sort="expected_value" class="sortable-header sorted-desc" title="Monthly recoverable value based on position-expected CTR, AOV, and margin">Est. Value <span class="sort-icon">▼</span></th>
+                    <th data-sort="ai_revised_value" class="sortable-header" title="AI-revised estimate after analysis (base scenario)">AI Est. <span class="sort-icon"></span></th>
                     <th data-sort="confidence" class="sortable-header">Confidence <span class="sort-icon"></span></th>
                     <th data-sort="risk_level" class="sortable-header">Risk <span class="sort-icon"></span></th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="opportunities-body">
-                <tr><td colspan="9" class="loading">Loading...</td></tr>
+                <tr><td colspan="10" class="loading">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -98,6 +99,14 @@ async function loadOpportunities() {
             if (opp.ai_recommendations && !opp._ai_html) {
                 opp._ai_html = buildAIHtml(opp.ai_recommendations, opp.ai_reproducibility);
             }
+            // Hydrate AI revised value from persisted data if not already set
+            if (opp.ai_revised_value == null && opp.ai_recommendations) {
+                const fa = opp.ai_recommendations.funnel_analysis;
+                if (fa && fa.opportunity_estimate && fa.opportunity_estimate.base) {
+                    const total = fa.opportunity_estimate.base.total;
+                    if (total != null) opp.ai_revised_value = parseFloat(total) || null;
+                }
+            }
         }
 
         sortOpportunities();
@@ -105,14 +114,14 @@ async function loadOpportunities() {
     } catch (err) {
         console.error('Failed to load opportunities:', err);
         document.getElementById('opportunities-body').innerHTML =
-            '<tr><td colspan="9" class="error">Failed to load data</td></tr>';
+            '<tr><td colspan="10" class="error">Failed to load data</td></tr>';
     }
 }
 
 function sortOpportunities() {
     const { field, direction } = currentSort;
     // Numeric fields should default to 0, not empty string
-    const numericFields = ['expected_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index'];
+    const numericFields = ['expected_value', 'ai_revised_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index'];
     const isNumeric = numericFields.includes(field);
 
     allOpportunities.sort((a, b) => {
@@ -168,7 +177,7 @@ function renderOpportunities(opportunities) {
         ? `${total} pages` : `${shown} of ${total} pages`;
 
     if (opportunities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty">No opportunities match your filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="empty">No opportunities match your filters.</td></tr>';
         document.getElementById('pagination-controls').innerHTML = '';
         return;
     }
@@ -198,6 +207,7 @@ function renderOpportunities(opportunities) {
                 </div>
             </td>
             <td class="number ev-cell">$${(opp.expected_value || 0).toFixed(2)}</td>
+            <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) : '<span class="muted">—</span>'}</td>
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
             <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
             <td class="actions-cell">
@@ -878,6 +888,20 @@ async function getAIRecommendations(idx) {
         // Store the raw JSON for persistence (already saved server-side)
         opp.ai_recommendations = rec;
         opp.ai_reproducibility = data.reproducibility;
+
+        // Update AI revised value in the opportunity and refresh table row
+        if (data.ai_revised_value != null) {
+            opp.ai_revised_value = data.ai_revised_value;
+            // Also update in allOpportunities (opp may be a ref from filteredOpportunities)
+            const master = allOpportunities.find(o => o.url === opp.url);
+            if (master && master !== opp) master.ai_revised_value = data.ai_revised_value;
+            // Update the table cell in-place
+            const row = document.querySelector(`tr[data-idx="${idx}"]`);
+            if (row) {
+                const aiCell = row.querySelector('.ai-est-cell');
+                if (aiCell) aiCell.innerHTML = '$' + data.ai_revised_value.toFixed(2);
+            }
+        }
 
         const isNoAction = rec.no_action;
         btn.innerHTML = isNoAction
