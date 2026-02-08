@@ -959,6 +959,24 @@ comparison section (primary funnel step) and 1 in the summary CTA
 purchase-oriented and this category is the logical next step" IS acceptable.
 
 ────────────────────────────────
+ANCHOR TEXT ACCURACY RULE
+────────────────────────────────
+Anchor text MUST accurately describe the destination page scope:
+  – If the URL is a single product (PDP): use the specific product name.
+    CORRECT: "See the 218-Piece Unit Block Set" → /unit-blocks-set-e-218-piece-set.html
+    WRONG:   "See our Unit Block Sets" → /unit-blocks-set-e-218-piece-set.html
+    (Plural "Sets" implies a collection; linking to one product is misleading.)
+  – If the URL is a category (PLP): collection/plural language is appropriate.
+    CORRECT: "Browse Wooden Blocks" → /wooden-blocks.html
+  – If the URL is a brand page: name the brand.
+    CORRECT: "Shop Guidecraft" → /shop-by-brands/guide-craft.html
+    WRONG:   "Shop top brands" → /shop-by-brands/guide-craft.html
+
+Misleading anchor text hurts conversion — users who expect a collection page but land on
+a single product will bounce. Every anchor text must set accurate expectations for what
+the user will find when they click.
+
+────────────────────────────────
 LINK TARGET INTENT GUARDRAILS
 ────────────────────────────────
 NEVER recommend internal links to:
