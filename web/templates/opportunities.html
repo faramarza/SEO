@@ -353,7 +353,19 @@ function showDetail(idx) {
     ` : '';
 
     // Build detected constraints section
-    const detectedConstraints = opp.constraints || [];
+    // Override stale weak_funnel_routing when live-fetched outlinks exist
+    const liveOutlinks = pm.internal_outlinks || [];
+    const detectedConstraints = (opp.constraints || []).map(c => {
+        if (c.constraint_type === 'weak_funnel_routing' && liveOutlinks.length >= 3) {
+            return {
+                ...c,
+                severity: 'low',
+                description: `[OVERRIDDEN] Batch reported ${c.evidence?.outlinks ?? 0} outlinks, but live fetch found ${liveOutlinks.length}. Routing is present.`,
+                evidence: { ...c.evidence, outlinks: liveOutlinks.length, source: 'live_fetch_override' }
+            };
+        }
+        return c;
+    });
     const constraintsHtml = detectedConstraints.length > 0 ? `
         <div class="detail-section constraints-list">
             <h4>Detected Constraints</h4>
