@@ -782,5 +782,15 @@ fetch('/api/tasks/auto-measure', { method: 'POST' })
         }
     })
     .catch(() => {});
+
+// Close any open modal on Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeTaskDetail();
+        closeOutcomeModal();
+        closeRejectModal();
+        closeSendBackModal();
+    }
+});
 </script>
 {% endblock %}
