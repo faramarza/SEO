@@ -765,6 +765,43 @@ def api_ai_recommend():
     else:
         above_fold_html = ""
 
+    # ── 6b) HTML structural issues (pre-computed) ─────────────
+    # Run HTMLIssueEvaluator on the raw above-fold HTML to detect
+    # structural defects (span CTAs, empty media links, etc.) that
+    # the AI cannot see after tag stripping.
+    html_issues_str = ""
+    if above_fold_html_raw:
+        try:
+            from src.evaluators.html_issue_evaluator import HTMLIssueEvaluator
+            from src.models.page_asset import PageAsset as _PA, AssetType as _AT
+
+            _asset_type_map = {
+                "product": _AT.PRODUCT, "category": _AT.CATEGORY,
+                "blog": _AT.BLOG,
+            }
+            _pa = _PA(
+                url=url,
+                asset_type=_asset_type_map.get(page_type, _AT.OTHER),
+                above_fold_html=above_fold_html_raw,
+            )
+            _html_result = HTMLIssueEvaluator().evaluate(_pa)
+            if _html_result.has_issues:
+                issue_lines = []
+                for iss in _html_result.issues:
+                    issue_lines.append(
+                        f"- [{iss.severity}] {iss.issue_type}: {iss.description}"
+                    )
+                html_issues_str = (
+                    "\n\nHTML STRUCTURAL ISSUES (detected by automated audit — "
+                    "these are pre-verified facts, not suggestions):\n"
+                    + "\n".join(issue_lines) + "\n"
+                    "You MUST acknowledge these issues in your analysis. "
+                    "If recommending a CONTENT_CLARIFY or routing fix, "
+                    "include fixing these structural issues in the implementation steps."
+                )
+        except Exception:
+            pass  # Evaluator failure should not block AI analysis
+
     # ── 7) Pipeline scores — pass to AI for anchoring ─────────
     pipeline_ev = opportunity.get("expected_value", 0)
     pipeline_confidence = opportunity.get("confidence", 0)
@@ -1073,6 +1110,31 @@ Any TITLE_META_TEST recommendation MUST include the EXACT proposed text:
 YEAR RULE: If any variant includes a year, it MUST use current_year from INPUTS (currently {datetime.now().year}).
 NEVER use a past year. Stale years make the page look outdated in SERPs.
 
+DELIMITER RULE: Do NOT use pipe characters (|) or other delimiters (–, :, //) to separate
+keyword segments in title tags. Google frequently rewrites delimited titles, replacing them
+with H1 text, breadcrumbs, or site name appended automatically. Titles with pipes look
+keyword-stuffed and trigger rewrite heuristics.
+WRONG: "Montessori Toys by Age | Wooden, USA-Made | Free Shipping"
+RIGHT: "Best Montessori Toys by Age — Wooden, USA-Made, Free Shipping"
+RIGHT: "Montessori Toys for Babies, Toddlers, and Preschoolers"
+Use natural sentence structure or comma-separated phrases. An em dash (—) is acceptable
+for ONE separator if needed. Multiple delimiters are never acceptable.
+
+FACTUAL ACCURACY RULE (CRITICAL — LEGAL LIABILITY):
+Every claim in a proposed title or meta description MUST be verifiable from the page content
+provided in the INPUTS (content_preview, above_fold_html, internal_outlinks).
+You MUST NOT:
+  – Broaden qualified claims. If the page says "free shipping within the continental US",
+    you CANNOT write "Free Shipping on all orders."
+  – Universalize partial claims. If the page says "Many of our toys are made in the USA",
+    you CANNOT write "USA-Made" without the qualifier. Write "Includes USA-Made" or
+    "Many USA-Made Options" instead.
+  – Invent claims not on the page. If no "price match guarantee" appears in the content,
+    you CANNOT add it to the meta description.
+False or overstated claims in meta descriptions create legal liability (FTC Act Section 5,
+state consumer protection laws) and erode trust when users land on a page that contradicts
+the SERP snippet. Verify every claim against the actual page content before including it.
+
 SEQUENTIAL TEST RULE: Title tags cannot be A/B tested — Google shows one title at a time.
 When proposing multiple variants, present them as PRIORITY-RANKED sequential options:
   - "Deploy Variant A first. Evaluate in GSC after 28 days."
@@ -1346,7 +1408,7 @@ canonical_current: {cached_canonical or 'null'}
 robots_meta: {robots_meta or 'null'}
 word_count: {cached_word_count}
 above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
-
+{html_issues_str}
 internal_outlinks (DIAGNOSTIC ONLY — these links ALREADY EXIST on this page, do NOT recommend these):
 {outlinks_str}
 {outlink_blocklist_section}
