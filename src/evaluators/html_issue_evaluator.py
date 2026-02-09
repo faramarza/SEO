@@ -70,23 +70,28 @@ class HTMLIssueEvaluator:
     """
     Detects HTML structural issues that leak link equity or block engagement.
 
-    Operates on the raw HTML stored in PageAsset.above_fold_html and the
-    internal_outlinks list.  Produces an HTMLIssueResult with concrete
+    Operates on PageAsset.body_html (full page) when available, falling back
+    to above_fold_html.  The above-fold-only check (#3) always uses
+    above_fold_html regardless.  Produces an HTMLIssueResult with concrete
     implementation steps.
     """
 
     def evaluate(self, asset: PageAsset) -> HTMLIssueResult:
         issues: list[HTMLIssue] = []
-        html = asset.above_fold_html or ""
+        # Use full body HTML for detections that need whole-page coverage;
+        # fall back to above_fold_html when body_html is not available.
+        full_html = asset.body_html or asset.above_fold_html or ""
+        above_fold = asset.above_fold_html or ""
 
         # --- 1. Span / div CTAs masquerading as links ----------------------
-        issues.extend(self._detect_span_ctas(html))
+        issues.extend(self._detect_span_ctas(full_html))
 
         # --- 2. Media-wrapping <a> tags with no anchor text ----------------
-        issues.extend(self._detect_empty_media_links(html, asset))
+        issues.extend(self._detect_empty_media_links(full_html, asset))
 
         # --- 3. No semantic <a> link above the fold ------------------------
-        issues.extend(self._detect_missing_above_fold_link(html, asset))
+        #     This check intentionally uses above_fold_html only.
+        issues.extend(self._detect_missing_above_fold_link(above_fold, asset))
 
         # Build implementation steps
         steps = self._build_steps(issues)

@@ -36,6 +36,7 @@ class CrawlResult:
     meta_description: str = ""
     content_preview: str = ""
     above_fold_html: str = ""
+    body_html: str = ""  # Raw body HTML for structural analysis (e.g. HTMLIssueEvaluator)
     internal_outlinks: list = None  # List of {target_url, anchor_text, location}
     error: Optional[str] = None
 
@@ -73,6 +74,11 @@ class HTMLMetaParser(HTMLParser):
         self._above_fold_len = 0
         self._above_fold_skip_depth = 0
         self._above_fold_pending_tags: list[str] = []  # Tags waiting for text content
+
+        # Raw body HTML for full-page structural analysis
+        self._body_html_parts: list[str] = []
+        self._body_html_len = 0
+        self._BODY_HTML_LIMIT = 100_000  # Cap at 100KB to avoid memory issues
 
         # Internal outlinks
         self._links: list[dict] = []
@@ -368,6 +374,13 @@ class SimpleCrawler:
                 if canonical and not canonical.startswith(("http://", "https://")):
                     canonical = urljoin(url, canonical)
 
+                # Extract raw body HTML for structural analysis
+                body_match = re.search(
+                    r'<body[^>]*>(.*)</body>', response.text,
+                    re.DOTALL | re.IGNORECASE,
+                )
+                body_html = body_match.group(1)[:100_000] if body_match else ""
+
                 return CrawlResult(
                     url=url,
                     status_code=response.status_code,
@@ -379,6 +392,7 @@ class SimpleCrawler:
                     word_count=parser.get_word_count(),
                     content_preview=parser.get_content_preview(200),
                     above_fold_html=parser.get_above_fold_html(),
+                    body_html=body_html,
                     internal_outlinks=parser.get_internal_outlinks(),
                 )
 

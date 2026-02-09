@@ -766,11 +766,12 @@ def api_ai_recommend():
         above_fold_html = ""
 
     # ── 6b) HTML structural issues (pre-computed) ─────────────
-    # Run HTMLIssueEvaluator on the raw above-fold HTML to detect
-    # structural defects (span CTAs, empty media links, etc.) that
-    # the AI cannot see after tag stripping.
+    # Run HTMLIssueEvaluator on full body HTML (or above-fold fallback)
+    # to detect structural defects (span CTAs, empty media links, etc.)
+    # that the AI cannot see after tag stripping.
+    body_html_raw = pm.get("body_html", "")
     html_issues_str = ""
-    if above_fold_html_raw:
+    if body_html_raw or above_fold_html_raw:
         try:
             from src.evaluators.html_issue_evaluator import HTMLIssueEvaluator
             from src.models.page_asset import PageAsset as _PA, AssetType as _AT
@@ -783,6 +784,7 @@ def api_ai_recommend():
                 url=url,
                 asset_type=_asset_type_map.get(page_type, _AT.OTHER),
                 above_fold_html=above_fold_html_raw,
+                body_html=body_html_raw,
             )
             _html_result = HTMLIssueEvaluator().evaluate(_pa)
             if _html_result.has_issues:
@@ -2671,6 +2673,15 @@ def api_page_metadata():
             if canonical and not canonical.startswith(("http://", "https://")):
                 canonical = urljoin(url, canonical)
 
+            # Extract raw body HTML for full-page structural analysis
+            # (HTMLIssueEvaluator needs tags intact to detect span CTAs, empty media links, etc.)
+            import re as _re_fetch
+            _body_match = _re_fetch.search(
+                r'<body[^>]*>(.*)</body>', response.text,
+                _re_fetch.DOTALL | _re_fetch.IGNORECASE,
+            )
+            body_html = _body_match.group(1)[:100_000] if _body_match else ""
+
             metadata = {
                 "title": parser.title.strip(),
                 "h1": parser.h1.strip(),
@@ -2680,6 +2691,7 @@ def api_page_metadata():
                 "content_preview": parser.get_content_preview(200),
                 "robots_meta": parser.meta_robots.strip(),
                 "above_fold_html": parser.get_above_fold_html(),
+                "body_html": body_html,
                 "internal_outlinks": parser.get_internal_outlinks(),
                 "has_crawl_data": True,
             }
@@ -2779,6 +2791,14 @@ def api_run_evaluation():
                                     if canonical and not canonical.startswith(("http://", "https://")):
                                         canonical = urljoin(url, canonical)
 
+                                    # Extract raw body HTML for structural analysis
+                                    import re as _re_batch
+                                    _bm = _re_batch.search(
+                                        r'<body[^>]*>(.*)</body>', response.text,
+                                        _re_batch.DOTALL | _re_batch.IGNORECASE,
+                                    )
+                                    _batch_body = _bm.group(1)[:100_000] if _bm else ""
+
                                     result = CrawlResult(
                                         url=url,
                                         status_code=response.status_code,
@@ -2790,6 +2810,7 @@ def api_run_evaluation():
                                         meta_description=parser.meta_description.strip(),
                                         content_preview=parser.get_content_preview(200),
                                         above_fold_html=parser.get_above_fold_html(),
+                                        body_html=_batch_body,
                                     )
                                 else:
                                     result = CrawlResult(

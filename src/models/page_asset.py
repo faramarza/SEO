@@ -91,6 +91,7 @@ class PageAsset(BaseModel):
     word_count: int = Field(default=0, ge=0)
     content_preview: str = Field(default="", description="First ~200 words of page body text")
     above_fold_html: str = Field(default="", description="Above-the-fold HTML snippet after H1")
+    body_html: str = Field(default="", description="Raw body HTML for structural analysis")
 
     # Internal link graph metrics
     inlinks: int = Field(default=0, ge=0, description="Number of internal pages linking to this page")
