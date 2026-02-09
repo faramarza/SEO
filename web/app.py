@@ -467,12 +467,7 @@ def api_ai_recommend():
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
     max_tokens = ai_config.get("max_tokens", 4500)
-    # Claude models produce more detailed output; ensure enough room
-    if model.startswith("claude-") and max_tokens < 16000:
-        max_tokens = 16000
     timeout_sec = ai_config.get("timeout", 120)
-    if model.startswith("claude-") and timeout_sec < 180:
-        timeout_sec = 180
     max_queries = ai_config.get("max_queries_in_prompt", 0)
     max_issues = ai_config.get("max_issues_in_prompt", 0)
     min_context = ai_config.get("min_context_fields", 3)
