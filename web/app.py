@@ -1112,17 +1112,26 @@ Any TITLE_META_TEST recommendation MUST include the EXACT proposed text:
 YEAR RULE: If any variant includes a year, it MUST use current_year from INPUTS (currently {datetime.now().year}).
 NEVER use a past year. Stale years make the page look outdated in SERPs.
 
-DELIMITER RULE: Title tags MUST read as natural phrases or sentences. Do NOT use delimiters
-(pipes |, em dashes —, en dashes –, colons :, slashes //) to glue keyword segments together.
-Google frequently rewrites segmented titles, and delimiters signal keyword stuffing.
+DELIMITER RULE: Title tags MUST read as natural phrases a human would say out loud.
+Do NOT use delimiters (pipes |, em dashes —, en dashes –, colons :, slashes //) to
+glue keyword segments together. Google frequently rewrites segmented titles.
+
 WRONG: "Montessori Toys by Age | Wooden, USA-Made | Free Shipping"
 WRONG: "Montessori Toys for Babies, Toddlers, and Preschoolers — Wooden, Expert-Curated"
-  (Two keyword blocks joined by em dash — still a segmented title)
+WRONG: "Montessori Toys for Babies Through Preschoolers, Expert-Curated in Wood"
+  ("Through Preschoolers" is unnatural; "Expert-Curated in Wood" is grammatically broken)
+
 RIGHT: "Best Wooden Montessori Toys for Babies, Toddlers, and Preschoolers"
-RIGHT: "Expert-Curated Montessori Toys Sorted by Age"
-The title should read like a phrase a human would say. If you need to remove the delimiter
-to make it work, restructure the title so differentiators flow naturally within it
-(e.g. adjectives before the noun, prepositional phrases after).
+  (Differentiator "Wooden" is a natural adjective before the noun)
+RIGHT: "Expert-Curated Wooden Montessori Toys Sorted by Age"
+  (Two adjectives + prepositional phrase — reads like a real sentence)
+RIGHT: "Shop Wooden Montessori Toys for Every Age"
+  (Action verb + adjective + natural object)
+
+Technique: Place differentiators as ADJECTIVES before the product noun or as
+PREPOSITIONAL PHRASES after it. Do not comma-append extra keywords at the end.
+Read the title out loud — if it sounds like a list of SEO keywords glued together,
+rewrite it until it sounds like something a person would actually say.
 
 FACTUAL ACCURACY RULE (CRITICAL — LEGAL LIABILITY):
 Every claim in a proposed title or meta description MUST be verifiable from the page content
