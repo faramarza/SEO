@@ -655,19 +655,12 @@ async function fetchPageContext(idx, url) {
             }
 
             // Update cached data so AI recommendations use it
+            // Use Object.assign to copy ALL fields from fetch response,
+            // so new fields added to the server don't require JS changes.
             const opp = filteredOpportunities[idx];
             if (opp) {
                 if (!opp.page_metadata) opp.page_metadata = {};
-                opp.page_metadata.title = data.title;
-                opp.page_metadata.h1 = data.h1;
-                opp.page_metadata.meta_description = data.meta_description;
-                opp.page_metadata.canonical_url = data.canonical_url;
-                opp.page_metadata.word_count = data.word_count;
-                opp.page_metadata.content_preview = data.content_preview;
-                opp.page_metadata.robots_meta = data.robots_meta;
-                opp.page_metadata.above_fold_html = data.above_fold_html;
-                opp.page_metadata.body_html = data.body_html;
-                opp.page_metadata.internal_outlinks = data.internal_outlinks;
+                Object.assign(opp.page_metadata, data);
                 opp.page_metadata.has_crawl_data = true;
             }
 

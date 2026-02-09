@@ -476,6 +476,25 @@ def api_ai_recommend():
     pm = opportunity.get("page_metadata", {})
     print(f"[AI-DEBUG] page_metadata keys received: {list(pm.keys())}")
     print(f"[AI-DEBUG] body_html in pm: {'body_html' in pm}, length: {len(pm.get('body_html', ''))}")
+
+    # Fallback: if body_html missing from POST (browser cache), read from persisted data
+    if not pm.get("body_html"):
+        try:
+            eval_path = DATA_PATH / "latest_evaluation.json"
+            if eval_path.exists():
+                import json as _json_fb
+                with open(eval_path) as _f:
+                    _eval = _json_fb.load(_f)
+                for _r in _eval.get("results", []):
+                    if _r.get("url") == url:
+                        _persisted_pm = _r.get("page_metadata", {})
+                        _body = _persisted_pm.get("body_html", "")
+                        if _body:
+                            pm["body_html"] = _body
+                            print(f"[AI-DEBUG] body_html recovered from persisted data: {len(_body)} chars")
+                        break
+        except Exception:
+            pass
     cached_title = pm.get("title", "")
     cached_h1 = pm.get("h1", "")
     cached_meta = pm.get("meta_description", "")
