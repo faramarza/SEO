@@ -124,6 +124,12 @@ class HTMLIssueEvaluator:
     # Detectors
     # ------------------------------------------------------------------
 
+    # Auth/login buttons that should NOT be flagged as CTA issues
+    _AUTH_PATTERNS = re.compile(
+        r'sign\s*in|log\s*in|log\s*out|sign\s*up|register|forgot\s*password',
+        re.IGNORECASE,
+    )
+
     def _detect_span_ctas(self, html: str) -> list[HTMLIssue]:
         """Find <span>/<div> elements styled as buttons but not <a> tags."""
         found: list[HTMLIssue] = []
@@ -132,6 +138,11 @@ class HTMLIssueEvaluator:
             inner_text = re.sub(r'<[^>]+>', '', match.group(2)).strip()
             if not inner_text:
                 continue
+
+            # Skip auth/login buttons — these are intentionally non-link elements
+            if self._AUTH_PATTERNS.search(inner_text):
+                continue
+
             snippet = match.group(0)[:120]
 
             # Check for id/class misspellings as a bonus detail
@@ -192,6 +203,15 @@ class HTMLIssueEvaluator:
             # Extract href
             href_match = re.search(r'href="([^"]*)"', attrs)
             href = href_match.group(1) if href_match else "unknown"
+
+            # Skip homepage logo links — standard pattern, not an SEO defect
+            if href in ("/", "") or href.rstrip("/") == asset.url.rstrip("/"):
+                continue
+            # Also skip if href is just the root domain
+            from urllib.parse import urlparse
+            _parsed = urlparse(href)
+            if _parsed.path in ("/", "") and not _parsed.query:
+                continue
 
             snippet = match.group(0)[:120]
             found.append(HTMLIssue(
