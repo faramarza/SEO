@@ -802,11 +802,10 @@ def api_ai_recommend():
                 ev = r.get("expected_value", 0)
                 conf = r.get("confidence", 0)
 
-                # GSC metrics for this page (impressions, clicks, position)
-                r_gsc = r.get("gsc_metrics", {})
-                impressions = r_gsc.get("impressions_28d", 0)
-                clicks = r_gsc.get("clicks_28d", 0)
-                avg_pos = r_gsc.get("avg_position_28d", 0)
+                # GSC metrics for this page (flat fields in evaluation results)
+                impressions = r.get("gsc_impressions", 0) or 0
+                clicks = r.get("gsc_clicks", 0) or 0
+                avg_pos = r.get("gsc_position", 0) or 0
 
                 # Query overlap: count how many query words this page shares
                 # with the target page (topical relevance signal)
