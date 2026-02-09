@@ -142,9 +142,21 @@ function renderTask(task, status) {
         ? task.primary_constraint.replace(/_/g, ' ')
         : '';
 
-    const summary = task.implementation_summary
-        || (task.implementation_steps && task.implementation_steps[0])
-        || '';
+    // Implementation steps — show the full list, not a truncated summary
+    const steps = task.implementation_steps || [];
+    const summaryText = task.implementation_summary || '';
+    let stepsHtml = '';
+    if (steps.length > 0) {
+        stepsHtml = `
+            <ol style="margin: 6px 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                ${steps.map(s => `<li style="margin-bottom: 2px;">${s}</li>`).join('')}
+            </ol>`;
+    } else if (summaryText) {
+        stepsHtml = `
+            <div style="margin: 6px 0; font-size: 12px; color: var(--text-secondary); line-height: 1.4; border-left: 2px solid var(--border-color); padding-left: 8px;">
+                ${summaryText}
+            </div>`;
+    }
 
     // Countdown for in-progress tasks
     let countdownHtml = '';
@@ -166,6 +178,17 @@ function renderTask(task, status) {
         `;
     }
 
+    // Outcome with metrics for closed tasks
+    let outcomeHtml = '';
+    if (task.outcome) {
+        let metricsSnippet = '';
+        if (task.outcome_metrics && task.outcome_metrics.baseline_clicks !== undefined) {
+            const m = task.outcome_metrics;
+            metricsSnippet = ` | Clicks: ${m.baseline_clicks} → ${m.current_clicks}, Impr: ${m.baseline_impressions} → ${m.current_impressions}`;
+        }
+        outcomeHtml = `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 100) : ''}${metricsSnippet}</div>`;
+    }
+
     // Actions per column
     let actions = '';
     if (status === 'proposed') {
@@ -181,11 +204,22 @@ function renderTask(task, status) {
         `;
     }
 
+    // Dates
+    const createdDate = task.created_at ? new Date(task.created_at).toLocaleDateString() : '';
+    const implDate = task.implemented_at ? new Date(task.implemented_at).toLocaleDateString() : '';
+    let dateHtml = '';
+    if (implDate) {
+        dateHtml = `<span style="font-size: 11px; color: var(--text-muted);">Approved ${implDate}</span>`;
+    } else if (createdDate) {
+        dateHtml = `<span style="font-size: 11px; color: var(--text-muted);">Proposed ${createdDate}</span>`;
+    }
+
     return `
         <div class="task-card ${outcomeClass}" onclick="showTaskDetail('${task.action_id}', '${status}')" style="cursor: pointer;">
             <div class="task-header">
                 <span class="task-id">${task.action_id}</span>
                 <span class="action-badge action-${(task.action_type || '').toLowerCase()}" style="font-size: 11px; padding: 1px 6px;">${(task.action_type || '').replace(/_/g, ' ')}</span>
+                ${dateHtml}
             </div>
             <div class="task-url" title="${task.url}">
                 <a href="${task.url}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>
@@ -195,18 +229,15 @@ function renderTask(task, status) {
                 Constraint: <strong style="color: var(--text-secondary);">${constraintLabel}</strong>
             </div>
             ` : ''}
-            ${summary ? `
-            <div style="margin: 6px 0; font-size: 12px; color: var(--text-secondary); line-height: 1.4; border-left: 2px solid var(--border-color); padding-left: 8px;">
-                ${summary.length > 120 ? summary.slice(0, 120) + '...' : summary}
-            </div>
-            ` : ''}
+            ${stepsHtml}
             <div class="task-metrics">
                 <span title="Expected Value">EV: $${task.score_value}</span>
                 <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
                 <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
+                ${task.evaluation_window_days ? `<span title="Evaluation Window" style="color: var(--text-muted);">${task.evaluation_window_days}d window</span>` : ''}
             </div>
             ${countdownHtml}
-            ${task.outcome ? `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 80) : ''}</div>` : ''}
+            ${outcomeHtml}
             <div class="task-actions" onclick="event.stopPropagation();">${actions}</div>
         </div>
     `;
