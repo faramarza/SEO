@@ -2465,6 +2465,10 @@ def api_admin_import_sitemap():
         "existing": len(url_type_pairs) - new_count,
         "updated_types": updated_count,
         "type_breakdown": type_counts,
+        "urls": [
+            {"url": u, "type": t or "unknown"}
+            for u, t in url_type_pairs
+        ],
     })
 
 

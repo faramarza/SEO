@@ -125,6 +125,30 @@
         </div>
     </div>
 
+    <!-- Sitemap Import Results -->
+    <div class="admin-card" id="sitemap-results-card" style="margin-top: 20px; display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="margin: 0;">Sitemap Import Results</h3>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <select id="sitemap-type-filter" onchange="filterSitemapTable()" style="font-size: 13px; padding: 4px 8px;">
+                    <option value="">All Types</option>
+                </select>
+                <span id="sitemap-showing" style="font-size: 12px; color: var(--text-muted);"></span>
+            </div>
+        </div>
+        <div class="table-container" style="max-height: 500px; overflow-y: auto;">
+            <table class="data-table" id="sitemap-table">
+                <thead>
+                    <tr>
+                        <th style="cursor:pointer;" onclick="sortSitemapTable('url')">URL <span id="sitemap-sort-url"></span></th>
+                        <th style="cursor:pointer; width: 100px;" onclick="sortSitemapTable('type')">Type <span id="sitemap-sort-type"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="sitemap-body"></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Run Evaluation -->
     <div class="admin-card" style="margin-top: 20px;">
         <h3>Run Evaluation</h3>
@@ -281,6 +305,11 @@ async function saveDataSources() {
     await saveConfig(payload, 'Data sources saved');
 }
 
+// ── Sitemap import table state ──
+let sitemapData = [];       // full URL list from last import
+let sitemapSortCol = 'url';
+let sitemapSortAsc = true;
+
 async function importSitemap() {
     const url = document.getElementById('ds-sitemap-url').value.trim();
     if (!url) {
@@ -305,11 +334,85 @@ async function importSitemap() {
         } else {
             statusEl.textContent = `${data.imported} URLs imported (${data.new} new, ${data.existing} already in pipeline)`;
             showToast(`Imported ${data.new} new URLs from sitemap`, 'success');
+
+            // Populate results table
+            if (data.urls && data.urls.length > 0) {
+                sitemapData = data.urls;
+                buildSitemapTypeFilter();
+                sitemapSortCol = 'url';
+                sitemapSortAsc = true;
+                renderSitemapTable();
+                document.getElementById('sitemap-results-card').style.display = 'block';
+            }
         }
     } catch (err) {
         statusEl.textContent = '';
         showToast('Import failed: ' + err.message, 'error');
     }
+}
+
+function buildSitemapTypeFilter() {
+    const types = [...new Set(sitemapData.map(r => r.type))].sort();
+    const sel = document.getElementById('sitemap-type-filter');
+    sel.innerHTML = '<option value="">All Types</option>' +
+        types.map(t => `<option value="${t}">${t} (${sitemapData.filter(r => r.type === t).length})</option>`).join('');
+}
+
+function filterSitemapTable() {
+    renderSitemapTable();
+}
+
+function sortSitemapTable(col) {
+    if (sitemapSortCol === col) {
+        sitemapSortAsc = !sitemapSortAsc;
+    } else {
+        sitemapSortCol = col;
+        sitemapSortAsc = true;
+    }
+    renderSitemapTable();
+}
+
+function renderSitemapTable() {
+    const filter = document.getElementById('sitemap-type-filter').value;
+    let rows = sitemapData;
+    if (filter) {
+        rows = rows.filter(r => r.type === filter);
+    }
+
+    // Sort
+    rows = [...rows].sort((a, b) => {
+        const va = (a[sitemapSortCol] || '').toLowerCase();
+        const vb = (b[sitemapSortCol] || '').toLowerCase();
+        if (va < vb) return sitemapSortAsc ? -1 : 1;
+        if (va > vb) return sitemapSortAsc ? 1 : -1;
+        return 0;
+    });
+
+    // Update sort indicators
+    document.getElementById('sitemap-sort-url').textContent = sitemapSortCol === 'url' ? (sitemapSortAsc ? '▲' : '▼') : '';
+    document.getElementById('sitemap-sort-type').textContent = sitemapSortCol === 'type' ? (sitemapSortAsc ? '▲' : '▼') : '';
+
+    // Show count
+    document.getElementById('sitemap-showing').textContent =
+        `Showing ${rows.length} of ${sitemapData.length}`;
+
+    const typeColors = {
+        product: 'var(--accent-blue)',
+        category: 'var(--accent-purple)',
+        blog: 'var(--accent-green)',
+        other: 'var(--text-muted)',
+        unknown: 'var(--text-muted)',
+    };
+
+    const tbody = document.getElementById('sitemap-body');
+    tbody.innerHTML = rows.map(r => {
+        const shortUrl = r.url.replace(/https?:\/\/[^\/]+/, '');
+        const color = typeColors[r.type] || 'var(--text-muted)';
+        return `<tr>
+            <td title="${r.url}" style="max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px;">${shortUrl}</td>
+            <td><span style="color: ${color}; font-weight: 600; font-size: 12px; text-transform: uppercase;">${r.type}</span></td>
+        </tr>`;
+    }).join('');
 }
 
 async function saveConfig(payload, successMsg) {
