@@ -204,68 +204,141 @@ function renderTask(task, status) {
         `;
     }
 
+    const constraintLabel = task.primary_constraint
+        ? task.primary_constraint.replace(/_/g, ' ')
+        : '';
+
     return `
         <div class="task-card ${outcomeClass}" onclick="showTaskDetail('${task.action_id}', '${status}')" style="cursor: pointer;">
-            <div class="task-header" style="margin-bottom: 8px;">
+            <div class="task-header">
                 <span class="task-id">${task.action_id}</span>
+                <span class="action-badge action-${(task.action_type || '').toLowerCase()}" style="font-size: 11px; padding: 1px 6px;">${(task.action_type || '').replace(/_/g, ' ')}</span>
             </div>
-            <div class="detail-grid" style="gap: 8px; margin-bottom: 0;">
-                <div class="detail-item">
-                    <label>URL</label>
-                    <p style="font-size: 12px;"><a href="${task.url}" target="_blank" class="detail-link" onclick="event.stopPropagation();">${task.url}</a></p>
-                </div>
-                <div class="detail-item">
-                    <label>Action Type</label>
-                    <p><span class="action-badge action-${(task.action_type || '').toLowerCase()}">${(task.action_type || '').replace(/_/g, ' ')}</span></p>
-                </div>
-                <div class="detail-item">
-                    <label>Expected Value</label>
-                    <p class="detail-value" style="font-size: 15px;">$${task.score_value}</p>
-                </div>
-                <div class="detail-item">
-                    <label>Confidence</label>
-                    <p class="detail-value" style="font-size: 15px;">${(task.confidence * 100).toFixed(0)}%</p>
-                </div>
-                ${task.primary_constraint ? `
-                <div class="detail-item">
-                    <label>Primary Constraint</label>
-                    <p style="font-size: 12px;">${task.primary_constraint.replace(/_/g, ' ')}</p>
-                </div>` : ''}
-                <div class="detail-item">
-                    <label>Risk Level</label>
-                    <p><span class="risk-badge risk-${task.risk_level || 'low'}" style="color: ${riskColor};">${task.risk_level || 'low'}</span></p>
-                </div>
-                ${task.evaluation_window_days ? `
-                <div class="detail-item">
-                    <label>Evaluation Window</label>
-                    <p style="font-size: 12px;">${task.evaluation_window_days} days</p>
-                </div>` : ''}
-                ${task.asset_type ? `
-                <div class="detail-item">
-                    <label>Asset Type</label>
-                    <p style="font-size: 12px;">${task.asset_type}</p>
-                </div>` : ''}
-                ${task.mode ? `
-                <div class="detail-item">
-                    <label>Mode</label>
-                    <p style="font-size: 12px;">${task.mode.replace(/_/g, ' ')}</p>
-                </div>` : ''}
-                <div class="detail-item">
-                    <label>Created</label>
-                    <p style="font-size: 12px;">${task.created_at ? new Date(task.created_at).toLocaleString() : '—'}</p>
-                </div>
-                ${task.implemented_at ? `
-                <div class="detail-item">
-                    <label>Implemented</label>
-                    <p style="font-size: 12px;">${new Date(task.implemented_at).toLocaleString()}</p>
-                </div>` : ''}
+            <div class="task-url" title="${task.url}">
+                <a href="${task.url}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>
             </div>
-            ${stepsHtml}
+            ${constraintLabel ? `
+            <div style="margin: 4px 0; font-size: 12px; color: var(--text-muted);">
+                Constraint: <strong style="color: var(--text-secondary);">${constraintLabel}</strong>
+            </div>` : ''}
+            <div class="task-metrics">
+                <span title="Expected Value">EV: $${task.score_value}</span>
+                <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
+                <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
+            </div>
             ${countdownHtml}
             ${outcomeHtml}
-            <div class="task-actions" onclick="event.stopPropagation();" style="margin-top: 10px;">${actions}</div>
+            <div class="task-actions" onclick="event.stopPropagation();">${actions}</div>
         </div>
     `;
+}
+
+// ── Shared AI rendering (same as opportunities page) ──
+function buildAIHtml(rec, reproducibility) {
+    if (rec.no_action) {
+        return `<div class="ai-recommendation"><div class="rec-item critical"><h5>No Action</h5><p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>${rec.missing_context ? '<p><strong>Missing:</strong> ' + rec.missing_context.join(', ') + '</p>' : ''}</div></div>`;
+    }
+    if (rec.raw_response) {
+        try {
+            let raw = rec.raw_response.trim();
+            if (raw.toLowerCase().startsWith('```json')) raw = raw.slice(7);
+            else if (raw.startsWith('```')) raw = raw.slice(3);
+            if (raw.trimEnd().endsWith('```')) raw = raw.trimEnd().slice(0, -3);
+            raw = raw.trim();
+            const braceIdx = raw.indexOf('{');
+            if (braceIdx > 0) raw = raw.slice(braceIdx);
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && (parsed.validity_audit || parsed.recommendations || parsed.funnel_analysis)) return buildAIHtml(parsed, reproducibility);
+        } catch (e) {}
+        return `<div class="ai-recommendation"><div class="rec-item"><h5>AI Response</h5><pre style="white-space: pre-wrap;">${rec.raw_response}</pre></div></div>`;
+    }
+    const va = rec.validity_audit || {};
+    const fa = rec.funnel_analysis || {};
+    const ca = rec.constraint_accountability || {};
+    const actions = rec.recommendations || rec.actions || [];
+    const noActions = rec.no_actions || [];
+    const isAllNoAction = actions.length === 0 || actions.every(a => a.action_type === 'NO_ACTION');
+    const vBadge = (status) => {
+        const s = (status || '').split('—')[0].trim().toUpperCase();
+        const color = s === 'VALID' ? '#059669' : s === 'INVALID' ? '#dc2626' : '#ca8a04';
+        return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${color}18;color:${color};font-weight:600;font-size:11px;">${s}</span> <span style="color:#6b7280;font-size:12px;">${(status || '').includes('—') ? status.split('—').slice(1).join('—').trim() : ''}</span>`;
+    };
+    let validityHtml = '';
+    if (Object.keys(va).length > 0) {
+        validityHtml = `<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Step 1: Validity Audit</h5><table style="width:100%;font-size:12px;border-collapse:collapse;">${Object.entries(va).map(([k, v]) => '<tr><td style="padding:3px 8px;font-weight:bold;text-transform:capitalize;width:140px;border-bottom:1px solid #f0f0f0;">' + k.replace(/_/g, ' ') + '</td><td style="padding:3px 8px;border-bottom:1px solid #f0f0f0;">' + vBadge(v) + '</td></tr>').join('')}</table></div>`;
+    }
+    let funnelHtml = '';
+    if (Object.keys(fa).length > 0) {
+        const oe = fa.opportunity_estimate;
+        let oeStr = '—';
+        if (oe) {
+            if (typeof oe === 'string') { oeStr = oe; }
+            else {
+                let parts = [];
+                if (oe.summary) parts.push(oe.summary);
+                else {
+                    const lo = oe.low?.total ?? '?', ba = oe.base?.total ?? '?', hi = oe.high?.total ?? '?';
+                    const loR = oe.low?.routing_pct ?? '?', baR = oe.base?.routing_pct ?? '?', hiR = oe.high?.routing_pct ?? '?';
+                    parts.push('$' + lo + ' / $' + ba + ' / $' + hi + ' (low/base/high @ ' + loR + '%/' + baR + '%/' + hiR + '% routing)');
+                }
+                if (oe.base?.math) parts.push('<br><small style="font-weight:400;color:#6b7280;">Base: ' + oe.base.math + '</small>');
+                if (oe.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.routing_evidence + '</small>');
+                else if (oe.base?.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.base.routing_evidence + '</small>');
+                oeStr = parts.join('');
+            }
+        }
+        funnelHtml = `<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Step 2: Funnel Analysis</h5><table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${oeStr}</td></tr>
+            ${fa.pipeline_reconciliation ? '<tr><td style="padding:4px 8px;font-weight:bold;border-top:1px solid #f0f0f0;vertical-align:top;">Pipeline Check</td><td style="padding:4px 8px;border-top:1px solid #f0f0f0;font-size:11px;color:#6b7280;">' + fa.pipeline_reconciliation + '</td></tr>' : ''}
+        </table></div>`;
+    }
+    let accountabilityHtml = '';
+    if (Object.keys(ca).length > 0) {
+        const dispBadge = (d) => { const colors = { ACTIONED: '#059669', DEFERRED: '#ca8a04', SUPERSEDED: '#6b7280' }; const c = colors[(d||'').toUpperCase()] || '#6b7280'; return '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:' + c + '18;color:' + c + ';font-weight:600;font-size:11px;">' + (d||'UNKNOWN').toUpperCase() + '</span>'; };
+        accountabilityHtml = `<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Constraint Accountability</h5><table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <tr style="background:#f8fafc;"><th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:150px;">Constraint</th><th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:100px;">Disposition</th><th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;">Reasoning</th></tr>
+            ${Object.entries(ca).map(([k, v]) => '<tr><td style="padding:4px 8px;font-weight:bold;text-transform:capitalize;border-bottom:1px solid #f0f0f0;">' + k.replace(/_/g, ' ') + '</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">' + dispBadge(v.disposition) + (v.action_ref ? ' <span style="font-size:11px;color:#6b7280;">(→ #' + v.action_ref + ')</span>' : '') + '</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">' + (v.reasoning || '—') + '</td></tr>').join('')}
+        </table></div>`;
+    }
+    let actionsHtml = '';
+    if (actions.length > 0) {
+        actionsHtml = '<h5 style="margin: 12px 0 4px 0;">Step 3: Recommendations</h5>' + actions.map((a, i) => {
+            const isNoAct = a.action_type === 'NO_ACTION';
+            const riskColor = a.risk_level === 'high' ? '#dc2626' : a.risk_level === 'medium' ? '#ea580c' : '#059669';
+            return `<div class="rec-item ${isNoAct ? 'critical' : ''}" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <h5 style="margin: 0;">Action ${i + 1}: ${(a.action_type || 'NO_ACTION').replace(/_/g, ' ')}</h5>
+                    <span style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: ${riskColor}20; color: ${riskColor}; font-weight: 600;">${a.risk_level || 'low'} risk</span>
+                </div>
+                ${a.diagnosed_constraint ? '<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ' + a.diagnosed_constraint + '</p>' : ''}
+                ${a.target_urls && a.target_urls.length ? '<p style="margin: 4px 0; font-size: 12px;"><strong>Target URLs:</strong> ' + a.target_urls.map(u => '<code style="background:#e8f4fd;padding:1px 4px;border-radius:3px;font-size:11px;">' + u + '</code>').join(', ') + '</p>' : ''}
+                <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
+                    <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
+                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${a.exact_changes || 'N/A'}</pre>
+                </div>
+                <p style="margin: 6px 0;"><strong>Why:</strong> ${a.why_this_works || 'N/A'}</p>
+                <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${a.rollback_plan || 'N/A'}</p>
+                ${a.measurement ? '<table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; background: #f9fafb; border-radius: 4px;"><tr><td style="padding: 3px 8px; font-weight: bold;">Metric</td><td style="padding: 3px 8px;">' + (a.measurement.primary_metric || '—') + '</td><td style="padding: 3px 8px; font-weight: bold;">Direction</td><td style="padding: 3px 8px;">' + (a.measurement.expected_direction || '—') + '</td></tr><tr><td style="padding: 3px 8px; font-weight: bold;">Window</td><td style="padding: 3px 8px;">' + (a.measurement.evaluation_window || '—') + '</td><td style="padding: 3px 8px; font-weight: bold;">Stop if</td><td style="padding: 3px 8px; color: #dc2626;">' + (a.measurement.stop_threshold || '—') + '</td></tr></table>' : ''}
+            </div>`;
+        }).join('');
+    }
+    let noActionsHtml = '';
+    if (noActions.length > 0) {
+        noActionsHtml = '<div class="rec-item" style="margin-top: 8px; background: #f0fdf4; padding: 10px; border-radius: 6px;"><h5 style="margin: 0 0 6px 0;">Explicitly Preserved (No Change)</h5><ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #059669;">' + noActions.map(n => '<li style="margin: 2px 0;">' + n + '</li>').join('') + '</ul></div>';
+    }
+    let html = `<div class="ai-recommendation">
+        <div class="rec-item" style="background: ${isAllNoAction ? '#fef2f2' : '#f0fdf4'}; padding: 12px; border-radius: 6px;"><p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || (isAllNoAction ? 'No actionable issues found — all elements valid.' : 'Analysis complete.')}</p></div>
+        ${validityHtml}${funnelHtml}${accountabilityHtml}${actionsHtml}${noActionsHtml}
+    </div>`;
+    if (reproducibility) {
+        const r = reproducibility;
+        html += '<div class="rec-item" style="margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 4px; font-size: 12px; color: #6b7280;"><strong>Reproducibility</strong><span style="margin-left: 12px;">Hash: <code>' + (r.prompt_hash || '—') + '</code></span><span style="margin-left: 12px;">Model: ' + (r.model || '—') + '</span><span style="margin-left: 12px;">Temp: ' + (r.temperature ?? '—') + '</span><span style="margin-left: 12px;">Tokens: ' + (r.tokens_used?.total ?? '—') + '</span></div>';
+    }
+    return html;
 }
 
 function showTaskDetail(actionId, status) {
@@ -273,12 +346,175 @@ function showTaskDetail(actionId, status) {
     const task = tasks.find(t => t.action_id === actionId);
     if (!task) return;
 
+    const pm = task.page_metadata || {};
+
     document.getElementById('task-detail-title').textContent = `${task.action_type?.replace(/_/g, ' ') || 'Task'} — ${task.action_id}`;
 
+    // Helper: score class
+    const scoreClass = (val) => val >= 0.6 ? 'score-high' : val >= 0.3 ? 'score-medium' : 'score-low';
+
+    // Helper: capture class label
+    const captureClassLabel = (cc) => {
+        const labels = { 'capture_expansion': 'Capture Expansion', 'capture_validation': 'Capture Validation', 'capture_deferred': 'Capture Deferred', 'no_action': 'No Action' };
+        return labels[cc] || cc || '—';
+    };
+
+    // Helper: format constraint
+    const formatConstraint = (c) => {
+        const labels = { 'visibility_blocked': 'Visibility', 'ctr_suppressed': 'CTR', 'intent_mismatch': 'Intent', 'coverage_gap': 'Coverage', 'cannibalization': 'Cannibal.', 'economic_invalid': 'Economics', 'no_constraint': '—' };
+        return labels[c] || (c || '').replace(/_/g, ' ');
+    };
+
+    // Implementation steps
     const steps = task.implementation_steps || [];
     const stepsHtml = steps.length > 0
-        ? '<ol style="margin: 8px 0; padding-left: 20px; line-height: 1.8;">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
-        : '<p style="color: var(--text-muted);">No implementation steps specified.</p>';
+        ? '<ol class="impl-steps">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
+        : '<p class="no-steps">No implementation steps specified.</p>';
+
+    // Constraint scores bars
+    const constraintScoresHtml = (task.demand_score !== undefined) ? `
+        <div class="constraint-scores">
+            <div class="score-item">
+                <span class="score-label">Demand</span>
+                <span class="score-value ${scoreClass(task.demand_score)}">${((task.demand_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar"><div class="score-bar-fill fill-demand" style="width: ${(task.demand_score || 0) * 100}%"></div></div>
+            </div>
+            <div class="score-item">
+                <span class="score-label">Intent</span>
+                <span class="score-value ${scoreClass(task.intent_score)}">${((task.intent_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar"><div class="score-bar-fill fill-intent" style="width: ${(task.intent_score || 0) * 100}%"></div></div>
+            </div>
+            <div class="score-item">
+                <span class="score-label">Visibility</span>
+                <span class="score-value ${scoreClass(task.visibility_score)}">${((task.visibility_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar"><div class="score-bar-fill fill-visibility" style="width: ${(task.visibility_score || 0) * 100}%"></div></div>
+            </div>
+        </div>
+    ` : '';
+
+    // Detected constraints
+    const detectedConstraints = task.constraints || [];
+    const constraintsHtml = detectedConstraints.length > 0 ? `
+        <div class="detail-section constraints-list">
+            <h4>Detected Constraints</h4>
+            ${detectedConstraints.map(c => `
+                <div class="constraint-item severity-${c.severity}">
+                    <div class="constraint-item-header">
+                        <span class="constraint-type-label">${(c.constraint_type || '').replace(/_/g, ' ')}</span>
+                        <span class="severity-badge severity-${c.severity}">${c.severity}</span>
+                    </div>
+                    <p class="constraint-description">${c.description}</p>
+                    ${c.evidence ? `<div class="constraint-evidence"><code>${JSON.stringify(c.evidence, null, 2)}</code></div>` : ''}
+                    <p class="constraint-action">${c.recommended_action}</p>
+                </div>
+            `).join('')}
+        </div>
+    ` : '';
+
+    // GSC query data table
+    const topQueries = task.top_queries || [];
+    const queriesHtml = `
+        <div class="detail-section">
+            <h4>GSC Query Data</h4>
+            ${topQueries.length > 0 ? `
+            <table class="query-data-table">
+                <thead>
+                    <tr><th>Query</th><th>Impr</th><th>Clicks</th><th>Position</th><th>CTR</th></tr>
+                </thead>
+                <tbody>
+                    ${topQueries.map(q => `
+                        <tr class="${q.position <= 10 ? 'page-one' : q.position <= 20 ? 'page-two' : 'page-three-plus'}">
+                            <td class="query-text">${q.query}</td>
+                            <td class="number">${q.impressions.toLocaleString()}</td>
+                            <td class="number">${q.clicks.toLocaleString()}</td>
+                            <td class="number position-cell">${q.position}</td>
+                            <td class="number">${q.ctr}%</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <p class="query-legend">
+                <span class="legend-item page-one">● Page 1 (1-10)</span>
+                <span class="legend-item page-two">● Page 2 (11-20)</span>
+                <span class="legend-item page-three-plus">● Page 3+ (21+)</span>
+            </p>
+            ` : `<p class="empty-state">No query data available.</p>`}
+        </div>
+    `;
+
+    // Technical issues
+    const issuesHtml = (task.issues && task.issues.length > 0) ? `
+        <div class="detail-section issues-section">
+            <h4>Technical Issues</h4>
+            ${task.issues.map(issue => `
+                <div class="issue-detail issue-${issue.severity}">
+                    <div class="issue-header-detail">
+                        <span class="issue-type-badge">${issue.type.replace(/_/g, ' ')}</span>
+                        <span class="severity-badge severity-${issue.severity}">${issue.severity}</span>
+                    </div>
+                    <p class="issue-description">${issue.description}</p>
+                    <div class="issue-fix-box"><strong>Fix:</strong> <code>${issue.fix}</code></div>
+                    <p class="issue-impact"><em>Impact: ${issue.impact}</em></p>
+                </div>
+            `).join('')}
+        </div>
+    ` : '';
+
+    // Page context table
+    const pageContextHtml = pm.has_crawl_data ? `
+        <div class="detail-section page-context-section">
+            <h4>Page Context</h4>
+            <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${pm.title || '[Not found]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${pm.h1 || '[Not found]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.meta_description || '<em style="color:#999;">[Not found]</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.canonical_url || '<em style="color:#999;">[Not set]</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.word_count || '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Content Preview</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); border-bottom: 1px solid #eee;">${pm.content_preview || '[Not available]'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Robots Meta</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${pm.robots_meta || '[None]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Internal Outlinks</td>
+                    <td style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #eee;">${pm.internal_outlinks && pm.internal_outlinks.length > 0 ? pm.internal_outlinks.slice(0,15).map(l => '<div style="margin-bottom:2px;"><span style="color:#6b7280;">' + l.anchor_text + '</span> → <code style="font-size:11px;">' + l.target_url + '</code></div>').join('') : '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Above Fold</td>
+                    <td style="padding: 6px 10px; font-size: 11px; line-height: 1.4; color: var(--text-secondary); max-height: 80px; overflow: auto;">${pm.above_fold_html ? '<code style="word-break:break-all;">' + (pm.above_fold_html || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,300) + (pm.above_fold_html.length > 300 ? '...' : '') + '</code>' : '[Not available]'}</td>
+                </tr>
+            </table>
+        </div>
+    ` : '';
+
+    // AI recommendations — reuse buildAIHtml if available, otherwise render stored HTML
+    const aiRec = task.ai_recommendations;
+    let aiHtml = '';
+    if (aiRec) {
+        if (typeof buildAIHtml === 'function') {
+            aiHtml = buildAIHtml(aiRec, task.ai_reproducibility);
+        } else {
+            aiHtml = '<pre style="white-space: pre-wrap; font-size: 12px;">' + JSON.stringify(aiRec, null, 2) + '</pre>';
+        }
+    }
 
     // Metrics comparison (if closed with auto-measure data)
     let metricsHtml = '';
@@ -313,61 +549,59 @@ function showTaskDetail(actionId, status) {
     }
 
     document.getElementById('task-detail-body').innerHTML = `
-        <div class="detail-grid" style="margin-bottom: 16px;">
+        <div class="detail-grid">
             <div class="detail-item">
                 <label>URL</label>
                 <p><a href="${task.url}" target="_blank" class="detail-link">${task.url}</a></p>
             </div>
             <div class="detail-item">
-                <label>Action Type</label>
-                <p><span class="action-badge action-${(task.action_type || '').toLowerCase()}">${(task.action_type || '').replace(/_/g, ' ')}</span></p>
+                <label>Capture Class</label>
+                <p><span class="capture-class-badge ${(task.capture_class || 'no_action').replace(/_/g, '-')}">${captureClassLabel(task.capture_class)}</span></p>
             </div>
             <div class="detail-item">
-                <label>Expected Value</label>
-                <p class="detail-value">$${task.score_value}</p>
+                <label>Est. Value</label>
+                <p class="detail-value" title="Monthly recoverable value">$${task.score_value}</p>
             </div>
             <div class="detail-item">
                 <label>Confidence</label>
                 <p class="detail-value">${(task.confidence * 100).toFixed(0)}%</p>
             </div>
-            ${task.primary_constraint ? `
             <div class="detail-item">
                 <label>Primary Constraint</label>
-                <p>${task.primary_constraint.replace(/_/g, ' ')}</p>
-            </div>` : ''}
+                <p><span class="constraint-badge constraint-${(task.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(task.primary_constraint)}</span></p>
+            </div>
             <div class="detail-item">
                 <label>Risk Level</label>
                 <p><span class="risk-badge risk-${task.risk_level || 'low'}">${task.risk_level || 'low'}</span></p>
             </div>
-            ${task.evaluation_window_days ? `
-            <div class="detail-item">
-                <label>Evaluation Window</label>
-                <p>${task.evaluation_window_days} days</p>
-            </div>` : ''}
-            ${task.asset_type ? `
-            <div class="detail-item">
-                <label>Asset Type</label>
-                <p>${task.asset_type}</p>
-            </div>` : ''}
-            ${task.mode ? `
-            <div class="detail-item">
-                <label>Mode</label>
-                <p>${task.mode.replace(/_/g, ' ')}</p>
-            </div>` : ''}
-            <div class="detail-item">
-                <label>Created</label>
-                <p>${task.created_at ? new Date(task.created_at).toLocaleString() : '—'}</p>
-            </div>
-            ${task.implemented_at ? `
-            <div class="detail-item">
-                <label>Implemented</label>
-                <p>${new Date(task.implemented_at).toLocaleString()}</p>
-            </div>` : ''}
         </div>
-        <div style="margin-bottom: 16px;">
-            <h4 style="margin-bottom: 8px;">Implementation Steps</h4>
+        ${constraintScoresHtml}
+        ${constraintsHtml}
+        ${queriesHtml}
+        ${issuesHtml}
+        <div class="detail-section">
+            <h4>Implementation Steps</h4>
             ${stepsHtml}
         </div>
+        ${task.rollback_plan ? `
+        <div class="detail-section rollback-section">
+            <h4>Rollback Plan</h4>
+            <p>${task.rollback_plan}</p>
+        </div>
+        ` : ''}
+        ${task.learning_reference ? `
+        <div class="detail-section learning-ref">
+            <h4>Learning Reference</h4>
+            <p>${task.learning_reference}</p>
+        </div>
+        ` : ''}
+        ${pageContextHtml}
+        ${aiHtml ? `
+        <div class="detail-section ai-section">
+            <h4>AI Recommendations</h4>
+            <div class="ai-content">${aiHtml}</div>
+        </div>
+        ` : ''}
         ${metricsHtml}
         ${task.outcome ? `
         <div style="margin-bottom: 16px; padding: 12px; border-radius: 6px; background: ${task.outcome === 'positive' ? '#f0fdf4' : task.outcome === 'negative' ? '#fef2f2' : '#f9fafb'};">

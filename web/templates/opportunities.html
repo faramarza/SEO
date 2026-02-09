@@ -1244,6 +1244,18 @@ async function approveAction(idx) {
                 action_surface: opp.action_surface || 'other',
                 score_type: opp.score_type || 'EV',
                 source: opp.source || 'evaluation',
+                // Full opportunity context for the task board
+                constraints: opp.constraints || [],
+                top_queries: opp.top_queries || [],
+                page_metadata: opp.page_metadata || {},
+                ai_recommendations: opp.ai_recommendations || null,
+                ai_reproducibility: opp.ai_reproducibility || null,
+                issues: opp.issues || [],
+                rollback_plan: opp.rollback_plan || '',
+                learning_reference: opp.learning_reference || '',
+                capture_class: opp.capture_class || '',
+                intent_score: opp.intent_score,
+                visibility_score: opp.visibility_score,
             }),
         });
 

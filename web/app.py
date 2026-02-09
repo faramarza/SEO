@@ -408,6 +408,18 @@ def api_tasks():
             "implementation_steps": rec.get("implementation_steps", []),
             "implementation_summary": rec.get("implementation_summary", ""),
             "demand_score": rec.get("demand_score"),
+            # Full opportunity context for modal parity
+            "constraints": rec.get("constraints", []),
+            "top_queries": rec.get("top_queries", []),
+            "page_metadata": rec.get("page_metadata", {}),
+            "ai_recommendations": rec.get("ai_recommendations"),
+            "ai_reproducibility": rec.get("ai_reproducibility"),
+            "issues": rec.get("issues", []),
+            "rollback_plan": rec.get("rollback_plan", ""),
+            "learning_reference": rec.get("learning_reference", ""),
+            "capture_class": rec.get("capture_class", ""),
+            "intent_score": rec.get("intent_score"),
+            "visibility_score": rec.get("visibility_score"),
         })
 
     return jsonify(tasks_by_status)
@@ -451,6 +463,18 @@ def api_approve_opportunity():
             "asset_type": data.get("asset_type"),
             "demand_score": data.get("demand_score"),
             "implementation_summary": data.get("implementation_summary"),
+            # Full opportunity context for the task board modal
+            "constraints": data.get("constraints", []),
+            "top_queries": data.get("top_queries", []),
+            "page_metadata": data.get("page_metadata", {}),
+            "ai_recommendations": data.get("ai_recommendations"),
+            "ai_reproducibility": data.get("ai_reproducibility"),
+            "issues": data.get("issues", []),
+            "rollback_plan": data.get("rollback_plan", ""),
+            "learning_reference": data.get("learning_reference", ""),
+            "capture_class": data.get("capture_class", ""),
+            "intent_score": data.get("intent_score"),
+            "visibility_score": data.get("visibility_score"),
         },
     )
 
