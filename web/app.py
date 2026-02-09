@@ -771,6 +771,7 @@ def api_ai_recommend():
     # that the AI cannot see after tag stripping.
     body_html_raw = pm.get("body_html", "")
     html_issues_str = ""
+    print(f"[AI-DEBUG] body_html length: {len(body_html_raw)}, above_fold_html length: {len(above_fold_html_raw)}")
     if body_html_raw or above_fold_html_raw:
         try:
             from src.evaluators.html_issue_evaluator import HTMLIssueEvaluator
@@ -787,6 +788,9 @@ def api_ai_recommend():
                 body_html=body_html_raw,
             )
             _html_result = HTMLIssueEvaluator().evaluate(_pa)
+            print(f"[AI-DEBUG] HTMLIssueEvaluator found {len(_html_result.issues)} issues (has_issues={_html_result.has_issues})")
+            for iss in _html_result.issues:
+                print(f"[AI-DEBUG]   -> {iss.issue_type}: {iss.description[:80]}")
             if _html_result.has_issues:
                 issue_lines = []
                 for iss in _html_result.issues:
@@ -801,8 +805,10 @@ def api_ai_recommend():
                     "If recommending a CONTENT_CLARIFY or routing fix, "
                     "include fixing these structural issues in the implementation steps."
                 )
-        except Exception:
-            pass  # Evaluator failure should not block AI analysis
+        except Exception as exc:
+            print(f"[AI-DEBUG] HTMLIssueEvaluator FAILED: {exc}")
+            import traceback
+            traceback.print_exc()
 
     # ── 7) Pipeline scores — pass to AI for anchoring ─────────
     pipeline_ev = opportunity.get("expected_value", 0)
@@ -1499,6 +1505,9 @@ If nothing is broken or improvable:
 
     # ── Reproducibility: hash the prompt ──────────────────────
     prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+    print(f"[AI-DEBUG] prompt_hash={prompt_hash}, prompt_length={len(prompt)}")
+    print(f"[AI-DEBUG] html_issues_str present: {bool(html_issues_str)} (length={len(html_issues_str)})")
+    print(f"[AI-DEBUG] DELIMITER RULE in prompt: {'DELIMITER RULE' in prompt}")
 
     system_message = (
         "You are the Alphabet Trains Agentic Growth Governor. "
