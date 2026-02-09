@@ -418,9 +418,10 @@ def api_ai_recommend():
     preservation_threshold = gov_config.get("preservation_confidence_threshold", 0.75)
 
     # Get API key from environment or config
-    api_key = os.environ.get(ai_config.get("api_key_env", "OPENAI_API_KEY"))
+    api_key_env = ai_config.get("api_key_env", "OPENAI_API_KEY")
+    api_key = os.environ.get(api_key_env)
     if not api_key:
-        return jsonify({"error": "OpenAI API key not configured. Set OPENAI_API_KEY environment variable."}), 400
+        return jsonify({"error": f"AI API key not configured. Set {api_key_env} environment variable."}), 400
 
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
@@ -455,8 +456,12 @@ def api_ai_recommend():
     # already verified that action_confidence ≥ threshold before
     # recommending an action, so re-gating on the lower data_confidence
     # here would silently block pages that the evaluator approved.
+    #
+    # When force_analysis=True (batch mode), skip this gate entirely
+    # so every page gets an AI estimate regardless of confidence.
+    force_analysis = data.get("force_analysis", False)
     confidence = opportunity.get("action_confidence", opportunity.get("confidence", 0))
-    if confidence < exploration_threshold:
+    if not force_analysis and confidence < exploration_threshold:
         return jsonify({
             "success": True,
             "url": url,
@@ -2841,10 +2846,11 @@ def api_ai_batch_analyze():
                 fresh_data = json.load(f)
             opps = fresh_data.get("results", [])
 
-            # Filter to actionable opportunities (skip NO_ACTION, OBSERVE_ONLY)
+            # Filter to opportunities worth analyzing (skip NO_ACTION only;
+            # include OBSERVE_ONLY so they get AI estimates too)
             actionable = [
                 opp for opp in opps
-                if opp.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
+                if opp.get("recommended_action") not in ("NO_ACTION", None)
             ]
 
             # Filter by page type if specified
@@ -2903,7 +2909,7 @@ def api_ai_batch_analyze():
                     with app.test_client() as client:
                         resp = client.post(
                             "/api/ai/recommend",
-                            json={"url": url, "opportunity": opp},
+                            json={"url": url, "opportunity": opp, "force_analysis": True},
                             content_type="application/json",
                         )
                         if resp.status_code == 200:
