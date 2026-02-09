@@ -138,23 +138,23 @@ function renderTask(task, status) {
     const riskColor = task.risk_level === 'high' ? 'var(--accent-red)'
         : task.risk_level === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-green)';
 
-    const constraintLabel = task.primary_constraint
-        ? task.primary_constraint.replace(/_/g, ' ')
-        : '';
-
-    // Implementation steps — show the full list, not a truncated summary
+    // Implementation steps
     const steps = task.implementation_steps || [];
     const summaryText = task.implementation_summary || '';
     let stepsHtml = '';
     if (steps.length > 0) {
         stepsHtml = `
-            <ol style="margin: 6px 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
-                ${steps.map(s => `<li style="margin-bottom: 2px;">${s}</li>`).join('')}
-            </ol>`;
+            <div style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Implementation Steps</label>
+                <ol style="margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                    ${steps.map(s => `<li style="margin-bottom: 2px;">${s}</li>`).join('')}
+                </ol>
+            </div>`;
     } else if (summaryText) {
         stepsHtml = `
-            <div style="margin: 6px 0; font-size: 12px; color: var(--text-secondary); line-height: 1.4; border-left: 2px solid var(--border-color); padding-left: 8px;">
-                ${summaryText}
+            <div style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Summary</label>
+                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4; margin: 0;">${summaryText}</p>
             </div>`;
     }
 
@@ -169,7 +169,7 @@ function renderTask(task, status) {
             ? 'Ready for measurement'
             : `${task.days_remaining}d of ${task.evaluation_window_days}d remaining`;
         countdownHtml = `
-            <div style="margin: 6px 0 2px;">
+            <div style="margin: 8px 0 2px;">
                 <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 3px;">${label}</div>
                 <div style="height: 4px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
                     <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 2px; transition: width .3s;"></div>
@@ -204,41 +204,66 @@ function renderTask(task, status) {
         `;
     }
 
-    // Dates
-    const createdDate = task.created_at ? new Date(task.created_at).toLocaleDateString() : '';
-    const implDate = task.implemented_at ? new Date(task.implemented_at).toLocaleDateString() : '';
-    let dateHtml = '';
-    if (implDate) {
-        dateHtml = `<span style="font-size: 11px; color: var(--text-muted);">Approved ${implDate}</span>`;
-    } else if (createdDate) {
-        dateHtml = `<span style="font-size: 11px; color: var(--text-muted);">Proposed ${createdDate}</span>`;
-    }
-
     return `
         <div class="task-card ${outcomeClass}" onclick="showTaskDetail('${task.action_id}', '${status}')" style="cursor: pointer;">
-            <div class="task-header">
+            <div class="task-header" style="margin-bottom: 8px;">
                 <span class="task-id">${task.action_id}</span>
-                <span class="action-badge action-${(task.action_type || '').toLowerCase()}" style="font-size: 11px; padding: 1px 6px;">${(task.action_type || '').replace(/_/g, ' ')}</span>
-                ${dateHtml}
             </div>
-            <div class="task-url" title="${task.url}">
-                <a href="${task.url}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>
+            <div class="detail-grid" style="gap: 8px; margin-bottom: 0;">
+                <div class="detail-item">
+                    <label>URL</label>
+                    <p style="font-size: 12px;"><a href="${task.url}" target="_blank" class="detail-link" onclick="event.stopPropagation();">${task.url}</a></p>
+                </div>
+                <div class="detail-item">
+                    <label>Action Type</label>
+                    <p><span class="action-badge action-${(task.action_type || '').toLowerCase()}">${(task.action_type || '').replace(/_/g, ' ')}</span></p>
+                </div>
+                <div class="detail-item">
+                    <label>Expected Value</label>
+                    <p class="detail-value" style="font-size: 15px;">$${task.score_value}</p>
+                </div>
+                <div class="detail-item">
+                    <label>Confidence</label>
+                    <p class="detail-value" style="font-size: 15px;">${(task.confidence * 100).toFixed(0)}%</p>
+                </div>
+                ${task.primary_constraint ? `
+                <div class="detail-item">
+                    <label>Primary Constraint</label>
+                    <p style="font-size: 12px;">${task.primary_constraint.replace(/_/g, ' ')}</p>
+                </div>` : ''}
+                <div class="detail-item">
+                    <label>Risk Level</label>
+                    <p><span class="risk-badge risk-${task.risk_level || 'low'}" style="color: ${riskColor};">${task.risk_level || 'low'}</span></p>
+                </div>
+                ${task.evaluation_window_days ? `
+                <div class="detail-item">
+                    <label>Evaluation Window</label>
+                    <p style="font-size: 12px;">${task.evaluation_window_days} days</p>
+                </div>` : ''}
+                ${task.asset_type ? `
+                <div class="detail-item">
+                    <label>Asset Type</label>
+                    <p style="font-size: 12px;">${task.asset_type}</p>
+                </div>` : ''}
+                ${task.mode ? `
+                <div class="detail-item">
+                    <label>Mode</label>
+                    <p style="font-size: 12px;">${task.mode.replace(/_/g, ' ')}</p>
+                </div>` : ''}
+                <div class="detail-item">
+                    <label>Created</label>
+                    <p style="font-size: 12px;">${task.created_at ? new Date(task.created_at).toLocaleString() : '—'}</p>
+                </div>
+                ${task.implemented_at ? `
+                <div class="detail-item">
+                    <label>Implemented</label>
+                    <p style="font-size: 12px;">${new Date(task.implemented_at).toLocaleString()}</p>
+                </div>` : ''}
             </div>
-            ${constraintLabel ? `
-            <div style="margin: 4px 0; font-size: 12px; color: var(--text-muted);">
-                Constraint: <strong style="color: var(--text-secondary);">${constraintLabel}</strong>
-            </div>
-            ` : ''}
             ${stepsHtml}
-            <div class="task-metrics">
-                <span title="Expected Value">EV: $${task.score_value}</span>
-                <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
-                <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
-                ${task.evaluation_window_days ? `<span title="Evaluation Window" style="color: var(--text-muted);">${task.evaluation_window_days}d window</span>` : ''}
-            </div>
             ${countdownHtml}
             ${outcomeHtml}
-            <div class="task-actions" onclick="event.stopPropagation();">${actions}</div>
+            <div class="task-actions" onclick="event.stopPropagation();" style="margin-top: 10px;">${actions}</div>
         </div>
     `;
 }
