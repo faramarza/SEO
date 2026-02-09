@@ -202,13 +202,22 @@ class TrackingSanityDiagnostics:
         Fail if:
         - GA4 organic sessions = 0 but GSC clicks > 0
         - Using total sessions instead of organic (invalid comparison)
+
+        Homepage and category hubs are downgraded to Tier B because
+        they aggregate traffic from many sources and the organic session
+        count may be distorted by navigation patterns.
         """
         gsc_clicks = asset.gsc.clicks_28d
 
         if gsc_clicks > self.MIN_CLICKS_FOR_RATIO_CHECK and organic_sessions == 0:
+            # Homepage / category hubs: downgrade to warning — their traffic
+            # is aggregated and organic attribution is inherently noisy.
+            is_special = self.is_homepage(asset.url) or self.is_category_hub(asset)
+            severity = Severity.MEDIUM if is_special else Severity.HIGH
+
             return Failure(
                 code=FailureCode.GA4_ORGANIC_ZERO,
-                severity=Severity.HIGH,
+                severity=severity,
                 evidence={
                     "gsc_clicks_28d": gsc_clicks,
                     "ga4_organic_sessions_28d": organic_sessions,

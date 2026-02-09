@@ -660,7 +660,15 @@ class FullEvaluationWorkflow:
         for asset in self._assets:
             normalized_path = self.diagnostics.normalize_url(asset.url)
             # Use GA4 sessions as proxy for organic (GA4 client filters organic by default)
-            organic_sessions_map[normalized_path] = asset.ga4.sessions_28d
+            # Use max when multiple assets normalize to the same path (e.g.
+            # http:// vs https:// variants of the homepage).
+            sessions = asset.ga4.sessions_28d
+            if normalized_path in organic_sessions_map:
+                organic_sessions_map[normalized_path] = max(
+                    organic_sessions_map[normalized_path], sessions
+                )
+            else:
+                organic_sessions_map[normalized_path] = sessions
 
         # Run diagnostics using the correct method
         results = self.diagnostics.diagnose_all(
