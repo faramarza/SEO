@@ -781,6 +781,14 @@ def api_ai_recommend():
         try:
             with open(eval_path) as f:
                 eval_data = json.load(f)
+
+            # Collect the target page's query terms for overlap scoring
+            target_queries_set = set()
+            for q in top_queries_list:
+                for word in q.get("query", "").lower().split():
+                    if len(word) > 2:
+                        target_queries_set.add(word)
+
             for r in eval_data.get("results", []):
                 r_url = r.get("url", "")
                 if r_url == url:
@@ -793,10 +801,31 @@ def api_ai_recommend():
                 # Include basic performance signal for prioritization
                 ev = r.get("expected_value", 0)
                 conf = r.get("confidence", 0)
+
+                # GSC metrics for this page (impressions, clicks, position)
+                r_gsc = r.get("gsc_metrics", {})
+                impressions = r_gsc.get("impressions_28d", 0)
+                clicks = r_gsc.get("clicks_28d", 0)
+                avg_pos = r_gsc.get("avg_position_28d", 0)
+
+                # Query overlap: count how many query words this page shares
+                # with the target page (topical relevance signal)
+                r_queries = r.get("top_queries", [])
+                r_query_words = set()
+                for rq in r_queries:
+                    for word in rq.get("query", "").lower().split():
+                        if len(word) > 2:
+                            r_query_words.add(word)
+                overlap = len(target_queries_set & r_query_words)
+
                 site_pages[r_type].append({
                     "url": r_url,
                     "title": title_r[:80],
                     "ev": round(ev, 2) if ev else 0,
+                    "impressions": impressions,
+                    "clicks": clicks,
+                    "position": round(avg_pos, 1) if avg_pos else 0,
+                    "query_overlap": overlap,
                 })
         except Exception:
             pass
@@ -806,18 +835,28 @@ def api_ai_recommend():
     # even if it ignores the prompt rules.
     existing_outlink_url_set = set(ol.get("target_url", "") for ol in outlinks)
 
-    # Format site map — compact but informative
+    # Format site map — compact but informative, with linking signals
     target_pages_str = ""
     for ptype in ("category", "product", "blog"):
         pages = site_pages.get(ptype, [])
         if pages:
             # Remove pages already linked from this page
             pages = [p for p in pages if p["url"] not in existing_outlink_url_set]
-            # Sort by expected value descending, show top 30
-            pages.sort(key=lambda p: p["ev"], reverse=True)
-            target_pages_str += f"\n{ptype.upper()} pages ({len(pages)} total):\n"
+            # Compute a linking_score = impressions × (11 - position) × (1 + overlap)
+            # Higher impressions + better position + more topical overlap = better link source
+            for p in pages:
+                pos_factor = max(1, 11 - p["position"]) if p["position"] > 0 else 1
+                p["linking_score"] = p["impressions"] * pos_factor * (1 + p["query_overlap"])
+            # Sort by linking score descending, show top 30
+            pages.sort(key=lambda p: p["linking_score"], reverse=True)
+            target_pages_str += f"\n{ptype.upper()} pages ({len(pages)} total, sorted by linking potential):\n"
             for p in pages[:30]:
-                target_pages_str += f'  - {p["url"]}  [{p["title"]}]  EV=${p["ev"]}\n'
+                target_pages_str += (
+                    f'  - {p["url"]}  [{p["title"]}]  '
+                    f'EV=${p["ev"]}  impr={p["impressions"]}  '
+                    f'pos={p["position"]}  overlap={p["query_overlap"]}  '
+                    f'link_score={p["linking_score"]:.0f}\n'
+                )
             if len(pages) > 30:
                 target_pages_str += f"  ... and {len(pages) - 30} more\n"
 
@@ -1252,19 +1291,37 @@ one change at a time, ~28 days per test cycle.
 ────────────────────────────────
 INTERNAL LINKING SPECIFICITY RULE
 ────────────────────────────────
-Any INTERNAL_LINKING recommendation MUST include ALL of:
-  1. EXACT target URL(s) — copy-pasted from the site_pages list in INPUTS (NOT from outlinks)
-  2. WHY this target (not another) — tie to funnel analysis and query intent
-  3. WHERE in the content — e.g., "after paragraph 2 where [topic] is discussed",
-     "in a CTA block below the product comparison"
-  4. HOW MANY links — specific count with reasoning (e.g., "2 links: 1 primary, 1 secondary")
-  5. PRIMARY vs SECONDARY — which is the main funnel step, which are supporting
+Each site_page in INPUTS now includes: impr (28-day impressions), pos (avg position),
+overlap (shared query-word count with target page), and link_score (composite).
+
+When recommending INTERNAL_LINKING, you MUST:
+  1. Identify the TOP 3 pages from site_pages that should link TO this page, ranked by
+     link_score (= impressions × position_factor × topical_overlap). These are the pages
+     where adding a link to the current page will have the most impact.
+  2. For EACH of the top 3, provide ALL of:
+     a. EXACT source URL — copy-pasted from site_pages (NOT from outlinks)
+     b. EXACT target URL — the current page being analyzed
+     c. DATA JUSTIFICATION — cite the page's impressions, position, and query overlap
+        that make it a strong linking source (e.g., "1,240 impressions, position 4.2,
+        3 overlapping query terms: 'wooden trains', 'toy trains', 'model trains'")
+     d. WHERE on the source page — e.g., "in the product comparison section",
+        "after the introductory paragraph about [topic]"
+     e. SUGGESTED ANCHOR TEXT — following the anchor text accuracy rule below
+     f. PRIMARY vs SECONDARY — which is the main funnel link, which are supporting
+  3. Also recommend links FROM this page to other relevant pages using the same format.
 
 "Add internal links to relevant category pages" is NOT acceptable.
-"Add 2 links to /collections/wooden-trains: 1 in paragraph 3 after the
-comparison section (primary funnel step) and 1 in the summary CTA
-(secondary reinforcement), because the dominant query cluster is
-purchase-oriented and this category is the logical next step" IS acceptable.
+"TOP LINKING SOURCES for this page:
+1. /collections/wooden-trains [Wooden Train Sets] — link_score=15,480
+   (1,240 impr, pos 4.2, 3 query overlaps). Add link in the comparison
+   section after 'types of wooden trains' paragraph. Anchor: 'See our
+   Alphabet Train Set'. Primary funnel link.
+2. /blog/montessori-toy-guide [Montessori Toy Guide] — link_score=8,200
+   (890 impr, pos 6.1, 2 query overlaps). Add link in the 'educational
+   benefits' section. Anchor: 'Alphabet Learning Train'. Secondary.
+3. /wooden-blocks [Wooden Blocks Collection] — link_score=5,100
+   (620 impr, pos 8.3, 1 query overlap). Add link in 'related products'
+   CTA. Anchor: 'Pair with Wooden Blocks'. Secondary." IS acceptable.
 
 ────────────────────────────────
 ANCHOR TEXT ACCURACY RULE
