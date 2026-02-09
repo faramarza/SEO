@@ -134,14 +134,21 @@ class HTMLMetaParser(HTMLParser):
         # Track <a> tags for internal outlinks
         # Only collect links that are:
         #   1. After the H1 (content area, not nav/header)
-        #   2. Not inside skipped tags (nav, header, footer)
-        # This prevents nav/footer chrome links from being reported as outlinks
-        if tag == "a" and self._in_body and self._h1_found and self._skip_depth == 0:
+        # This prevents nav/header chrome links from being reported as outlinks.
+        # Footer/nav/utility links are filtered out in get_internal_outlinks()
+        # by URL pattern, so we don't need to gate on _skip_depth here.
+        if tag == "a" and self._in_body and self._h1_found:
             href = attrs_dict.get("href", "")
             if href and self._is_internal(href):
                 self._in_link = True
                 self._current_link_href = href
                 self._current_link_text = []
+
+        # Capture img alt text as fallback anchor text for image links
+        if tag == "img" and self._in_link:
+            alt = attrs_dict.get("alt", "").strip()
+            if alt:
+                self._current_link_text.append(alt)
 
         # Above-fold HTML collection (after H1, content-only — empty structural tags are skipped)
         if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0:
