@@ -4,6 +4,13 @@
 {% block header %}Task Board{% endblock %}
 
 {% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <p style="margin: 0; color: var(--text-muted); font-size: 13px;">
+        Approve = start the clock. The system auto-measures once the evaluation window passes.
+    </p>
+    <button class="btn btn-small" id="btn-check-measurements" onclick="runAutoMeasure()">Check Measurements</button>
+</div>
+
 <div class="task-board">
     <div class="board-column" data-status="proposed">
         <div class="column-header">
@@ -13,28 +20,12 @@
         <div class="column-tasks" id="tasks-proposed"></div>
     </div>
 
-    <div class="board-column" data-status="approved">
-        <div class="column-header">
-            <h3>Approved</h3>
-            <span class="column-count" id="count-approved">0</span>
-        </div>
-        <div class="column-tasks" id="tasks-approved"></div>
-    </div>
-
     <div class="board-column" data-status="implemented">
         <div class="column-header">
-            <h3>Implemented</h3>
+            <h3>In Progress</h3>
             <span class="column-count" id="count-implemented">0</span>
         </div>
         <div class="column-tasks" id="tasks-implemented"></div>
-    </div>
-
-    <div class="board-column" data-status="measured">
-        <div class="column-header">
-            <h3>Measured</h3>
-            <span class="column-count" id="count-measured">0</span>
-        </div>
-        <div class="column-tasks" id="tasks-measured"></div>
     </div>
 
     <div class="board-column" data-status="closed">
@@ -55,11 +46,11 @@
     </div>
 </div>
 
-<!-- Outcome Modal -->
+<!-- Outcome Modal (manual fallback) -->
 <div id="outcome-modal" class="modal hidden">
     <div class="modal-content">
         <span class="modal-close" onclick="closeOutcomeModal()">&times;</span>
-        <h2>Record Outcome</h2>
+        <h2>Record Outcome Manually</h2>
         <form id="outcome-form">
             <input type="hidden" id="outcome-action-id">
             <div class="form-group">
@@ -132,7 +123,7 @@ async function loadTasks() {
     const res = await fetch('/api/tasks');
     tasksData = await res.json();
 
-    for (const status of ['proposed', 'approved', 'implemented', 'measured', 'closed']) {
+    for (const status of ['proposed', 'implemented', 'closed']) {
         const tasks = tasksData[status] || [];
         document.getElementById('count-' + status).textContent = tasks.length;
         document.getElementById('tasks-' + status).innerHTML =
@@ -147,17 +138,35 @@ function renderTask(task, status) {
     const riskColor = task.risk_level === 'high' ? 'var(--accent-red)'
         : task.risk_level === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-green)';
 
-    // Constraint display
     const constraintLabel = task.primary_constraint
         ? task.primary_constraint.replace(/_/g, ' ')
         : '';
 
-    // Implementation summary: first step or summary
     const summary = task.implementation_summary
         || (task.implementation_steps && task.implementation_steps[0])
         || '';
 
-    // Advance / Reject / Send Back actions per status
+    // Countdown for in-progress tasks
+    let countdownHtml = '';
+    if (status === 'implemented' && task.days_remaining !== null && task.days_remaining !== undefined) {
+        const pct = task.evaluation_window_days
+            ? Math.min(100, Math.round(100 * (1 - task.days_remaining / task.evaluation_window_days)))
+            : 0;
+        const barColor = task.days_remaining === 0 ? 'var(--accent-green)' : 'var(--accent-blue, #3b82f6)';
+        const label = task.days_remaining === 0
+            ? 'Ready for measurement'
+            : `${task.days_remaining}d of ${task.evaluation_window_days}d remaining`;
+        countdownHtml = `
+            <div style="margin: 6px 0 2px;">
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 3px;">${label}</div>
+                <div style="height: 4px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
+                    <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 2px; transition: width .3s;"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Actions per column
     let actions = '';
     if (status === 'proposed') {
         actions = `
@@ -165,19 +174,11 @@ function renderTask(task, status) {
             <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
             <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
         `;
-    } else if (status === 'approved') {
-        actions = `
-            <button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Mark Implemented</button>
-            <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
-            <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
-        `;
     } else if (status === 'implemented') {
         actions = `
-            <button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Record Outcome</button>
+            <button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Close Manually</button>
             <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
         `;
-    } else if (status === 'measured') {
-        actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Close</button>`;
     }
 
     return `
@@ -204,14 +205,14 @@ function renderTask(task, status) {
                 <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
                 <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
             </div>
-            ${task.outcome ? `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 50) : ''}</div>` : ''}
+            ${countdownHtml}
+            ${task.outcome ? `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 80) : ''}</div>` : ''}
             <div class="task-actions" onclick="event.stopPropagation();">${actions}</div>
         </div>
     `;
 }
 
 function showTaskDetail(actionId, status) {
-    // Find the task in the data
     const tasks = tasksData[status] || [];
     const task = tasks.find(t => t.action_id === actionId);
     if (!task) return;
@@ -222,6 +223,38 @@ function showTaskDetail(actionId, status) {
     const stepsHtml = steps.length > 0
         ? '<ol style="margin: 8px 0; padding-left: 20px; line-height: 1.8;">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
         : '<p style="color: var(--text-muted);">No implementation steps specified.</p>';
+
+    // Metrics comparison (if closed with auto-measure data)
+    let metricsHtml = '';
+    if (task.outcome_metrics) {
+        const m = task.outcome_metrics;
+        metricsHtml = `
+        <div style="margin-bottom: 16px;">
+            <h4 style="margin-bottom: 8px;">Metrics Comparison</h4>
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 4px 8px;">Metric</th>
+                    <th style="text-align: right; padding: 4px 8px;">Before</th>
+                    <th style="text-align: right; padding: 4px 8px;">After</th>
+                </tr>
+                ${m.baseline_clicks !== undefined ? `<tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 4px 8px;">Clicks (28d)</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.baseline_clicks}</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.current_clicks}</td>
+                </tr>` : ''}
+                ${m.baseline_impressions !== undefined ? `<tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 4px 8px;">Impressions (28d)</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.baseline_impressions}</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.current_impressions}</td>
+                </tr>` : ''}
+                ${m.baseline_position !== undefined ? `<tr>
+                    <td style="padding: 4px 8px;">Avg Position</td>
+                    <td style="text-align: right; padding: 4px 8px;">${Number(m.baseline_position).toFixed(1)}</td>
+                    <td style="text-align: right; padding: 4px 8px;">${Number(m.current_position).toFixed(1)}</td>
+                </tr>` : ''}
+            </table>
+        </div>`;
+    }
 
     document.getElementById('task-detail-body').innerHTML = `
         <div class="detail-grid" style="margin-bottom: 16px;">
@@ -250,6 +283,11 @@ function showTaskDetail(actionId, status) {
                 <label>Risk Level</label>
                 <p><span class="risk-badge risk-${task.risk_level || 'low'}">${task.risk_level || 'low'}</span></p>
             </div>
+            ${task.evaluation_window_days ? `
+            <div class="detail-item">
+                <label>Evaluation Window</label>
+                <p>${task.evaluation_window_days} days</p>
+            </div>` : ''}
             ${task.asset_type ? `
             <div class="detail-item">
                 <label>Asset Type</label>
@@ -274,6 +312,7 @@ function showTaskDetail(actionId, status) {
             <h4 style="margin-bottom: 8px;">Implementation Steps</h4>
             ${stepsHtml}
         </div>
+        ${metricsHtml}
         ${task.outcome ? `
         <div style="margin-bottom: 16px; padding: 12px; border-radius: 6px; background: ${task.outcome === 'positive' ? '#f0fdf4' : task.outcome === 'negative' ? '#fef2f2' : '#f9fafb'};">
             <h4 style="margin-bottom: 4px;">Outcome: ${task.outcome.toUpperCase()}</h4>
@@ -307,6 +346,29 @@ async function advanceTask(actionId) {
         loadTasks();
     } else {
         showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+    }
+}
+
+async function runAutoMeasure() {
+    const btn = document.getElementById('btn-check-measurements');
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+
+    try {
+        const res = await fetch('/api/tasks/auto-measure', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.measured > 0) {
+            showToast(`Auto-measured ${data.measured} task(s)`, 'success');
+            loadTasks();
+        } else {
+            showToast('No tasks ready for measurement yet', 'info');
+        }
+    } catch (err) {
+        showToast('Error checking measurements: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Check Measurements';
     }
 }
 
@@ -419,6 +481,16 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.classList.add('hidden'), 3000);
 }
 
+// Initial load, then silently check for auto-measurable tasks
 loadTasks();
+fetch('/api/tasks/auto-measure', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+        if (data.measured > 0) {
+            showToast(`Auto-measured ${data.measured} task(s)`, 'success');
+            loadTasks();
+        }
+    })
+    .catch(() => {});
 </script>
 {% endblock %}

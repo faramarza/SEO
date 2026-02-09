@@ -19,6 +19,26 @@ from typing import Any, Optional
 import hashlib
 
 
+# Per-action-type evaluation windows (days).
+# Quick changes (title/meta) show GSC movement in ~2 weeks.
+# Content creation needs 60+ days to index and rank.
+EVALUATION_WINDOWS: dict[str, int] = {
+    "title_meta_test": 14,
+    "canonical_fix": 14,
+    "observe_only": 14,
+    "internal_link_reallocation": 21,
+    "page_reinvestment": 28,
+    "new_asset_creation": 60,
+    "new_page_creation": 60,
+}
+DEFAULT_EVALUATION_WINDOW = 28
+
+
+def evaluation_window_for(action_type: str) -> int:
+    """Return the evaluation window in days for an action type."""
+    return EVALUATION_WINDOWS.get(action_type, DEFAULT_EVALUATION_WINDOW)
+
+
 class ActionStatus(str, Enum):
     """Status workflow for actions."""
     PROPOSED = "proposed"      # Governor recommended
@@ -107,6 +127,7 @@ class ActionRecord:
     evaluation_window_days: int = 28
     outcome: Optional[ActionOutcome] = None
     outcome_metrics: Optional[dict] = None
+    baseline_metrics: Optional[dict] = None  # GSC/GA4 snapshot at implementation time
     notes: str = ""
     prior_action_refs: list[str] = field(default_factory=list)  # Related past action_ids
 
@@ -124,6 +145,8 @@ class ActionRecord:
         data["status"] = ActionStatus(data["status"])
         if data.get("outcome"):
             data["outcome"] = ActionOutcome(data["outcome"])
+        # Backwards compat: older records may lack baseline_metrics
+        data.setdefault("baseline_metrics", None)
         return cls(**data)
 
     @property
@@ -146,6 +169,8 @@ class ActionRecord:
         self.status = new_status
         if new_status == ActionStatus.IMPLEMENTED:
             self.implemented_at = datetime.now().isoformat()
+            # Set per-action-type evaluation window
+            self.evaluation_window_days = evaluation_window_for(self.action_type)
 
 
 @dataclass
@@ -402,7 +427,7 @@ class ActionLedger:
         action.outcome = outcome
         action.outcome_metrics = outcome_metrics
         action.notes = notes
-        action.update_status(ActionStatus.MEASURED)
+        action.update_status(ActionStatus.CLOSED)
 
         self.update_action(action)
         return True

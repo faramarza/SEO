@@ -20,7 +20,7 @@ from flask import Flask, render_template, jsonify, request
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.ledger.action_ledger import ActionLedger, ActionStatus, ActionOutcome
+from src.ledger.action_ledger import ActionLedger, ActionStatus, ActionOutcome, evaluation_window_for
 from src.data_sources.gsc_client import GSCClient
 from src.data_sources.ga4_client import GA4Client
 from src.data_sources.google_ads_client import GoogleAdsClient
@@ -345,21 +345,48 @@ def api_opportunities():
 
 @app.route("/api/tasks")
 def api_tasks():
-    """Get task board data."""
+    """Get task board data.
+
+    Three-column model:
+      proposed   — Governor recommendations awaiting human decision
+      implemented — Approved & in-flight, waiting for evaluation window
+      closed     — Measured (auto or manual) with outcome recorded
+
+    Legacy APPROVED tasks map to implemented, MEASURED to closed.
+    """
     ledger = ActionLedger()
+    now = datetime.now()
 
     tasks_by_status = {
         "proposed": [],
-        "approved": [],
         "implemented": [],
-        "measured": [],
         "closed": [],
     }
 
+    # Map old granular statuses into the 3-column model
+    column_map = {
+        "proposed": "proposed",
+        "approved": "implemented",
+        "implemented": "implemented",
+        "measured": "closed",
+        "closed": "closed",
+    }
+
     for action in ledger.get_all_actions():
-        status = action.status.value
+        column = column_map.get(action.status.value, "proposed")
         rec = action.recommendation_json or {}
-        tasks_by_status[status].append({
+
+        # Calculate days remaining in evaluation window
+        days_remaining = None
+        if action.implemented_at and action.status in (ActionStatus.IMPLEMENTED, ActionStatus.APPROVED):
+            try:
+                impl_dt = datetime.fromisoformat(action.implemented_at)
+                window_end = impl_dt.timestamp() + (action.evaluation_window_days * 86400)
+                days_remaining = max(0, int((window_end - now.timestamp()) / 86400))
+            except (ValueError, TypeError):
+                pass
+
+        tasks_by_status[column].append({
             "action_id": action.action_id,
             "url": action.url,
             "action_type": action.action_type,
@@ -368,7 +395,11 @@ def api_tasks():
             "confidence": round(action.confidence, 2),
             "created_at": action.created_at,
             "implemented_at": action.implemented_at,
+            "evaluation_window_days": action.evaluation_window_days,
+            "days_remaining": days_remaining,
             "outcome": action.outcome.value if action.outcome else None,
+            "outcome_metrics": action.outcome_metrics,
+            "baseline_metrics": action.baseline_metrics,
             "notes": action.notes,
             "risk_level": rec.get("risk_level", "low"),
             "mode": rec.get("mode"),
@@ -1871,30 +1902,160 @@ def api_gsc_request_indexing():
     return jsonify(result)
 
 
+# ---------------------------------------------------------------------------
+# Task workflow helpers
+# ---------------------------------------------------------------------------
+
+def _capture_baseline(url: str) -> dict | None:
+    """Snapshot current GSC + GA4 metrics for a URL.
+
+    Called when a task moves to IMPLEMENTED so we have a before picture.
+    Returns None if APIs are unavailable (auto-measure will mark INCONCLUSIVE).
+    """
+    config = load_config()
+    baseline = {}
+
+    # GSC
+    try:
+        gsc_cfg = config.get("data_sources", {}).get("gsc", {})
+        gsc = GSCClient(
+            site_url=gsc_cfg.get("property_url", ""),
+            credentials_path=gsc_cfg.get("credentials_path"),
+        )
+        m = gsc.get_page_metrics(url, days=28)
+        baseline["gsc"] = {
+            "impressions_28d": m.impressions_28d,
+            "clicks_28d": m.clicks_28d,
+            "ctr_28d": m.ctr_28d,
+            "avg_position_28d": m.avg_position_28d,
+        }
+    except Exception:
+        baseline["gsc"] = None
+
+    # GA4
+    try:
+        ga4_cfg = config.get("data_sources", {}).get("ga4", {})
+        ga4 = GA4Client(
+            property_id=ga4_cfg.get("property_id", ""),
+            credentials_path=ga4_cfg.get("credentials_path"),
+        )
+        page_path = url.replace("https://", "").replace("http://", "")
+        page_path = "/" + page_path.split("/", 1)[-1] if "/" in page_path else "/"
+        m = ga4.get_page_metrics(page_path, days=28)
+        baseline["ga4"] = {
+            "sessions_28d": m.sessions_28d,
+            "revenue_28d": m.revenue_28d,
+            "conversions_28d": m.conversions_28d,
+        }
+    except Exception:
+        baseline["ga4"] = None
+
+    return baseline if (baseline.get("gsc") or baseline.get("ga4")) else None
+
+
+def _auto_measure_action(action, config: dict) -> dict | None:
+    """Compare current metrics against baseline for one action.
+
+    Returns a dict with outcome/metrics/notes, or None if not measurable.
+    """
+    if action.baseline_metrics is None:
+        return {"outcome": "inconclusive", "notes": "No baseline metrics captured at implementation time."}
+
+    baseline_gsc = action.baseline_metrics.get("gsc")
+    if not baseline_gsc or baseline_gsc.get("clicks_28d", 0) == 0 and baseline_gsc.get("impressions_28d", 0) == 0:
+        return {"outcome": "inconclusive", "notes": "Baseline had zero GSC traffic — cannot compare."}
+
+    # Fetch current GSC metrics
+    try:
+        gsc_cfg = config.get("data_sources", {}).get("gsc", {})
+        gsc = GSCClient(
+            site_url=gsc_cfg.get("property_url", ""),
+            credentials_path=gsc_cfg.get("credentials_path"),
+        )
+        current = gsc.get_page_metrics(action.url, days=28)
+    except Exception:
+        return {"outcome": "inconclusive", "notes": "Could not fetch current GSC metrics."}
+
+    if current.impressions_28d == 0 and current.clicks_28d == 0:
+        return {"outcome": "inconclusive", "notes": "Current GSC data returned zero — possible API issue."}
+
+    # Compare clicks (primary signal)
+    old_clicks = baseline_gsc["clicks_28d"]
+    new_clicks = current.clicks_28d
+    old_impressions = baseline_gsc["impressions_28d"]
+    new_impressions = current.impressions_28d
+
+    metrics = {
+        "baseline_clicks": old_clicks,
+        "current_clicks": new_clicks,
+        "baseline_impressions": old_impressions,
+        "current_impressions": new_impressions,
+        "baseline_position": baseline_gsc.get("avg_position_28d"),
+        "current_position": current.avg_position_28d,
+    }
+
+    # Determine outcome: >10% improvement = positive, >10% decline = negative
+    if old_clicks > 0:
+        click_change = (new_clicks - old_clicks) / old_clicks
+    elif new_clicks > 0:
+        click_change = 1.0  # went from 0 to something
+    else:
+        click_change = 0.0
+
+    if old_impressions > 0:
+        imp_change = (new_impressions - old_impressions) / old_impressions
+    else:
+        imp_change = 0.0
+
+    if click_change > 0.10 or imp_change > 0.15:
+        outcome = "positive"
+        notes = f"Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), impressions {old_impressions}→{new_impressions} ({imp_change:+.0%})."
+    elif click_change < -0.10 or imp_change < -0.15:
+        outcome = "negative"
+        notes = f"Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), impressions {old_impressions}→{new_impressions} ({imp_change:+.0%})."
+    else:
+        outcome = "neutral"
+        notes = f"No significant change. Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), impressions {old_impressions}→{new_impressions} ({imp_change:+.0%})."
+
+    return {"outcome": outcome, "metrics": metrics, "notes": notes}
+
+
 @app.route("/api/tasks/<action_id>/advance", methods=["POST"])
 def api_advance_task(action_id):
-    """Advance task to next status."""
+    """Advance task to next status.
+
+    Simplified workflow:
+      PROPOSED  →  IMPLEMENTED  →  CLOSED (via auto-measure)
+    Approve = "I'm doing this now", starts the evaluation clock.
+    Legacy APPROVED/MEASURED statuses still advance forward.
+    """
     ledger = ActionLedger()
     action = ledger.get_action(action_id)
 
     if not action:
         return jsonify({"error": "Action not found"}), 404
 
-    # Status progression
+    # Collapsed progression: skip APPROVED and MEASURED
     progression = {
-        ActionStatus.PROPOSED: ActionStatus.APPROVED,
-        ActionStatus.APPROVED: ActionStatus.IMPLEMENTED,
-        ActionStatus.IMPLEMENTED: ActionStatus.MEASURED,
-        ActionStatus.MEASURED: ActionStatus.CLOSED,
+        ActionStatus.PROPOSED: ActionStatus.IMPLEMENTED,
+        ActionStatus.APPROVED: ActionStatus.IMPLEMENTED,   # legacy compat
+        ActionStatus.IMPLEMENTED: ActionStatus.CLOSED,
+        ActionStatus.MEASURED: ActionStatus.CLOSED,         # legacy compat
     }
 
     current = action.status
-    if current in progression:
-        action.update_status(progression[current])
-        ledger.update_action(action)
-        return jsonify({"success": True, "new_status": action.status.value})
+    if current not in progression:
+        return jsonify({"error": "Cannot advance from current status"}), 400
 
-    return jsonify({"error": "Cannot advance from current status"}), 400
+    new_status = progression[current]
+    action.update_status(new_status)
+
+    # Capture baseline GSC/GA4 metrics when moving to IMPLEMENTED
+    if new_status == ActionStatus.IMPLEMENTED:
+        action.baseline_metrics = _capture_baseline(action.url)
+
+    ledger.update_action(action)
+    return jsonify({"success": True, "new_status": action.status.value})
 
 
 @app.route("/api/tasks/<action_id>/reject", methods=["POST"])
@@ -1982,6 +2143,45 @@ def api_record_outcome(action_id):
     if success:
         return jsonify({"success": True})
     return jsonify({"error": "Failed to record outcome"}), 400
+
+
+@app.route("/api/tasks/auto-measure", methods=["POST"])
+def api_auto_measure():
+    """Auto-measure all IMPLEMENTED tasks that have passed their evaluation window.
+
+    Pulls current GSC metrics, compares against baseline, records outcome,
+    and closes the task.  Returns a summary of what was measured.
+    """
+    config = load_config()
+    ledger = ActionLedger()
+    pending = ledger.get_pending_evaluations()
+
+    results = []
+    for action in pending:
+        result = _auto_measure_action(action, config)
+        if result is None:
+            continue
+
+        outcome = ActionOutcome(result["outcome"])
+        ledger.record_outcome(
+            action_id=action.action_id,
+            outcome=outcome,
+            outcome_metrics=result.get("metrics"),
+            notes=result.get("notes", ""),
+        )
+        results.append({
+            "action_id": action.action_id,
+            "url": action.url,
+            "outcome": result["outcome"],
+            "notes": result.get("notes", ""),
+        })
+
+    return jsonify({
+        "success": True,
+        "measured": len(results),
+        "pending_remaining": len(pending) - len(results),
+        "results": results,
+    })
 
 
 @app.route("/api/learning")
