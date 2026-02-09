@@ -3281,6 +3281,20 @@ def api_ai_batch_analyze():
                 if opp.get("recommended_action") not in ("NO_ACTION", None)
             ]
 
+            # Skip URLs that already have an active task on the board
+            ledger = ActionLedger()
+            active_urls = set()
+            for st in (ActionStatus.PROPOSED, ActionStatus.APPROVED,
+                       ActionStatus.IMPLEMENTED, ActionStatus.MEASURED):
+                for act in ledger.get_actions_by_status(st):
+                    active_urls.add(act.url)
+            before_count = len(actionable)
+            actionable = [
+                opp for opp in actionable
+                if opp.get("url", "") not in active_urls
+            ]
+            skipped_active = before_count - len(actionable)
+
             # Filter by page type if specified
             if page_types:
                 actionable = [
@@ -3376,6 +3390,8 @@ def api_ai_batch_analyze():
             )
 
             summary = f"Batch complete: {analyzed} analyzed"
+            if skipped_active:
+                summary += f", {skipped_active} skipped (active tasks)"
             if errors:
                 summary += f", {errors} errors"
             summary += f". AI Est. Total: ${ai_total:,.2f} ({ai_count} pages)"
