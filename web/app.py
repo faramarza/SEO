@@ -1110,15 +1110,17 @@ Any TITLE_META_TEST recommendation MUST include the EXACT proposed text:
 YEAR RULE: If any variant includes a year, it MUST use current_year from INPUTS (currently {datetime.now().year}).
 NEVER use a past year. Stale years make the page look outdated in SERPs.
 
-DELIMITER RULE: Do NOT use pipe characters (|) or other delimiters (–, :, //) to separate
-keyword segments in title tags. Google frequently rewrites delimited titles, replacing them
-with H1 text, breadcrumbs, or site name appended automatically. Titles with pipes look
-keyword-stuffed and trigger rewrite heuristics.
+DELIMITER RULE: Title tags MUST read as natural phrases or sentences. Do NOT use delimiters
+(pipes |, em dashes —, en dashes –, colons :, slashes //) to glue keyword segments together.
+Google frequently rewrites segmented titles, and delimiters signal keyword stuffing.
 WRONG: "Montessori Toys by Age | Wooden, USA-Made | Free Shipping"
-RIGHT: "Best Montessori Toys by Age — Wooden, USA-Made, Free Shipping"
-RIGHT: "Montessori Toys for Babies, Toddlers, and Preschoolers"
-Use natural sentence structure or comma-separated phrases. An em dash (—) is acceptable
-for ONE separator if needed. Multiple delimiters are never acceptable.
+WRONG: "Montessori Toys for Babies, Toddlers, and Preschoolers — Wooden, Expert-Curated"
+  (Two keyword blocks joined by em dash — still a segmented title)
+RIGHT: "Best Wooden Montessori Toys for Babies, Toddlers, and Preschoolers"
+RIGHT: "Expert-Curated Montessori Toys Sorted by Age"
+The title should read like a phrase a human would say. If you need to remove the delimiter
+to make it work, restructure the title so differentiators flow naturally within it
+(e.g. adjectives before the noun, prepositional phrases after).
 
 FACTUAL ACCURACY RULE (CRITICAL — LEGAL LIABILITY):
 Every claim in a proposed title or meta description MUST be verifiable from the page content
