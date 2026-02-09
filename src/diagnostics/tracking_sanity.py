@@ -227,6 +227,11 @@ class TrackingSanityDiagnostics:
 
         return None
 
+    # Higher threshold for Tier A volume mismatch — only flag as blocking
+    # when both the ratio AND absolute click volume indicate a real problem.
+    RATIO_TIER_A_UPPER = 2.0      # GA4 > 2× GSC clicks → may be Tier A
+    MIN_CLICKS_FOR_TIER_A = 20    # Need ≥20 clicks for Tier A confidence
+
     def check_volume_ratio(
         self,
         asset: PageAsset,
@@ -236,6 +241,13 @@ class TrackingSanityDiagnostics:
         Check 3.2 Tier B: Volume Ratio (non-blocking for special pages).
 
         Warn if GA4 organic sessions / GSC clicks is outside 0.7–1.3 band.
+
+        Severity logic:
+        - LOW ratio (GA4 < GSC): HIGH if ≥20 clicks, MEDIUM otherwise
+        - HIGH ratio (GA4 > GSC): HIGH only if ratio > 2.0 AND ≥20 clicks.
+          Blog posts, social shares, and email traffic commonly inflate
+          GA4 sessions beyond GSC organic clicks.
+        - Homepage / category hubs: always MEDIUM (expected distortion)
         """
         gsc_clicks = asset.gsc.clicks_28d
 
@@ -246,11 +258,16 @@ class TrackingSanityDiagnostics:
         ratio = organic_sessions / gsc_clicks
 
         if ratio < self.RATIO_LOWER_BOUND or ratio > self.RATIO_UPPER_BOUND:
-            # Determine severity based on page type
             is_special = self.is_homepage(asset.url) or self.is_category_hub(asset)
-            severity = Severity.MEDIUM if is_special else Severity.HIGH
 
             if ratio < self.RATIO_LOWER_BOUND:
+                # LOW ratio — GA4 tracking loss is always concerning
+                if is_special:
+                    severity = Severity.MEDIUM
+                elif gsc_clicks >= self.MIN_CLICKS_FOR_TIER_A:
+                    severity = Severity.HIGH
+                else:
+                    severity = Severity.MEDIUM
                 interpretation = (
                     f"GA4 organic sessions ({organic_sessions}) significantly lower than "
                     f"GSC clicks ({gsc_clicks}). Attribution loss suspected."
@@ -262,6 +279,14 @@ class TrackingSanityDiagnostics:
                     "4. Check for duplicate page tracking"
                 )
             else:
+                # HIGH ratio — only Tier A if extreme AND significant volume
+                if is_special:
+                    severity = Severity.MEDIUM
+                elif (ratio > self.RATIO_TIER_A_UPPER
+                      and gsc_clicks >= self.MIN_CLICKS_FOR_TIER_A):
+                    severity = Severity.HIGH
+                else:
+                    severity = Severity.MEDIUM
                 interpretation = (
                     f"GA4 organic sessions ({organic_sessions}) higher than "
                     f"GSC clicks ({gsc_clicks}). Possible misattribution."
@@ -287,6 +312,34 @@ class TrackingSanityDiagnostics:
 
         return None
 
+    def _is_cms_alias_pattern(self, page_path: str, canon_path: str) -> bool:
+        """Check if the canonical mismatch is a known CMS alias pattern.
+
+        Common CMS patterns where a URL is a known alias of the canonical:
+          /blog/my-post  →  /blog/post/my-post     (Magento blog)
+          /blog/my-post  →  /blog/posts/my-post    (generic CMS)
+          /news/my-post  →  /news/article/my-post   (news CMS)
+
+        These are intentional aliases, not ambiguity.  The canonical is
+        correctly set and GSC will consolidate metrics properly.
+        """
+        # Extract slug (last path component) from both
+        page_slug = page_path.rstrip("/").rsplit("/", 1)[-1]
+        canon_slug = canon_path.rstrip("/").rsplit("/", 1)[-1]
+
+        # If both share the same slug and differ only in intermediate
+        # path segments, it's a CMS alias pattern.
+        if page_slug and page_slug == canon_slug:
+            # Verify the canonical is a "deeper" version of the page path
+            # (e.g. /blog/slug vs /blog/post/slug)
+            page_parts = page_path.strip("/").split("/")
+            canon_parts = canon_path.strip("/").split("/")
+            if len(canon_parts) > len(page_parts):
+                # The canonical has more path segments but same slug
+                return True
+
+        return False
+
     def check_canonical_consistency(
         self,
         asset: PageAsset,
@@ -295,6 +348,8 @@ class TrackingSanityDiagnostics:
         Check 3.3: Canonical Consistency.
 
         Fail if page has canonical pointing elsewhere.
+        Known CMS alias patterns (e.g. /blog/slug → /blog/post/slug)
+        are downgraded to Tier B since the canonical is correctly set.
         """
         if asset.canonical_url and asset.canonical_url != asset.url:
             # Normalize both for comparison
@@ -302,17 +357,31 @@ class TrackingSanityDiagnostics:
             canon_norm = self.normalize_url(asset.canonical_url)
 
             if self_norm != canon_norm:
+                is_alias = self._is_cms_alias_pattern(self_norm, canon_norm)
+                severity = Severity.MEDIUM if is_alias else Severity.HIGH
+
+                if is_alias:
+                    interpretation = (
+                        "Page is a known CMS alias with canonical correctly "
+                        "pointing to the primary URL. GSC consolidates metrics "
+                        "to the canonical target. Consider redirecting this "
+                        "alias to the canonical URL."
+                    )
+                else:
+                    interpretation = (
+                        "Page declares a different canonical URL. "
+                        "GSC will attribute metrics to canonical, causing data split."
+                    )
+
                 return Failure(
                     code=FailureCode.CANONICAL_AMBIGUITY,
-                    severity=Severity.HIGH,
+                    severity=severity,
                     evidence={
                         "page_url": asset.url,
                         "canonical_url": asset.canonical_url,
+                        "is_cms_alias": is_alias,
                     },
-                    interpretation=(
-                        "Page declares a different canonical URL. "
-                        "GSC will attribute metrics to canonical, causing data split."
-                    ),
+                    interpretation=interpretation,
                     recommended_fix=(
                         "1. Fix canonical to self-reference OR\n"
                         "2. Redirect this URL to canonical OR\n"
@@ -329,21 +398,35 @@ class TrackingSanityDiagnostics:
         """
         Check 3.4: Revenue Attribution Leakage.
 
-        Fail if revenue exists but sessions ≈ 0 (attribution mismatch).
+        Tier A (blocking): Revenue exists but ZERO sessions — impossible
+        attribution, indicates a tracking misconfiguration.
+        Tier B (warning): Revenue exists with very few sessions (1-4) —
+        could be legitimate low-traffic purchases or mild leakage.
         """
         if asset.ga4.revenue_28d > 0 and asset.ga4.sessions_28d < 5:
+            # Zero sessions with revenue = definite tracking problem
+            # 1-4 sessions = possibly legitimate, just low traffic
+            severity = (Severity.HIGH if asset.ga4.sessions_28d == 0
+                        else Severity.MEDIUM)
+
+            interpretation = (
+                "Revenue attributed to this page but zero sessions. "
+                "Checkout/cart pages may be stealing attribution credit."
+            ) if asset.ga4.sessions_28d == 0 else (
+                f"Revenue (${asset.ga4.revenue_28d:.2f}) attributed with only "
+                f"{asset.ga4.sessions_28d} session(s). May be legitimate "
+                "low-traffic purchases or mild attribution leakage."
+            )
+
             return Failure(
                 code=FailureCode.REVENUE_ATTRIBUTION_LEAKAGE,
-                severity=Severity.HIGH,
+                severity=severity,
                 evidence={
                     "revenue_28d": asset.ga4.revenue_28d,
                     "sessions_28d": asset.ga4.sessions_28d,
                     "purchases_28d": asset.ga4.purchases_28d,
                 },
-                interpretation=(
-                    "Revenue attributed to this page but almost no sessions. "
-                    "Checkout/cart pages may be stealing attribution credit."
-                ),
+                interpretation=interpretation,
                 recommended_fix=(
                     "1. Verify purchase event includes correct page_location\n"
                     "2. Check enhanced ecommerce setup\n"
@@ -545,6 +628,13 @@ class TrackingSanityDiagnostics:
         ".mp4", ".webm", ".mp3", ".ogg", ".zip", ".gz",
     }
 
+    # Utility path segments — pages with these in the URL path are not SEO
+    # targets and should be excluded from diagnostics entirely.
+    _UTILITY_PATH_SEGMENTS = {
+        "/checkout", "/cart", "/customer/account", "/catalogsearch",
+        "/wishlist", "/review/product", "/sendfriend",
+    }
+
     def diagnose_all(
         self,
         assets: list[PageAsset],
@@ -564,10 +654,15 @@ class TrackingSanityDiagnostics:
 
         results = []
         for asset in assets:
-            # Skip media/non-page resources — they produce false cannibalization flags.
             path = self.normalize_url(asset.url)
+
+            # Skip media/non-page resources — they produce false cannibalization flags.
             ext = Path(path).suffix.lower()
             if ext in self._MEDIA_EXTS:
+                continue
+
+            # Skip utility pages (checkout, cart, etc.) — not SEO targets.
+            if any(seg in path for seg in self._UTILITY_PATH_SEGMENTS):
                 continue
 
             diag = self.diagnose_page(
