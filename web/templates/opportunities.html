@@ -720,8 +720,26 @@ function buildAIHtml(rec, reproducibility) {
         </div>`;
     }
 
-    // Handle raw_response fallback (JSON parse failed)
+    // Handle raw_response fallback (JSON parse failed on backend)
+    // Try to re-parse on the client side in case the backend parsing had a bug
     if (rec.raw_response) {
+        try {
+            let raw = rec.raw_response.trim();
+            // Strip markdown fences
+            if (raw.toLowerCase().startsWith('```json')) raw = raw.slice(7);
+            else if (raw.startsWith('```')) raw = raw.slice(3);
+            if (raw.trimEnd().endsWith('```')) raw = raw.trimEnd().slice(0, -3);
+            raw = raw.trim();
+            // Find first { if there's a preamble
+            const braceIdx = raw.indexOf('{');
+            if (braceIdx > 0) raw = raw.slice(braceIdx);
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && (parsed.validity_audit || parsed.recommendations || parsed.funnel_analysis)) {
+                return buildAIHtml(parsed, reproducibility);
+            }
+        } catch (e) {
+            // Genuine parse failure — fall through to raw display
+        }
         return `<div class="ai-recommendation">
             <div class="rec-item">
                 <h5>AI Response</h5>

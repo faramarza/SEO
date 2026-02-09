@@ -274,8 +274,49 @@ def api_opportunities():
         except (json.JSONDecodeError, IOError):
             pass
 
+    # Re-parse any ai_recommendations that were stored as raw_response
+    # due to a bug where the dedup exception handler destroyed valid JSON
+    ai_reparsed = 0
+    for r in all_results:
+        ai_rec = r.get("ai_recommendations")
+        if isinstance(ai_rec, dict) and "raw_response" in ai_rec and len(ai_rec) == 1:
+            try:
+                raw = ai_rec["raw_response"].strip()
+                # Strip markdown fences
+                raw_lower = raw.lower()
+                if raw_lower.startswith("```json"):
+                    raw = raw[7:]
+                elif raw.startswith("```"):
+                    raw = raw[3:]
+                if raw.rstrip().endswith("```"):
+                    raw = raw.rstrip()[:-3]
+                raw = raw.strip()
+                # Find first { if there's a preamble
+                if raw and raw[0] != '{':
+                    brace_idx = raw.find('{')
+                    if brace_idx >= 0:
+                        raw = raw[brace_idx:]
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and ("validity_audit" in parsed or "recommendations" in parsed):
+                    r["ai_recommendations"] = parsed
+                    # Also extract ai_revised_value if it wasn't set
+                    if r.get("ai_revised_value") is None:
+                        fa = parsed.get("funnel_analysis", {})
+                        if isinstance(fa, dict):
+                            oe = fa.get("opportunity_estimate", {})
+                            if isinstance(oe, dict):
+                                base = oe.get("base", {})
+                                if isinstance(base, dict) and base.get("total") is not None:
+                                    try:
+                                        r["ai_revised_value"] = float(base["total"])
+                                    except (ValueError, TypeError):
+                                        pass
+                    ai_reparsed += 1
+            except (json.JSONDecodeError, Exception):
+                pass  # Genuine parse failure — leave as raw_response
+
     # Persist cleanup if anything changed
-    if len(all_results) < len(raw_results) or reclassified > 0:
+    if len(all_results) < len(raw_results) or reclassified > 0 or ai_reparsed > 0:
         eval_data["results"] = all_results
         with open(eval_path, "w") as f:
             json.dump(eval_data, f, indent=2)
@@ -1521,15 +1562,22 @@ If nothing is broken or improvable:
 
         # Try to parse as JSON
         try:
-            # Remove markdown code blocks if present
+            # Remove markdown code blocks if present (case-insensitive)
             clean = ai_content.strip()
-            if clean.startswith("```json"):
+            clean_lower = clean.lower()
+            if clean_lower.startswith("```json"):
                 clean = clean[7:]
-            elif clean.startswith("```"):
+            elif clean_lower.startswith("```"):
                 clean = clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
+            if clean.rstrip().endswith("```"):
+                clean = clean.rstrip()[:-3]
             clean = clean.strip()
+
+            # If stripping fences didn't reveal JSON, try to extract it
+            if clean and clean[0] != '{':
+                first_brace = clean.find('{')
+                if first_brace >= 0:
+                    clean = clean[first_brace:]
 
             try:
                 recommendations = json_module.loads(clean)
@@ -1549,11 +1597,15 @@ If nothing is broken or improvable:
                     recommendations = json_module.loads(repair)
                 except Exception:
                     recommendations = {"raw_response": ai_content}
+        except Exception:
+            recommendations = {"raw_response": ai_content}
 
-            # ── Server-side dedup: strip existing outlink URLs from target_urls ──
-            # gpt-4o-mini copies URLs from the outlinks section despite rules.
-            # This programmatic guardrail catches it post-hoc.
-            if existing_outlink_url_set and isinstance(recommendations, dict):
+        # ── Server-side dedup: strip existing outlink URLs from target_urls ──
+        # AI sometimes copies URLs from the outlinks section despite rules.
+        # This programmatic guardrail catches it post-hoc.
+        # Separated from JSON parsing so dedup errors don't destroy valid results.
+        try:
+            if existing_outlink_url_set and isinstance(recommendations, dict) and "raw_response" not in recommendations:
                 recs_list = recommendations.get("recommendations", [])
                 if isinstance(recs_list, list):
                     for rec in recs_list:
@@ -1565,7 +1617,7 @@ If nothing is broken or improvable:
                         dupes = [u for u in target_urls if u in existing_outlink_url_set]
                         if dupes:
                             rec["target_urls"] = [u for u in target_urls if u not in existing_outlink_url_set]
-                            existing_note = rec.get("exact_changes", "")
+                            existing_note = rec.get("exact_changes", "") or ""
                             rec["exact_changes"] = (
                                 f"[SERVER NOTE: Removed {len(dupes)} URL(s) already on this page: "
                                 f"{', '.join(dupes)}. These links already exist — "
@@ -1573,7 +1625,7 @@ If nothing is broken or improvable:
                                 + existing_note
                             )
         except Exception:
-            recommendations = {"raw_response": ai_content}
+            pass  # Dedup failure should not destroy parsed recommendations
 
         # Extract AI's revised value estimate from funnel_analysis
         ai_revised_value = None
