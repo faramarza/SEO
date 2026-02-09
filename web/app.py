@@ -467,7 +467,12 @@ def api_ai_recommend():
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
     max_tokens = ai_config.get("max_tokens", 4500)
+    # Claude models produce more detailed output; ensure enough room
+    if model.startswith("claude-") and max_tokens < 16000:
+        max_tokens = 16000
     timeout_sec = ai_config.get("timeout", 120)
+    if model.startswith("claude-") and timeout_sec < 180:
+        timeout_sec = 180
     max_queries = ai_config.get("max_queries_in_prompt", 0)
     max_issues = ai_config.get("max_issues_in_prompt", 0)
     min_context = ai_config.get("min_context_fields", 3)
@@ -1582,19 +1587,66 @@ If nothing is broken or improvable:
             try:
                 recommendations = json_module.loads(clean)
             except json_module.JSONDecodeError:
-                # Response may be truncated (hit max_tokens). Try to repair by closing open braces.
+                # Response may be truncated (hit max_tokens). Try to repair.
                 repair = clean
-                open_braces = repair.count('{') - repair.count('}')
-                open_brackets = repair.count('[') - repair.count(']')
-                # Trim trailing partial key/value (after last comma or colon)
+
+                # Step 1: Close unclosed string literals.
+                # Count unescaped quotes — if odd, we're inside a string.
+                quote_count = 0
+                i = 0
+                while i < len(repair):
+                    if repair[i] == '\\':
+                        i += 2
+                        continue
+                    if repair[i] == '"':
+                        quote_count += 1
+                    i += 1
+                if quote_count % 2 == 1:
+                    repair += '"'
+
+                # Step 2: Trim trailing partial key/value (after last comma or colon)
                 for trim_char in [',', ':']:
                     last = repair.rfind(trim_char)
                     if last > repair.rfind('}') and last > repair.rfind(']'):
                         repair = repair[:last]
                         break
+
+                # Step 3: Close open brackets and braces
+                open_braces = repair.count('{') - repair.count('}')
+                open_brackets = repair.count('[') - repair.count(']')
                 repair += ']' * max(0, open_brackets) + '}' * max(0, open_braces)
+
                 try:
                     recommendations = json_module.loads(repair)
+                except json_module.JSONDecodeError:
+                    # Step 4: More aggressive repair — trim back to last valid structure
+                    # Find the last closing brace/bracket that could be a valid boundary
+                    aggressive = clean
+                    # Close unclosed string
+                    if quote_count % 2 == 1:
+                        aggressive += '"'
+                    # Find last } or ] that's NOT inside a string
+                    last_valid = -1
+                    in_str = False
+                    for j, ch in enumerate(aggressive):
+                        if ch == '\\' and in_str:
+                            continue
+                        if ch == '"':
+                            in_str = not in_str
+                        if not in_str and ch in ('}', ']'):
+                            last_valid = j
+                    if last_valid > 0:
+                        aggressive = aggressive[:last_valid + 1]
+                        # Re-close remaining structures
+                        ob = aggressive.count('{') - aggressive.count('}')
+                        oq = aggressive.count('[') - aggressive.count(']')
+                        aggressive += ']' * max(0, oq) + '}' * max(0, ob)
+                        try:
+                            recommendations = json_module.loads(aggressive)
+                        except Exception:
+                            recommendations = {"raw_response": ai_content}
+                    else:
+                        recommendations = {"raw_response": ai_content}
                 except Exception:
                     recommendations = {"raw_response": ai_content}
         except Exception:
