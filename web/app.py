@@ -474,6 +474,8 @@ def api_ai_recommend():
 
     # ── Page metadata from frontend (populated by Fetch Page button) ──
     pm = opportunity.get("page_metadata", {})
+    print(f"[AI-DEBUG] page_metadata keys received: {list(pm.keys())}")
+    print(f"[AI-DEBUG] body_html in pm: {'body_html' in pm}, length: {len(pm.get('body_html', ''))}")
     cached_title = pm.get("title", "")
     cached_h1 = pm.get("h1", "")
     cached_meta = pm.get("meta_description", "")
@@ -1126,6 +1128,9 @@ WRONG: "Montessori Toys by Age | Wooden, USA-Made | Free Shipping"
 WRONG: "Montessori Toys for Babies, Toddlers, and Preschoolers — Wooden, Expert-Curated"
 WRONG: "Montessori Toys for Babies Through Preschoolers, Expert-Curated in Wood"
   ("Through Preschoolers" is unnatural; "Expert-Curated in Wood" is grammatically broken)
+WRONG: "Montessori Toys Sorted by Age for Babies Through Preschoolers"
+  ("Babies Through Preschoolers" is unnatural — NEVER use "Through" to span age groups.
+   Use "Babies, Toddlers, and Preschoolers" or "Every Age" or "Ages 0-6" instead.)
 
 RIGHT: "Best Wooden Montessori Toys for Babies, Toddlers, and Preschoolers"
   (Differentiator "Wooden" is a natural adjective before the noun)
@@ -2699,6 +2704,8 @@ def api_page_metadata():
                 _re_fetch.DOTALL | _re_fetch.IGNORECASE,
             )
             body_html = _body_match.group(1)[:100_000] if _body_match else ""
+            print(f"[FETCH-DEBUG] body_html extracted: {len(body_html)} chars (match found: {_body_match is not None})")
+            print(f"[FETCH-DEBUG] response.text length: {len(response.text)}, has <body>: {'<body' in response.text.lower()}")
 
             metadata = {
                 "title": parser.title.strip(),

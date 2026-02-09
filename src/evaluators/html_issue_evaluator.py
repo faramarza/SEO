@@ -56,11 +56,17 @@ _SPAN_DIV_CTA_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# Matches <a ...> wrapping only a <video> or <img> with no visible text
-_MEDIA_WRAP_RE = re.compile(
-    r'<a\b([^>]*)>\s*<(video|img)\b[^>]*/?>.*?</a>',
+# Matches any <a ...>...</a> block (for media-wrap analysis)
+_ANCHOR_BLOCK_RE = re.compile(
+    r'<a\b([^>]*)>(.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
+
+# Matches <video> or <img> tags inside anchor content
+_MEDIA_INSIDE_RE = re.compile(r'<(video|img)\b', re.IGNORECASE)
+
+# Strip all HTML tags to get visible text
+_STRIP_TAGS_RE = re.compile(r'<[^>]+>', re.DOTALL)
 
 # Matches any <a ...> tag (used for above-fold check)
 _ANY_ANCHOR_RE = re.compile(r'<a\b[^>]*>', re.IGNORECASE)
@@ -158,19 +164,34 @@ class HTMLIssueEvaluator:
     def _detect_empty_media_links(
         self, html: str, asset: PageAsset
     ) -> list[HTMLIssue]:
-        """Find <a> tags wrapping video/img with no visible anchor text."""
-        found: list[HTMLIssue] = []
-        for match in _MEDIA_WRAP_RE.finditer(html):
-            attrs = match.group(1)
-            media_type = match.group(2)
+        """Find <a> tags wrapping video/img with no visible anchor text.
 
-            # Extract href for deduplication note
-            href_match = re.search(r'href="([^"]*)"', attrs)
-            href = href_match.group(1) if href_match else "unknown"
+        Handles arbitrarily nested wrappers (div, span, etc.) between
+        the <a> tag and the media element.
+        """
+        found: list[HTMLIssue] = []
+        for match in _ANCHOR_BLOCK_RE.finditer(html):
+            attrs = match.group(1)
+            inner = match.group(2)
+
+            # Only care about anchors that contain <video> or <img>
+            media_match = _MEDIA_INSIDE_RE.search(inner)
+            if not media_match:
+                continue
+            media_type = media_match.group(1)
+
+            # Strip all HTML tags — is there any visible text left?
+            visible_text = _STRIP_TAGS_RE.sub("", inner).strip()
+            if visible_text:
+                continue  # Has real anchor text — not empty
 
             # Check if there is an aria-label (acceptable alternative)
             if re.search(r'aria-label="[^"]+"', attrs):
                 continue
+
+            # Extract href
+            href_match = re.search(r'href="([^"]*)"', attrs)
+            href = href_match.group(1) if href_match else "unknown"
 
             snippet = match.group(0)[:120]
             found.append(HTMLIssue(
