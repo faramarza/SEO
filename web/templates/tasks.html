@@ -235,6 +235,10 @@ function renderTask(task, status) {
 
 // ── Shared AI rendering (same as opportunities page) ──
 function buildAIHtml(rec, reproducibility) {
+    const esc = (s) => {
+        if (!s || typeof s !== 'string') return s || '';
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
     if (rec.no_action) {
         return `<div class="ai-recommendation"><div class="rec-item critical"><h5>No Action</h5><p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>${rec.missing_context ? '<p><strong>Missing:</strong> ' + rec.missing_context.join(', ') + '</p>' : ''}</div></div>`;
     }
@@ -318,7 +322,7 @@ function buildAIHtml(rec, reproducibility) {
                 ${a.target_urls && a.target_urls.length ? '<p style="margin: 4px 0; font-size: 12px;"><strong>Target URLs:</strong> ' + a.target_urls.map(u => '<code style="background:#e8f4fd;padding:1px 4px;border-radius:3px;font-size:11px;">' + u + '</code>').join(', ') + '</p>' : ''}
                 <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
                     <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
-                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${a.exact_changes || 'N/A'}</pre>
+                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${esc(a.exact_changes) || 'N/A'}</pre>
                 </div>
                 <p style="margin: 6px 0;"><strong>Why:</strong> ${a.why_this_works || 'N/A'}</p>
                 <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${a.rollback_plan || 'N/A'}</p>
