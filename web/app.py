@@ -1288,12 +1288,17 @@ one change at a time, ~28 days per test cycle.
  Evaluate after 28 days. If CTR does not improve by 50%, move to Priority 2." IS acceptable.
 
 ────────────────────────────────
-INTERNAL LINKING SPECIFICITY RULE
+MANDATORY INBOUND LINK ANALYSIS (REQUIRED FOR EVERY PAGE)
 ────────────────────────────────
-Each site_page in INPUTS now includes: impr (28-day impressions), pos (avg position),
+Each site_page in INPUTS includes: impr (28-day impressions), pos (avg position),
 overlap (shared query-word count with target page), and link_score (composite).
 
-When recommending INTERNAL_LINKING, you MUST:
+You MUST ALWAYS include a "Step 4: Inbound Link Opportunities" section in your output,
+even if you believe other constraints are more important. This section is MANDATORY
+whenever site_pages data is available (not null). Do NOT defer, skip, or fold this
+into the "Explicitly Preserved" section.
+
+In Step 4, you MUST:
   1. Identify the TOP 3 pages from site_pages that should link TO this page, ranked by
      link_score (= impressions × position_factor × topical_overlap). These are the pages
      where adding a link to the current page will have the most impact.
@@ -1307,10 +1312,19 @@ When recommending INTERNAL_LINKING, you MUST:
         "after the introductory paragraph about [topic]"
      e. SUGGESTED ANCHOR TEXT — following the anchor text accuracy rule below
      f. PRIMARY vs SECONDARY — which is the main funnel link, which are supporting
-  3. Also recommend links FROM this page to other relevant pages using the same format.
+
+If site_pages is null, state "Inbound link analysis unavailable — run full evaluation first."
+
+INTERNAL LINKING SPECIFICITY RULE (for outbound link recommendations)
+────────────────────────────────
+When recommending INTERNAL_LINKING as an action (links FROM this page to others), you MUST:
+  1. Provide EXACT target URLs copy-pasted from site_pages (NOT invented)
+  2. Explain WHY this target — tie to funnel analysis, query intent, and link_score
+  3. Specify WHERE in the content to place the link
+  4. Suggest ANCHOR TEXT following the anchor text accuracy rule below
 
 "Add internal links to relevant category pages" is NOT acceptable.
-"TOP LINKING SOURCES for this page:
+"TOP INBOUND LINKING SOURCES for this page:
 1. /collections/wooden-trains [Wooden Train Sets] — link_score=15,480
    (1,240 impr, pos 4.2, 3 query overlaps). Add link in the comparison
    section after 'types of wooden trains' paragraph. Anchor: 'See our
