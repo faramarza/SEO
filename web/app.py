@@ -862,6 +862,9 @@ def api_ai_recommend():
     if not target_pages_str:
         target_pages_str = "null (no evaluation data — run evaluation first)"
 
+    print(f"[AI-DEBUG] site_pages counts: category={len(site_pages.get('category', []))}, product={len(site_pages.get('product', []))}, blog={len(site_pages.get('blog', []))}")
+    print(f"[AI-DEBUG] target_pages_str length: {len(target_pages_str)}, starts with: {target_pages_str[:100]}")
+
     # ── 6) Above-fold HTML and robots meta ──────────────────────
     above_fold_html_raw = pm.get("above_fold_html", "")
     robots_meta = pm.get("robots_meta", "")
