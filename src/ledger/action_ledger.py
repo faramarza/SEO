@@ -130,6 +130,9 @@ class ActionRecord:
     baseline_metrics: Optional[dict] = None  # GSC/GA4 snapshot at implementation time
     notes: str = ""
     prior_action_refs: list[str] = field(default_factory=list)  # Related past action_ids
+    # Variant tracking for sequential tests (e.g., title/meta Priority 1/2/3)
+    active_variant_index: int = 0  # Which variant is currently deployed (0-based)
+    variant_outcomes: list[dict] = field(default_factory=list)  # Outcome per variant tested
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -145,8 +148,10 @@ class ActionRecord:
         data["status"] = ActionStatus(data["status"])
         if data.get("outcome"):
             data["outcome"] = ActionOutcome(data["outcome"])
-        # Backwards compat: older records may lack baseline_metrics
+        # Backwards compat: older records may lack newer fields
         data.setdefault("baseline_metrics", None)
+        data.setdefault("active_variant_index", 0)
+        data.setdefault("variant_outcomes", [])
         return cls(**data)
 
     @property

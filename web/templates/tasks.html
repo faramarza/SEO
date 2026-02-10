@@ -6,7 +6,7 @@
 {% block content %}
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
     <p style="margin: 0; color: var(--text-muted); font-size: 13px;">
-        Approve = start the clock. The system auto-measures once the evaluation window passes.
+        Approve, then deploy changes and click "Mark as Done" to start the evaluation clock.
     </p>
     <button class="btn btn-small" id="btn-check-measurements" onclick="runAutoMeasure()">Check Measurements</button>
 </div>
@@ -158,9 +158,37 @@ function renderTask(task, status) {
             </div>`;
     }
 
-    // Countdown for in-progress tasks
+    // Variant indicator for tasks with sequential test variants
+    let variantHtml = '';
+    if (status === 'implemented' && task.variants && task.variants.length > 0) {
+        const vi = task.active_variant_index;
+        const v = task.variants[vi];
+        const dots = task.variants.map((_, i) => {
+            const pastOutcome = task.variant_outcomes.find(vo => vo.variant_index === i);
+            if (pastOutcome) {
+                const c = pastOutcome.outcome === 'positive' ? '#059669' : pastOutcome.outcome === 'negative' ? '#dc2626' : '#ca8a04';
+                return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:3px;" title="Variant ${i+1}: ${pastOutcome.outcome}"></span>`;
+            }
+            const active = i === vi;
+            return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${active ? 'var(--accent-blue, #3b82f6)' : 'var(--border-color)'};margin-right:3px;" title="Variant ${i+1}${active ? ' (active)' : ''}"></span>`;
+        }).join('');
+        variantHtml = `
+            <div style="margin: 6px 0; padding: 6px 8px; background: var(--bg-secondary, #f8fafc); border-radius: 4px; font-size: 12px;">
+                <div style="margin-bottom: 4px;">${dots} <strong>Variant ${vi + 1}/${task.variants.length}</strong></div>
+                ${v ? `<div style="color: var(--text-secondary);" title="${v.title || ''}">Title: ${(v.title || '').slice(0, 50)}${(v.title || '').length > 50 ? '...' : ''}</div>` : ''}
+            </div>`;
+    }
+
+    // Countdown for in-progress tasks (only if baseline captured)
     let countdownHtml = '';
-    if (status === 'implemented' && task.days_remaining !== null && task.days_remaining !== undefined) {
+    if (status === 'implemented' && !task.baseline_captured) {
+        // Baseline not captured yet — user needs to deploy and mark as done
+        countdownHtml = `
+            <div style="margin: 8px 0 2px; padding: 6px 8px; background: #fffbeb; border-radius: 4px; border-left: 3px solid #f59e0b;">
+                <div style="font-size: 11px; color: #92400e;">Deploy the change, then click "Mark as Done" to start the evaluation clock.</div>
+            </div>
+        `;
+    } else if (status === 'implemented' && task.days_remaining !== null && task.days_remaining !== undefined) {
         const pct = task.evaluation_window_days
             ? Math.min(100, Math.round(100 * (1 - task.days_remaining / task.evaluation_window_days)))
             : 0;
@@ -198,10 +226,17 @@ function renderTask(task, status) {
             <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
         `;
     } else if (status === 'implemented') {
-        actions = `
-            <button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Close Manually</button>
-            <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
-        `;
+        if (!task.baseline_captured) {
+            actions = `
+                <button class="btn btn-small btn-approve-task" onclick="markDone('${task.action_id}')">Mark as Done</button>
+                <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
+            `;
+        } else {
+            actions = `
+                <button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Close Manually</button>
+                <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
+            `;
+        }
     }
 
     const constraintLabel = task.primary_constraint
@@ -226,6 +261,7 @@ function renderTask(task, status) {
                 <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
                 <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
             </div>
+            ${variantHtml}
             ${countdownHtml}
             ${outcomeHtml}
             <div class="task-actions" onclick="event.stopPropagation();">${actions}</div>
@@ -653,6 +689,22 @@ async function advanceTask(actionId) {
     }
 }
 
+async function markDone(actionId) {
+    if (!confirm('Confirm: you have deployed the change (e.g., in Magento). The evaluation clock will start now.')) return;
+    try {
+        const res = await fetch(`/api/tasks/${actionId}/mark-done`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            loadTasks();
+        } else {
+            showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (e) {
+        showToast('Network error: ' + e.message, 'error');
+    }
+}
+
 async function runAutoMeasure() {
     const btn = document.getElementById('btn-check-measurements');
     btn.disabled = true;
@@ -663,7 +715,13 @@ async function runAutoMeasure() {
         const data = await res.json();
 
         if (data.measured > 0) {
-            showToast(`Auto-measured ${data.measured} task(s)`, 'success');
+            // Check if any tasks advanced to the next variant
+            const advanced = (data.results || []).filter(r => r.variant_advanced);
+            if (advanced.length > 0) {
+                advanced.forEach(r => showToast(r.message, 'warning'));
+            }
+            const closed = data.measured - advanced.length;
+            if (closed > 0) showToast(`Measured and closed ${closed} task(s)`, 'success');
             loadTasks();
         } else {
             showToast('No tasks ready for measurement yet', 'info');

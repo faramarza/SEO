@@ -420,6 +420,11 @@ def api_tasks():
             "capture_class": rec.get("capture_class", ""),
             "intent_score": rec.get("intent_score"),
             "visibility_score": rec.get("visibility_score"),
+            # Variant tracking
+            "active_variant_index": action.active_variant_index,
+            "variant_outcomes": action.variant_outcomes,
+            "variants": _get_variants(action),
+            "baseline_captured": action.baseline_metrics is not None,
         })
 
     return jsonify(tasks_by_status)
@@ -1632,6 +1637,14 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
       "diagnosed_constraint": "<the specific constraint this fixes>",
       "target_urls": ["<ONLY for INTERNAL_LINKING: list each target URL here — must be copy-pasted from site_pages>"],
       "exact_changes": "<implementation-ready details. For TITLE_META_TEST: write the EXACT proposed title tag and meta description text — not a description of what to do. For INTERNAL_LINKING: exact URLs from target_urls, anchor text, placement location, primary/secondary>",
+      "variants": [
+        {{{{
+          "priority": <1 | 2 | 3>,
+          "title": "<for TITLE_META_TEST: the exact title tag text>",
+          "meta_description": "<for TITLE_META_TEST: the exact meta description text>",
+          "why": "<why this variant, which queries it targets>"
+        }}}}
+      ],
       "why_this_works": "<tie to diagnosed constraint + GSC data>",
       "risk_level": "<low | medium | high>",
       "rollback_plan": "<how to undo>",
@@ -1668,6 +1681,12 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
 
 If site_pages is null, set inbound_link_opportunities.available = false and top_3 = [].
 If site_pages has data, you MUST populate top_3 with exactly 3 entries sorted by link_score.
+
+VARIANTS RULE: For TITLE_META_TEST recommendations, you MUST populate the "variants" array
+with exactly 3 priority-ranked variants. Each variant has: priority (1/2/3), title (exact text),
+meta_description (exact text), and why (justification). The system will track which variant is
+deployed and auto-evaluate after the measurement window. For all other action types, set
+variants to an empty array [].
 
 If nothing is broken or improvable:
 → Return empty recommendations array with justification in no_actions."""
@@ -2164,12 +2183,62 @@ def api_advance_task(action_id):
     new_status = progression[current]
     action.update_status(new_status)
 
-    # Capture baseline GSC/GA4 metrics when moving to IMPLEMENTED
-    if new_status == ActionStatus.IMPLEMENTED:
-        action.baseline_metrics = _capture_baseline(action.url)
+    # Don't capture baseline here — user will click "Mark as Done"
+    # when they actually deploy the change in Magento.
 
     ledger.update_action(action)
     return jsonify({"success": True, "new_status": action.status.value})
+
+
+@app.route("/api/tasks/<action_id>/mark-done", methods=["POST"])
+def api_mark_done(action_id):
+    """Mark a task as deployed — captures GSC/GA4 baseline and starts the evaluation clock.
+
+    Called when the user has actually made the change in Magento (or whatever CMS).
+    This is when the baseline snapshot is taken, not at approval time.
+    """
+    ledger = ActionLedger()
+    action = ledger.get_action(action_id)
+
+    if not action:
+        return jsonify({"error": "Action not found"}), 404
+
+    if action.status != ActionStatus.IMPLEMENTED:
+        return jsonify({"error": "Task must be in In Progress status"}), 400
+
+    # Capture baseline now — this is when the change was actually deployed
+    action.baseline_metrics = _capture_baseline(action.url)
+    action.implemented_at = datetime.now().isoformat()
+    # Set per-action-type evaluation window
+    action.evaluation_window_days = evaluation_window_for(action.action_type)
+
+    ledger.update_action(action)
+
+    variant_label = ""
+    variants = _get_variants(action)
+    if variants:
+        v = variants[action.active_variant_index] if action.active_variant_index < len(variants) else None
+        variant_label = f" (Variant {action.active_variant_index + 1})" if v else ""
+
+    return jsonify({
+        "success": True,
+        "message": f"Baseline captured{variant_label}. Evaluation starts now ({action.evaluation_window_days} days).",
+        "baseline_captured": action.baseline_metrics is not None,
+        "evaluation_window_days": action.evaluation_window_days,
+    })
+
+
+def _get_variants(action) -> list[dict]:
+    """Extract structured variants from an action's recommendation_json."""
+    rec_json = action.recommendation_json or {}
+    # Look in ai_recommendations (stored at approval) or directly in recommendations
+    ai_rec = rec_json.get("ai_recommendations", rec_json)
+    recs = ai_rec.get("recommendations", [])
+    for r in recs:
+        variants = r.get("variants", [])
+        if variants:
+            return sorted(variants, key=lambda v: v.get("priority", 99))
+    return []
 
 
 @app.route("/api/tasks/<action_id>/reject", methods=["POST"])
@@ -2276,19 +2345,61 @@ def api_auto_measure():
         if result is None:
             continue
 
-        outcome = ActionOutcome(result["outcome"])
-        ledger.record_outcome(
-            action_id=action.action_id,
-            outcome=outcome,
-            outcome_metrics=result.get("metrics"),
-            notes=result.get("notes", ""),
-        )
-        results.append({
-            "action_id": action.action_id,
-            "url": action.url,
-            "outcome": result["outcome"],
-            "notes": result.get("notes", ""),
-        })
+        outcome_str = result["outcome"]
+        outcome = ActionOutcome(outcome_str)
+        variants = _get_variants(action)
+        has_next_variant = variants and action.active_variant_index < len(variants) - 1
+
+        if outcome_str in ("negative", "neutral") and has_next_variant:
+            # Variant failed but there are more to try — advance to next variant
+            action.variant_outcomes.append({
+                "variant_index": action.active_variant_index,
+                "outcome": outcome_str,
+                "metrics": result.get("metrics"),
+                "notes": result.get("notes", ""),
+            })
+            action.active_variant_index += 1
+            action.baseline_metrics = None  # Reset — user needs to "Mark as Done" again
+            action.implemented_at = None    # Reset evaluation clock
+            ledger.update_action(action)
+            next_v = variants[action.active_variant_index]
+            results.append({
+                "action_id": action.action_id,
+                "url": action.url,
+                "outcome": outcome_str,
+                "notes": result.get("notes", ""),
+                "variant_advanced": True,
+                "next_variant": action.active_variant_index + 1,
+                "next_variant_title": next_v.get("title", ""),
+                "message": f"Variant {action.active_variant_index} didn't improve. Deploy Variant {action.active_variant_index + 1} and mark as done.",
+            })
+        else:
+            # Either positive, or all variants exhausted — close the task
+            if variants:
+                action.variant_outcomes.append({
+                    "variant_index": action.active_variant_index,
+                    "outcome": outcome_str,
+                    "metrics": result.get("metrics"),
+                    "notes": result.get("notes", ""),
+                })
+                ledger.update_action(action)
+            notes = result.get("notes", "")
+            if outcome_str == "positive" and variants:
+                notes = f"Variant {action.active_variant_index + 1} succeeded. " + notes
+            elif variants and not has_next_variant and outcome_str != "positive":
+                notes = f"All {len(variants)} variants tested, none improved. " + notes
+            ledger.record_outcome(
+                action_id=action.action_id,
+                outcome=outcome,
+                outcome_metrics=result.get("metrics"),
+                notes=notes,
+            )
+            results.append({
+                "action_id": action.action_id,
+                "url": action.url,
+                "outcome": outcome_str,
+                "notes": notes,
+            })
 
     return jsonify({
         "success": True,
