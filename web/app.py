@@ -784,7 +784,7 @@ def api_ai_recommend():
 
             # Collect the target page's query terms for overlap scoring
             target_queries_set = set()
-            for q in top_queries_list:
+            for q in opportunity.get("top_queries", []):
                 for word in q.get("query", "").lower().split():
                     if len(word) > 2:
                         target_queries_set.add(word)
