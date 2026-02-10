@@ -914,7 +914,7 @@ async function getAIRecommendations(idx) {
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
     section.style.display = 'block';
-    content.innerHTML = '<p class="loading-ai">Generating AI recommendations from cached page data...</p>';
+    content.innerHTML = '<p class="loading-ai">Analyzing page...</p>';
 
     try {
         const res = await fetch('/api/ai/recommend', {
