@@ -24,6 +24,7 @@ from src.ledger.action_ledger import ActionLedger, ActionStatus, ActionOutcome, 
 from src.data_sources.gsc_client import GSCClient
 from src.data_sources.ga4_client import GA4Client
 from src.data_sources.google_ads_client import GoogleAdsClient
+from src.data_sources.moz_client import MozClient
 from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
 
 
@@ -867,6 +868,29 @@ def api_ai_recommend():
     if not target_pages_str:
         target_pages_str = "null (no evaluation data — run evaluation first)"
 
+    # ── 5b) Moz authority metrics ─────────────────────────────
+    # Fetch DA, PA, referring domains for the target page.
+    # Uses 30-day cache to stay within 50 calls/month budget.
+    moz_str = "null (Moz API not configured)"
+    try:
+        moz = MozClient()
+        if moz.api_token:
+            moz_metrics = moz.get_url_metrics(url)
+            if moz_metrics:
+                moz_str = (
+                    f"domain_authority: {moz_metrics.get('domain_authority', 0)}\n"
+                    f"page_authority: {moz_metrics.get('page_authority', 0)}\n"
+                    f"spam_score: {moz_metrics.get('spam_score', 0)}\n"
+                    f"root_domains_to_page: {moz_metrics.get('root_domains_to_page', 0)}\n"
+                    f"external_pages_to_page: {moz_metrics.get('external_pages_to_page', 0)}\n"
+                    f"cached: {moz_metrics.get('cached', False)}"
+                )
+            else:
+                moz_str = "null (API call failed or returned empty)"
+    except Exception as exc:
+        print(f"[MozClient] Error fetching metrics for {url}: {exc}")
+        moz_str = "null (error fetching Moz data)"
+
     # ── 6) Above-fold HTML and robots meta ──────────────────────
     above_fold_html_raw = pm.get("above_fold_html", "")
     robots_meta = pm.get("robots_meta", "")
@@ -1596,6 +1620,9 @@ business_context:
 
 site_pages (YOUR ONLY SOURCE for recommending new internal links — copy-paste URLs from here):
 {target_pages_str}
+
+moz_authority (domain & page authority from Moz — use for backlink gap analysis):
+{moz_str}
 {ctr_suppression_flag}
 ────────────────────────────────
 OUTPUT FORMAT (STRICT)
@@ -1674,6 +1701,22 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
       }}}}
     ]
   }}}},
+  "authority_analysis": {{{{
+    "available": <true if moz_authority data exists, false if null>,
+    "domain_authority": <number>,
+    "page_authority": <number>,
+    "referring_domains": <number>,
+    "authority_verdict": "<STRONG | ADEQUATE | WEAK | INSUFFICIENT> — brief assessment relative to current position and query competitiveness",
+    "backlink_gap": {{{{
+      "current_position": <weighted avg position from GSC>,
+      "target_position": <1-3>,
+      "estimated_referring_domains_needed": <number — estimate of total referring domains needed to reach target position>,
+      "estimated_new_links_needed": <number — additional links beyond current>,
+      "confidence": "<HIGH | MEDIUM | LOW — based on data availability>",
+      "reasoning": "<explain the estimate: cite DA, PA, current referring domains, query competitiveness from impression volume, and position gap>"
+    }}}},
+    "quick_wins": "<pages with high impressions but low PA that could benefit most from even 1-2 backlinks, or 'N/A' if authority is adequate>"
+  }}}},
   "no_actions": [
     "<element>: <why no change is needed>"
   ]
@@ -1687,6 +1730,16 @@ with exactly 3 priority-ranked variants. Each variant has: priority (1/2/3), tit
 meta_description (exact text), and why (justification). The system will track which variant is
 deployed and auto-evaluate after the measurement window. For all other action types, set
 variants to an empty array [].
+
+AUTHORITY ANALYSIS RULE: If moz_authority data is available (not null), you MUST populate
+authority_analysis with a backlink gap estimate. Use these heuristics:
+- Compare page_authority and referring_domains against what's typical for the current position
+- Estimate links needed: for competitive queries (>5000 impressions/mo), pages at position 1-3
+  typically need PA 30-50+ and 10-50+ referring domains depending on query difficulty
+- For less competitive queries (<1000 impressions/mo), PA 15-25 and 5-15 referring domains
+  may suffice for top-3 positioning
+- Factor in domain_authority as a baseline: higher DA means fewer page-level links needed
+- If moz_authority is null, set authority_analysis.available = false and leave other fields at 0/empty
 
 If nothing is broken or improvable:
 → Return empty recommendations array with justification in no_actions."""
