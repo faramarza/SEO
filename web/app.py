@@ -1644,10 +1644,30 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
       }}}}
     }}}}
   ],
+  "inbound_link_opportunities": {{{{
+    "available": <true if site_pages data exists, false if null>,
+    "top_3": [
+      {{{{
+        "source_url": "<exact URL from site_pages that should link TO this page>",
+        "source_title": "<title of the source page>",
+        "link_score": <number>,
+        "impressions": <number>,
+        "position": <number>,
+        "query_overlap": <number>,
+        "justification": "<why this page is a strong linking source — cite shared query terms>",
+        "placement": "<where on the source page to add the link>",
+        "anchor_text": "<suggested anchor text following anchor text accuracy rules>",
+        "priority": "<PRIMARY | SECONDARY>"
+      }}}}
+    ]
+  }}}},
   "no_actions": [
     "<element>: <why no change is needed>"
   ]
 }}}}
+
+If site_pages is null, set inbound_link_opportunities.available = false and top_3 = [].
+If site_pages has data, you MUST populate top_3 with exactly 3 entries sorted by link_score.
 
 If nothing is broken or improvable:
 → Return empty recommendations array with justification in no_actions."""

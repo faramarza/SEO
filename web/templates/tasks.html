@@ -326,13 +326,23 @@ function buildAIHtml(rec, reproducibility) {
             </div>`;
         }).join('');
     }
+    let inboundHtml = '';
+    const ilo = rec.inbound_link_opportunities;
+    if (ilo && ilo.available && ilo.top_3 && ilo.top_3.length > 0) {
+        inboundHtml = '<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Step 4: Inbound Link Opportunities</h5><p style="font-size:12px;color:#6b7280;margin:0 0 8px 0;">Top pages that should link <strong>to this page</strong>, ranked by linking potential:</p>' + ilo.top_3.map((link, i) => {
+            const prioColor = link.priority === 'PRIMARY' ? '#4f46e5' : '#6b7280';
+            return '<div style="margin: 6px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid ' + prioColor + ';"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><strong style="font-size:13px;">' + (i + 1) + '. ' + (link.source_title || link.source_url) + '</strong><span style="font-size:11px;padding:1px 6px;border-radius:3px;background:' + prioColor + '18;color:' + prioColor + ';font-weight:600;">' + (link.priority || 'SECONDARY') + '</span></div><code style="font-size:11px;background:#e8f4fd;padding:1px 4px;border-radius:3px;">' + link.source_url + '</code><div style="font-size:12px;margin-top:6px;color:#374151;"><span style="margin-right:12px;">link_score=<strong>' + (link.link_score || 0).toLocaleString() + '</strong></span><span style="margin-right:12px;">impr=' + (link.impressions || 0) + '</span><span style="margin-right:12px;">pos=' + (link.position || '?') + '</span><span>overlap=' + (link.query_overlap || 0) + '</span></div><p style="margin:6px 0 0 0;font-size:12px;">' + (link.justification || '') + '</p><p style="margin:4px 0 0 0;font-size:12px;color:#6b7280;"><strong>Placement:</strong> ' + (link.placement || '—') + '</p><p style="margin:2px 0 0 0;font-size:12px;color:#6b7280;"><strong>Anchor:</strong> "' + (link.anchor_text || '—') + '"</p></div>';
+        }).join('') + '</div>';
+    } else if (ilo && !ilo.available) {
+        inboundHtml = '<div class="rec-item" style="margin-top: 8px; background: #fffbeb; padding: 10px; border-radius: 6px;"><h5 style="margin: 0 0 4px 0;">Step 4: Inbound Link Opportunities</h5><p style="margin: 0; font-size: 12px; color: #92400e;">Inbound link analysis unavailable — run full evaluation first.</p></div>';
+    }
     let noActionsHtml = '';
     if (noActions.length > 0) {
         noActionsHtml = '<div class="rec-item" style="margin-top: 8px; background: #f0fdf4; padding: 10px; border-radius: 6px;"><h5 style="margin: 0 0 6px 0;">Explicitly Preserved (No Change)</h5><ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #059669;">' + noActions.map(n => '<li style="margin: 2px 0;">' + n + '</li>').join('') + '</ul></div>';
     }
     let html = `<div class="ai-recommendation">
         <div class="rec-item" style="background: ${isAllNoAction ? '#fef2f2' : '#f0fdf4'}; padding: 12px; border-radius: 6px;"><p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || (isAllNoAction ? 'No actionable issues found — all elements valid.' : 'Analysis complete.')}</p></div>
-        ${validityHtml}${funnelHtml}${accountabilityHtml}${actionsHtml}${noActionsHtml}
+        ${validityHtml}${funnelHtml}${accountabilityHtml}${actionsHtml}${inboundHtml}${noActionsHtml}
     </div>`;
     if (reproducibility) {
         const r = reproducibility;
