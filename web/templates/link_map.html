@@ -182,11 +182,13 @@ function showDetail(idx) {
         html += `<table style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead><tr style="background:#eff6ff;">
                 <th style="padding:6px 8px; text-align:left;">Source Page</th>
+                <th style="padding:6px 8px; text-align:left;">URL</th>
                 <th style="padding:6px 8px; text-align:left;">Anchor Text</th>
             </tr></thead><tbody>`;
         for (const il of p.inlinks) {
             html += `<tr style="border-bottom:1px solid #e5e7eb;">
-                <td style="padding:6px 8px;" title="${esc(il.url)}">${esc(il.title || shortUrl(il.url))}</td>
+                <td style="padding:6px 8px;">${esc(il.title || '—')}</td>
+                <td style="padding:6px 8px; font-size:12px; color:#6b7280;">${esc(shortUrl(il.url))}</td>
                 <td style="padding:6px 8px; color:#6b7280;">${esc(il.anchor_text) || '<em>empty</em>'}</td>
             </tr>`;
         }
