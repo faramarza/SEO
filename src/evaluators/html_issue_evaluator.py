@@ -200,6 +200,11 @@ class HTMLIssueEvaluator:
             if re.search(r'aria-label="[^"]+"', attrs):
                 continue
 
+            # Check if the media element has alt text — Google uses img alt
+            # as anchor text when <a> wraps <img>. This is NOT an SEO defect.
+            if re.search(r'alt="[^"]+"', inner):
+                continue
+
             # Extract href
             href_match = re.search(r'href="([^"]*)"', attrs)
             href = href_match.group(1) if href_match else "unknown"
@@ -219,13 +224,14 @@ class HTMLIssueEvaluator:
                 severity="medium",
                 description=(
                     f"<a> wrapping <{media_type}> to {href} has no anchor text "
-                    f"or aria-label. Search engines cannot parse link intent. "
-                    f"Duplicate of a text link below wastes crawl budget."
+                    f"and no alt text on the media element. Search engines "
+                    f"cannot parse link intent."
                 ),
                 affected_snippet=snippet,
                 recommended_fix=(
-                    f'Add aria-label="[descriptive text]" to the <a> tag, or '
-                    f"add a visually-hidden <span> with anchor text inside the link."
+                    f'Add descriptive alt="..." to the <{media_type}> element '
+                    f"(Google uses img alt as anchor text), or add a visually-hidden "
+                    f"<span> with anchor text inside the link."
                 ),
             ))
         return found

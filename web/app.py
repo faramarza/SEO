@@ -795,6 +795,18 @@ def api_ai_recommend():
                     if len(word) > 2:
                         target_queries_set.add(word)
 
+            # Build reverse link index: which pages already link TO the target?
+            # These should NOT be recommended as inbound link sources.
+            already_links_to_target = set()
+            for r in eval_data.get("results", []):
+                r_url = r.get("url", "")
+                r_pm = r.get("page_metadata", {})
+                r_outlinks = r_pm.get("internal_outlinks", [])
+                for ol in r_outlinks:
+                    if ol.get("target_url", "").rstrip("/") == url.rstrip("/"):
+                        already_links_to_target.add(r_url)
+                        break
+
             for r in eval_data.get("results", []):
                 r_url = r.get("url", "")
                 if r_url == url:
@@ -823,6 +835,9 @@ def api_ai_recommend():
                             r_query_words.add(word)
                 overlap = len(target_queries_set & r_query_words)
 
+                # Mark if this page already links to the target
+                has_inbound = r_url in already_links_to_target
+
                 site_pages[r_type].append({
                     "url": r_url,
                     "title": title_r[:80],
@@ -831,6 +846,10 @@ def api_ai_recommend():
                     "clicks": clicks,
                     "position": round(avg_pos, 1) if avg_pos else 0,
                     "query_overlap": overlap,
+                    "already_links_to_target": has_inbound,
+                    "top_queries_summary": ", ".join(
+                        rq.get("query", "") for rq in r_queries[:5]
+                    ) if r_queries else "",
                 })
         except Exception:
             pass
@@ -842,28 +861,34 @@ def api_ai_recommend():
 
     # Format site map — compact but informative, with linking signals
     target_pages_str = ""
+    inbound_blocklist_urls = []
     for ptype in ("category", "product", "blog"):
         pages = site_pages.get(ptype, [])
         if pages:
-            # Remove pages already linked from this page
+            # Remove pages already linked from this page (outbound dedup)
             pages = [p for p in pages if p["url"] not in existing_outlink_url_set]
+            # Separate pages that already link to target (inbound dedup)
+            already_linking = [p for p in pages if p.get("already_links_to_target")]
+            available = [p for p in pages if not p.get("already_links_to_target")]
+            inbound_blocklist_urls.extend(p["url"] for p in already_linking)
             # Compute a linking_score = impressions × (11 - position) × (1 + overlap)
             # Higher impressions + better position + more topical overlap = better link source
-            for p in pages:
+            for p in available:
                 pos_factor = max(1, 11 - p["position"]) if p["position"] > 0 else 1
                 p["linking_score"] = p["impressions"] * pos_factor * (1 + p["query_overlap"])
             # Sort by linking score descending, show top 30
-            pages.sort(key=lambda p: p["linking_score"], reverse=True)
-            target_pages_str += f"\n{ptype.upper()} pages ({len(pages)} total, sorted by linking potential):\n"
-            for p in pages[:30]:
+            available.sort(key=lambda p: p["linking_score"], reverse=True)
+            target_pages_str += f"\n{ptype.upper()} pages ({len(available)} available, {len(already_linking)} already link to this page):\n"
+            for p in available[:30]:
+                queries_tag = f'  queries=[{p["top_queries_summary"]}]' if p.get("top_queries_summary") else ''
                 target_pages_str += (
                     f'  - {p["url"]}  [{p["title"]}]  '
                     f'EV=${p["ev"]}  impr={p["impressions"]}  '
                     f'pos={p["position"]}  overlap={p["query_overlap"]}  '
-                    f'link_score={p["linking_score"]:.0f}\n'
+                    f'link_score={p["linking_score"]:.0f}{queries_tag}\n'
                 )
-            if len(pages) > 30:
-                target_pages_str += f"  ... and {len(pages) - 30} more\n"
+            if len(available) > 30:
+                target_pages_str += f"  ... and {len(available) - 30} more\n"
 
     if not target_pages_str:
         target_pages_str = "null (no evaluation data — run evaluation first)"
@@ -1620,7 +1645,7 @@ business_context:
 
 site_pages (YOUR ONLY SOURCE for recommending new internal links — copy-paste URLs from here):
 {target_pages_str}
-
+{"INBOUND BLOCKLIST — these pages ALREADY link to this page. Do NOT recommend them as inbound link sources:" + chr(10) + chr(10).join("  - " + u for u in inbound_blocklist_urls) + chr(10) if inbound_blocklist_urls else ""}
 moz_authority (domain & page authority from Moz — use for backlink gap analysis):
 {moz_str}
 {ctr_suppression_flag}
@@ -1663,7 +1688,7 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
       "action_type": "<TITLE_META_TEST | INTERNAL_LINKING | VISIBILITY_FIX | CANONICAL_FIX | CONTENT_CLARIFY | CONSOLIDATION_REVIEW | NO_ACTION>",
       "diagnosed_constraint": "<the specific constraint this fixes>",
       "target_urls": ["<ONLY for INTERNAL_LINKING: list each target URL here — must be copy-pasted from site_pages>"],
-      "exact_changes": "<implementation-ready details. For TITLE_META_TEST: write the EXACT proposed title tag and meta description text — not a description of what to do. For INTERNAL_LINKING: exact URLs from target_urls, anchor text, placement location, primary/secondary>",
+      "exact_changes": "<implementation-ready details. For TITLE_META_TEST: you MUST write out the Priority 1 title and meta description in full here — the actual text, not 'see variants'. The variants array is for the system to track; exact_changes is what the operator reads. For INTERNAL_LINKING: exact URLs from target_urls, anchor text, placement location, primary/secondary>",
       "variants": [
         {{{{
           "priority": <1 | 2 | 3>,
@@ -1710,10 +1735,28 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "backlink_gap": {{{{
       "current_position": <weighted avg position from GSC>,
       "target_position": <1-3>,
-      "estimated_referring_domains_needed": <number — estimate of total referring domains needed to reach target position>,
-      "estimated_new_links_needed": <number — additional links beyond current>,
+      "link_building_scenarios": [
+        {{{{
+          "scenario": "<e.g. 'High-DA outreach (DA 50-80+)'>",
+          "links_needed": <number>,
+          "example_sources": "<types of sites — e.g. 'parenting magazines, educational resource sites'>",
+          "timeline": "<estimated months to acquire>"
+        }}}},
+        {{{{
+          "scenario": "<e.g. 'Medium-DA outreach (DA 25-50)'>",
+          "links_needed": <number>,
+          "example_sources": "<types of sites>",
+          "timeline": "<estimated months>"
+        }}}},
+        {{{{
+          "scenario": "<e.g. 'Low-DA / easy wins (DA 10-25)'>",
+          "links_needed": <number>,
+          "example_sources": "<types of sites>",
+          "timeline": "<estimated months>"
+        }}}}
+      ],
       "confidence": "<HIGH | MEDIUM | LOW — based on data availability>",
-      "reasoning": "<explain the estimate: cite DA, PA, current referring domains, query competitiveness from impression volume, and position gap>"
+      "reasoning": "<explain the estimate: cite DA, PA, current referring domains, query competitiveness from impression volume, and position gap. A single DA 80+ link can equal 20-50 DA 20 links in ranking impact.>"
     }}}},
     "quick_wins": "<pages with high impressions but low PA that could benefit most from even 1-2 backlinks, or 'N/A' if authority is adequate>"
   }}}},
@@ -1730,15 +1773,24 @@ with exactly 3 priority-ranked variants. Each variant has: priority (1/2/3), tit
 meta_description (exact text), and why (justification). The system will track which variant is
 deployed and auto-evaluate after the measurement window. For all other action types, set
 variants to an empty array [].
+IMPORTANT: exact_changes MUST ALSO contain the Priority 1 title and meta description text
+in full. Do NOT write "Deploy Priority 1" or "see variants" — the operator reads exact_changes,
+not the variants array. Write the actual title and meta text in both places.
 
 AUTHORITY ANALYSIS RULE: If moz_authority data is available (not null), you MUST populate
-authority_analysis with a backlink gap estimate. Use these heuristics:
-- Compare page_authority and referring_domains against what's typical for the current position
-- Estimate links needed: for competitive queries (>5000 impressions/mo), pages at position 1-3
-  typically need PA 30-50+ and 10-50+ referring domains depending on query difficulty
-- For less competitive queries (<1000 impressions/mo), PA 15-25 and 5-15 referring domains
-  may suffice for top-3 positioning
-- Factor in domain_authority as a baseline: higher DA means fewer page-level links needed
+authority_analysis with a backlink gap estimate using DA-WEIGHTED scenarios:
+- NOT all links are equal. A single DA 80+ link can equal 20-50 DA 20 links in ranking impact
+- You MUST provide 3 link_building_scenarios at different DA tiers (high/medium/low DA)
+- For each scenario, estimate how many links AT THAT DA LEVEL would close the authority gap
+- Heuristics for PA improvement:
+  • Each DA 60+ link typically adds ~1-2 PA points
+  • Each DA 30-50 link adds ~0.3-0.8 PA points
+  • Each DA 10-25 link adds ~0.05-0.2 PA points
+  • Diminishing returns apply — the first few high-DA links have the most impact
+- Factor in domain_authority as a baseline: higher site DA means less page-level authority needed
+- For competitive queries (>5000 impressions/mo), target PA 40-55 for top-3
+- For moderate queries (1000-5000 impressions/mo), target PA 30-40 for top-3
+- For low-competition queries (<1000 impressions/mo), target PA 20-30 for top-3
 - If moz_authority is null, set authority_analysis.available = false and leave other fields at 0/empty
 
 If nothing is broken or improvable:
