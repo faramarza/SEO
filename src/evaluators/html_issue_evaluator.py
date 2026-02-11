@@ -130,11 +130,13 @@ class HTMLIssueEvaluator:
         re.IGNORECASE,
     )
 
-    # E-commerce form controls that are correctly non-link elements
+    # E-commerce form controls and interactive widgets that are correctly non-link elements
     _FORM_CONTROL_PATTERNS = re.compile(
         r'^(qty|quantity|\d+|add\s*to\s*cart|add\s*to\s*wish\s*list|'
         r'add\s*to\s*compare|remove|update|delete|clear|'
-        r'increase|decrease|minus|plus|\+|\-|×)$',
+        r'increase|decrease|minus|plus|\+|\-|×|'
+        r'.*gift\s*finder.*|.*configurator.*|.*calculator.*|'
+        r'.*color\s*picker.*|.*size\s*selector.*|.*filter.*)$',
         re.IGNORECASE,
     )
 
