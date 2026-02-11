@@ -1125,6 +1125,7 @@ class FullEvaluationWorkflow:
                         "content_preview": asset.content_preview,
                         "above_fold_html": asset.above_fold_html,
                         "internal_outlinks": asset.internal_outlinks,
+                        "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
                         "has_crawl_data": asset.has_crawl_data,
                     },
                     **constraint_data,  # Include constraint detection data
@@ -1194,6 +1195,7 @@ class FullEvaluationWorkflow:
                 "content_preview": asset.content_preview,
                 "above_fold_html": asset.above_fold_html,
                 "internal_outlinks": asset.internal_outlinks,
+                "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
                 "has_crawl_data": asset.has_crawl_data,
             },
             **constraint_data,  # Include constraint detection data

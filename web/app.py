@@ -3294,6 +3294,7 @@ def api_page_metadata():
                 "above_fold_html": parser.get_above_fold_html(),
                 "body_html": body_html,
                 "internal_outlinks": parser.get_internal_outlinks(),
+                "breadcrumb_links": parser.get_breadcrumb_links(),
                 "has_crawl_data": True,
             }
 
@@ -3413,6 +3414,7 @@ def api_run_evaluation():
                                         above_fold_html=parser.get_above_fold_html(),
                                         body_html=_batch_body,
                                         internal_outlinks=parser.get_internal_outlinks(),
+                                        breadcrumb_links=parser.get_breadcrumb_links(),
                                     )
                                 else:
                                     result = CrawlResult(
@@ -3831,6 +3833,14 @@ def api_internal_link_map():
                 if len(word) > 2 and word not in _STOP:
                     query_words.add(word)
 
+        # Breadcrumb links for parent category detection
+        breadcrumb_raw = pm.get("breadcrumb_links", [])
+        breadcrumb_norms = []
+        for bl in breadcrumb_raw:
+            bl_norm = _norm(bl.get("target_url", ""), url)
+            if bl_norm and bl_norm != norm:
+                breadcrumb_norms.append(bl_norm)
+
         page_index[norm] = {
             "url": url,
             "norm": norm,
@@ -3844,6 +3854,7 @@ def api_internal_link_map():
             "outlinks": [],       # pages this page links TO
             "inlinks": [],        # pages that link TO this page
             "suggested": [],      # pages that should link to this page
+            "breadcrumb_parents": breadcrumb_norms,  # parent pages from breadcrumb nav
         }
 
         # Record outlinks
@@ -3884,19 +3895,18 @@ def api_internal_link_map():
                     "title": page["title"],
                 })
 
-    # ── Pass 2b: Detect parent categories for products ──
-    # If a category page links TO a product (it lists it), that category
-    # is the product's parent. Products should link back to their parent
-    # category in content — breadcrumbs alone (inside <nav>) don't count
-    # as content links.
-    parent_categories = {}  # product_norm -> list of category norms
+    # ── Pass 2b: Detect parent categories from breadcrumbs ──
+    # Each page's breadcrumb_links tell us its parent pages in the hierarchy.
+    # The last breadcrumb link (before the current page) is the immediate parent.
+    # If a product's parent is a category and the product doesn't have a
+    # content link back to it, we suggest adding one.
+    parent_categories = {}  # page_norm -> list of parent category norms
     for norm, page in page_index.items():
-        if page["asset_type"] != "category":
-            continue
-        for ol in page["outlinks"]:
-            target_norm = ol["norm"]
-            if target_norm in page_index and page_index[target_norm]["asset_type"] == "product":
-                parent_categories.setdefault(target_norm, []).append(norm)
+        for parent_norm in page.get("breadcrumb_parents", []):
+            if parent_norm in page_index:
+                parent_page = page_index[parent_norm]
+                if parent_page["asset_type"] == "category":
+                    parent_categories.setdefault(norm, []).append(parent_norm)
 
     # ── Pass 3: Compute suggestions for each page ──
     # For each page, find other pages with query overlap that

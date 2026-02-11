@@ -38,11 +38,14 @@ class CrawlResult:
     above_fold_html: str = ""
     body_html: str = ""  # Raw body HTML for structural analysis (e.g. HTMLIssueEvaluator)
     internal_outlinks: list = None  # List of {target_url, anchor_text, location}
+    breadcrumb_links: list = None  # List of {target_url, anchor_text} from breadcrumb nav
     error: Optional[str] = None
 
     def __post_init__(self):
         if self.internal_outlinks is None:
             self.internal_outlinks = []
+        if self.breadcrumb_links is None:
+            self.breadcrumb_links = []
 
 
 class HTMLMetaParser(HTMLParser):
@@ -89,6 +92,14 @@ class HTMLMetaParser(HTMLParser):
         self._in_main = False
         self._section_tag: str = ""
 
+        # Breadcrumb links (captured separately from content outlinks)
+        self._breadcrumb_links: list[dict] = []
+        self._in_breadcrumb_nav = False
+        self._breadcrumb_depth = 0  # Track nesting to know when breadcrumb nav closes
+        self._in_breadcrumb_link = False
+        self._breadcrumb_link_href: str = ""
+        self._breadcrumb_link_text: list[str] = []
+
     def _is_internal(self, href: str) -> bool:
         """Check if a URL is internal based on base_url."""
         if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
@@ -105,6 +116,25 @@ class HTMLMetaParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]):
         attrs_dict = {k.lower(): v for k, v in attrs if v is not None}
+
+        # Detect breadcrumb nav: <nav class="breadcrumbs"> or aria-label="breadcrumb"
+        if tag == "nav":
+            cls = (attrs_dict.get("class", "") or "").lower()
+            aria = (attrs_dict.get("aria-label", "") or "").lower()
+            if not self._in_breadcrumb_nav and ("breadcrumb" in cls or "breadcrumb" in aria):
+                self._in_breadcrumb_nav = True
+                self._breadcrumb_depth = 1
+            elif self._in_breadcrumb_nav:
+                # Nested nav inside breadcrumb (rare but possible)
+                self._breadcrumb_depth += 1
+
+        # Capture links inside breadcrumb nav
+        if tag == "a" and self._in_breadcrumb_nav:
+            href = attrs_dict.get("href", "")
+            if href and self._is_internal(href):
+                self._in_breadcrumb_link = True
+                self._breadcrumb_link_href = href
+                self._breadcrumb_link_text = []
 
         if tag in self._SKIP_TAGS:
             self._skip_depth += 1
@@ -181,6 +211,24 @@ class HTMLMetaParser(HTMLParser):
         elif tag == "body":
             self._in_body = False
 
+        # Close breadcrumb link
+        if tag == "a" and self._in_breadcrumb_link:
+            self._in_breadcrumb_link = False
+            text = " ".join(self._breadcrumb_link_text).strip()
+            if self._breadcrumb_link_href:
+                self._breadcrumb_links.append({
+                    "target_url": self._breadcrumb_link_href,
+                    "anchor_text": text,
+                })
+            self._breadcrumb_link_href = ""
+            self._breadcrumb_link_text = []
+
+        # Close breadcrumb nav
+        if tag == "nav" and self._in_breadcrumb_nav:
+            self._breadcrumb_depth -= 1
+            if self._breadcrumb_depth <= 0:
+                self._in_breadcrumb_nav = False
+
         # Close link tag
         if tag == "a" and self._in_link:
             self._in_link = False
@@ -228,6 +276,10 @@ class HTMLMetaParser(HTMLParser):
         # Link anchor text
         if self._in_link:
             self._current_link_text.append(data)
+
+        # Breadcrumb link text
+        if self._in_breadcrumb_link:
+            self._breadcrumb_link_text.append(data)
 
         # Above-fold text — finding text content flushes pending tags
         if self._in_body and self._h1_found and self._above_fold_len < 1500 and self._above_fold_skip_depth == 0 and self._skip_depth == 0:
@@ -299,6 +351,23 @@ class HTMLMetaParser(HTMLParser):
                     "anchor_text": link["anchor_text"],
                     "location": link["location"],
                 })
+        return resolved
+
+    def get_breadcrumb_links(self) -> list[dict]:
+        """Get breadcrumb links (parent pages in hierarchy).
+
+        Returns list of {target_url, anchor_text}.
+        The last link is typically the immediate parent category.
+        """
+        resolved = []
+        for link in self._breadcrumb_links:
+            href = link["target_url"]
+            if self._base_url and not href.startswith(("http://", "https://")):
+                href = urljoin(self._base_url, href)
+            resolved.append({
+                "target_url": href,
+                "anchor_text": link["anchor_text"],
+            })
         return resolved
 
     @property
@@ -395,6 +464,7 @@ class SimpleCrawler:
                     above_fold_html=parser.get_above_fold_html(),
                     body_html=body_html,
                     internal_outlinks=parser.get_internal_outlinks(),
+                    breadcrumb_links=parser.get_breadcrumb_links(),
                 )
 
             except httpx.TimeoutException:
@@ -494,6 +564,9 @@ class SimpleCrawler:
             if result.internal_outlinks:
                 asset.outlinks = len(result.internal_outlinks)
                 asset.internal_outlinks = result.internal_outlinks
+            # Set breadcrumb links for parent category detection
+            if result.breadcrumb_links:
+                asset.breadcrumb_links = result.breadcrumb_links
 
         return asset
 
