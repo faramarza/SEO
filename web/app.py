@@ -896,11 +896,15 @@ def api_ai_recommend():
             already_linking = [p for p in pages if p.get("already_links_to_target")]
             available = [p for p in pages if not p.get("already_links_to_target")]
             inbound_blocklist_urls.extend(p["url"] for p in already_linking)
-            # Compute a linking_score = impressions × (11 - position) × (1 + overlap)
-            # Higher impressions + better position + more topical overlap = better link source
+            # Compute linking_score — overlap is the dominant factor (squared),
+            # impressions dampened by log to prevent raw traffic from dominating.
+            # Formula: overlap² × (11 - position) × log2(1 + impressions)
+            import math
             for p in available:
                 pos_factor = max(1, 11 - p["position"]) if p["position"] > 0 else 1
-                p["linking_score"] = p["impressions"] * pos_factor * (1 + p["query_overlap"])
+                overlap_sq = p["query_overlap"] ** 2 if p["query_overlap"] > 0 else 0.1
+                impr_log = math.log2(1 + p["impressions"]) if p["impressions"] > 0 else 0.1
+                p["linking_score"] = overlap_sq * pos_factor * impr_log
             # Sort by linking score descending, show top 30
             available.sort(key=lambda p: p["linking_score"], reverse=True)
             target_pages_str += f"\n{ptype.upper()} pages ({len(available)} available, {len(already_linking)} already link to this page):\n"
@@ -3864,11 +3868,15 @@ def api_internal_link_map():
             if overlap == 0:
                 continue  # No topical relevance
 
-            # linking_score: impressions × position_factor × overlap
+            # linking_score — overlap dominates (squared), impressions dampened by log.
+            # Formula: overlap² × (11 - position) × log2(1 + impressions)
+            import math
             pos = other_page["gsc_position"]
             pos_factor = max(1, 11 - pos) if pos > 0 else 1
             impr = other_page["gsc_impressions"]
-            linking_score = impr * pos_factor * (1 + overlap)
+            overlap_sq = overlap ** 2
+            impr_log = math.log2(1 + impr) if impr > 0 else 0.1
+            linking_score = overlap_sq * pos_factor * impr_log
 
             candidates.append({
                 "url": other_page["url"],
@@ -3877,13 +3885,13 @@ def api_internal_link_map():
                 "impressions": impr,
                 "position": pos,
                 "query_overlap": overlap,
-                "linking_score": round(linking_score, 0),
+                "linking_score": round(linking_score, 1),
                 "shared_queries": list(page["query_words"] & other_page["query_words"])[:5],
             })
 
-        # Sort by linking_score descending, keep top 10
+        # Sort by linking_score descending, show all with overlap >= 2, up to 20
         candidates.sort(key=lambda c: c["linking_score"], reverse=True)
-        page["suggested"] = candidates[:10]
+        page["suggested"] = candidates[:20]
 
     # ── Build response ──
     pages_out = []
