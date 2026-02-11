@@ -343,6 +343,8 @@ async function importSitemap() {
                 sitemapSortAsc = true;
                 renderSitemapTable();
                 document.getElementById('sitemap-results-card').style.display = 'block';
+                // Scroll so the eval buttons below remain visible
+                document.getElementById('sitemap-results-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
     } catch (err) {
