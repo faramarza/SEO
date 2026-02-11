@@ -36,12 +36,7 @@
                 <option value="blog">Blog</option>
                 <option value="other">Other</option>
             </select>
-            <select id="sort-by">
-                <option value="impressions">Sort: Impressions</option>
-                <option value="inlinks">Sort: Inlinks (fewest)</option>
-                <option value="suggestions">Sort: Suggestions (most)</option>
-                <option value="position">Sort: Position (best)</option>
-            </select>
+            <button class="btn btn-secondary" onclick="resetSort()" style="font-size:12px; padding:4px 10px;">Reset Sort</button>
         </div>
     </div>
 
@@ -52,13 +47,13 @@
         <table class="data-table" id="link-map-table">
             <thead>
                 <tr>
-                    <th style="width: 35%">Page</th>
-                    <th>Type</th>
-                    <th>Impressions</th>
-                    <th>Position</th>
-                    <th>Inlinks</th>
-                    <th>Outlinks</th>
-                    <th>Suggestions</th>
+                    <th style="width: 35%; cursor:pointer;" onclick="sortBy('page')">Page <span id="sort-page"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('type')">Type <span id="sort-type"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('impressions')">Impressions <span id="sort-impressions"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('position')">Position <span id="sort-position"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('inlinks')">Inlinks <span id="sort-inlinks"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('outlinks')">Outlinks <span id="sort-outlinks"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('suggestions')">Suggestions <span id="sort-suggestions"></span></th>
                 </tr>
             </thead>
             <tbody id="link-map-body">
@@ -80,6 +75,8 @@
 {% block scripts %}
 <script>
 let allPages = [];
+let sortCol = 'impressions';
+let sortAsc = false;
 
 function esc(s) {
     if (!s) return '';
@@ -113,7 +110,8 @@ async function loadLinkMap() {
     const totalSug = allPages.reduce((s, p) => s + (p.suggested || []).length, 0);
     document.getElementById('total-suggestions').textContent = totalSug;
 
-    renderTable(allPages);
+    updateSortIndicators();
+    renderTable(getFilteredPages());
 }
 
 function renderTable(pages) {
@@ -266,10 +264,22 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeDetail();
 });
 
+function colValue(p, col) {
+    switch (col) {
+        case 'page': return (p.title || p.url).toLowerCase();
+        case 'type': return p.asset_type || '';
+        case 'impressions': return p.gsc_impressions || 0;
+        case 'position': return p.gsc_position || 999;
+        case 'inlinks': return p.inlinks_count || 0;
+        case 'outlinks': return p.outlinks_count || 0;
+        case 'suggestions': return (p.suggested || []).length;
+        default: return 0;
+    }
+}
+
 function getFilteredPages() {
     const search = document.getElementById('search-input').value.toLowerCase();
     const type = document.getElementById('type-filter').value;
-    const sort = document.getElementById('sort-by').value;
 
     let filtered = allPages.filter(p => {
         if (type && p.asset_type !== type) return false;
@@ -277,21 +287,43 @@ function getFilteredPages() {
         return true;
     });
 
-    if (sort === 'impressions') {
-        filtered.sort((a, b) => (b.gsc_impressions || 0) - (a.gsc_impressions || 0));
-    } else if (sort === 'inlinks') {
-        filtered.sort((a, b) => a.inlinks_count - b.inlinks_count);
-    } else if (sort === 'suggestions') {
-        filtered.sort((a, b) => (b.suggested||[]).length - (a.suggested||[]).length);
-    } else if (sort === 'position') {
-        filtered.sort((a, b) => {
-            const pa = a.gsc_position || 999;
-            const pb = b.gsc_position || 999;
-            return pa - pb;
-        });
-    }
+    filtered.sort((a, b) => {
+        const va = colValue(a, sortCol);
+        const vb = colValue(b, sortCol);
+        let cmp = 0;
+        if (typeof va === 'string') cmp = va.localeCompare(vb);
+        else cmp = va - vb;
+        return sortAsc ? cmp : -cmp;
+    });
 
     return filtered;
+}
+
+function updateSortIndicators() {
+    const cols = ['page', 'type', 'impressions', 'position', 'inlinks', 'outlinks', 'suggestions'];
+    for (const c of cols) {
+        const el = document.getElementById('sort-' + c);
+        if (el) el.textContent = sortCol === c ? (sortAsc ? '▲' : '▼') : '';
+    }
+}
+
+function sortBy(col) {
+    if (sortCol === col) {
+        sortAsc = !sortAsc;
+    } else {
+        sortCol = col;
+        // Default descending for numeric cols, ascending for text
+        sortAsc = (col === 'page' || col === 'type');
+    }
+    updateSortIndicators();
+    renderTable(getFilteredPages());
+}
+
+function resetSort() {
+    sortCol = 'impressions';
+    sortAsc = false;
+    updateSortIndicators();
+    renderTable(getFilteredPages());
 }
 
 function applyFilters() {
@@ -300,7 +332,6 @@ function applyFilters() {
 
 document.getElementById('search-input').addEventListener('input', applyFilters);
 document.getElementById('type-filter').addEventListener('change', applyFilters);
-document.getElementById('sort-by').addEventListener('change', applyFilters);
 
 loadLinkMap();
 </script>
