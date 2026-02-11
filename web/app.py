@@ -797,13 +797,32 @@ def api_ai_recommend():
 
             # Build reverse link index: which pages already link TO the target?
             # These should NOT be recommended as inbound link sources.
+            # Normalize URLs to handle relative paths, www/non-www, http/https.
+            from urllib.parse import urlparse, urljoin
+            def _norm_for_compare(u, base_url=""):
+                """Normalize URL for comparison: resolve relative, strip scheme/www/trailing slash."""
+                if not u:
+                    return ""
+                # Resolve relative URLs against the base
+                if not u.startswith(("http://", "https://")):
+                    if base_url:
+                        u = urljoin(base_url, u)
+                    else:
+                        u = urljoin("https://alphabet-trains.com/", u)
+                parsed = urlparse(u.lower())
+                netloc = parsed.netloc.replace("www.", "")
+                path = parsed.path.rstrip("/") or "/"
+                return f"{netloc}{path}"
+
+            target_norm = _norm_for_compare(url)
             already_links_to_target = set()
             for r in eval_data.get("results", []):
                 r_url = r.get("url", "")
                 r_pm = r.get("page_metadata", {})
                 r_outlinks = r_pm.get("internal_outlinks", [])
                 for ol in r_outlinks:
-                    if ol.get("target_url", "").rstrip("/") == url.rstrip("/"):
+                    ol_target = ol.get("target_url", "")
+                    if _norm_for_compare(ol_target, r_url) == target_norm:
                         already_links_to_target.add(r_url)
                         break
 
@@ -1778,15 +1797,16 @@ in full. Do NOT write "Deploy Priority 1" or "see variants" — the operator rea
 not the variants array. Write the actual title and meta text in both places.
 
 AUTHORITY ANALYSIS RULE: If moz_authority data is available (not null), you MUST populate
-authority_analysis with a backlink gap estimate using DA-WEIGHTED scenarios:
-- NOT all links are equal. A single DA 80+ link can equal 20-50 DA 20 links in ranking impact
-- You MUST provide 3 link_building_scenarios at different DA tiers (high/medium/low DA)
+authority_analysis with ALL fields including backlink_gap.link_building_scenarios (exactly 3 entries).
+This is a REQUIRED array, not optional. Each entry has: scenario, links_needed, example_sources, timeline.
+DA-WEIGHTED heuristics — NOT all links are equal:
+- A single DA 80+ link can equal 20-50 DA 20 links in ranking impact
+- Provide 3 scenarios at different DA tiers (high DA 50-80+, medium DA 25-50, low DA 10-25)
 - For each scenario, estimate how many links AT THAT DA LEVEL would close the authority gap
-- Heuristics for PA improvement:
-  • Each DA 60+ link typically adds ~1-2 PA points
-  • Each DA 30-50 link adds ~0.3-0.8 PA points
-  • Each DA 10-25 link adds ~0.05-0.2 PA points
-  • Diminishing returns apply — the first few high-DA links have the most impact
+- PA improvement heuristics per link:
+  • DA 60+ link → ~1-2 PA points
+  • DA 30-50 link → ~0.3-0.8 PA points
+  • DA 10-25 link → ~0.05-0.2 PA points
 - Factor in domain_authority as a baseline: higher site DA means less page-level authority needed
 - For competitive queries (>5000 impressions/mo), target PA 40-55 for top-3
 - For moderate queries (1000-5000 impressions/mo), target PA 30-40 for top-3
