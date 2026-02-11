@@ -3901,10 +3901,11 @@ def api_internal_link_map():
             if other_norm in inlink_norms:
                 continue  # Already links to this page
 
-            # Query overlap
+            # Query overlap — require at least 2 shared terms after stop word
+            # filtering. A single shared word (e.g. "puzzle") is too generic.
             overlap = len(page["query_words"] & other_page["query_words"])
-            if overlap == 0:
-                continue  # No topical relevance
+            if overlap < 2:
+                continue  # Not enough topical relevance
 
             # linking_score — overlap dominates (squared), impressions dampened by log.
             # Formula: overlap² × (11 - position) × log2(1 + impressions)
