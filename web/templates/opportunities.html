@@ -935,23 +935,23 @@ function buildAIHtml(rec, reproducibility) {
                     <div style="font-size: 11px; color: #6b7280;">Verdict</div>
                 </div>
             </div>
-            ${gap.link_building_scenarios && gap.link_building_scenarios.length ? `
+            ${gap.high_da_links || gap.medium_da_links || gap.low_da_links ? `
             <div style="padding: 10px; background: #eff6ff; border-radius: 6px; border-left: 3px solid #2563eb; margin-bottom: 8px;">
                 <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: 600; color: #1e40af;">Backlink Gap to Position ${gap.target_position || '1-3'}
-                    <span style="font-weight: 400; font-size: 11px; color: #6b7280; margin-left: 8px;">from position ${gap.current_position || '?'} | ${gap.confidence || 'LOW'} confidence</span>
+                    <span style="font-weight: 400; font-size: 11px; color: #6b7280; margin-left: 8px;">from position ${gap.current_position || '?'} | PA ${auth.page_authority || '?'} → ${gap.pa_target || '?'} needed (gap: +${gap.pa_gap || '?'}) | ${gap.confidence || 'LOW'} confidence</span>
                 </p>
                 <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px;">
                     <tr style="background: #dbeafe;">
-                        <td style="padding: 4px 8px; font-weight: 600;">Scenario</td>
+                        <td style="padding: 4px 8px; font-weight: 600;">DA Range</td>
                         <td style="padding: 4px 8px; font-weight: 600; text-align: center;">Links Needed</td>
                         <td style="padding: 4px 8px; font-weight: 600;">Source Types</td>
                         <td style="padding: 4px 8px; font-weight: 600;">Timeline</td>
                     </tr>
-                    ${gap.link_building_scenarios.map(s => `
+                    ${[gap.high_da_links, gap.medium_da_links, gap.low_da_links].filter(Boolean).map(s => `
                     <tr style="border-top: 1px solid #e5e7eb;">
-                        <td style="padding: 4px 8px; color: #1e40af; font-weight: 500;">${s.scenario || '—'}</td>
+                        <td style="padding: 4px 8px; color: #1e40af; font-weight: 500;">DA ${s.da_range || '—'}</td>
                         <td style="padding: 4px 8px; text-align: center; font-weight: 700;">${s.links_needed || '?'}</td>
-                        <td style="padding: 4px 8px; color: #4b5563;">${s.example_sources || '—'}</td>
+                        <td style="padding: 4px 8px; color: #4b5563;">${s.sources || '—'}</td>
                         <td style="padding: 4px 8px; color: #6b7280;">${s.timeline || '—'}</td>
                     </tr>`).join('')}
                 </table>

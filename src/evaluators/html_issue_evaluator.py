@@ -130,6 +130,14 @@ class HTMLIssueEvaluator:
         re.IGNORECASE,
     )
 
+    # E-commerce form controls that are correctly non-link elements
+    _FORM_CONTROL_PATTERNS = re.compile(
+        r'^(qty|quantity|\d+|add\s*to\s*cart|add\s*to\s*wish\s*list|'
+        r'add\s*to\s*compare|remove|update|delete|clear|'
+        r'increase|decrease|minus|plus|\+|\-|×)$',
+        re.IGNORECASE,
+    )
+
     def _detect_span_ctas(self, html: str) -> list[HTMLIssue]:
         """Find <span>/<div> elements styled as buttons but not <a> tags."""
         found: list[HTMLIssue] = []
@@ -141,6 +149,11 @@ class HTMLIssueEvaluator:
 
             # Skip auth/login buttons — these are intentionally non-link elements
             if self._AUTH_PATTERNS.search(inner_text):
+                continue
+
+            # Skip e-commerce form controls (Qty selectors, add-to-cart buttons,
+            # wishlist buttons) — these are correctly non-link elements
+            if self._FORM_CONTROL_PATTERNS.match(inner_text):
                 continue
 
             snippet = match.group(0)[:120]

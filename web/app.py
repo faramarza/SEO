@@ -1750,34 +1750,19 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "domain_authority": <number>,
     "page_authority": <number>,
     "referring_domains": <number>,
-    "authority_verdict": "<STRONG | ADEQUATE | WEAK | INSUFFICIENT> — brief assessment relative to current position and query competitiveness",
+    "authority_verdict": "<STRONG | ADEQUATE | WEAK | INSUFFICIENT> — brief assessment",
     "backlink_gap": {{{{
       "current_position": <weighted avg position from GSC>,
       "target_position": <1-3>,
-      "link_building_scenarios": [
-        {{{{
-          "scenario": "<e.g. 'High-DA outreach (DA 50-80+)'>",
-          "links_needed": <number>,
-          "example_sources": "<types of sites — e.g. 'parenting magazines, educational resource sites'>",
-          "timeline": "<estimated months to acquire>"
-        }}}},
-        {{{{
-          "scenario": "<e.g. 'Medium-DA outreach (DA 25-50)'>",
-          "links_needed": <number>,
-          "example_sources": "<types of sites>",
-          "timeline": "<estimated months>"
-        }}}},
-        {{{{
-          "scenario": "<e.g. 'Low-DA / easy wins (DA 10-25)'>",
-          "links_needed": <number>,
-          "example_sources": "<types of sites>",
-          "timeline": "<estimated months>"
-        }}}}
-      ],
-      "confidence": "<HIGH | MEDIUM | LOW — based on data availability>",
-      "reasoning": "<explain the estimate: cite DA, PA, current referring domains, query competitiveness from impression volume, and position gap. A single DA 80+ link can equal 20-50 DA 20 links in ranking impact.>"
+      "pa_target": <number — PA needed for target position>,
+      "pa_gap": <number — pa_target minus current page_authority>,
+      "high_da_links": {{{{ "da_range": "50-80+", "links_needed": <number>, "sources": "<types of sites>", "timeline": "<months>" }}}},
+      "medium_da_links": {{{{ "da_range": "25-50", "links_needed": <number>, "sources": "<types of sites>", "timeline": "<months>" }}}},
+      "low_da_links": {{{{ "da_range": "10-25", "links_needed": <number>, "sources": "<types of sites>", "timeline": "<months>" }}}},
+      "confidence": "<HIGH | MEDIUM | LOW>",
+      "reasoning": "<cite DA, PA, referring domains, query competitiveness, position gap>"
     }}}},
-    "quick_wins": "<pages with high impressions but low PA that could benefit most from even 1-2 backlinks, or 'N/A' if authority is adequate>"
+    "quick_wins": "<specific pages or strategies, or 'N/A'>"
   }}}},
   "no_actions": [
     "<element>: <why no change is needed>"
