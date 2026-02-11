@@ -3390,6 +3390,7 @@ def api_run_evaluation():
                                         content_preview=parser.get_content_preview(200),
                                         above_fold_html=parser.get_above_fold_html(),
                                         body_html=_batch_body,
+                                        internal_outlinks=parser.get_internal_outlinks(),
                                     )
                                 else:
                                     result = CrawlResult(
