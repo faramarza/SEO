@@ -354,14 +354,15 @@ function buildAIHtml(rec, reproducibility) {
                     <h5 style="margin: 0;">Action ${i + 1}: ${(a.action_type || 'NO_ACTION').replace(/_/g, ' ')}</h5>
                     <span style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: ${riskColor}20; color: ${riskColor}; font-weight: 600;">${a.risk_level || 'low'} risk</span>
                 </div>
-                ${a.diagnosed_constraint ? '<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ' + a.diagnosed_constraint + '</p>' : ''}
+                ${a.diagnosed_constraint ? '<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ' + esc(a.diagnosed_constraint) + '</p>' : ''}
                 ${a.target_urls && a.target_urls.length ? '<p style="margin: 4px 0; font-size: 12px;"><strong>Target URLs:</strong> ' + a.target_urls.map(u => '<code style="background:#e8f4fd;padding:1px 4px;border-radius:3px;font-size:11px;">' + u + '</code>').join(', ') + '</p>' : ''}
                 <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
                     <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
                     <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${esc(a.exact_changes) || 'N/A'}</pre>
                 </div>
-                <p style="margin: 6px 0;"><strong>Why:</strong> ${a.why_this_works || 'N/A'}</p>
-                <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${a.rollback_plan || 'N/A'}</p>
+                ${a.variants && a.variants.length > 1 ? '<div style="margin: 8px 0; padding: 10px; background: #fef3c7; border-radius: 6px; border-left: 3px solid #f59e0b;"><p style="margin: 0 0 6px 0; font-weight: 600; font-size: 13px;">All ' + a.variants.length + ' Variants (deploy sequentially):</p>' + a.variants.map(v => '<div style="margin: 4px 0; padding: 6px 8px; background: #fffbeb; border-radius: 4px;"><strong style="font-size: 12px;">Priority ' + v.priority + ':</strong>' + (v.title ? '<div style="margin: 2px 0; font-size: 12px;"><strong>Title:</strong> ' + esc(v.title) + '</div>' : '') + (v.meta_description ? '<div style="margin: 2px 0; font-size: 12px;"><strong>Meta:</strong> ' + esc(v.meta_description) + '</div>' : '') + '<div style="margin: 2px 0; font-size: 11px; color: #6b7280;">' + (esc(v.why) || '') + '</div></div>').join('') + '</div>' : ''}
+                <p style="margin: 6px 0;"><strong>Why:</strong> ${esc(a.why_this_works) || 'N/A'}</p>
+                <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${esc(a.rollback_plan) || 'N/A'}</p>
                 ${a.measurement ? '<table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; background: #f9fafb; border-radius: 4px;"><tr><td style="padding: 3px 8px; font-weight: bold;">Metric</td><td style="padding: 3px 8px;">' + (a.measurement.primary_metric || '—') + '</td><td style="padding: 3px 8px; font-weight: bold;">Direction</td><td style="padding: 3px 8px;">' + (a.measurement.expected_direction || '—') + '</td></tr><tr><td style="padding: 3px 8px; font-weight: bold;">Window</td><td style="padding: 3px 8px;">' + (a.measurement.evaluation_window || '—') + '</td><td style="padding: 3px 8px; font-weight: bold;">Stop if</td><td style="padding: 3px 8px; color: #dc2626;">' + (a.measurement.stop_threshold || '—') + '</td></tr></table>' : ''}
             </div>`;
         }).join('');
