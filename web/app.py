@@ -3884,14 +3884,47 @@ def api_internal_link_map():
                     "title": page["title"],
                 })
 
+    # ── Pass 2b: Detect parent categories for products ──
+    # If a category page links TO a product (it lists it), that category
+    # is the product's parent. Products should link back to their parent
+    # category in content — breadcrumbs alone (inside <nav>) don't count
+    # as content links.
+    parent_categories = {}  # product_norm -> list of category norms
+    for norm, page in page_index.items():
+        if page["asset_type"] != "category":
+            continue
+        for ol in page["outlinks"]:
+            target_norm = ol["norm"]
+            if target_norm in page_index and page_index[target_norm]["asset_type"] == "product":
+                parent_categories.setdefault(target_norm, []).append(norm)
+
     # ── Pass 3: Compute suggestions for each page ──
     # For each page, find other pages with query overlap that
     # do NOT already link to it. Rank by linking_score.
+    import math
     for norm, page in page_index.items():
         # Pages that already link to this page
         inlink_norms = set(il["norm"] for il in page["inlinks"])
-        # Pages this page already links to (don't suggest self-links)
+        # Pages this page already links to (content outlinks)
         outlink_norms = set(ol["norm"] for ol in page["outlinks"])
+
+        # Inject missing parent category links for product pages
+        parent_suggestions = []
+        if page["asset_type"] == "product" and norm in parent_categories:
+            for cat_norm in parent_categories[norm]:
+                if cat_norm not in outlink_norms:
+                    cat_page = page_index[cat_norm]
+                    parent_suggestions.append({
+                        "url": cat_page["url"],
+                        "title": cat_page["title"],
+                        "asset_type": "category",
+                        "impressions": cat_page["gsc_impressions"],
+                        "position": cat_page["gsc_position"],
+                        "query_overlap": -1,
+                        "linking_score": 999999,  # Always rank first
+                        "shared_queries": ["PARENT CATEGORY"],
+                        "reason": "parent_category",
+                    })
 
         candidates = []
         for other_norm, other_page in page_index.items():
@@ -3908,7 +3941,6 @@ def api_internal_link_map():
 
             # linking_score — overlap dominates (squared), impressions dampened by log.
             # Formula: overlap² × (11 - position) × log2(1 + impressions)
-            import math
             pos = other_page["gsc_position"]
             pos_factor = max(1, 11 - pos) if pos > 0 else 1
             impr = other_page["gsc_impressions"]
@@ -3927,9 +3959,10 @@ def api_internal_link_map():
                 "shared_queries": list(page["query_words"] & other_page["query_words"])[:5],
             })
 
-        # Sort by linking_score descending, show all with overlap >= 2, up to 20
+        # Sort by linking_score descending, show up to 20
         candidates.sort(key=lambda c: c["linking_score"], reverse=True)
-        page["suggested"] = candidates[:20]
+        # Parent category suggestions always come first
+        page["suggested"] = parent_suggestions + candidates[:20]
 
     # ── Build response ──
     pages_out = []

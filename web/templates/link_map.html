@@ -236,13 +236,22 @@ function showDetail(idx) {
                 <th style="padding:6px 8px; text-align:left;">Shared Terms</th>
             </tr></thead><tbody>`;
         for (const s of p.suggested) {
-            html += `<tr style="border-bottom:1px solid #e5e7eb;">
-                <td style="padding:6px 8px;" title="${esc(s.url)}">${esc(s.title || shortUrl(s.url))}</td>
+            const isParent = s.reason === 'parent_category';
+            const rowStyle = isParent
+                ? 'border-bottom:1px solid #e5e7eb; background:#fef3c7;'
+                : 'border-bottom:1px solid #e5e7eb;';
+            html += `<tr style="${rowStyle}">
+                <td style="padding:6px 8px;" title="${esc(s.url)}">
+                    ${isParent ? '<strong style="color:#d97706;">&#9650; </strong>' : ''}
+                    ${esc(s.title || shortUrl(s.url))}
+                </td>
                 <td style="padding:6px 8px;"><span class="status-badge status-${typeColor(s.asset_type)}">${esc(s.asset_type)}</span></td>
                 <td style="padding:6px 8px; text-align:right;">${(s.impressions||0).toLocaleString()}</td>
-                <td style="padding:6px 8px; text-align:right; font-weight:600; color:#059669;">${s.query_overlap}</td>
-                <td style="padding:6px 8px; text-align:right;">${(s.linking_score||0).toLocaleString()}</td>
-                <td style="padding:6px 8px; font-size:11px; color:#6b7280;">${(s.shared_queries||[]).map(q => esc(q)).join(', ')}</td>
+                <td style="padding:6px 8px; text-align:right; font-weight:600; color:#059669;">${isParent ? '—' : s.query_overlap}</td>
+                <td style="padding:6px 8px; text-align:right;">${isParent ? '—' : (s.linking_score||0).toLocaleString()}</td>
+                <td style="padding:6px 8px; font-size:11px; ${isParent ? 'color:#d97706; font-weight:600;' : 'color:#6b7280;'}">
+                    ${isParent ? 'Parent category — add in-content link (breadcrumb only)' : (s.shared_queries||[]).map(q => esc(q)).join(', ')}
+                </td>
             </tr>`;
         }
         html += `</tbody></table>`;
