@@ -3836,11 +3836,26 @@ def api_internal_link_map():
                 })
 
     # ── Pass 2: Build reverse index (inlinks) ──
+    # Deduplicate by (source_norm, anchor_text) to avoid counting
+    # the same link twice. Also deduplicate by title to collapse
+    # duplicate pages at different URL paths (e.g. /blog/post/X and /blog/X).
     for norm, page in page_index.items():
         for ol in page["outlinks"]:
             target_norm = ol["norm"]
             if target_norm in page_index:
-                page_index[target_norm]["inlinks"].append({
+                target_inlinks = page_index[target_norm]["inlinks"]
+                # Skip if same source page norm + anchor already recorded
+                dedup_key = (norm, ol["anchor_text"])
+                existing_keys = {(il["norm"], il["anchor_text"]) for il in target_inlinks}
+                if dedup_key in existing_keys:
+                    continue
+                # Skip if a page with the same title already links with the same anchor
+                # (catches /blog/post/X vs /blog/X duplicates)
+                title_anchor_key = (page["title"], ol["anchor_text"])
+                existing_title_keys = {(il["title"], il["anchor_text"]) for il in target_inlinks}
+                if title_anchor_key in existing_title_keys:
+                    continue
+                target_inlinks.append({
                     "url": page["url"],
                     "norm": norm,
                     "anchor_text": ol["anchor_text"],
