@@ -128,6 +128,12 @@ def admin():
     return render_template("admin.html")
 
 
+@app.route("/link-map")
+def link_map():
+    """Internal link map view."""
+    return render_template("link_map.html")
+
+
 # ============================================================
 # API ROUTES
 # ============================================================
@@ -3746,6 +3752,170 @@ def api_ai_batch_analyze():
     return jsonify({
         "message": "Batch AI analysis started",
         "status": "running",
+    })
+
+
+@app.route("/api/internal-link-map")
+def api_internal_link_map():
+    """Build internal link map: for each page, show inbound links, outbound links, and suggestions."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+
+    if not eval_path.exists():
+        return jsonify({"pages": [], "message": "No evaluation data. Run evaluation with crawl first."})
+
+    with open(eval_path) as f:
+        eval_data = json.load(f)
+
+    results = eval_data.get("results", [])
+    if not results:
+        return jsonify({"pages": [], "message": "Evaluation has no page results."})
+
+    # ── URL normalization (same logic used in AI recommend) ──
+    from urllib.parse import urlparse, urljoin
+
+    def _norm(u, base_url=""):
+        if not u:
+            return ""
+        if not u.startswith(("http://", "https://")):
+            if base_url:
+                u = urljoin(base_url, u)
+            else:
+                u = urljoin("https://alphabet-trains.com/", u)
+        parsed = urlparse(u.lower())
+        netloc = parsed.netloc.replace("www.", "")
+        path = parsed.path.rstrip("/") or "/"
+        return f"{netloc}{path}"
+
+    # ── Pass 1: Index all pages and their outlinks ──
+    page_index = {}  # norm_url -> page info
+    for r in results:
+        url = r.get("url", "")
+        norm = _norm(url)
+        if not norm:
+            continue
+        pm = r.get("page_metadata", {})
+        title = pm.get("title", "") or pm.get("h1", "") or url
+        outlinks_raw = pm.get("internal_outlinks", [])
+
+        # Collect query words for this page
+        query_words = set()
+        top_queries = r.get("top_queries", [])
+        for q in top_queries:
+            for word in q.get("query", "").lower().split():
+                if len(word) > 2:
+                    query_words.add(word)
+
+        page_index[norm] = {
+            "url": url,
+            "norm": norm,
+            "title": title[:100],
+            "asset_type": r.get("asset_type", "other"),
+            "gsc_impressions": r.get("gsc_impressions", 0) or 0,
+            "gsc_clicks": r.get("gsc_clicks", 0) or 0,
+            "gsc_position": round(r.get("gsc_position", 0) or 0, 1),
+            "top_queries": [q.get("query", "") for q in top_queries[:5]],
+            "query_words": query_words,
+            "outlinks": [],       # pages this page links TO
+            "inlinks": [],        # pages that link TO this page
+            "suggested": [],      # pages that should link to this page
+        }
+
+        # Record outlinks
+        for ol in outlinks_raw:
+            target = ol.get("target_url", "")
+            target_norm = _norm(target, url)
+            if target_norm and target_norm != norm:
+                page_index[norm]["outlinks"].append({
+                    "url": target,
+                    "norm": target_norm,
+                    "anchor_text": ol.get("anchor_text", ""),
+                })
+
+    # ── Pass 2: Build reverse index (inlinks) ──
+    for norm, page in page_index.items():
+        for ol in page["outlinks"]:
+            target_norm = ol["norm"]
+            if target_norm in page_index:
+                page_index[target_norm]["inlinks"].append({
+                    "url": page["url"],
+                    "norm": norm,
+                    "anchor_text": ol["anchor_text"],
+                    "title": page["title"],
+                })
+
+    # ── Pass 3: Compute suggestions for each page ──
+    # For each page, find other pages with query overlap that
+    # do NOT already link to it. Rank by linking_score.
+    for norm, page in page_index.items():
+        # Pages that already link to this page
+        inlink_norms = set(il["norm"] for il in page["inlinks"])
+        # Pages this page already links to (don't suggest self-links)
+        outlink_norms = set(ol["norm"] for ol in page["outlinks"])
+
+        candidates = []
+        for other_norm, other_page in page_index.items():
+            if other_norm == norm:
+                continue
+            if other_norm in inlink_norms:
+                continue  # Already links to this page
+
+            # Query overlap
+            overlap = len(page["query_words"] & other_page["query_words"])
+            if overlap == 0:
+                continue  # No topical relevance
+
+            # linking_score: impressions × position_factor × overlap
+            pos = other_page["gsc_position"]
+            pos_factor = max(1, 11 - pos) if pos > 0 else 1
+            impr = other_page["gsc_impressions"]
+            linking_score = impr * pos_factor * (1 + overlap)
+
+            candidates.append({
+                "url": other_page["url"],
+                "title": other_page["title"],
+                "asset_type": other_page["asset_type"],
+                "impressions": impr,
+                "position": pos,
+                "query_overlap": overlap,
+                "linking_score": round(linking_score, 0),
+                "shared_queries": list(page["query_words"] & other_page["query_words"])[:5],
+            })
+
+        # Sort by linking_score descending, keep top 10
+        candidates.sort(key=lambda c: c["linking_score"], reverse=True)
+        page["suggested"] = candidates[:10]
+
+    # ── Build response ──
+    pages_out = []
+    for norm, page in page_index.items():
+        pages_out.append({
+            "url": page["url"],
+            "title": page["title"],
+            "asset_type": page["asset_type"],
+            "gsc_impressions": page["gsc_impressions"],
+            "gsc_clicks": page["gsc_clicks"],
+            "gsc_position": page["gsc_position"],
+            "top_queries": page["top_queries"],
+            "inlinks_count": len(page["inlinks"]),
+            "outlinks_count": len(page["outlinks"]),
+            "inlinks": [
+                {"url": il["url"], "anchor_text": il["anchor_text"], "title": il["title"]}
+                for il in page["inlinks"]
+            ],
+            "outlinks": [
+                {"url": ol["url"], "anchor_text": ol["anchor_text"]}
+                for ol in page["outlinks"]
+            ],
+            "suggested": page["suggested"],
+        })
+
+    # Sort by impressions descending (most important pages first)
+    pages_out.sort(key=lambda p: p["gsc_impressions"], reverse=True)
+
+    return jsonify({
+        "pages": pages_out,
+        "total": len(pages_out),
+        "timestamp": eval_data.get("timestamp", ""),
     })
 
 
