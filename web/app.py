@@ -786,16 +786,16 @@ def api_ai_recommend():
     )
 
     # ── 5) Available target pages — auto-populated from evaluation data ──
-    # Stop words to exclude from query overlap — generic terms that appear
-    # on nearly every page and inflate false topical relevance.
+    # Stop words — only true grammatical filler with zero topical signal.
+    # Do NOT include product attributes (personalized, custom, wooden, name)
+    # or audience terms (kids, toddler) — those carry real SEO meaning.
     _QUERY_STOP_WORDS = {
-        "for", "the", "and", "with", "buy", "best", "top", "how",
-        "what", "why", "are", "can", "from", "that", "this", "your",
-        "our", "all", "new", "get", "has", "its", "you", "was",
-        "kids", "kid", "baby", "child", "children", "toddler", "toddlers",
-        "personalized", "custom", "name", "free", "shipping", "sale",
-        "shop", "online", "store", "price", "review", "reviews",
-        "usa", "2024", "2025", "2026",
+        "for", "the", "and", "with", "how", "what", "why", "are",
+        "can", "from", "that", "this", "your", "our", "all", "has",
+        "its", "you", "was", "get", "not", "but", "will", "more",
+        "buy", "shop", "free", "shipping", "sale", "price",
+        "online", "store", "review", "reviews",
+        "best", "top", "new", "usa", "2024", "2025", "2026",
     }
 
     # Read all crawled pages from evaluation so AI knows what actually exists
@@ -3802,15 +3802,14 @@ def api_internal_link_map():
         path = parsed.path.rstrip("/") or "/"
         return f"{netloc}{path}"
 
-    # Stop words — generic terms that inflate false topical overlap
+    # Stop words — only true grammatical filler with zero topical signal.
     _STOP = {
-        "for", "the", "and", "with", "buy", "best", "top", "how",
-        "what", "why", "are", "can", "from", "that", "this", "your",
-        "our", "all", "new", "get", "has", "its", "you", "was",
-        "kids", "kid", "baby", "child", "children", "toddler", "toddlers",
-        "personalized", "custom", "name", "free", "shipping", "sale",
-        "shop", "online", "store", "price", "review", "reviews",
-        "usa", "2024", "2025", "2026",
+        "for", "the", "and", "with", "how", "what", "why", "are",
+        "can", "from", "that", "this", "your", "our", "all", "has",
+        "its", "you", "was", "get", "not", "but", "will", "more",
+        "buy", "shop", "free", "shipping", "sale", "price",
+        "online", "store", "review", "reviews",
+        "best", "top", "new", "usa", "2024", "2025", "2026",
     }
 
     # ── Pass 1: Index all pages and their outlinks ──
