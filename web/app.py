@@ -786,6 +786,18 @@ def api_ai_recommend():
     )
 
     # ── 5) Available target pages — auto-populated from evaluation data ──
+    # Stop words to exclude from query overlap — generic terms that appear
+    # on nearly every page and inflate false topical relevance.
+    _QUERY_STOP_WORDS = {
+        "for", "the", "and", "with", "buy", "best", "top", "how",
+        "what", "why", "are", "can", "from", "that", "this", "your",
+        "our", "all", "new", "get", "has", "its", "you", "was",
+        "kids", "kid", "baby", "child", "children", "toddler", "toddlers",
+        "personalized", "custom", "name", "free", "shipping", "sale",
+        "shop", "online", "store", "price", "review", "reviews",
+        "usa", "2024", "2025", "2026",
+    }
+
     # Read all crawled pages from evaluation so AI knows what actually exists
     eval_path = DATA_PATH / "latest_evaluation.json"
     site_pages = {"category": [], "product": [], "blog": [], "other": []}
@@ -798,7 +810,7 @@ def api_ai_recommend():
             target_queries_set = set()
             for q in opportunity.get("top_queries", []):
                 for word in q.get("query", "").lower().split():
-                    if len(word) > 2:
+                    if len(word) > 2 and word not in _QUERY_STOP_WORDS:
                         target_queries_set.add(word)
 
             # Build reverse link index: which pages already link TO the target?
@@ -856,7 +868,7 @@ def api_ai_recommend():
                 r_query_words = set()
                 for rq in r_queries:
                     for word in rq.get("query", "").lower().split():
-                        if len(word) > 2:
+                        if len(word) > 2 and word not in _QUERY_STOP_WORDS:
                             r_query_words.add(word)
                 overlap = len(target_queries_set & r_query_words)
 
@@ -3790,6 +3802,17 @@ def api_internal_link_map():
         path = parsed.path.rstrip("/") or "/"
         return f"{netloc}{path}"
 
+    # Stop words — generic terms that inflate false topical overlap
+    _STOP = {
+        "for", "the", "and", "with", "buy", "best", "top", "how",
+        "what", "why", "are", "can", "from", "that", "this", "your",
+        "our", "all", "new", "get", "has", "its", "you", "was",
+        "kids", "kid", "baby", "child", "children", "toddler", "toddlers",
+        "personalized", "custom", "name", "free", "shipping", "sale",
+        "shop", "online", "store", "price", "review", "reviews",
+        "usa", "2024", "2025", "2026",
+    }
+
     # ── Pass 1: Index all pages and their outlinks ──
     page_index = {}  # norm_url -> page info
     for r in results:
@@ -3801,12 +3824,12 @@ def api_internal_link_map():
         title = pm.get("title", "") or pm.get("h1", "") or url
         outlinks_raw = pm.get("internal_outlinks", [])
 
-        # Collect query words for this page
+        # Collect query words for this page (excluding stop words)
         query_words = set()
         top_queries = r.get("top_queries", [])
         for q in top_queries:
             for word in q.get("query", "").lower().split():
-                if len(word) > 2:
+                if len(word) > 2 and word not in _STOP:
                     query_words.add(word)
 
         page_index[norm] = {
