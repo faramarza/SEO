@@ -139,11 +139,12 @@ class HTMLMetaParser(HTMLParser):
 
         # Track <a> tags for internal outlinks
         # Only collect links that are:
-        #   1. After the H1 (content area, not nav/header)
-        # This prevents nav/header chrome links from being reported as outlinks.
-        # Footer/nav/utility links are filtered out in get_internal_outlinks()
-        # by URL pattern, so we don't need to gate on _skip_depth here.
-        if tag == "a" and self._in_body and self._h1_found:
+        #   1. After the H1 (content area, not top nav/header)
+        #   2. Not inside a skipped tag (nav, header, footer, etc.)
+        # This prevents nav/header/footer chrome links from being reported as outlinks.
+        # Utility links are further filtered out in get_internal_outlinks()
+        # by URL pattern.
+        if tag == "a" and self._in_body and self._h1_found and self._skip_depth == 0:
             href = attrs_dict.get("href", "")
             if href and self._is_internal(href):
                 self._in_link = True
