@@ -672,6 +672,7 @@ function showTaskDetail(actionId, status) {
         </div>
         ` : ''}
         <div style="display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--border-color); padding-top: 12px;">
+            <button class="btn btn-secondary" onclick="printTaskDetail()">Print</button>
             <button class="btn btn-secondary" onclick="closeTaskDetail()">Close</button>
         </div>
     `;
@@ -681,6 +682,30 @@ function showTaskDetail(actionId, status) {
 
 function closeTaskDetail() {
     document.getElementById('task-detail-modal').classList.add('hidden');
+}
+
+function printTaskDetail() {
+    const title = document.getElementById('task-detail-title').textContent;
+    const body = document.getElementById('task-detail-body').innerHTML;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    w.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 20px auto; padding: 0 20px; color: #1a1a1a; font-size: 13px; line-height: 1.5; }
+            h2 { font-size: 18px; border-bottom: 2px solid #333; padding-bottom: 6px; margin-bottom: 16px; }
+            h4 { font-size: 14px; margin: 16px 0 8px; }
+            h5 { font-size: 13px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            td, th { padding: 4px 8px; border-bottom: 1px solid #ddd; text-align: left; }
+            code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+            pre { white-space: pre-wrap; font-size: 12px; background: #f8f9fa; padding: 10px; border-radius: 4px; border-left: 3px solid #4f46e5; }
+            .btn, button { display: none !important; }
+            a { color: #2563eb; }
+            @media print { body { margin: 0; } }
+        </style>
+    </head><body><h2>${title}</h2>${body}</body></html>`);
+    w.document.close();
+    w.focus();
+    w.print();
 }
 
 function formatUrl(url) {
