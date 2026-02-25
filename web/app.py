@@ -78,6 +78,39 @@ def _persist_opportunity_update(url: str, updates: dict):
     except Exception:
         pass  # Don't fail requests over persistence
 
+    # Also persist AI recommendations to a separate durable file
+    # so they survive re-evaluation runs that overwrite latest_evaluation.json
+    if "ai_recommendations" in updates:
+        _persist_ai_recommendation(url, updates)
+
+
+def _persist_ai_recommendation(url: str, ai_data: dict):
+    """Save AI recommendation to data/ai_recommendations.json (keyed by URL).
+
+    This file is never overwritten by evaluation runs, so recommendations
+    persist across re-evaluations.
+    """
+    recs_path = DATA_PATH / "ai_recommendations.json"
+    try:
+        if recs_path.exists():
+            with open(recs_path) as f:
+                all_recs = json.load(f)
+        else:
+            all_recs = {}
+
+        all_recs[url] = {
+            "ai_recommendations": ai_data.get("ai_recommendations"),
+            "ai_reproducibility": ai_data.get("ai_reproducibility"),
+            "ai_revised_value": ai_data.get("ai_revised_value"),
+            "ai_timestamp": ai_data.get("ai_timestamp", datetime.now(timezone.utc).isoformat()),
+        }
+
+        DATA_PATH.mkdir(parents=True, exist_ok=True)
+        with open(recs_path, "w") as f:
+            json.dump(all_recs, f, indent=2)
+    except Exception:
+        pass  # Don't fail requests over persistence
+
 
 def load_cached_data(filename):
     """Load cached JSON data."""
@@ -328,6 +361,29 @@ def api_opportunities():
         with open(eval_path, "w") as f:
             json.dump(eval_data, f, indent=2)
             f.write("\n")
+
+    # Restore AI recommendations from durable storage if they were lost
+    # during a re-evaluation run (which overwrites latest_evaluation.json)
+    recs_path = DATA_PATH / "ai_recommendations.json"
+    if recs_path.exists():
+        try:
+            with open(recs_path) as f:
+                saved_recs = json.load(f)
+            ai_restored = 0
+            for r in all_results:
+                url = r.get("url", "")
+                saved = saved_recs.get(url)
+                if saved and not r.get("ai_recommendations"):
+                    r["ai_recommendations"] = saved.get("ai_recommendations")
+                    r["ai_reproducibility"] = saved.get("ai_reproducibility")
+                    r["ai_timestamp"] = saved.get("ai_timestamp")
+                    if saved.get("ai_revised_value") is not None and r.get("ai_revised_value") is None:
+                        r["ai_revised_value"] = saved["ai_revised_value"]
+                    ai_restored += 1
+            if ai_restored > 0:
+                print(f"[AI-PERSIST] Restored {ai_restored} AI recommendations from durable storage")
+        except (json.JSONDecodeError, IOError):
+            pass
 
     # Return all evaluated pages, but mark those with active tasks
     for r in all_results:
