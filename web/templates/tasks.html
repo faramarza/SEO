@@ -138,6 +138,41 @@ function renderTask(task, status) {
     const riskColor = task.risk_level === 'high' ? 'var(--accent-red)'
         : task.risk_level === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-green)';
 
+    // Date formatting helper
+    const fmtDate = (iso) => {
+        if (!iso) return null;
+        try {
+            const d = new Date(iso);
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch(e) { return null; }
+    };
+
+    // Timeline info per column
+    let timelineHtml = '';
+    if (status === 'proposed') {
+        const created = fmtDate(task.created_at);
+        if (created) {
+            timelineHtml = `<div style="margin: 4px 0; font-size: 11px; color: var(--text-muted);">Proposed: ${created}</div>`;
+        }
+    } else if (status === 'implemented') {
+        const started = fmtDate(task.implemented_at || task.created_at);
+        if (started) {
+            timelineHtml = `<div style="margin: 4px 0; font-size: 11px; color: var(--text-muted);">Started: ${started}</div>`;
+        }
+    } else if (status === 'closed') {
+        const parts = [];
+        const started = fmtDate(task.implemented_at);
+        if (started) parts.push(`Started: ${started}`);
+        if (task.implemented_at) {
+            const startDt = new Date(task.implemented_at);
+            const elapsed = Math.round((Date.now() - startDt.getTime()) / 86400000);
+            parts.push(`${elapsed}d ago`);
+        }
+        if (parts.length > 0) {
+            timelineHtml = `<div style="margin: 4px 0; font-size: 11px; color: var(--text-muted);">${parts.join(' &middot; ')}</div>`;
+        }
+    }
+
     // Implementation steps
     const steps = task.implementation_steps || [];
     const summaryText = task.implementation_summary || '';
@@ -261,6 +296,7 @@ function renderTask(task, status) {
                 <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
                 <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
             </div>
+            ${timelineHtml}
             ${variantHtml}
             ${countdownHtml}
             ${outcomeHtml}
