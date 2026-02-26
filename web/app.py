@@ -211,6 +211,29 @@ def api_dashboard():
     ai_analyzed_count = len(ai_values)
     ai_total_pages = len(eval_data.get("results", []))
 
+    # Task alerts: tasks ready for measurement or approaching window end
+    now = datetime.now()
+    task_alerts = []
+    for action in ledger.get_all_actions():
+        if action.status not in (ActionStatus.IMPLEMENTED, ActionStatus.APPROVED):
+            continue
+        if not action.implemented_at:
+            continue
+        try:
+            impl_dt = datetime.fromisoformat(action.implemented_at)
+            window_end = impl_dt.timestamp() + (action.evaluation_window_days * 86400)
+            days_remaining = max(0, int((window_end - now.timestamp()) / 86400))
+            task_alerts.append({
+                "action_id": action.action_id,
+                "url": action.url,
+                "action_type": action.action_type,
+                "days_remaining": days_remaining,
+                "evaluation_window_days": action.evaluation_window_days,
+                "ready": days_remaining == 0,
+            })
+        except (ValueError, TypeError):
+            continue
+
     return jsonify({
         "kpis": {
             "total_pages": eval_data.get("total_pages", 0),
@@ -226,6 +249,7 @@ def api_dashboard():
             "color": posture_color,
         },
         "ledger_summary": ledger_summary,
+        "task_alerts": task_alerts,
         "config": {
             "aov": config.get("profit_model", {}).get("aov", 53.19),
             "margin": config.get("profit_model", {}).get("gross_margin_low", 0.27),
