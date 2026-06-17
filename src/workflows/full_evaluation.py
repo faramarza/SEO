@@ -118,6 +118,7 @@ class WorkflowConfig:
             google_ads_use_service_account=ads_config.get("use_service_account", False),
             brand_terms=ads_config.get("brand_terms", []),
             product_families=data.get("business_context", {}).get("product_families", []),
+            site_platform=data.get("data_sources", {}).get("site_platform", "magento"),
         )
 
 
