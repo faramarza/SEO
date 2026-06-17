@@ -242,7 +242,7 @@ function renderOpportunities(opportunities) {
             <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) + '<br><span class="ai-done-tag" title="' + (opp.ai_timestamp || '') + '">' + formatAITime(opp.ai_timestamp) + '</span>' : '<span class="muted">—</span>'}</td>
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
             <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
-            <td class="serp-cell">${opp.serp_total > 0 ? (opp.serp_coverage >= opp.serp_total ? '<span class="serp-ready" title="SERP data ready for all top queries">✓</span>' : '<span class="serp-partial" title="SERP data: ' + opp.serp_coverage + '/' + opp.serp_total + ' queries">' + opp.serp_coverage + '/' + opp.serp_total + '</span>') : '<span class="serp-none" title="No SERP data yet">—</span>'}</td>
+            <td class="serp-cell">${opp.serp_total > 0 ? '<span class="' + (opp.serp_coverage >= opp.serp_total ? 'serp-ready' : opp.serp_coverage > 0 ? 'serp-partial' : 'serp-none') + '">' + opp.serp_coverage + '/' + opp.serp_total + '</span>' : '<span class="serp-none">0/0</span>'}</td>
             <td class="actions-cell">
                 <button class="btn btn-small btn-view" onclick="showDetail(${globalIdx})">View</button>
                 <button class="btn btn-small btn-approve" onclick="quickApprove(${globalIdx})">Approve</button>
@@ -1763,6 +1763,16 @@ async function runSelectedAI() {
     if (selectedUrls.length === 0) {
         showToast('No pages selected', 'error');
         return;
+    }
+
+    // Check SERP data availability for selected URLs
+    const noSerp = selectedUrls.filter(url => {
+        const opp = allOpportunities.find(o => o.url === url);
+        return opp && (!opp.serp_coverage || opp.serp_coverage === 0);
+    });
+    if (noSerp.length > 0) {
+        const proceed = confirm(`${noSerp.length} of ${selectedUrls.length} selected pages have no SERP competitor data yet. These will be skipped.\n\nContinue with the ${selectedUrls.length - noSerp.length} pages that have SERP data?`);
+        if (!proceed) return;
     }
 
     const btnRun = document.getElementById('btn-run');

@@ -467,7 +467,7 @@ async function loadSerpStatus() {
                 "Auto-collecting hourly, prioritizing highest-value opportunities first.";
         }
     } catch {
-        document.getElementById('serp-note').textContent = 'SERP API not configured';
+        document.getElementById('serp-note').textContent = 'SERP API not configured — add SERPER_API_KEY to .env';
     }
 }
 

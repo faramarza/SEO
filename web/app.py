@@ -4113,7 +4113,14 @@ def api_ai_batch_analyze():
                         job_state["progress"] = i + 1
                         continue
 
-                # Step 2: Run AI analysis
+                # Step 2: Check SERP data availability
+                serp_summary = serp_client.get_serp_summary_for_opportunity(opp)
+                if not serp_summary or not serp_summary.get("serp_results"):
+                    job_state["message"] = f"[{i+1}/{len(actionable)}] Skipping {short_url} — no SERP data yet"
+                    job_state["progress"] = i + 1
+                    continue
+
+                # Step 3: Run AI analysis
                 job_state["message"] = f"[{i+1}/{len(actionable)}] Analyzing {short_url}..."
                 try:
                     with app.test_client() as client:
