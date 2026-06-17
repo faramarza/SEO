@@ -1300,6 +1300,10 @@ td.negative { color: var(--accent-red); font-weight: 600; }
     color: var(--accent-green, #198038);
     white-space: nowrap;
 }
+.serp-cell { text-align: center; font-size: 12px; }
+.serp-ready { color: var(--accent-green, #198038); font-weight: 700; }
+.serp-partial { color: #b45309; font-weight: 500; }
+.serp-none { color: var(--text-muted); }
 
 .conf-cell {
     color: var(--text-secondary);

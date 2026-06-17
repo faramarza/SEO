@@ -27,6 +27,7 @@ from src.data_sources.gsc_client import GSCClient
 from src.data_sources.ga4_client import GA4Client
 from src.data_sources.google_ads_client import GoogleAdsClient
 from src.data_sources.moz_client import MozClient
+from src.data_sources import serp_client
 from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
 
 
@@ -51,6 +52,7 @@ job_state = {
 
 NOTIFICATIONS_PATH = DATA_PATH / "notifications.json"
 SCHEDULER_CHECK_INTERVAL = 3600  # 1 hour
+SERP_COLLECT_INTERVAL = 3600  # 1 hour (checks quota, collects if available)
 
 
 def _load_notifications():
@@ -151,11 +153,65 @@ def _run_scheduled_measurement():
             print(f"[Scheduler] Error in auto-measure: {e}")
 
 
+def _run_serp_collector():
+    """Background thread: collect SERP data for top opportunities, respecting daily quota."""
+    time.sleep(30)  # Wait for app to be fully ready
+    while True:
+        try:
+            remaining = serp_client.get_remaining_quota()
+            if remaining <= 0:
+                time.sleep(SERP_COLLECT_INTERVAL)
+                continue
+
+            eval_path = DATA_PATH / "latest_evaluation.json"
+            if not eval_path.exists():
+                time.sleep(SERP_COLLECT_INTERVAL)
+                continue
+
+            with open(eval_path) as f:
+                eval_data = json.load(f)
+
+            results = eval_data.get("results", [])
+            # Sort by expected_value descending — prioritize highest-value pages
+            results.sort(key=lambda r: r.get("expected_value", 0), reverse=True)
+
+            queries_fetched = 0
+            for opp in results:
+                if remaining <= 0:
+                    break
+                top_queries = opp.get("top_queries", [])
+                for q in top_queries[:3]:  # Top 3 queries per opportunity
+                    query_text = q.get("query", "")
+                    if not query_text:
+                        continue
+                    # Skip if already cached (< 7 days)
+                    cached = serp_client.get_cached_serp(query_text)
+                    if cached:
+                        continue
+                    result = serp_client.fetch_serp(query_text)
+                    if result:
+                        queries_fetched += 1
+                        remaining -= 1
+                        time.sleep(0.3)
+                    if remaining <= 0:
+                        break
+
+            if queries_fetched > 0:
+                print(f"[SERP Collector] Fetched {queries_fetched} queries, {remaining} quota remaining today")
+
+        except Exception as e:
+            print(f"[SERP Collector] Error: {e}")
+
+        time.sleep(SERP_COLLECT_INTERVAL)
+
+
 def _start_scheduler():
-    """Start the background measurement scheduler once."""
+    """Start the background measurement scheduler and SERP collector."""
     t = threading.Thread(target=_run_scheduled_measurement, daemon=True)
     t.start()
-    print("[Scheduler] Background task monitor started (checks every hour)")
+    t2 = threading.Thread(target=_run_serp_collector, daemon=True)
+    t2.start()
+    print("[Scheduler] Background task monitor + SERP collector started")
 
 
 _scheduler_started = False
@@ -523,9 +579,14 @@ def api_opportunities():
         except (json.JSONDecodeError, IOError):
             pass
 
-    # Return all evaluated pages, but mark those with active tasks
+    # Return all evaluated pages, mark active tasks and SERP data availability
     for r in all_results:
         r["has_active_task"] = r.get("url", "") in active_task_urls
+        # Check SERP data coverage for this opportunity
+        top_q = r.get("top_queries", [])[:5]
+        serp_count = sum(1 for q in top_q if serp_client.get_cached_serp(q.get("query", "")))
+        r["serp_coverage"] = serp_count
+        r["serp_total"] = len(top_q)
 
     # Sort: actionable items first (by priority), then observe, then no-action
     action_order = {"NO_ACTION": 2, "OBSERVE_ONLY": 1}
@@ -1216,7 +1277,25 @@ def api_ai_recommend():
             import traceback
             traceback.print_exc()
 
-    # ── 7) Pipeline scores — pass to AI for anchoring ─────────
+    # ── 7) SERP competitor data ─────────────────────────────────
+    serp_summary = serp_client.get_serp_summary_for_opportunity(opportunity)
+    serp_str = ""
+    if serp_summary and serp_summary.get("serp_results"):
+        serp_lines = [f"SERP data available for {serp_summary['queries_with_serp_data']}/{serp_summary['queries_total']} top queries:"]
+        for sr in serp_summary["serp_results"]:
+            serp_lines.append(f"\n  Query: \"{sr['query']}\" (GSC impressions: {sr['impressions']}, GSC position: {sr.get('our_position_gsc', '?')})")
+            if sr.get("serp_features"):
+                serp_lines.append(f"  SERP features: {', '.join(sr['serp_features'])}")
+            if sr.get("spelling_suggestion"):
+                serp_lines.append(f"  Google suggests: \"{sr['spelling_suggestion']}\"")
+            for comp in sr.get("competitors", []):
+                serp_lines.append(f"    #{comp['position']}: [{comp['title']}] — {comp['snippet'][:120]}")
+                serp_lines.append(f"        URL: {comp['url']}")
+        serp_str = "\n".join(serp_lines)
+    else:
+        serp_str = "null (SERP competitor data not yet collected for this page's queries)"
+
+    # ── 8) Pipeline scores — pass to AI for anchoring ─────────
     pipeline_ev = opportunity.get("expected_value", 0)
     pipeline_confidence = opportunity.get("confidence", 0)
     pipeline_intent = opportunity.get("intent_score", 0)
@@ -1886,6 +1965,12 @@ site_pages (YOUR ONLY SOURCE for recommending new internal links — copy-paste 
 {"INBOUND BLOCKLIST — these pages ALREADY link to this page. Do NOT recommend them as inbound link sources:" + chr(10) + chr(10).join("  - " + u for u in inbound_blocklist_urls) + chr(10) if inbound_blocklist_urls else ""}
 moz_authority (domain & page authority from Moz — use for backlink gap analysis):
 {moz_str}
+
+serp_competitors (ACTUAL Google results for this page's queries — use to craft differentiated titles):
+{serp_str}
+IMPORTANT: If SERP competitor data is provided, you MUST reference it when proposing title/meta changes.
+Your proposed title MUST be differentiated from competitors shown above — not generic SEO.
+Study what competitors say and find an angle they DON'T cover (e.g., personalization, material, age range).
 {ctr_suppression_flag}
 ────────────────────────────────
 OUTPUT FORMAT (STRICT)
@@ -3143,6 +3228,45 @@ def api_ads():
             "campaigns": [],
             "summary": {},
         })
+
+
+@app.route("/api/serp/status")
+def api_serp_status():
+    """Get SERP data collection status across all opportunities."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"total_opportunities": 0, "with_serp_data": 0, "coverage": 0})
+
+    with open(eval_path) as f:
+        eval_data = json.load(f)
+
+    results = eval_data.get("results", [])
+    actionable = [r for r in results if r.get("recommended_action") not in ("NO_ACTION", None)]
+
+    with_serp = 0
+    total_queries = 0
+    queries_cached = 0
+    for opp in actionable:
+        top_q = opp.get("top_queries", [])[:5]
+        has_any = False
+        for q in top_q:
+            total_queries += 1
+            if serp_client.get_cached_serp(q.get("query", "")):
+                queries_cached += 1
+                has_any = True
+        if has_any:
+            with_serp += 1
+
+    return jsonify({
+        "total_opportunities": len(actionable),
+        "with_serp_data": with_serp,
+        "coverage": round(with_serp / max(len(actionable), 1) * 100),
+        "total_queries": total_queries,
+        "queries_cached": queries_cached,
+        "query_coverage": round(queries_cached / max(total_queries, 1) * 100),
+        "daily_quota_remaining": serp_client.get_remaining_quota(),
+        "daily_quota_used": serp_client.get_daily_usage(),
+    })
 
 
 @app.route("/api/notifications")

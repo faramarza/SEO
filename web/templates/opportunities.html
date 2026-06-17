@@ -76,11 +76,12 @@
                     <th data-sort="ai_revised_value" class="sortable-header" title="AI-revised estimate after analysis (base scenario)">AI Est. <span class="sort-icon"></span></th>
                     <th data-sort="confidence" class="sortable-header">Confidence <span class="sort-icon"></span></th>
                     <th data-sort="risk_level" class="sortable-header">Risk <span class="sort-icon"></span></th>
+                    <th data-sort="serp_coverage" class="sortable-header" title="SERP competitor data collected for this page's queries">SERP <span class="sort-icon"></span></th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="opportunities-body">
-                <tr><td colspan="12" class="loading">Loading...</td></tr>
+                <tr><td colspan="13" class="loading">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -134,14 +135,14 @@ async function loadOpportunities() {
     } catch (err) {
         console.error('Failed to load opportunities:', err);
         document.getElementById('opportunities-body').innerHTML =
-            '<tr><td colspan="12" class="error">Failed to load data</td></tr>';
+            '<tr><td colspan="13" class="error">Failed to load data</td></tr>';
     }
 }
 
 function sortOpportunities() {
     const { field, direction } = currentSort;
     // Numeric fields should default to 0, not empty string
-    const numericFields = ['expected_value', 'ai_revised_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index'];
+    const numericFields = ['expected_value', 'ai_revised_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index', 'serp_coverage'];
     const isNumeric = numericFields.includes(field);
 
     allOpportunities.sort((a, b) => {
@@ -206,7 +207,7 @@ function renderOpportunities(opportunities) {
         ? `${total} pages` : `${shown} of ${total} pages`;
 
     if (opportunities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="empty">No opportunities match your filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="empty">No opportunities match your filters.</td></tr>';
         document.getElementById('pagination-controls').innerHTML = '';
         return;
     }
@@ -241,6 +242,7 @@ function renderOpportunities(opportunities) {
             <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) + '<br><span class="ai-done-tag" title="' + (opp.ai_timestamp || '') + '">' + formatAITime(opp.ai_timestamp) + '</span>' : '<span class="muted">—</span>'}</td>
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
             <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
+            <td class="serp-cell">${opp.serp_total > 0 ? (opp.serp_coverage >= opp.serp_total ? '<span class="serp-ready" title="SERP data ready for all top queries">✓</span>' : '<span class="serp-partial" title="SERP data: ' + opp.serp_coverage + '/' + opp.serp_total + ' queries">' + opp.serp_coverage + '/' + opp.serp_total + '</span>') : '<span class="serp-none" title="No SERP data yet">—</span>'}</td>
             <td class="actions-cell">
                 <button class="btn btn-small btn-view" onclick="showDetail(${globalIdx})">View</button>
                 <button class="btn btn-small btn-approve" onclick="quickApprove(${globalIdx})">Approve</button>

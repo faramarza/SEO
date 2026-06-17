@@ -135,6 +135,29 @@
         </div>
     </div>
 
+    <!-- SERP Data Collection -->
+    <div class="card full-width" id="serp-section">
+        <h3>SERP Competitor Data</h3>
+        <div id="serp-status" style="display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
+            <div>
+                <span style="font-size: 13px; color: var(--text-secondary);">Opportunities with SERP data:</span>
+                <strong id="serp-opp-coverage" style="margin-left: 4px;">—</strong>
+            </div>
+            <div>
+                <span style="font-size: 13px; color: var(--text-secondary);">Queries cached:</span>
+                <strong id="serp-query-coverage" style="margin-left: 4px;">—</strong>
+            </div>
+            <div>
+                <span style="font-size: 13px; color: var(--text-secondary);">Today's quota:</span>
+                <strong id="serp-quota" style="margin-left: 4px;">—</strong>
+            </div>
+        </div>
+        <div style="margin-top: 8px; height: 6px; background: rgba(0,0,0,0.06); border-radius: 3px; overflow: hidden;">
+            <div id="serp-progress-bar" style="height: 100%; background: var(--accent-green, #198038); width: 0%; transition: width 0.5s;"></div>
+        </div>
+        <p id="serp-note" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;"></p>
+    </div>
+
     <!-- Last Run -->
     <div class="card full-width">
         <h3>Last Evaluation</h3>
@@ -422,7 +445,34 @@ async function loadAdsData() {
     }
 }
 
+async function loadSerpStatus() {
+    try {
+        const res = await fetch('/api/serp/status');
+        const data = await res.json();
+        document.getElementById('serp-opp-coverage').textContent =
+            `${data.with_serp_data} / ${data.total_opportunities} (${data.coverage}%)`;
+        document.getElementById('serp-query-coverage').textContent =
+            `${data.queries_cached} / ${data.total_queries} (${data.query_coverage}%)`;
+        document.getElementById('serp-quota').textContent =
+            `${data.daily_quota_remaining} / 100 remaining`;
+        document.getElementById('serp-progress-bar').style.width = data.query_coverage + '%';
+        if (!data.daily_quota_remaining && data.query_coverage < 100) {
+            document.getElementById('serp-note').textContent =
+                "Daily quota exhausted. Collection resumes tomorrow automatically.";
+        } else if (data.query_coverage >= 100) {
+            document.getElementById('serp-note').textContent =
+                "All top queries have SERP data. AI recommendations will include competitor analysis.";
+        } else {
+            document.getElementById('serp-note').textContent =
+                "Auto-collecting hourly, prioritizing highest-value opportunities first.";
+        }
+    } catch {
+        document.getElementById('serp-note').textContent = 'SERP API not configured';
+    }
+}
+
 loadDashboard();
 loadAdsData();
+loadSerpStatus();
 </script>
 {% endblock %}
