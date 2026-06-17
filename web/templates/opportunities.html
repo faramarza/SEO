@@ -622,6 +622,11 @@ function showDetail(idx) {
     `;
 
     document.getElementById('detail-modal').classList.remove('hidden');
+
+    // Auto-fetch page context if not already fetched
+    if (!pm.has_crawl_data) {
+        fetchPageContext(idx, opp.url);
+    }
 }
 
 async function fetchPageContext(idx, url) {
