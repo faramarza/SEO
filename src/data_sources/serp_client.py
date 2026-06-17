@@ -1,12 +1,12 @@
 """
-Bing Web Search API client for SERP competitor analysis.
+Serper.dev API client for SERP competitor analysis.
 
-Fetches actual search results for target queries to understand:
+Fetches actual Google search results for target queries to understand:
 - What competitor titles/descriptions look like
-- Which SERP features are present (videos, news, etc.)
+- Which SERP features are present (featured snippets, shopping, etc.)
 - How the site's listing compares to competitors
 
-Free tier: 1,000 queries/month. Paid: ~$3 per 1,000.
+Pricing: $1 per 1,000 queries. 2,500 free credits on signup.
 """
 
 import json
@@ -54,7 +54,7 @@ def get_cached_serp(query: str) -> Optional[dict]:
 
 
 def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
-    """Fetch SERP results for a query via Bing Web Search API.
+    """Fetch SERP results for a query via Serper.dev Google Search API.
 
     Returns dict with organic results, SERP features detected, and metadata.
     Returns None if quota exhausted or API error.
@@ -62,7 +62,7 @@ def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
     import httpx
 
     if not api_key:
-        api_key = os.environ.get("BING_SEARCH_API_KEY", "")
+        api_key = os.environ.get("SERPER_API_KEY", "")
 
     if not api_key:
         return None
@@ -77,32 +77,28 @@ def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
     query_key = query.lower().strip()
     existing = cache.get("queries", {}).get(query_key)
     if existing:
-        fetched_at = existing.get("fetched_at", "")
-        if fetched_at:
-            try:
-                age_days = (datetime.now(timezone.utc) - datetime.fromisoformat(fetched_at)).days
-                if age_days < 7:
-                    return existing
-            except (ValueError, TypeError):
-                pass
+        return existing
 
     try:
-        resp = httpx.get(
-            "https://api.bing.microsoft.com/v7.0/search",
-            headers={"Ocp-Apim-Subscription-Key": api_key},
-            params={
+        resp = httpx.post(
+            "https://google.serper.dev/search",
+            headers={
+                "X-API-KEY": api_key,
+                "Content-Type": "application/json",
+            },
+            json={
                 "q": query,
-                "count": 10,
-                "mkt": "en-US",
-                "responseFilter": "Webpages",
+                "num": 10,
+                "gl": "us",
+                "hl": "en",
             },
             timeout=15.0,
         )
 
         if resp.status_code == 429:
             return None
-        if resp.status_code == 401:
-            print(f"[SERP] Bing API key invalid or expired")
+        if resp.status_code == 401 or resp.status_code == 403:
+            print(f"[SERP] Serper API key invalid or quota exhausted")
             return None
         if resp.status_code != 200:
             print(f"[SERP] API error {resp.status_code}: {resp.text[:200]}")
@@ -114,41 +110,43 @@ def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
         return None
 
     organic_results = []
-    web_pages = data.get("webPages", {})
-    for item in web_pages.get("value", []):
+    for item in data.get("organic", []):
         organic_results.append({
-            "position": len(organic_results) + 1,
-            "title": item.get("name", ""),
+            "position": item.get("position", len(organic_results) + 1),
+            "title": item.get("title", ""),
             "snippet": item.get("snippet", ""),
-            "url": item.get("url", ""),
-            "display_url": item.get("displayUrl", ""),
+            "url": item.get("link", ""),
+            "display_url": item.get("link", ""),
         })
 
     serp_features = []
-    if data.get("videos", {}).get("value"):
+    if data.get("answerBox"):
+        serp_features.append("featured_snippet")
+    if data.get("knowledgeGraph"):
+        serp_features.append("knowledge_graph")
+    if data.get("shopping"):
+        serp_features.append("shopping")
+    if data.get("topStories"):
+        serp_features.append("top_stories")
+    if data.get("videos"):
         serp_features.append("video")
-    if data.get("news", {}).get("value"):
-        serp_features.append("news")
-    if data.get("images", {}).get("value"):
+    if data.get("images"):
         serp_features.append("images")
-    if data.get("relatedSearches", {}).get("value"):
+    if data.get("peopleAlsoAsk"):
+        serp_features.append("people_also_ask")
+    if data.get("relatedSearches"):
         serp_features.append("related_searches")
-    for item in web_pages.get("value", []):
-        if item.get("richFacts") or item.get("searchTags"):
-            serp_features.append("rich_snippet")
-            break
-    serp_features = list(set(serp_features))
 
-    spelling = data.get("queryContext", {})
-    spelling_suggestion = spelling.get("alteredQuery")
+    search_info = data.get("searchParameters", {})
 
     result = {
         "query": query,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "total_results": int(web_pages.get("totalEstimatedMatches", 0)),
+        "total_results": data.get("searchInformation", {}).get("totalResults", 0),
         "organic_results": organic_results,
         "serp_features": serp_features,
-        "spelling_suggestion": spelling_suggestion,
+        "spelling_suggestion": search_info.get("autocorrect"),
+        "people_also_ask": [p.get("question", "") for p in data.get("peopleAlsoAsk", [])],
     }
 
     if "queries" not in cache:
@@ -223,6 +221,7 @@ def get_serp_summary_for_opportunity(opportunity: dict) -> Optional[dict]:
                 "competitors": competitors[:4],
                 "serp_features": cached.get("serp_features", []),
                 "spelling_suggestion": cached.get("spelling_suggestion"),
+                "people_also_ask": cached.get("people_also_ask", []),
                 "fetched_at": cached.get("fetched_at"),
             })
 
