@@ -1,12 +1,12 @@
 """
-Google Custom Search API client for SERP competitor analysis.
+Bing Web Search API client for SERP competitor analysis.
 
 Fetches actual search results for target queries to understand:
 - What competitor titles/descriptions look like
-- Which SERP features are present (shopping, featured snippets, etc.)
+- Which SERP features are present (videos, news, etc.)
 - How the site's listing compares to competitors
 
-Free tier: 100 queries/day.
+Free tier: 1,000 queries/month. Paid: ~$3 per 1,000.
 """
 
 import json
@@ -53,8 +53,8 @@ def get_cached_serp(query: str) -> Optional[dict]:
     return cache.get("queries", {}).get(query.lower().strip())
 
 
-def fetch_serp(query: str, api_key: str = "", cx: str = "") -> Optional[dict]:
-    """Fetch SERP results for a query via Google Custom Search API.
+def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
+    """Fetch SERP results for a query via Bing Web Search API.
 
     Returns dict with organic results, SERP features detected, and metadata.
     Returns None if quota exhausted or API error.
@@ -62,11 +62,9 @@ def fetch_serp(query: str, api_key: str = "", cx: str = "") -> Optional[dict]:
     import httpx
 
     if not api_key:
-        api_key = os.environ.get("GOOGLE_CSE_API_KEY", "")
-    if not cx:
-        cx = os.environ.get("GOOGLE_CSE_CX", "")
+        api_key = os.environ.get("BING_SEARCH_API_KEY", "")
 
-    if not api_key or not cx:
+    if not api_key:
         return None
 
     cache = _load_cache()
@@ -76,7 +74,6 @@ def fetch_serp(query: str, api_key: str = "", cx: str = "") -> Optional[dict]:
     if daily_count >= DAILY_LIMIT:
         return None
 
-    # Check if we already have recent data (< 7 days old)
     query_key = query.lower().strip()
     existing = cache.get("queries", {}).get(query_key)
     if existing:
@@ -91,19 +88,21 @@ def fetch_serp(query: str, api_key: str = "", cx: str = "") -> Optional[dict]:
 
     try:
         resp = httpx.get(
-            "https://www.googleapis.com/customsearch/v1",
+            "https://api.bing.microsoft.com/v7.0/search",
+            headers={"Ocp-Apim-Subscription-Key": api_key},
             params={
-                "key": api_key,
-                "cx": cx,
                 "q": query,
-                "num": 10,
-                "gl": "us",
-                "hl": "en",
+                "count": 10,
+                "mkt": "en-US",
+                "responseFilter": "Webpages",
             },
             timeout=15.0,
         )
 
         if resp.status_code == 429:
+            return None
+        if resp.status_code == 401:
+            print(f"[SERP] Bing API key invalid or expired")
             return None
         if resp.status_code != 200:
             print(f"[SERP] API error {resp.status_code}: {resp.text[:200]}")
@@ -114,45 +113,44 @@ def fetch_serp(query: str, api_key: str = "", cx: str = "") -> Optional[dict]:
         print(f"[SERP] Request failed for '{query}': {e}")
         return None
 
-    # Parse results
     organic_results = []
-    for item in data.get("items", []):
+    web_pages = data.get("webPages", {})
+    for item in web_pages.get("value", []):
         organic_results.append({
             "position": len(organic_results) + 1,
-            "title": item.get("title", ""),
+            "title": item.get("name", ""),
             "snippet": item.get("snippet", ""),
-            "url": item.get("link", ""),
-            "display_url": item.get("formattedUrl", ""),
+            "url": item.get("url", ""),
+            "display_url": item.get("displayUrl", ""),
         })
 
-    # Detect SERP features from search information
-    search_info = data.get("searchInformation", {})
-    spelling = data.get("spelling", {})
-
     serp_features = []
-    # Check for rich snippets in results
-    for item in data.get("items", []):
-        pagemap = item.get("pagemap", {})
-        if pagemap.get("product"):
-            serp_features.append("product_rich_snippet")
-        if pagemap.get("review") or pagemap.get("aggregaterating"):
-            serp_features.append("review_stars")
-        if pagemap.get("videoobject"):
-            serp_features.append("video")
-        if pagemap.get("recipe"):
-            serp_features.append("recipe")
+    if data.get("videos", {}).get("value"):
+        serp_features.append("video")
+    if data.get("news", {}).get("value"):
+        serp_features.append("news")
+    if data.get("images", {}).get("value"):
+        serp_features.append("images")
+    if data.get("relatedSearches", {}).get("value"):
+        serp_features.append("related_searches")
+    for item in web_pages.get("value", []):
+        if item.get("richFacts") or item.get("searchTags"):
+            serp_features.append("rich_snippet")
+            break
     serp_features = list(set(serp_features))
+
+    spelling = data.get("queryContext", {})
+    spelling_suggestion = spelling.get("alteredQuery")
 
     result = {
         "query": query,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "total_results": int(search_info.get("totalResults", 0)),
+        "total_results": int(web_pages.get("totalEstimatedMatches", 0)),
         "organic_results": organic_results,
         "serp_features": serp_features,
-        "spelling_suggestion": spelling.get("correctedQuery"),
+        "spelling_suggestion": spelling_suggestion,
     }
 
-    # Update cache
     if "queries" not in cache:
         cache["queries"] = {}
     if "daily_usage" not in cache:
@@ -165,7 +163,7 @@ def fetch_serp(query: str, api_key: str = "", cx: str = "") -> Optional[dict]:
     return result
 
 
-def fetch_serp_batch(queries: list[str], api_key: str = "", cx: str = "") -> list[dict]:
+def fetch_serp_batch(queries: list[str], api_key: str = "") -> list[dict]:
     """Fetch SERP results for multiple queries, respecting daily quota.
 
     Returns list of results (may be shorter than input if quota runs out).
@@ -175,7 +173,7 @@ def fetch_serp_batch(queries: list[str], api_key: str = "", cx: str = "") -> lis
     for q in queries:
         if get_remaining_quota() <= 0:
             break
-        result = fetch_serp(q, api_key, cx)
+        result = fetch_serp(q, api_key)
         if result:
             results.append(result)
             time.sleep(0.2)
@@ -194,14 +192,13 @@ def get_serp_summary_for_opportunity(opportunity: dict) -> Optional[dict]:
     url = opportunity.get("url", "")
     serp_data = []
     queries_with_data = 0
-    queries_total = min(len(queries), 5)  # Top 5 queries
+    queries_total = min(len(queries), 5)
 
     for q in queries[:5]:
         query_text = q.get("query", "")
         cached = get_cached_serp(query_text)
         if cached:
             queries_with_data += 1
-            # Find our position in SERP
             our_position = None
             for r in cached.get("organic_results", []):
                 if url.rstrip("/") in r.get("url", "").rstrip("/"):

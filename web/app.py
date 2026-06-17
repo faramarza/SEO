@@ -1966,7 +1966,7 @@ site_pages (YOUR ONLY SOURCE for recommending new internal links — copy-paste 
 moz_authority (domain & page authority from Moz — use for backlink gap analysis):
 {moz_str}
 
-serp_competitors (ACTUAL Google results for this page's queries — use to craft differentiated titles):
+serp_competitors (ACTUAL search results for this page's queries — use to craft differentiated titles):
 {serp_str}
 IMPORTANT: If SERP competitor data is provided, you MUST reference it when proposing title/meta changes.
 Your proposed title MUST be differentiated from competitors shown above — not generic SEO.
