@@ -1294,6 +1294,12 @@ td.negative { color: var(--accent-red); font-weight: 600; }
     color: var(--text-secondary);
     font-weight: 400;
 }
+.ai-done-tag {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--accent-green, #198038);
+    white-space: nowrap;
+}
 
 .conf-cell {
     color: var(--text-secondary);

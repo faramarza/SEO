@@ -238,7 +238,7 @@ function renderOpportunities(opportunities) {
                 </div>
             </td>
             <td class="number ev-cell">$${(opp.expected_value || 0).toFixed(2)}</td>
-            <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) : '<span class="muted">—</span>'}</td>
+            <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) + '<br><span class="ai-done-tag" title="' + (opp.ai_timestamp || '') + '">' + formatAITime(opp.ai_timestamp) + '</span>' : '<span class="muted">—</span>'}</td>
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
             <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
             <td class="actions-cell">
@@ -301,6 +301,21 @@ function truncateUrl(url) {
 function formatMode(mode) {
     if (!mode) return '—';
     return mode.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatAITime(ts) {
+    if (!ts) return '';
+    try {
+        const d = new Date(ts);
+        const now = new Date();
+        const diffMs = now - d;
+        const diffH = Math.floor(diffMs / 3600000);
+        const diffD = Math.floor(diffMs / 86400000);
+        if (diffH < 1) return 'AI just now';
+        if (diffH < 24) return `AI ${diffH}h ago`;
+        if (diffD < 7) return `AI ${diffD}d ago`;
+        return 'AI ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch { return ''; }
 }
 
 function formatConstraint(constraint) {
