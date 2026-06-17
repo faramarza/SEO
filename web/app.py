@@ -3297,6 +3297,21 @@ def api_admin_import_sitemap():
         })
         new_count += 1
 
+    # Recalculate summary fields after merge
+    all_results = eval_data.get("results", [])
+    eval_data["total_pages"] = len(all_results)
+    eval_data["pages_with_action"] = sum(
+        1 for r in all_results
+        if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
+    )
+    eval_data["action_rate"] = round(
+        eval_data["pages_with_action"] / max(len(all_results), 1) * 100, 1
+    )
+    eval_data["total_expected_value"] = round(
+        sum(r.get("expected_value", 0) for r in all_results), 2
+    )
+    eval_data["timestamp"] = datetime.now().isoformat()
+
     # Save updated evaluation data
     with open(eval_path, "w") as f:
         json.dump(eval_data, f, indent=2)
