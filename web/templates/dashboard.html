@@ -248,9 +248,27 @@ async function loadDashboard() {
 
             let html = '';
             if (ready.length > 0) {
+                // Auto-trigger measurement for ready tasks
+                fetch('/api/tasks/auto-measure', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(mResult => {
+                        if (mResult.measured > 0) {
+                            const measureBanner = document.getElementById('task-alerts-banner');
+                            const mHtml = `<div style="padding: 12px 16px; background: #dcfce7; border: 1px solid #86efac; border-radius: 8px; margin-bottom: 8px;">
+                                <strong style="color: #166534;">Auto-measured ${mResult.measured} task(s)</strong>
+                                <span style="color: #15803d; margin-left: 8px;">— <a href="/tasks" style="color: #15803d; font-weight: 600;">View results on Task Board</a></span>
+                                <div style="margin-top: 6px; font-size: 12px; color: #166534;">${(mResult.results || []).map(r =>
+                                    `<div style="margin: 2px 0;">${r.outcome?.toUpperCase() || '?'} — ${(r.url || '').replace(/https?:\/\/[^\/]+/, '')}${r.variant_advanced ? ' → deploy next variant' : ''}</div>`
+                                ).join('')}</div>
+                            </div>`;
+                            measureBanner.innerHTML = mHtml;
+                            measureBanner.classList.remove('hidden');
+                            if (typeof loadNotifications === 'function') loadNotifications();
+                        }
+                    }).catch(() => {});
+
                 html += `<div style="padding: 12px 16px; background: #dcfce7; border: 1px solid #86efac; border-radius: 8px; margin-bottom: 8px;">
-                    <strong style="color: #166534;">Ready for measurement (${ready.length})</strong>
-                    <span style="color: #15803d; margin-left: 8px;">— <a href="/tasks" style="color: #15803d; font-weight: 600;">Go to Task Board</a> and click "Check Measurements"</span>
+                    <strong style="color: #166534;">Measuring ${ready.length} task(s)...</strong>
                     <div style="margin-top: 6px; font-size: 12px; color: #166534;">${ready.map(a =>
                         `<div style="margin: 2px 0;">${a.action_type.replace(/_/g, ' ')} — ${a.url.replace(/https?:\/\/[^\/]+/, '')}</div>`
                     ).join('')}</div>

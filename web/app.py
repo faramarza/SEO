@@ -12,7 +12,9 @@ Flask application providing operator interface per doctrine:
 
 import hashlib
 import json
+import os
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request
@@ -45,6 +47,118 @@ job_state = {
     "message": "",
     "error": None,
 }
+
+
+NOTIFICATIONS_PATH = DATA_PATH / "notifications.json"
+SCHEDULER_CHECK_INTERVAL = 3600  # 1 hour
+
+
+def _load_notifications():
+    if NOTIFICATIONS_PATH.exists():
+        with open(NOTIFICATIONS_PATH) as f:
+            return json.load(f)
+    return []
+
+
+def _save_notification(notification):
+    """Append a notification and keep the last 100."""
+    notes = _load_notifications()
+    notes.insert(0, notification)
+    notes = notes[:100]
+    NOTIFICATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(NOTIFICATIONS_PATH, "w") as f:
+        json.dump(notes, f, indent=2)
+        f.write("\n")
+
+
+def _run_scheduled_measurement():
+    """Background thread: periodically auto-measure tasks past their evaluation window."""
+    while True:
+        time.sleep(SCHEDULER_CHECK_INTERVAL)
+        try:
+            with app.app_context():
+                config = load_config()
+                ledger = ActionLedger()
+                pending = ledger.get_pending_evaluations()
+                if not pending:
+                    continue
+
+                for action in pending:
+                    result = _auto_measure_action(action, config)
+                    if result is None:
+                        continue
+
+                    outcome_str = result["outcome"]
+                    outcome = ActionOutcome(outcome_str)
+                    variants = _get_variants(action)
+                    has_next_variant = variants and action.active_variant_index < len(variants) - 1
+
+                    short_url = action.url.replace("https://", "").replace("http://", "")
+
+                    if outcome_str in ("negative", "neutral") and has_next_variant:
+                        action.variant_outcomes.append({
+                            "variant_index": action.active_variant_index,
+                            "outcome": outcome_str,
+                            "metrics": result.get("metrics"),
+                            "notes": result.get("notes", ""),
+                        })
+                        action.active_variant_index += 1
+                        action.baseline_metrics = None
+                        action.implemented_at = None
+                        ledger.update_action(action)
+                        next_v = variants[action.active_variant_index]
+                        _save_notification({
+                            "type": "variant_advance",
+                            "severity": "warning",
+                            "action_id": action.action_id,
+                            "url": action.url,
+                            "message": f"Variant {action.active_variant_index} of '{action.action_type}' on {short_url} didn't improve. Deploy Variant {action.active_variant_index + 1}: {next_v.get('title', '')}",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "read": False,
+                        })
+                    else:
+                        notes = result.get("notes", "")
+                        if outcome_str == "positive" and variants:
+                            notes = f"Variant {action.active_variant_index + 1} succeeded. " + notes
+                        elif variants and not has_next_variant and outcome_str != "positive":
+                            notes = f"All {len(variants)} variants tested, none improved. " + notes
+                        if variants:
+                            action.variant_outcomes.append({
+                                "variant_index": action.active_variant_index,
+                                "outcome": outcome_str,
+                                "metrics": result.get("metrics"),
+                                "notes": result.get("notes", ""),
+                            })
+                            ledger.update_action(action)
+                        ledger.record_outcome(
+                            action_id=action.action_id,
+                            outcome=outcome,
+                            outcome_metrics=result.get("metrics"),
+                            notes=notes,
+                        )
+                        severity = "success" if outcome_str == "positive" else "info" if outcome_str == "neutral" else "error"
+                        _save_notification({
+                            "type": "measurement_complete",
+                            "severity": severity,
+                            "action_id": action.action_id,
+                            "url": action.url,
+                            "outcome": outcome_str,
+                            "message": f"'{action.action_type}' on {short_url} measured as {outcome_str.upper()}. {notes}",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "read": False,
+                        })
+        except Exception as e:
+            print(f"[Scheduler] Error in auto-measure: {e}")
+
+
+def _start_scheduler():
+    """Start the background measurement scheduler once."""
+    t = threading.Thread(target=_run_scheduled_measurement, daemon=True)
+    t.start()
+    print("[Scheduler] Background task monitor started (checks every hour)")
+
+
+_scheduler_started = False
 
 
 def load_config():
@@ -2628,6 +2742,33 @@ def api_auto_measure():
                 "notes": notes,
             })
 
+    # Generate notifications for manual measurement results too
+    for r in results:
+        short_url = r["url"].replace("https://", "").replace("http://", "")
+        if r.get("variant_advanced"):
+            _save_notification({
+                "type": "variant_advance",
+                "severity": "warning",
+                "action_id": r["action_id"],
+                "url": r["url"],
+                "message": r.get("message", f"Variant advanced on {short_url}"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "read": False,
+            })
+        else:
+            outcome_str = r.get("outcome", "inconclusive")
+            severity = "success" if outcome_str == "positive" else "info" if outcome_str == "neutral" else "error"
+            _save_notification({
+                "type": "measurement_complete",
+                "severity": severity,
+                "action_id": r["action_id"],
+                "url": r["url"],
+                "outcome": outcome_str,
+                "message": f"'{r['action_id']}' on {short_url} measured as {outcome_str.upper()}. {r.get('notes', '')}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "read": False,
+            })
+
     return jsonify({
         "success": True,
         "measured": len(results),
@@ -3002,6 +3143,27 @@ def api_ads():
             "campaigns": [],
             "summary": {},
         })
+
+
+@app.route("/api/notifications")
+def api_notifications():
+    """Get recent notifications."""
+    notifications = _load_notifications()
+    unread = sum(1 for n in notifications if not n.get("read"))
+    return jsonify({"notifications": notifications, "unread": unread})
+
+
+@app.route("/api/notifications/mark-read", methods=["POST"])
+def api_mark_notifications_read():
+    """Mark all notifications as read."""
+    notifications = _load_notifications()
+    for n in notifications:
+        n["read"] = True
+    NOTIFICATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(NOTIFICATIONS_PATH, "w") as f:
+        json.dump(notifications, f, indent=2)
+        f.write("\n")
+    return jsonify({"success": True})
 
 
 @app.route("/api/admin/config")
@@ -4165,6 +4327,14 @@ def api_debug():
 # ============================================================
 # RUN SERVER
 # ============================================================
+
+@app.before_request
+def _ensure_scheduler():
+    global _scheduler_started
+    if not _scheduler_started:
+        _scheduler_started = True
+        _start_scheduler()
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=8080, host="127.0.0.1")

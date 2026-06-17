@@ -21,6 +21,9 @@
             <li><a href="/tracking" class="{% if request.path == '/tracking' %}active{% endif %}">Tracking</a></li>
             <li><a href="/admin" class="{% if request.path == '/admin' %}active{% endif %}">Admin</a></li>
         </ul>
+        <div class="nav-notification" id="notification-bell" onclick="toggleNotifications()" style="padding:8px 16px;cursor:pointer;position:relative;font-size:14px;color:var(--text-secondary);">
+            🔔 Notifications <span id="notification-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span>
+        </div>
         <div class="nav-footer">
             <p>alphabet-trains.com</p>
         </div>
@@ -37,9 +40,18 @@
         </div>
     </main>
 
+    <!-- Notification panel -->
+    <div id="notification-panel" class="notification-panel hidden">
+        <div class="notification-header">
+            <strong>Notifications</strong>
+            <button onclick="markAllRead()" style="background:none;border:none;color:var(--accent-blue);cursor:pointer;font-size:12px;">Mark all read</button>
+        </div>
+        <div id="notification-list" class="notification-list"></div>
+    </div>
+
     <script src="{{ url_for('static', filename='app.js') }}"></script>
     <script>
-    // Check for tasks ready for measurement (runs on every page)
+    // Check for tasks ready for measurement and notifications (runs on every page)
     fetch('/api/dashboard').then(r => r.json()).then(data => {
         const alerts = data.task_alerts || [];
         const ready = alerts.filter(a => a.ready).length;
@@ -49,6 +61,66 @@
             badge.style.display = 'inline';
         }
     }).catch(() => {});
+
+    // Load notifications
+    async function loadNotifications() {
+        try {
+            const res = await fetch('/api/notifications');
+            const data = await res.json();
+            const badge = document.getElementById('notification-badge');
+            if (badge && data.unread > 0) {
+                badge.textContent = data.unread;
+                badge.style.display = 'inline';
+            } else if (badge) {
+                badge.style.display = 'none';
+            }
+            const list = document.getElementById('notification-list');
+            if (list && data.notifications.length > 0) {
+                list.innerHTML = data.notifications.slice(0, 20).map(n => {
+                    const icon = n.severity === 'success' ? '✅' : n.severity === 'warning' ? '⚠️' : n.severity === 'error' ? '❌' : 'ℹ️';
+                    const bg = n.read ? 'transparent' : 'rgba(59,130,246,0.06)';
+                    let ts = '';
+                    try {
+                        const d = new Date(n.timestamp);
+                        const diff = Math.floor((Date.now() - d) / 3600000);
+                        ts = diff < 1 ? 'just now' : diff < 24 ? diff + 'h ago' : Math.floor(diff/24) + 'd ago';
+                    } catch {}
+                    return `<div class="notification-item" style="background:${bg};">
+                        <span>${icon}</span>
+                        <div style="flex:1;">
+                            <div style="font-size:13px;">${n.message}</div>
+                            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${ts}</div>
+                        </div>
+                    </div>`;
+                }).join('');
+            } else if (list) {
+                list.innerHTML = '<div style="padding:16px;color:var(--text-muted);text-align:center;font-size:13px;">No notifications yet</div>';
+            }
+        } catch {}
+    }
+
+    function toggleNotifications() {
+        const panel = document.getElementById('notification-panel');
+        panel.classList.toggle('hidden');
+    }
+
+    async function markAllRead() {
+        await fetch('/api/notifications/mark-read', { method: 'POST' });
+        const badge = document.getElementById('notification-badge');
+        if (badge) badge.style.display = 'none';
+        loadNotifications();
+    }
+
+    // Close notification panel when clicking outside
+    document.addEventListener('click', (e) => {
+        const panel = document.getElementById('notification-panel');
+        const btn = document.getElementById('notification-bell');
+        if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+            panel.classList.add('hidden');
+        }
+    });
+
+    loadNotifications();
     </script>
     {% block scripts %}{% endblock %}
 </body>
