@@ -1936,6 +1936,7 @@ INPUTS
 current_year: {datetime.now().year}
 url: {url}
 page_type: {page_type}
+site_platform: {config.get("data_sources", {}).get("site_platform", "magento")}
 pipeline_est_value: ${pipeline_ev:.2f} (pipeline's monthly value estimate: missed_clicks × AOV × margin × conversion_factor, based on position-expected CTR)
 pipeline_confidence: {pipeline_confidence:.0%}
 pipeline_intent_score: {pipeline_intent:.0%}

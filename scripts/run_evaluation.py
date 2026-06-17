@@ -550,7 +550,8 @@ def main():
                 norm_path = "/"
             organic_sessions_map[norm_path] = data.get('organic_sessions', data.get('sessions', 0))
 
-        diagnostics_engine = TrackingSanityDiagnostics(base_url=base_url)
+        site_platform = config.get("data_sources", {}).get("site_platform", "magento")
+        diagnostics_engine = TrackingSanityDiagnostics(base_url=base_url, site_platform=site_platform)
         diagnostics = diagnostics_engine.diagnose_all(assets, organic_sessions_map)
         summary = diagnostics_engine.summary(diagnostics)
 

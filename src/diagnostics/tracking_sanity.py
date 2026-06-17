@@ -108,8 +108,119 @@ class TrackingSanityDiagnostics:
     # Pages with fewer clicks are exempt from ratio checks (noise)
     MIN_CLICKS_FOR_RATIO_CHECK = 10
 
-    def __init__(self, base_url: str = "https://alphabet-trains.com"):
+    PLATFORM_FIXES = {
+        "magento": {
+            "channel_zero": (
+                "1. Verify GA4 tag fires on this page (check Magento > Stores > Configuration > Sales > Google API)\n"
+                "2. Check cookie consent extension (e.g. Amasty GDPR) — users declining = invisible in GA4\n"
+                "3. Audit URL Rewrites (Marketing > URL Rewrites) for redirect chains losing referrer\n"
+                "4. Check if Full Page Cache is serving stale pages without the GA4 tag"
+            ),
+            "volume_low": (
+                "1. Check Magento cookie consent extension — consent rejection rate is the #1 cause of GA4 undercounting\n"
+                "2. Audit URL Rewrites for 301/302 chains (Marketing > URL Rewrites)\n"
+                "3. Check if layered navigation creates duplicate URLs without canonical tags\n"
+                "4. Verify GA4 tag loads on all page types (product, category, CMS, checkout)"
+            ),
+            "revenue": (
+                "1. Verify Magento GA4 purchase event fires with correct page_location on order confirmation\n"
+                "2. Check if checkout redirect (PayPal, payment gateway return) loses attribution\n"
+                "3. Audit Magento Enhanced Ecommerce dataLayer implementation\n"
+                "4. Check if multi-step checkout loses the original landing page referrer"
+            ),
+        },
+        "shopify": {
+            "channel_zero": (
+                "1. Verify GA4 tag in Online Store > Preferences or via Google channel app\n"
+                "2. Check Shopify cookie consent banner — users declining = invisible in GA4\n"
+                "3. Audit URL redirects (Settings > Navigation > URL Redirects) for chains\n"
+                "4. Check if Shopify Storefront API / headless sections miss the GA4 tag"
+            ),
+            "volume_low": (
+                "1. Check cookie consent banner rejection rate\n"
+                "2. Audit URL redirects for referrer loss\n"
+                "3. Verify GA4 fires on all page types including /collections/ and /pages/\n"
+                "4. Check if Shopify Markets (multi-currency/region) duplicates sessions"
+            ),
+            "revenue": (
+                "1. Verify purchase event fires on Shopify thank-you page with correct attribution\n"
+                "2. Check if offsite payment (PayPal, Shop Pay) loses referrer on return\n"
+                "3. Audit Shopify GA4 integration (native or custom pixel)\n"
+                "4. Check order status page tracking for duplicate purchase events"
+            ),
+        },
+        "wordpress": {
+            "channel_zero": (
+                "1. Verify GA4 plugin is active and configured (e.g. Site Kit, MonsterInsights, or manual gtag)\n"
+                "2. Check cookie consent plugin (e.g. CookieYes, Complianz) — declining users are invisible\n"
+                "3. Audit permalink settings and any redirect plugins (Redirection, Yoast) for chains\n"
+                "4. Check if caching plugin (WP Super Cache, W3TC, LiteSpeed) serves stale pages without GA4"
+            ),
+            "volume_low": (
+                "1. Check cookie consent plugin rejection rate\n"
+                "2. Audit redirect plugins for referrer-losing chains\n"
+                "3. Verify GA4 loads on all post types (posts, pages, custom post types)\n"
+                "4. Check if AMP pages have separate GA4 tracking"
+            ),
+            "revenue": (
+                "1. Verify purchase/conversion event fires correctly on thank-you/confirmation page\n"
+                "2. Check if WooCommerce or form plugin sends correct attribution data\n"
+                "3. Audit Enhanced Ecommerce dataLayer (if WooCommerce)\n"
+                "4. Check if redirect after form submission loses landing page referrer"
+            ),
+        },
+        "woocommerce": {
+            "channel_zero": (
+                "1. Verify GA4 integration plugin (WooCommerce Google Analytics, MonsterInsights, or GTM)\n"
+                "2. Check cookie consent plugin — consent rejection = invisible in GA4\n"
+                "3. Audit WooCommerce URL structure and permalink redirects\n"
+                "4. Check if caching plugin serves pages without GA4 tag"
+            ),
+            "volume_low": (
+                "1. Check cookie consent rejection rate\n"
+                "2. Audit redirect chains in permalink structure and Yoast/Rank Math\n"
+                "3. Verify GA4 fires on product, category, tag, and shop pages\n"
+                "4. Check if variable products create untracked URL parameters"
+            ),
+            "revenue": (
+                "1. Verify WooCommerce purchase event fires on order-received page\n"
+                "2. Check if payment gateway redirects (PayPal, Stripe) lose attribution\n"
+                "3. Audit WooCommerce Enhanced Ecommerce dataLayer\n"
+                "4. Check if guest checkout vs account checkout affects attribution"
+            ),
+        },
+        "spa": {
+            "channel_zero": (
+                "1. Verify GA4 fires a pageview on every route change (not just initial load)\n"
+                "2. Check if client-side hydration delays or blocks the GA4 tag\n"
+                "3. Audit history.pushState / popstate event handling for GA4 pageview triggers\n"
+                "4. Check if server-side rendering (SSR) and client-side GA4 create duplicate or missing events"
+            ),
+            "volume_low": (
+                "1. Check consent mode implementation in the SPA lifecycle\n"
+                "2. Verify route-change pageview events fire correctly\n"
+                "3. Check if pre-rendering / SSR pages send a pageview before hydration replaces it\n"
+                "4. Audit for duplicate pageviews from both SSR and client-side"
+            ),
+            "revenue": (
+                "1. Verify purchase event fires with correct page_location after client-side checkout\n"
+                "2. Check if post-payment redirect back to SPA triggers correct attribution\n"
+                "3. Audit dataLayer push timing relative to route changes\n"
+                "4. Check if SPA navigation resets GA4 session attribution"
+            ),
+        },
+    }
+
+    def __init__(self, base_url: str = "https://alphabet-trains.com", site_platform: str = "magento"):
         self.base_url = base_url.rstrip("/")
+        self.site_platform = site_platform
+
+    def _get_platform_fix(self, fix_type: str) -> str:
+        platform_fixes = self.PLATFORM_FIXES.get(self.site_platform, {})
+        if fix_type in platform_fixes:
+            return platform_fixes[fix_type]
+        default = self.PLATFORM_FIXES.get("magento", {})
+        return default.get(fix_type, f"1. Check GA4 tracking configuration for your platform ({self.site_platform})")
 
     def normalize_url(self, url: str) -> str:
         """
@@ -226,12 +337,7 @@ class TrackingSanityDiagnostics:
                     "GSC records clicks but GA4 shows zero organic sessions. "
                     "This indicates tracking loss or attribution failure."
                 ),
-                recommended_fix=(
-                    "1. Verify GA4 tracking fires on this page\n"
-                    "2. Check consent mode / cookie blocking\n"
-                    "3. Audit redirects that may lose referrer\n"
-                    "4. Check SPA routing issues"
-                ),
+                recommended_fix=self._get_platform_fix("channel_zero"),
             )
 
         return None
@@ -281,12 +387,7 @@ class TrackingSanityDiagnostics:
                     f"GA4 organic sessions ({organic_sessions}) significantly lower than "
                     f"GSC clicks ({gsc_clicks}). Attribution loss suspected."
                 )
-                fix = (
-                    "1. Check GA4 consent mode implementation\n"
-                    "2. Audit redirects for referrer loss\n"
-                    "3. Verify SPA hydration doesn't block tracking\n"
-                    "4. Check for duplicate page tracking"
-                )
+                fix = self._get_platform_fix("volume_low")
             else:
                 # HIGH ratio — only Tier A if extreme AND significant volume
                 if is_special:
@@ -436,11 +537,7 @@ class TrackingSanityDiagnostics:
                     "purchases_28d": asset.ga4.purchases_28d,
                 },
                 interpretation=interpretation,
-                recommended_fix=(
-                    "1. Verify purchase event includes correct page_location\n"
-                    "2. Check enhanced ecommerce setup\n"
-                    "3. Audit attribution model (first-click vs last-click)"
-                ),
+                recommended_fix=self._get_platform_fix("revenue"),
             )
 
         return None

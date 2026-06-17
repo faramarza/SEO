@@ -1,5 +1,6 @@
 {
   "data_sources": {
+    "site_platform": "magento",
     "gsc": {
       "property_url": "sc-domain:alphabet-trains.com",
       "credentials_path": "credentials.json"

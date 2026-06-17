@@ -392,7 +392,8 @@ def main():
     print(f"\nAnalyzing {len(assets)} pages...")
 
     # Run diagnostics
-    diagnostics_engine = TrackingSanityDiagnostics(base_url=base_url)
+    site_platform = config.get("data_sources", {}).get("site_platform", "magento")
+    diagnostics_engine = TrackingSanityDiagnostics(base_url=base_url, site_platform=site_platform)
     diagnostics = diagnostics_engine.diagnose_all(assets, organic_sessions_map)
     summary = diagnostics_engine.summary(diagnostics)
 

@@ -88,6 +88,9 @@ class WorkflowConfig:
     brand_terms: Optional[list[str]] = None
     product_families: Optional[list[str]] = None
 
+    # Site platform for platform-specific diagnostics
+    site_platform: str = "magento"
+
     @classmethod
     def from_json(cls, path: Path) -> "WorkflowConfig":
         """Load config from JSON file."""
@@ -151,7 +154,7 @@ class FullEvaluationWorkflow:
         )
 
         # Initialize components
-        self.diagnostics = TrackingSanityDiagnostics()
+        self.diagnostics = TrackingSanityDiagnostics(site_platform=config.site_platform)
         self.ledger = ActionLedger()
 
         # Create Governor dependencies

@@ -114,6 +114,19 @@
         <div class="admin-card">
             <h3>Data Sources</h3>
             <div class="form-group">
+                <label for="ds-site-platform">Site Platform</label>
+                <select id="ds-site-platform">
+                    <option value="magento">Magento</option>
+                    <option value="wordpress">WordPress</option>
+                    <option value="shopify">Shopify</option>
+                    <option value="woocommerce">WooCommerce</option>
+                    <option value="bigcommerce">BigCommerce</option>
+                    <option value="custom">Custom / Other</option>
+                    <option value="spa">Single Page Application (React/Vue/Angular)</option>
+                </select>
+                <small style="color: var(--text-muted);">Platform determines tracking diagnostics and AI recommendation specificity.</small>
+            </div>
+            <div class="form-group">
                 <label for="ds-sitemap-url">Sitemap URL</label>
                 <input type="text" id="ds-sitemap-url" placeholder="https://example.com/sitemap.xml" style="width: 100%;">
                 <small style="color: var(--text-muted);">XML sitemap URL. Supports sitemap index files.</small>
@@ -240,6 +253,7 @@ async function loadConfig() {
 
         // Data Sources
         const ds = config.data_sources || {};
+        document.getElementById('ds-site-platform').value = ds.site_platform || 'magento';
         document.getElementById('ds-sitemap-url').value = ds.sitemap_url || '';
 
         // Governance
@@ -332,6 +346,7 @@ async function saveGovernance() {
 async function saveDataSources() {
     const payload = {
         data_sources: {
+            site_platform: document.getElementById('ds-site-platform').value,
             sitemap_url: document.getElementById('ds-sitemap-url').value.trim(),
         }
     };
