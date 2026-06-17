@@ -15,6 +15,9 @@
         <button class="btn btn-accent" onclick="runBatchAI()" id="btn-batch-ai" title="Fetch page data and run AI analysis on all actionable opportunities">
             Run All AI
         </button>
+        <button class="btn btn-accent" onclick="runSelectedAI()" id="btn-selected-ai" style="display:none;" title="Run AI analysis on selected opportunities">
+            Run AI on Selected (<span id="selected-count">0</span>)
+        </button>
         <label class="auto-ai-toggle" title="Automatically run AI analysis on all actionable pages after evaluation completes">
             <input type="checkbox" id="auto-ai-checkbox" onchange="updateAutoAILabel()">
             <span id="auto-ai-label">+ Auto AI</span>
@@ -62,6 +65,7 @@
         <table class="data-table sortable" id="opportunities-table" style="table-layout: fixed; width: 100%;">
             <thead>
                 <tr>
+                    <th style="width:30px;"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this)" title="Select all on this page"></th>
                     <th data-sort="index" class="sortable-header">#</th>
                     <th data-sort="url" class="sortable-header">URL</th>
                     <th data-sort="asset_type" class="sortable-header">Type <span class="sort-icon"></span></th>
@@ -76,7 +80,7 @@
                 </tr>
             </thead>
             <tbody id="opportunities-body">
-                <tr><td colspan="11" class="loading">Loading...</td></tr>
+                <tr><td colspan="12" class="loading">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -130,7 +134,7 @@ async function loadOpportunities() {
     } catch (err) {
         console.error('Failed to load opportunities:', err);
         document.getElementById('opportunities-body').innerHTML =
-            '<tr><td colspan="11" class="error">Failed to load data</td></tr>';
+            '<tr><td colspan="12" class="error">Failed to load data</td></tr>';
     }
 }
 
@@ -202,7 +206,7 @@ function renderOpportunities(opportunities) {
         ? `${total} pages` : `${shown} of ${total} pages`;
 
     if (opportunities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" class="empty">No opportunities match your filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="empty">No opportunities match your filters.</td></tr>';
         document.getElementById('pagination-controls').innerHTML = '';
         return;
     }
@@ -220,6 +224,7 @@ function renderOpportunities(opportunities) {
             : opp.recommended_action === 'OBSERVE_ONLY' ? 'row-observe-only' : '';
         return `
         <tr class="opportunity-row ${rowClass}" data-idx="${globalIdx}">
+            <td><input type="checkbox" class="row-select-cb" data-url="${opp.url}" onchange="updateSelectionUI()"></td>
             <td class="row-number">${globalIdx + 1}</td>
             <td class="url-cell" title="${opp.url}">
                 <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
@@ -1706,10 +1711,76 @@ async function startBatchAIJob() {
     }
 }
 
+// ── Selection checkboxes for per-row AI ──
+function toggleSelectAll(masterCb) {
+    document.querySelectorAll('.row-select-cb').forEach(cb => {
+        cb.checked = masterCb.checked;
+    });
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    const checked = document.querySelectorAll('.row-select-cb:checked');
+    const btn = document.getElementById('btn-selected-ai');
+    const countSpan = document.getElementById('selected-count');
+    if (checked.length > 0) {
+        btn.style.display = 'inline-block';
+        countSpan.textContent = checked.length;
+    } else {
+        btn.style.display = 'none';
+    }
+    const allCbs = document.querySelectorAll('.row-select-cb');
+    const masterCb = document.getElementById('select-all-cb');
+    if (masterCb) masterCb.checked = allCbs.length > 0 && checked.length === allCbs.length;
+}
+
+async function runSelectedAI() {
+    const selectedUrls = Array.from(document.querySelectorAll('.row-select-cb:checked'))
+        .map(cb => cb.dataset.url);
+
+    if (selectedUrls.length === 0) {
+        showToast('No pages selected', 'error');
+        return;
+    }
+
+    const btnRun = document.getElementById('btn-run');
+    const btnCrawl = document.getElementById('btn-crawl');
+    const btnBatch = document.getElementById('btn-batch-ai');
+    const btnSelected = document.getElementById('btn-selected-ai');
+    const progressDiv = document.getElementById('job-progress');
+
+    btnRun.disabled = true;
+    btnCrawl.disabled = true;
+    btnBatch.disabled = true;
+    btnSelected.disabled = true;
+    progressDiv.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/ai/batch-analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls: selectedUrls, skip_analyzed: false }),
+        });
+        const data = await res.json();
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetJobUI();
+            return;
+        }
+        showToast(`AI analysis started for ${selectedUrls.length} selected pages...`, 'info');
+        jobPollInterval = setInterval(checkJobStatus, 1000);
+    } catch (err) {
+        showToast('Failed to start AI analysis', 'error');
+        resetJobUI();
+    }
+}
+
 function resetJobUI() {
     document.getElementById('btn-run').disabled = false;
     document.getElementById('btn-crawl').disabled = false;
     document.getElementById('btn-batch-ai').disabled = false;
+    const btnSelected = document.getElementById('btn-selected-ai');
+    if (btnSelected) btnSelected.disabled = false;
     document.getElementById('job-progress').classList.add('hidden');
     document.getElementById('progress-fill').style.width = '0%';
 }

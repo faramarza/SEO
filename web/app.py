@@ -3734,6 +3734,7 @@ def api_ai_batch_analyze():
     data = request.json or {}
     skip_analyzed = data.get("skip_analyzed", True)
     page_types = data.get("page_types", [])  # e.g. ["product", "category"]
+    selected_urls = set(data.get("urls", []))  # specific URLs to analyze
 
     def run_batch():
         global job_state
@@ -3768,6 +3769,13 @@ def api_ai_batch_analyze():
                 if opp.get("url", "") not in active_urls
             ]
             skipped_active = before_count - len(actionable)
+
+            # Filter by specific URLs if provided
+            if selected_urls:
+                actionable = [
+                    opp for opp in actionable
+                    if opp.get("url", "") in selected_urls
+                ]
 
             # Filter by page type if specified
             if page_types:
