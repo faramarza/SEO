@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+
+{% block title %}Link Map{% endblock %}
+{% block header %}Internal Link Map{% endblock %}
+
+{% block content %}
+<div class="link-map-page">
+    <!-- Summary Cards -->
+    <div class="summary-row">
+        <div class="summary-card">
+            <span class="summary-label">Total Pages</span>
+            <span class="summary-value" id="total-pages">0</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Orphan Pages</span>
+            <span class="summary-value" id="orphan-pages">0</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Avg Inlinks</span>
+            <span class="summary-value" id="avg-inlinks">0</span>
+        </div>
+        <div class="summary-card">
+            <span class="summary-label">Link Suggestions</span>
+            <span class="summary-value" id="total-suggestions">0</span>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card full-width">
+        <div class="filters" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="search-input" placeholder="Search URL or title..." style="flex: 1; min-width: 200px;">
+            <select id="type-filter">
+                <option value="">All Types</option>
+                <option value="product">Product</option>
+                <option value="category">Category</option>
+                <option value="blog">Blog</option>
+                <option value="other">Other</option>
+            </select>
+            <button class="btn btn-secondary" onclick="resetSort()" style="font-size:12px; padding:4px 10px;">Reset Sort</button>
+        </div>
+    </div>
+
+    <!-- Link Map Table -->
+    <div class="card full-width">
+        <h3>Page Link Map</h3>
+        <p class="card-subtitle">Click a row to see inbound links, outbound links, and suggestions.</p>
+        <table class="data-table" id="link-map-table">
+            <thead>
+                <tr>
+                    <th style="width: 35%; cursor:pointer;" onclick="sortBy('page')">Page <span id="sort-page"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('type')">Type <span id="sort-type"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('impressions')">Impressions <span id="sort-impressions"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('position')">Position <span id="sort-position"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('inlinks')">Inlinks <span id="sort-inlinks"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('outlinks')">Outlinks <span id="sort-outlinks"></span></th>
+                    <th style="cursor:pointer;" onclick="sortBy('suggestions')">Suggestions <span id="sort-suggestions"></span></th>
+                </tr>
+            </thead>
+            <tbody id="link-map-body">
+                <tr><td colspan="7" class="loading">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Detail panel (shown when a row is clicked) -->
+<div id="detail-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; overflow-y:auto;">
+    <div id="detail-panel" style="background:#fff; max-width:900px; margin:40px auto; border-radius:12px; padding:24px; position:relative; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+        <button id="detail-close" style="position:absolute; top:12px; right:16px; border:none; background:none; font-size:24px; cursor:pointer; color:#666;">&times;</button>
+        <div id="detail-content"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allPages = [];
+let sortCol = 'impressions';
+let sortAsc = false;
+
+function esc(s) {
+    if (!s) return '';
+    const el = document.createElement('span');
+    el.textContent = s;
+    return el.innerHTML;
+}
+
+function shortUrl(url) {
+    try {
+        const u = new URL(url);
+        return u.pathname.length > 60 ? u.pathname.slice(0, 57) + '...' : u.pathname;
+    } catch {
+        return url.length > 60 ? url.slice(0, 57) + '...' : url;
+    }
+}
+
+async function loadLinkMap() {
+    const res = await fetch('/api/internal-link-map');
+    const data = await res.json();
+    allPages = data.pages || [];
+
+    // Summary
+    document.getElementById('total-pages').textContent = allPages.length;
+    const orphans = allPages.filter(p => p.inlinks_count === 0).length;
+    document.getElementById('orphan-pages').textContent = orphans;
+    const avgIn = allPages.length > 0
+        ? (allPages.reduce((s, p) => s + p.inlinks_count, 0) / allPages.length).toFixed(1)
+        : 0;
+    document.getElementById('avg-inlinks').textContent = avgIn;
+    const totalSug = allPages.reduce((s, p) => s + (p.suggested || []).length, 0);
+    document.getElementById('total-suggestions').textContent = totalSug;
+
+    updateSortIndicators();
+    renderTable(getFilteredPages());
+}
+
+function renderTable(pages) {
+    const tbody = document.getElementById('link-map-body');
+    if (pages.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No pages found.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = pages.map((p, i) => `
+        <tr class="link-row" data-idx="${i}" style="cursor:pointer;">
+            <td class="url-cell" title="${esc(p.url)}">
+                <div style="font-weight:500; font-size:13px;">${esc(shortUrl(p.url))}</div>
+                <div style="font-size:11px; color:#6b7280; margin-top:2px;">${esc(p.title)}</div>
+            </td>
+            <td><span class="status-badge status-${typeColor(p.asset_type)}">${esc(p.asset_type)}</span></td>
+            <td class="number">${(p.gsc_impressions || 0).toLocaleString()}</td>
+            <td class="number">${p.gsc_position || '—'}</td>
+            <td class="number" style="${p.inlinks_count === 0 ? 'color:#dc2626; font-weight:600;' : ''}">${p.inlinks_count}</td>
+            <td class="number">${p.outlinks_count}</td>
+            <td class="number" style="${(p.suggested||[]).length > 0 ? 'color:#059669; font-weight:600;' : ''}">${(p.suggested||[]).length}</td>
+        </tr>
+    `).join('');
+
+    // Click handlers
+    document.querySelectorAll('.link-row').forEach(row => {
+        row.addEventListener('click', () => showDetail(parseInt(row.dataset.idx)));
+    });
+}
+
+function typeColor(t) {
+    if (t === 'product') return 'green';
+    if (t === 'category') return 'orange';
+    if (t === 'blog') return 'gray';
+    return 'gray';
+}
+
+function showDetail(idx) {
+    const p = getFilteredPages()[idx];
+    if (!p) return;
+
+    const overlay = document.getElementById('detail-overlay');
+    const content = document.getElementById('detail-content');
+
+    let html = `
+        <h2 style="margin:0 0 4px 0; font-size:18px;">${esc(p.title)}</h2>
+        <p style="margin:0 0 16px 0; font-size:13px; color:#6b7280;">${esc(p.url)}</p>
+        <div style="display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+            <span class="status-badge status-${typeColor(p.asset_type)}">${esc(p.asset_type)}</span>
+            <span style="font-size:13px; color:#374151;">Impressions: <strong>${(p.gsc_impressions||0).toLocaleString()}</strong></span>
+            <span style="font-size:13px; color:#374151;">Clicks: <strong>${(p.gsc_clicks||0).toLocaleString()}</strong></span>
+            <span style="font-size:13px; color:#374151;">Position: <strong>${p.gsc_position||'—'}</strong></span>
+        </div>
+    `;
+
+    if (p.top_queries && p.top_queries.length > 0) {
+        html += `<p style="font-size:12px; color:#6b7280; margin-bottom:16px;">
+            <strong>Top queries:</strong> ${p.top_queries.map(q => esc(q)).join(', ')}
+        </p>`;
+    }
+
+    // Inbound links
+    html += `<h3 style="margin:16px 0 8px 0; font-size:15px; border-bottom:2px solid #3b82f6; padding-bottom:4px;">
+        Inbound Links (${p.inlinks.length} pages link here)
+    </h3>`;
+    if (p.inlinks.length === 0) {
+        html += `<p style="color:#dc2626; font-size:13px; font-style:italic;">No internal pages link to this page (orphan).</p>`;
+    } else {
+        html += `<table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr style="background:#eff6ff;">
+                <th style="padding:6px 8px; text-align:left;">Source Page</th>
+                <th style="padding:6px 8px; text-align:left;">URL</th>
+                <th style="padding:6px 8px; text-align:left;">Anchor Text</th>
+            </tr></thead><tbody>`;
+        for (const il of p.inlinks) {
+            html += `<tr style="border-bottom:1px solid #e5e7eb;">
+                <td style="padding:6px 8px;">${esc(il.title || '—')}</td>
+                <td style="padding:6px 8px; font-size:12px; color:#6b7280;">${esc(shortUrl(il.url))}</td>
+                <td style="padding:6px 8px; color:#6b7280;">${esc(il.anchor_text) || '<em>empty</em>'}</td>
+            </tr>`;
+        }
+        html += `</tbody></table>`;
+    }
+
+    // Outbound links
+    html += `<h3 style="margin:20px 0 8px 0; font-size:15px; border-bottom:2px solid #8b5cf6; padding-bottom:4px;">
+        Outbound Links (${p.outlinks.length} links from this page)
+    </h3>`;
+    if (p.outlinks.length === 0) {
+        html += `<p style="color:#f59e0b; font-size:13px; font-style:italic;">No internal outlinks detected. Run evaluation with crawl to populate.</p>`;
+    } else {
+        html += `<table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr style="background:#f5f3ff;">
+                <th style="padding:6px 8px; text-align:left;">Target Page</th>
+                <th style="padding:6px 8px; text-align:left;">Anchor Text</th>
+            </tr></thead><tbody>`;
+        for (const ol of p.outlinks) {
+            html += `<tr style="border-bottom:1px solid #e5e7eb;">
+                <td style="padding:6px 8px;">${esc(shortUrl(ol.url))}</td>
+                <td style="padding:6px 8px; color:#6b7280;">${esc(ol.anchor_text) || '<em>empty</em>'}</td>
+            </tr>`;
+        }
+        html += `</tbody></table>`;
+    }
+
+    // Suggested inbound links
+    html += `<h3 style="margin:20px 0 8px 0; font-size:15px; border-bottom:2px solid #059669; padding-bottom:4px;">
+        Suggested Inbound Links (${(p.suggested||[]).length} candidates)
+    </h3>`;
+    if (!p.suggested || p.suggested.length === 0) {
+        html += `<p style="color:#6b7280; font-size:13px; font-style:italic;">No suggestions — all topically relevant pages already link here.</p>`;
+    } else {
+        html += `<p style="font-size:12px; color:#6b7280; margin-bottom:8px;">
+            These pages share query terms with this page but don't link to it yet. Ranked by linking score.
+        </p>`;
+        html += `<table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead><tr style="background:#ecfdf5;">
+                <th style="padding:6px 8px; text-align:left;">Page</th>
+                <th style="padding:6px 8px; text-align:left;">Type</th>
+                <th style="padding:6px 8px; text-align:right;">Impressions</th>
+                <th style="padding:6px 8px; text-align:right;">Overlap</th>
+                <th style="padding:6px 8px; text-align:right;">Score</th>
+                <th style="padding:6px 8px; text-align:left;">Shared Terms</th>
+            </tr></thead><tbody>`;
+        for (const s of p.suggested) {
+            const isParent = s.reason === 'parent_category';
+            const rowStyle = isParent
+                ? 'border-bottom:1px solid #e5e7eb; background:#fef3c7;'
+                : 'border-bottom:1px solid #e5e7eb;';
+            html += `<tr style="${rowStyle}">
+                <td style="padding:6px 8px;" title="${esc(s.url)}">
+                    ${isParent ? '<strong style="color:#d97706;">&#9650; </strong>' : ''}
+                    ${esc(s.title || shortUrl(s.url))}
+                </td>
+                <td style="padding:6px 8px;"><span class="status-badge status-${typeColor(s.asset_type)}">${esc(s.asset_type)}</span></td>
+                <td style="padding:6px 8px; text-align:right;">${(s.impressions||0).toLocaleString()}</td>
+                <td style="padding:6px 8px; text-align:right; font-weight:600; color:#059669;">${isParent ? '—' : s.query_overlap}</td>
+                <td style="padding:6px 8px; text-align:right;">${isParent ? '—' : (s.linking_score||0).toLocaleString()}</td>
+                <td style="padding:6px 8px; font-size:11px; ${isParent ? 'color:#d97706; font-weight:600;' : 'color:#6b7280;'}">
+                    ${isParent ? 'Parent category — add in-content link (breadcrumb only)' : (s.shared_queries||[]).map(q => esc(q)).join(', ')}
+                </td>
+            </tr>`;
+        }
+        html += `</tbody></table>`;
+    }
+
+    content.innerHTML = html;
+    overlay.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeDetail() {
+    document.getElementById('detail-overlay').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+document.getElementById('detail-close').addEventListener('click', closeDetail);
+document.getElementById('detail-overlay').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('detail-overlay')) closeDetail();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDetail();
+});
+
+function colValue(p, col) {
+    switch (col) {
+        case 'page': return (p.title || p.url).toLowerCase();
+        case 'type': return p.asset_type || '';
+        case 'impressions': return p.gsc_impressions || 0;
+        case 'position': return p.gsc_position || 999;
+        case 'inlinks': return p.inlinks_count || 0;
+        case 'outlinks': return p.outlinks_count || 0;
+        case 'suggestions': return (p.suggested || []).length;
+        default: return 0;
+    }
+}
+
+function getFilteredPages() {
+    const search = document.getElementById('search-input').value.toLowerCase();
+    const type = document.getElementById('type-filter').value;
+
+    let filtered = allPages.filter(p => {
+        if (type && p.asset_type !== type) return false;
+        if (search && !p.url.toLowerCase().includes(search) && !p.title.toLowerCase().includes(search)) return false;
+        return true;
+    });
+
+    filtered.sort((a, b) => {
+        const va = colValue(a, sortCol);
+        const vb = colValue(b, sortCol);
+        let cmp = 0;
+        if (typeof va === 'string') cmp = va.localeCompare(vb);
+        else cmp = va - vb;
+        return sortAsc ? cmp : -cmp;
+    });
+
+    return filtered;
+}
+
+function updateSortIndicators() {
+    const cols = ['page', 'type', 'impressions', 'position', 'inlinks', 'outlinks', 'suggestions'];
+    for (const c of cols) {
+        const el = document.getElementById('sort-' + c);
+        if (el) el.textContent = sortCol === c ? (sortAsc ? '▲' : '▼') : '';
+    }
+}
+
+function sortBy(col) {
+    if (sortCol === col) {
+        sortAsc = !sortAsc;
+    } else {
+        sortCol = col;
+        // Default descending for numeric cols, ascending for text
+        sortAsc = (col === 'page' || col === 'type');
+    }
+    updateSortIndicators();
+    renderTable(getFilteredPages());
+}
+
+function resetSort() {
+    sortCol = 'impressions';
+    sortAsc = false;
+    updateSortIndicators();
+    renderTable(getFilteredPages());
+}
+
+function applyFilters() {
+    renderTable(getFilteredPages());
+}
+
+document.getElementById('search-input').addEventListener('input', applyFilters);
+document.getElementById('type-filter').addEventListener('change', applyFilters);
+
+loadLinkMap();
+</script>
+{% endblock %}

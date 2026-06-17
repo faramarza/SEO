@@ -266,6 +266,13 @@ body {
     color: var(--text-primary);
 }
 
+.kpi-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
 .section-row {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -595,6 +602,36 @@ body {
 
 .btn-secondary:hover:not(:disabled) {
     background-color: #0e7490;
+}
+
+.btn-accent {
+    background-color: var(--accent-blue, #3b82f6);
+    color: white;
+}
+
+.btn-accent:hover:not(:disabled) {
+    background-color: #2563eb;
+}
+
+.auto-ai-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.auto-ai-toggle:hover {
+    background: var(--bg-secondary, #f3f4f6);
+}
+
+.auto-ai-toggle input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
 }
 
 .job-progress {
@@ -1249,6 +1286,15 @@ td.negative { color: var(--accent-red); font-weight: 600; }
     font-weight: 600;
 }
 
+.ai-est-cell {
+    color: var(--accent-blue, #3b82f6);
+    font-weight: 600;
+}
+.ai-est-cell .muted {
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
 .conf-cell {
     color: var(--text-secondary);
 }
@@ -1877,6 +1923,123 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .constraint-badge.constraint-none {
     background-color: rgba(5, 150, 105, 0.12);
     color: var(--accent-green);
+}
+
+/* ============================================================
+   Page Type Badges
+   ============================================================ */
+
+.type-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.type-badge.type-product {
+    background-color: rgba(37, 99, 235, 0.12);
+    color: var(--accent-blue);
+}
+
+.type-badge.type-category {
+    background-color: rgba(124, 58, 237, 0.12);
+    color: var(--accent-purple);
+}
+
+.type-badge.type-blog {
+    background-color: rgba(5, 150, 105, 0.12);
+    color: var(--accent-green);
+}
+
+.type-badge.type-other {
+    background-color: var(--bg-hover);
+    color: var(--text-muted);
+}
+
+/* ============================================================
+   Batch AI Modal
+   ============================================================ */
+
+.batch-modal-body h3 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    color: var(--text-primary);
+}
+
+.batch-summary {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 20px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.batch-type-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.batch-type-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+.batch-type-option:hover {
+    border-color: var(--accent-blue);
+}
+
+.batch-type-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-blue);
+}
+
+.batch-type-label {
+    font-weight: 600;
+    font-size: 14px;
+    min-width: 80px;
+}
+
+.batch-type-counts {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.batch-type-cost {
+    font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-green);
+}
+
+.batch-total {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 16px;
+    margin: 16px 0;
+    background-color: var(--bg-hover);
+    border-radius: 8px;
+    font-size: 15px;
+}
+
+.batch-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
 }
 
 /* ============================================================

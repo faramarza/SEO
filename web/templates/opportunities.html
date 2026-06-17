@@ -12,6 +12,13 @@
         <button class="btn btn-secondary" onclick="runEvaluation(true)" id="btn-crawl">
             Run with Crawl
         </button>
+        <button class="btn btn-accent" onclick="runBatchAI()" id="btn-batch-ai" title="Fetch page data and run AI analysis on all actionable opportunities">
+            Run All AI
+        </button>
+        <label class="auto-ai-toggle" title="Automatically run AI analysis on all actionable pages after evaluation completes">
+            <input type="checkbox" id="auto-ai-checkbox" onchange="updateAutoAILabel()">
+            <span id="auto-ai-label">+ Auto AI</span>
+        </label>
         <div id="job-progress" class="job-progress hidden">
             <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill"></div>
@@ -22,8 +29,8 @@
 
     <div class="filters">
         <select id="filter-action" onchange="filterOpportunities()">
-            <option value="">All Pages</option>
-            <option value="__actionable__" selected>Actionable Only</option>
+            <option value="" selected>All Pages</option>
+            <option value="__actionable__">Actionable Only</option>
             <option value="TITLE_META_TEST">Title/Meta Test</option>
             <option value="INTERNAL_LINK_REALLOCATION">Internal Links</option>
             <option value="CANONICAL_FIX">Canonical Fix</option>
@@ -31,7 +38,15 @@
             <option value="NEW_ASSET_CREATION">New Asset</option>
             <option value="OBSERVE_ONLY">Observe Only</option>
             <option value="NO_ACTION">No Action</option>
+            <option value="__sitemap__">Sitemap Import</option>
             <option value="__has_task__">Has Active Task</option>
+        </select>
+        <select id="filter-type" onchange="filterOpportunities()">
+            <option value="">All Page Types</option>
+            <option value="product">Product</option>
+            <option value="category">Category</option>
+            <option value="blog">Blog</option>
+            <option value="other">Other</option>
         </select>
         <select id="filter-risk" onchange="filterOpportunities()">
             <option value="">All Risk Levels</option>
@@ -49,17 +64,19 @@
                 <tr>
                     <th data-sort="index" class="sortable-header">#</th>
                     <th data-sort="url" class="sortable-header">URL</th>
+                    <th data-sort="asset_type" class="sortable-header">Type <span class="sort-icon"></span></th>
                     <th data-sort="primary_constraint" class="sortable-header">Constraint</th>
                     <th data-sort="recommended_action" class="sortable-header">Action</th>
                     <th data-sort="demand_score" class="sortable-header">Demand</th>
-                    <th data-sort="expected_value" class="sortable-header sorted-desc">Expected Value <span class="sort-icon">▼</span></th>
+                    <th data-sort="expected_value" class="sortable-header sorted-desc" title="Monthly recoverable value based on position-expected CTR, AOV, and margin">Est. Value <span class="sort-icon">▼</span></th>
+                    <th data-sort="ai_revised_value" class="sortable-header" title="AI-revised estimate after analysis (base scenario)">AI Est. <span class="sort-icon"></span></th>
                     <th data-sort="confidence" class="sortable-header">Confidence <span class="sort-icon"></span></th>
                     <th data-sort="risk_level" class="sortable-header">Risk <span class="sort-icon"></span></th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="opportunities-body">
-                <tr><td colspan="9" class="loading">Loading...</td></tr>
+                <tr><td colspan="11" class="loading">Loading...</td></tr>
             </tbody>
         </table>
     </div>
@@ -80,8 +97,6 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- html2pdf library for PDF export -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script>
 let allOpportunities = [];
 let filteredOpportunities = [];
@@ -94,19 +109,35 @@ async function loadOpportunities() {
         const res = await fetch('/api/opportunities');
         const data = await res.json();
         allOpportunities = data.opportunities || [];
+
+        // Hydrate persisted AI recommendations so they survive page refresh
+        for (const opp of allOpportunities) {
+            if (opp.ai_recommendations && !opp._ai_html) {
+                opp._ai_html = buildAIHtml(opp.ai_recommendations, opp.ai_reproducibility);
+            }
+            // Hydrate AI revised value from persisted data if not already set
+            if (opp.ai_revised_value == null && opp.ai_recommendations) {
+                const fa = opp.ai_recommendations.funnel_analysis;
+                if (fa && fa.opportunity_estimate && fa.opportunity_estimate.base) {
+                    const total = fa.opportunity_estimate.base.total;
+                    if (total != null) opp.ai_revised_value = parseFloat(total) || null;
+                }
+            }
+        }
+
         sortOpportunities();
         filterOpportunities();
     } catch (err) {
         console.error('Failed to load opportunities:', err);
         document.getElementById('opportunities-body').innerHTML =
-            '<tr><td colspan="9" class="error">Failed to load data</td></tr>';
+            '<tr><td colspan="11" class="error">Failed to load data</td></tr>';
     }
 }
 
 function sortOpportunities() {
     const { field, direction } = currentSort;
     // Numeric fields should default to 0, not empty string
-    const numericFields = ['expected_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index'];
+    const numericFields = ['expected_value', 'ai_revised_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index'];
     const isNumeric = numericFields.includes(field);
 
     allOpportunities.sort((a, b) => {
@@ -124,7 +155,16 @@ function sortOpportunities() {
 
         if (aVal < bVal) return direction === 'asc' ? -1 : 1;
         if (aVal > bVal) return direction === 'asc' ? 1 : -1;
-        return 0;
+
+        // Secondary sort: AI Est desc, then Est Value desc for pages without AI Est
+        const aAI = a.ai_revised_value;
+        const bAI = b.ai_revised_value;
+        const aHasAI = aAI != null;
+        const bHasAI = bAI != null;
+        if (aHasAI && bHasAI) return bAI - aAI;
+        if (aHasAI && !bHasAI) return -1;
+        if (!aHasAI && bHasAI) return 1;
+        return (b.expected_value ?? 0) - (a.expected_value ?? 0);
     });
 }
 
@@ -162,7 +202,7 @@ function renderOpportunities(opportunities) {
         ? `${total} pages` : `${shown} of ${total} pages`;
 
     if (opportunities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty">No opportunities match your filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="empty">No opportunities match your filters.</td></tr>';
         document.getElementById('pagination-controls').innerHTML = '';
         return;
     }
@@ -184,6 +224,7 @@ function renderOpportunities(opportunities) {
             <td class="url-cell" title="${opp.url}">
                 <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
             </td>
+            <td><span class="type-badge type-${opp.asset_type || 'other'}">${formatAssetType(opp.asset_type)}</span></td>
             <td><span class="constraint-badge constraint-${(opp.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(opp.primary_constraint)}</span></td>
             <td><span class="action-badge action-${(opp.recommended_action || '').toLowerCase()}">${opp.recommended_action || 'N/A'}</span></td>
             <td class="number demand-cell">
@@ -192,6 +233,7 @@ function renderOpportunities(opportunities) {
                 </div>
             </td>
             <td class="number ev-cell">$${(opp.expected_value || 0).toFixed(2)}</td>
+            <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) : '<span class="muted">—</span>'}</td>
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
             <td><span class="risk-badge risk-${opp.risk_level || 'low'}">${opp.risk_level || 'low'}</span></td>
             <td class="actions-cell">
@@ -270,19 +312,35 @@ function formatConstraint(constraint) {
     return labels[constraint] || constraint.replace(/_/g, ' ');
 }
 
+function formatAssetType(type) {
+    const labels = {
+        'product': 'Product',
+        'category': 'Category',
+        'blog': 'Blog',
+        'other': 'Other',
+    };
+    return labels[type] || type || 'Other';
+}
+
 function filterOpportunities() {
     const actionFilter = document.getElementById('filter-action').value;
+    const typeFilter = document.getElementById('filter-type').value;
     const riskFilter = document.getElementById('filter-risk').value;
     const searchFilter = document.getElementById('filter-search').value.toLowerCase();
 
     let filtered = allOpportunities;
 
     if (actionFilter === '__actionable__') {
-        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action) && !o.has_active_task);
+        filtered = filtered.filter(o => !['NO_ACTION', 'OBSERVE_ONLY'].includes(o.recommended_action) || o.source === 'sitemap_import');
+    } else if (actionFilter === '__sitemap__') {
+        filtered = filtered.filter(o => o.source === 'sitemap_import');
     } else if (actionFilter === '__has_task__') {
         filtered = filtered.filter(o => o.has_active_task);
     } else if (actionFilter) {
         filtered = filtered.filter(o => o.recommended_action === actionFilter);
+    }
+    if (typeFilter) {
+        filtered = filtered.filter(o => (o.asset_type || 'other') === typeFilter);
     }
     if (riskFilter) {
         filtered = filtered.filter(o => o.risk_level === riskFilter);
@@ -297,6 +355,7 @@ function filterOpportunities() {
 
 function showDetail(idx) {
     const opp = filteredOpportunities[idx];
+    const pm = opp.page_metadata || {};
     document.getElementById('modal-title').textContent = opp.recommended_action || 'Details';
 
     const steps = opp.implementation_steps || [];
@@ -346,7 +405,19 @@ function showDetail(idx) {
     ` : '';
 
     // Build detected constraints section
-    const detectedConstraints = opp.constraints || [];
+    // Override stale weak_funnel_routing when live-fetched outlinks exist
+    const liveOutlinks = pm.internal_outlinks || [];
+    const detectedConstraints = (opp.constraints || []).map(c => {
+        if (c.constraint_type === 'weak_funnel_routing' && liveOutlinks.length >= 3) {
+            return {
+                ...c,
+                severity: 'low',
+                description: `[OVERRIDDEN] Batch reported ${c.evidence?.outlinks ?? 0} outlinks, but live fetch found ${liveOutlinks.length}. Routing is present.`,
+                evidence: { ...c.evidence, outlinks: liveOutlinks.length, source: 'live_fetch_override' }
+            };
+        }
+        return c;
+    });
     const constraintsHtml = detectedConstraints.length > 0 ? `
         <div class="detail-section constraints-list">
             <h4>Detected Constraints</h4>
@@ -416,8 +487,8 @@ function showDetail(idx) {
                 <p><span class="capture-class-badge ${(opp.capture_class || 'no_action').replace(/_/g, '-')}">${captureClassLabel(opp.capture_class)}</span></p>
             </div>
             <div class="detail-item">
-                <label>Expected Value</label>
-                <p class="detail-value">$${(opp.expected_value || 0).toFixed(2)}</p>
+                <label>Est. Value</label>
+                <p class="detail-value" title="Monthly recoverable value: missed_clicks × AOV × margin">$${(opp.expected_value || 0).toFixed(2)}</p>
             </div>
             <div class="detail-item">
                 <label>Confidence</label>
@@ -469,47 +540,60 @@ function showDetail(idx) {
             <p>${opp.learning_reference}</p>
         </div>
         ` : ''}
-        ${opp.page_metadata ? `
         <div class="detail-section page-context-section">
-            <h4>Page Context${!opp.page_metadata.has_crawl_data ? ' <span style="font-weight:normal;color:#9ca3af;font-size:12px;">(re-run with crawl to populate)</span>' : ''}</h4>
+            <h4>Page Context <span id="page-context-status-${idx}" style="font-weight:normal;color:#9ca3af;font-size:12px;"></span></h4>
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.title || '[Not found]'}</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}">${pm.has_crawl_data ? `<code>${pm.title || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${opp.page_metadata.h1 || '[Not found]'}</code></td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}">${pm.has_crawl_data ? `<code>${pm.h1 || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '<em style="color: #999;">[Not found]</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}">${pm.has_crawl_data ? (pm.meta_description || '<em style="color:#999;">[Not found]</em>') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.canonical_url || '<em style="color: #999;">[Not set]</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}">${pm.has_crawl_data ? (pm.canonical_url || '<em style="color:#999;">[Not set]</em>') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Word Count</td>
-                    <td style="padding: 6px 10px;">${opp.page_metadata.word_count || '—'}</td>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-wordcount-${idx}">${pm.has_crawl_data ? (pm.word_count || '—') : '<em style="color:#999;">—</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Content Preview</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); border-bottom: 1px solid #eee;" id="page-ctx-preview-${idx}">${pm.has_crawl_data ? (pm.content_preview || '[Not available]') : '<em style="color:#999;">—</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Robots Meta</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-robots-${idx}">${pm.has_crawl_data ? `<code>${pm.robots_meta || '[None]'}</code>` : '<em style="color:#999;">—</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Internal Outlinks</td>
+                    <td style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #eee;" id="page-ctx-outlinks-${idx}">${pm.has_crawl_data && pm.internal_outlinks && pm.internal_outlinks.length > 0 ? pm.internal_outlinks.slice(0,15).map(l => `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${l.anchor_text}</span> → <code style="font-size:11px;">${l.target_url}</code></div>`).join('') : '<em style="color:#999;">—</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Above Fold</td>
+                    <td style="padding: 6px 10px; font-size: 11px; line-height: 1.4; color: var(--text-secondary); max-height: 80px; overflow: auto;" id="page-ctx-abovefold-${idx}">${pm.has_crawl_data ? (pm.above_fold_html ? `<code style="word-break:break-all;">${(pm.above_fold_html || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,300)}${(pm.above_fold_html||'').length > 300 ? '...' : ''}</code>` : '[Not available]') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
             </table>
         </div>
-        ` : ''}
-        <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: none;">
+        <div class="detail-section ai-section" id="ai-recommendations-${idx}" style="display: ${opp._ai_html ? 'block' : 'none'};">
             <h4>AI Recommendations</h4>
-            <div class="ai-content" id="ai-content-${idx}"></div>
+            <div class="ai-content" id="ai-content-${idx}">${opp._ai_html || ''}</div>
         </div>
         <div class="detail-actions">
-            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-secondary" onclick="exportToPDF(${idx})">
+<button class="btn btn-secondary" onclick="exportToPDF(${idx})">
                 <span class="btn-icon">📄</span> Export PDF
             </button>
-            <button class="btn btn-secondary" onclick="inspectUrl(${idx})" title="Check indexing status in GSC">
-                <span class="btn-icon">🔍</span> Inspect URL
+            <button class="btn btn-secondary" onclick="fetchPageContext(${idx}, '${opp.url.replace(/'/g, "\\'")}')" id="fetch-page-btn-${idx}">
+                <span class="btn-icon">${pm.has_crawl_data ? '🔄' : '🔍'}</span> ${pm.has_crawl_data ? 'Re-fetch' : 'Fetch Page'}
             </button>
-            <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}">
-                <span class="btn-icon">🤖</span> AI Recommend
+            <button class="btn btn-secondary" onclick="getAIRecommendations(${idx})" id="ai-btn-${idx}" ${pm.has_crawl_data ? '' : 'disabled style="opacity:0.5;cursor:not-allowed;" title="Fetch page first"'}>
+                <span class="btn-icon">${opp._ai_html ? '🔄' : '🤖'}</span> ${opp._ai_html ? 'Re-run AI' : 'AI Recommend'}
             </button>
             <button class="btn btn-primary" onclick="approveAction(${idx})">
                 <span class="btn-icon">✓</span> Approve
@@ -520,42 +604,421 @@ function showDetail(idx) {
     document.getElementById('detail-modal').classList.remove('hidden');
 }
 
-async function inspectUrl(idx) {
-    const opp = filteredOpportunities[idx];
-    showToast('Inspecting URL in GSC...', 'info');
+async function fetchPageContext(idx, url) {
+    const fetchBtn = document.getElementById(`fetch-page-btn-${idx}`);
+    const status = document.getElementById(`page-context-status-${idx}`);
+    if (fetchBtn) { fetchBtn.disabled = true; fetchBtn.innerHTML = '<span class="btn-icon">⏳</span> Fetching...'; }
+    if (status) status.textContent = '';
 
     try {
-        const res = await fetch('/api/gsc/inspect', {
+        const resp = await fetch('/api/page-metadata', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: opp.url })
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url }),
         });
+        const data = await resp.json();
+        if (resp.ok && data.has_crawl_data) {
+            const el = (id) => document.getElementById(id);
+            const titleEl = el(`page-ctx-title-${idx}`);
+            if (titleEl) titleEl.innerHTML = `<code>${data.title || '[Not found]'}</code>`;
+            const h1El = el(`page-ctx-h1-${idx}`);
+            if (h1El) h1El.innerHTML = `<code>${data.h1 || '[Not found]'}</code>`;
+            const metaEl = el(`page-ctx-meta-${idx}`);
+            if (metaEl) metaEl.innerHTML = data.meta_description || '<em style="color:#999;">[Not found]</em>';
+            const canEl = el(`page-ctx-canonical-${idx}`);
+            if (canEl) canEl.innerHTML = data.canonical_url || '<em style="color:#999;">[Not set]</em>';
+            const wcEl = el(`page-ctx-wordcount-${idx}`);
+            if (wcEl) wcEl.textContent = data.word_count || '—';
+            const prevEl = el(`page-ctx-preview-${idx}`);
+            if (prevEl) prevEl.textContent = data.content_preview || '[Not available]';
+            const robotsEl = el(`page-ctx-robots-${idx}`);
+            if (robotsEl) robotsEl.innerHTML = `<code>${data.robots_meta || '[None]'}</code>`;
+            const outlinksEl = el(`page-ctx-outlinks-${idx}`);
+            if (outlinksEl) {
+                if (data.internal_outlinks && data.internal_outlinks.length > 0) {
+                    outlinksEl.innerHTML = data.internal_outlinks.slice(0,15).map(l =>
+                        `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${l.anchor_text}</span> → <code style="font-size:11px;">${l.target_url}</code></div>`
+                    ).join('');
+                } else {
+                    outlinksEl.innerHTML = '—';
+                }
+            }
+            const aboveFoldEl = el(`page-ctx-abovefold-${idx}`);
+            if (aboveFoldEl) {
+                const af = data.above_fold_html || '';
+                if (af) {
+                    const escaped = af.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    aboveFoldEl.innerHTML = `<code style="word-break:break-all;">${escaped.substring(0,300)}${af.length > 300 ? '...' : ''}</code>`;
+                } else {
+                    aboveFoldEl.innerHTML = '[Not available]';
+                }
+            }
 
-        const data = await res.json();
+            // Update cached data so AI recommendations use it
+            // Use Object.assign to copy ALL fields from fetch response,
+            // so new fields added to the server don't require JS changes.
+            const opp = filteredOpportunities[idx];
+            if (opp) {
+                if (!opp.page_metadata) opp.page_metadata = {};
+                Object.assign(opp.page_metadata, data);
+                opp.page_metadata.has_crawl_data = true;
+            }
 
-        if (data.error) {
-            showToast('Inspect error: ' + data.error, 'error');
-            return;
+            // Update constraint display to reflect live outlink data
+            const liveLinks = data.internal_outlinks || [];
+            if (liveLinks.length >= 3 && opp.constraints) {
+                const constraintsList = document.querySelector(`#detail-modal .constraints-list`);
+                if (constraintsList) {
+                    opp.constraints.forEach((c, ci) => {
+                        if (c.constraint_type === 'weak_funnel_routing') {
+                            const items = constraintsList.querySelectorAll('.constraint-item');
+                            if (items[ci]) {
+                                items[ci].className = 'constraint-item severity-low';
+                                const desc = items[ci].querySelector('.constraint-description');
+                                if (desc) desc.textContent = `[OVERRIDDEN] Batch reported ${c.evidence?.outlinks ?? 0} outlinks, but live fetch found ${liveLinks.length}. Routing is present.`;
+                                const badge = items[ci].querySelector('.severity-badge');
+                                if (badge) { badge.className = 'severity-badge severity-low'; badge.textContent = 'low'; }
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Enable AI Recommend button
+            const aiBtn = el(`ai-btn-${idx}`);
+            if (aiBtn) { aiBtn.disabled = false; aiBtn.style.opacity = '1'; aiBtn.style.cursor = 'pointer'; aiBtn.title = ''; }
+
+            if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.innerHTML = '<span class="btn-icon">🔄</span> Re-fetch'; }
+            if (status) status.textContent = '';
+        } else {
+            if (status) status.textContent = `(failed: ${data.error || 'unknown'})`;
+            if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.innerHTML = '<span class="btn-icon">🔄</span> Retry'; }
         }
-
-        // Show results in a simple alert for now
-        const status = `
-URL Inspection Results:
-━━━━━━━━━━━━━━━━━━━━━━
-Verdict: ${data.verdict}
-Coverage: ${data.coverage_state}
-Indexing: ${data.indexing_state}
-Last Crawl: ${data.last_crawl_time || 'Unknown'}
-Fetch State: ${data.page_fetch_state}
-Crawled As: ${data.crawled_as}
-        `.trim();
-
-        alert(status);
-
-    } catch (err) {
-        showToast('Failed to inspect URL', 'error');
-        console.error(err);
+    } catch (e) {
+        if (status) status.textContent = '(fetch failed)';
+        if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.innerHTML = '<span class="btn-icon">🔄</span> Retry'; }
     }
+}
+
+
+// ── Shared AI rendering function — used for both live + persisted data ──
+function buildAIHtml(rec, reproducibility) {
+    // Escape HTML so AI-generated code examples don't become real DOM elements
+    const esc = (s) => {
+        if (!s || typeof s !== 'string') return s || '';
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+
+    // Handle NO ACTION from context validation
+    if (rec.no_action) {
+        return `<div class="ai-recommendation">
+            <div class="rec-item critical">
+                <h5>No Action</h5>
+                <p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>
+                ${rec.missing_context ? `<p><strong>Missing:</strong> ${rec.missing_context.join(', ')}</p>` : ''}
+            </div>
+        </div>`;
+    }
+
+    // Handle raw_response fallback (JSON parse failed on backend)
+    // Try to re-parse on the client side in case the backend parsing had a bug
+    if (rec.raw_response) {
+        try {
+            let raw = rec.raw_response.trim();
+            // Strip markdown fences
+            if (raw.toLowerCase().startsWith('```json')) raw = raw.slice(7);
+            else if (raw.startsWith('```')) raw = raw.slice(3);
+            if (raw.trimEnd().endsWith('```')) raw = raw.trimEnd().slice(0, -3);
+            raw = raw.trim();
+            // Find first { if there's a preamble
+            const braceIdx = raw.indexOf('{');
+            if (braceIdx > 0) raw = raw.slice(braceIdx);
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && (parsed.validity_audit || parsed.recommendations || parsed.funnel_analysis)) {
+                return buildAIHtml(parsed, reproducibility);
+            }
+        } catch (e) {
+            // Genuine parse failure — fall through to raw display
+        }
+        return `<div class="ai-recommendation">
+            <div class="rec-item">
+                <h5>AI Response</h5>
+                <pre style="white-space: pre-wrap;">${rec.raw_response}</pre>
+            </div>
+        </div>`;
+    }
+
+    const va = rec.validity_audit || {};
+    const fa = rec.funnel_analysis || {};
+    const ca = rec.constraint_accountability || {};
+    const actions = rec.recommendations || rec.actions || [];
+    const noActions = rec.no_actions || [];
+    const isAllNoAction = actions.length === 0 || actions.every(a => a.action_type === 'NO_ACTION');
+
+    const vBadge = (status) => {
+        const s = (status || '').split('—')[0].trim().toUpperCase();
+        const color = s === 'VALID' ? '#059669' : s === 'INVALID' ? '#dc2626' : '#ca8a04';
+        return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${color}18;color:${color};font-weight:600;font-size:11px;">${s}</span> <span style="color:#6b7280;font-size:12px;">${(status || '').includes('—') ? status.split('—').slice(1).join('—').trim() : ''}</span>`;
+    };
+
+    let validityHtml = '';
+    if (Object.keys(va).length > 0) {
+        validityHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Step 1: Validity Audit</h5>
+            <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                ${Object.entries(va).map(([k, v]) => `<tr><td style="padding:3px 8px;font-weight:bold;text-transform:capitalize;width:140px;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td><td style="padding:3px 8px;border-bottom:1px solid #f0f0f0;">${vBadge(v)}</td></tr>`).join('')}
+            </table>
+        </div>`;
+    }
+
+    let funnelHtml = '';
+    if (Object.keys(fa).length > 0) {
+        funnelHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Step 2: Funnel Analysis</h5>
+            <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${(() => {
+                    const oe = fa.opportunity_estimate;
+                    if (!oe) return '—';
+                    if (typeof oe === 'string') return oe;
+                    // Structured object with low/base/high scenarios
+                    let parts = [];
+                    if (oe.summary) parts.push(oe.summary);
+                    else {
+                        const lo = oe.low?.total ?? '?', ba = oe.base?.total ?? '?', hi = oe.high?.total ?? '?';
+                        const loR = oe.low?.routing_pct ?? '?', baR = oe.base?.routing_pct ?? '?', hiR = oe.high?.routing_pct ?? '?';
+                        parts.push('$' + lo + ' / $' + ba + ' / $' + hi + ' (low/base/high @ ' + loR + '%/' + baR + '%/' + hiR + '% routing)');
+                    }
+                    if (oe.base?.math) parts.push('<br><small style="font-weight:400;color:#6b7280;">Base: ' + oe.base.math + '</small>');
+                    if (oe.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.routing_evidence + '</small>');
+                    else if (oe.base?.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.base.routing_evidence + '</small>');
+                    return parts.join('');
+                })()}</td></tr>
+                ${fa.pipeline_reconciliation ? '<tr><td style="padding:4px 8px;font-weight:bold;border-top:1px solid #f0f0f0;vertical-align:top;">Pipeline Check</td><td style="padding:4px 8px;border-top:1px solid #f0f0f0;font-size:11px;color:#6b7280;">' + fa.pipeline_reconciliation + '</td></tr>' : ''}
+            </table>
+        </div>`;
+    }
+
+    let accountabilityHtml = '';
+    if (Object.keys(ca).length > 0) {
+        const dispBadge = (d) => {
+            const colors = { ACTIONED: '#059669', DEFERRED: '#ca8a04', SUPERSEDED: '#6b7280' };
+            const c = colors[(d||'').toUpperCase()] || '#6b7280';
+            return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${c}18;color:${c};font-weight:600;font-size:11px;">${(d||'UNKNOWN').toUpperCase()}</span>`;
+        };
+        accountabilityHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Constraint Accountability</h5>
+            <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                <tr style="background:#f8fafc;">
+                    <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:150px;">Constraint</th>
+                    <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:100px;">Disposition</th>
+                    <th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;">Reasoning</th>
+                </tr>
+                ${Object.entries(ca).map(([k, v]) => `<tr>
+                    <td style="padding:4px 8px;font-weight:bold;text-transform:capitalize;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td>
+                    <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${dispBadge(v.disposition)}${v.action_ref ? ` <span style="font-size:11px;color:#6b7280;">(→ #${v.action_ref})</span>` : ''}</td>
+                    <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">${v.reasoning || '—'}</td>
+                </tr>`).join('')}
+            </table>
+        </div>`;
+    }
+
+    let actionsHtml = '';
+    if (actions.length > 0) {
+        actionsHtml = `<h5 style="margin: 12px 0 4px 0;">Step 3: Recommendations</h5>` + actions.map((a, i) => {
+            const isNoAct = a.action_type === 'NO_ACTION';
+            const riskColor = a.risk_level === 'high' ? '#dc2626' : a.risk_level === 'medium' ? '#ea580c' : '#059669';
+            return `
+            <div class="rec-item ${isNoAct ? 'critical' : ''}" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <h5 style="margin: 0;">Action ${i + 1}: ${(a.action_type || 'NO_ACTION').replace(/_/g, ' ')}</h5>
+                    <span style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: ${riskColor}20; color: ${riskColor}; font-weight: 600;">
+                        ${a.risk_level || 'low'} risk
+                    </span>
+                </div>
+                ${a.diagnosed_constraint ? `<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ${esc(a.diagnosed_constraint)}</p>` : ''}
+                ${a.target_urls && a.target_urls.length ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Target URLs:</strong> ${a.target_urls.map(u => '<code style="background:#e8f4fd;padding:1px 4px;border-radius:3px;font-size:11px;">' + u + '</code>').join(', ')}</p>` : ''}
+                <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
+                    <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
+                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${esc(a.exact_changes) || 'N/A'}</pre>
+                </div>
+                ${a.variants && a.variants.length > 1 ? `
+                <div style="margin: 8px 0; padding: 10px; background: #fef3c7; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                    <p style="margin: 0 0 6px 0; font-weight: 600; font-size: 13px;">All ${a.variants.length} Variants (deploy sequentially):</p>
+                    ${a.variants.map(v => `
+                    <div style="margin: 4px 0; padding: 6px 8px; background: #fffbeb; border-radius: 4px;">
+                        <strong style="font-size: 12px;">Priority ${v.priority}:</strong>
+                        ${v.title ? `<div style="margin: 2px 0; font-size: 12px;"><strong>Title:</strong> ${esc(v.title)}</div>` : ''}
+                        ${v.meta_description ? `<div style="margin: 2px 0; font-size: 12px;"><strong>Meta:</strong> ${esc(v.meta_description)}</div>` : ''}
+                        <div style="margin: 2px 0; font-size: 11px; color: #6b7280;">${esc(v.why) || ''}</div>
+                    </div>`).join('')}
+                </div>` : ''}
+                <p style="margin: 6px 0;"><strong>Why:</strong> ${esc(a.why_this_works) || 'N/A'}</p>
+                <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${esc(a.rollback_plan) || 'N/A'}</p>
+                ${a.measurement ? `
+                <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; background: #f9fafb; border-radius: 4px;">
+                    <tr>
+                        <td style="padding: 3px 8px; font-weight: bold;">Metric</td>
+                        <td style="padding: 3px 8px;">${a.measurement.primary_metric || '—'}</td>
+                        <td style="padding: 3px 8px; font-weight: bold;">Direction</td>
+                        <td style="padding: 3px 8px;">${a.measurement.expected_direction || '—'}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 3px 8px; font-weight: bold;">Window</td>
+                        <td style="padding: 3px 8px;">${a.measurement.evaluation_window || '—'}</td>
+                        <td style="padding: 3px 8px; font-weight: bold;">Stop if</td>
+                        <td style="padding: 3px 8px; color: #dc2626;">${a.measurement.stop_threshold || '—'}</td>
+                    </tr>
+                </table>
+                ` : ''}
+            </div>
+            `;
+        }).join('');
+    }
+
+    let inboundHtml = '';
+    const ilo = rec.inbound_link_opportunities;
+    if (ilo && ilo.available && ilo.top_3 && ilo.top_3.length > 0) {
+        inboundHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Step 4: Inbound Link Opportunities</h5>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 8px 0;">Top pages that should link <strong>to this page</strong>, ranked by linking potential:</p>
+            ${ilo.top_3.map((link, i) => {
+                const prioColor = link.priority === 'PRIMARY' ? '#4f46e5' : '#6b7280';
+                return `
+                <div style="margin: 6px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid ${prioColor};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <strong style="font-size:13px;">${i + 1}. ${link.source_title || link.source_url}</strong>
+                        <span style="font-size:11px;padding:1px 6px;border-radius:3px;background:${prioColor}18;color:${prioColor};font-weight:600;">${link.priority || 'SECONDARY'}</span>
+                    </div>
+                    <code style="font-size:11px;background:#e8f4fd;padding:1px 4px;border-radius:3px;">${link.source_url}</code>
+                    <div style="font-size:12px;margin-top:6px;color:#374151;">
+                        <span style="margin-right:12px;">link_score=<strong>${(link.link_score || 0).toLocaleString()}</strong></span>
+                        <span style="margin-right:12px;">impr=${link.impressions || 0}</span>
+                        <span style="margin-right:12px;">pos=${link.position || '?'}</span>
+                        <span>overlap=${link.query_overlap || 0}</span>
+                    </div>
+                    <p style="margin:6px 0 0 0;font-size:12px;">${link.justification || ''}</p>
+                    <p style="margin:4px 0 0 0;font-size:12px;color:#6b7280;"><strong>Placement:</strong> ${link.placement || '—'}</p>
+                    <p style="margin:2px 0 0 0;font-size:12px;color:#6b7280;"><strong>Anchor:</strong> "${link.anchor_text || '—'}"</p>
+                </div>`;
+            }).join('')}
+        </div>`;
+    } else if (ilo && !ilo.available) {
+        inboundHtml = `
+        <div class="rec-item" style="margin-top: 8px; background: #fffbeb; padding: 10px; border-radius: 6px;">
+            <h5 style="margin: 0 0 4px 0;">Step 4: Inbound Link Opportunities</h5>
+            <p style="margin: 0; font-size: 12px; color: #92400e;">Inbound link analysis unavailable — run full evaluation first to populate site-wide page data.</p>
+        </div>`;
+    }
+
+    let authorityHtml = '';
+    const auth = rec.authority_analysis;
+    if (auth && auth.available) {
+        const verdictColor = auth.authority_verdict?.startsWith('STRONG') ? '#059669'
+            : auth.authority_verdict?.startsWith('ADEQUATE') ? '#2563eb'
+            : auth.authority_verdict?.startsWith('WEAK') ? '#ea580c' : '#dc2626';
+        const gap = auth.backlink_gap || {};
+        authorityHtml = `
+        <div class="rec-item" style="margin-top: 8px;">
+            <h5 style="margin: 0 0 8px 0;">Step 5: Authority & Backlink Analysis</h5>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px;">
+                <div style="padding: 8px 12px; background: #f8fafc; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 22px; font-weight: 700; color: #1e293b;">${auth.domain_authority || 0}</div>
+                    <div style="font-size: 11px; color: #6b7280;">Domain Authority</div>
+                </div>
+                <div style="padding: 8px 12px; background: #f8fafc; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 22px; font-weight: 700; color: #1e293b;">${auth.page_authority || 0}</div>
+                    <div style="font-size: 11px; color: #6b7280;">Page Authority</div>
+                </div>
+                <div style="padding: 8px 12px; background: #f8fafc; border-radius: 6px; text-align: center;">
+                    <div style="font-size: 22px; font-weight: 700; color: #1e293b;">${auth.referring_domains || 0}</div>
+                    <div style="font-size: 11px; color: #6b7280;">Referring Domains</div>
+                </div>
+                <div style="padding: 8px 12px; background: ${verdictColor}10; border-radius: 6px; text-align: center; border: 1px solid ${verdictColor}30;">
+                    <div style="font-size: 14px; font-weight: 700; color: ${verdictColor};">${auth.authority_verdict || '—'}</div>
+                    <div style="font-size: 11px; color: #6b7280;">Verdict</div>
+                </div>
+            </div>
+            ${gap.high_da_links || gap.medium_da_links || gap.low_da_links ? `
+            <div style="padding: 10px; background: #eff6ff; border-radius: 6px; border-left: 3px solid #2563eb; margin-bottom: 8px;">
+                <p style="margin: 0 0 4px 0; font-size: 13px; font-weight: 600; color: #1e40af;">Backlink Gap to Position ${gap.target_position || '1-3'}
+                    <span style="font-weight: 400; font-size: 11px; color: #6b7280; margin-left: 8px;">from position ${gap.current_position || '?'} | PA ${auth.page_authority || '?'} → ${gap.pa_target || '?'} needed (gap: +${gap.pa_gap || '?'}) | ${gap.confidence || 'LOW'} confidence</span>
+                </p>
+                <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px;">
+                    <tr style="background: #dbeafe;">
+                        <td style="padding: 4px 8px; font-weight: 600;">DA Range</td>
+                        <td style="padding: 4px 8px; font-weight: 600; text-align: center;">Links Needed</td>
+                        <td style="padding: 4px 8px; font-weight: 600;">Source Types</td>
+                        <td style="padding: 4px 8px; font-weight: 600;">Timeline</td>
+                    </tr>
+                    ${[gap.high_da_links, gap.medium_da_links, gap.low_da_links].filter(Boolean).map(s => `
+                    <tr style="border-top: 1px solid #e5e7eb;">
+                        <td style="padding: 4px 8px; color: #1e40af; font-weight: 500;">DA ${s.da_range || '—'}</td>
+                        <td style="padding: 4px 8px; text-align: center; font-weight: 700;">${s.links_needed || '?'}</td>
+                        <td style="padding: 4px 8px; color: #4b5563;">${s.sources || '—'}</td>
+                        <td style="padding: 4px 8px; color: #6b7280;">${s.timeline || '—'}</td>
+                    </tr>`).join('')}
+                </table>
+                <p style="margin: 6px 0 0 0; font-size: 12px; color: #4b5563;">${gap.reasoning || ''}</p>
+            </div>` : ''}
+            ${auth.quick_wins && auth.quick_wins !== 'N/A' ? `
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #6b7280;"><strong>Quick wins:</strong> ${auth.quick_wins}</p>` : ''}
+        </div>`;
+    } else if (auth && !auth.available) {
+        authorityHtml = `
+        <div class="rec-item" style="margin-top: 8px; background: #fffbeb; padding: 10px; border-radius: 6px;">
+            <h5 style="margin: 0 0 4px 0;">Step 5: Authority & Backlink Analysis</h5>
+            <p style="margin: 0; font-size: 12px; color: #92400e;">Authority analysis unavailable — configure MOZ_API_TOKEN to enable.</p>
+        </div>`;
+    }
+
+    let noActionsHtml = '';
+    if (noActions.length > 0) {
+        noActionsHtml = `
+        <div class="rec-item" style="margin-top: 8px; background: #f0fdf4; padding: 10px; border-radius: 6px;">
+            <h5 style="margin: 0 0 6px 0;">Explicitly Preserved (No Change)</h5>
+            <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #059669;">
+                ${noActions.map(n => `<li style="margin: 2px 0;">${n}</li>`).join('')}
+            </ul>
+        </div>`;
+    }
+
+    let html = `
+        <div class="ai-recommendation">
+            <div class="rec-item" style="background: ${isAllNoAction ? '#fef2f2' : '#f0fdf4'}; padding: 12px; border-radius: 6px;">
+                <p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || (isAllNoAction ? 'No actionable issues found — all elements valid.' : 'Analysis complete.')}</p>
+            </div>
+            ${validityHtml}
+            ${funnelHtml}
+            ${accountabilityHtml}
+            ${actionsHtml}
+            ${inboundHtml}
+            ${authorityHtml}
+            ${noActionsHtml}
+        </div>
+    `;
+
+    if (reproducibility) {
+        const r = reproducibility;
+        html += `
+            <div class="rec-item" style="margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 4px; font-size: 12px; color: #6b7280;">
+                <strong>Reproducibility</strong>
+                <span style="margin-left: 12px;">Hash: <code>${r.prompt_hash || '—'}</code></span>
+                <span style="margin-left: 12px;">Model: ${r.model || '—'}</span>
+                <span style="margin-left: 12px;">Temp: ${r.temperature ?? '—'}</span>
+                <span style="margin-left: 12px;">Tokens: ${r.tokens_used?.total ?? '—'}</span>
+            </div>
+        `;
+    }
+
+    return html;
 }
 
 async function getAIRecommendations(idx) {
@@ -567,7 +1030,7 @@ async function getAIRecommendations(idx) {
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-icon">⏳</span> Analyzing...';
     section.style.display = 'block';
-    content.innerHTML = '<p class="loading-ai">Fetching page and generating AI recommendations...</p>';
+    content.innerHTML = '<p class="loading-ai">Analyzing page...</p>';
 
     try {
         const res = await fetch('/api/ai/recommend', {
@@ -589,121 +1052,33 @@ async function getAIRecommendations(idx) {
         }
 
         const rec = data.recommendations;
+        content.innerHTML = buildAIHtml(rec, data.reproducibility);
+        opp._ai_html = content.innerHTML;
 
-        // Handle NO ACTION response from context validation (server-side)
-        if (rec.no_action) {
-            content.innerHTML = `
-                <div class="ai-recommendation">
-                    <div class="rec-item critical">
-                        <h5>No Action</h5>
-                        <p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>
-                        ${rec.missing_context ? `<p><strong>Missing:</strong> ${rec.missing_context.join(', ')}</p>` : ''}
-                    </div>
-                </div>
-            `;
-            btn.innerHTML = '<span class="btn-icon">⚠️</span> Insufficient Context';
-            btn.disabled = false;
-            return;
+        // Store the raw JSON for persistence (already saved server-side)
+        opp.ai_recommendations = rec;
+        opp.ai_reproducibility = data.reproducibility;
+
+        // Update AI revised value in the opportunity and refresh table row
+        if (data.ai_revised_value != null) {
+            opp.ai_revised_value = data.ai_revised_value;
+            // Also update in allOpportunities (opp may be a ref from filteredOpportunities)
+            const master = allOpportunities.find(o => o.url === opp.url);
+            if (master && master !== opp) master.ai_revised_value = data.ai_revised_value;
+            // Update the table cell in-place
+            const row = document.querySelector(`tr[data-idx="${idx}"]`);
+            if (row) {
+                const aiCell = row.querySelector('.ai-est-cell');
+                if (aiCell) aiCell.innerHTML = '$' + data.ai_revised_value.toFixed(2);
+            }
         }
 
-        // Handle raw_response fallback (JSON parse failed)
-        if (rec.raw_response) {
-            content.innerHTML = `
-                <div class="ai-recommendation">
-                    <div class="rec-item">
-                        <h5>AI Response</h5>
-                        <pre style="white-space: pre-wrap;">${rec.raw_response}</pre>
-                    </div>
-                </div>
-            `;
-            btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
-            showToast('AI recommendations loaded!', 'success');
-            return;
-        }
-
-        // ── Structured recommendation rendering ──
-        const isNoAction = rec.recommendation === 'NO_ACTION' || rec.recommendation === 'OBSERVE_ONLY';
-        const recBadgeClass = isNoAction ? 'no-action' : 'has-action';
-
-        content.innerHTML = `
-            <div class="ai-recommendation">
-                <div class="rec-item ${isNoAction ? 'critical' : ''}">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <h5 style="margin: 0;">AI Recommendation</h5>
-                        <span class="action-badge action-${(rec.recommendation || '').toLowerCase()}" style="font-size: 12px; padding: 2px 8px;">
-                            ${(rec.recommendation || 'NO_ACTION').replace(/_/g, ' ')}
-                        </span>
-                    </div>
-                    <p><strong>Problem:</strong> ${rec.problem_statement || 'N/A'}</p>
-                    <p class="reasoning">${rec.rationale || ''}</p>
-                </div>
-
-                ${!isNoAction && rec.action && rec.action.instruction ? `
-                <div class="rec-item">
-                    <h5>Action</h5>
-                    <p><strong>Surface:</strong> <code>${rec.action.surface || 'N/A'}</code></p>
-                    <p><strong>Instruction:</strong> ${rec.action.instruction}</p>
-                    ${rec.action.guardrails ? `
-                    <div style="margin-top: 8px; padding: 8px; background: #fef3c7; border-radius: 4px; font-size: 13px;">
-                        <p style="margin: 0 0 4px 0;"><strong>Must NOT change:</strong> ${rec.action.guardrails.must_not_change || 'N/A'}</p>
-                        <p style="margin: 0;"><strong>Must preserve:</strong> ${rec.action.guardrails.must_preserve || 'N/A'}</p>
-                    </div>
-                    ` : ''}
-                </div>
-                ` : ''}
-
-                ${rec.expected_impact ? `
-                <div class="rec-item">
-                    <h5>Expected Impact</h5>
-                    <p>${rec.expected_impact}</p>
-                </div>
-                ` : ''}
-
-                ${rec.measurement ? `
-                <div class="rec-item">
-                    <h5>Measurement & Stop Conditions</h5>
-                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
-                        <tr>
-                            <td style="padding: 4px 8px; font-weight: bold; white-space: nowrap;">Primary Metric</td>
-                            <td style="padding: 4px 8px;">${rec.measurement.primary_metric || 'N/A'}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 4px 8px; font-weight: bold; white-space: nowrap;">Evaluation Window</td>
-                            <td style="padding: 4px 8px;">${rec.measurement.evaluation_window || 'N/A'}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 4px 8px; font-weight: bold; white-space: nowrap;">Abort Conditions</td>
-                            <td style="padding: 4px 8px; color: #dc2626;">${rec.measurement.abort_conditions || 'N/A'}</td>
-                        </tr>
-                    </table>
-                </div>
-                ` : ''}
-
-                ${rec.risk_notes ? `
-                <div class="rec-item" style="border-left: 3px solid #ea580c; padding-left: 12px;">
-                    <h5>Risk Notes</h5>
-                    <p style="color: #9a3412;">${rec.risk_notes}</p>
-                </div>
-                ` : ''}
-            </div>
-        `;
-
-        // Append reproducibility info if available
-        if (data.reproducibility) {
-            const r = data.reproducibility;
-            content.innerHTML += `
-                <div class="rec-item" style="margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 4px; font-size: 12px; color: #6b7280;">
-                    <strong>Reproducibility</strong>
-                    <span style="margin-left: 12px;">Hash: <code>${r.prompt_hash}</code></span>
-                    <span style="margin-left: 12px;">Model: ${r.model}</span>
-                    <span style="margin-left: 12px;">Temp: ${r.temperature}</span>
-                    <span style="margin-left: 12px;">Tokens: ${r.tokens_used?.total ?? '—'}</span>
-                </div>
-            `;
-        }
-
-        btn.innerHTML = '<span class="btn-icon">✅</span> AI Done';
-        showToast('AI recommendations loaded!', 'success');
+        const isNoAction = rec.no_action;
+        btn.innerHTML = isNoAction
+            ? '<span class="btn-icon">⚠️</span> Insufficient Context'
+            : '<span class="btn-icon">✅</span> AI Done';
+        if (!isNoAction) showToast('AI recommendations loaded!', 'success');
+        btn.disabled = isNoAction;
 
     } catch (err) {
         content.innerHTML = `<p class="error-msg">Failed to get AI recommendations: ${err.message}</p>`;
@@ -716,14 +1091,16 @@ async function getAIRecommendations(idx) {
 function closeModal() {
     document.getElementById('detail-modal').classList.add('hidden');
 }
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+});
 
 function exportToPDF(idx) {
     const opp = filteredOpportunities[idx];
+    const pm = opp.page_metadata || {};
 
-    // Capture AI recommendations if they were loaded
-    const aiContentEl = document.getElementById('ai-content-' + idx);
-    const aiSectionEl = document.getElementById('ai-recommendations-' + idx);
-    const hasAI = aiSectionEl && aiSectionEl.style.display !== 'none' && aiContentEl && aiContentEl.innerHTML.trim();
+    // Use cached AI html if available, otherwise try to grab from DOM
+    const aiHtml = opp._ai_html || '';
 
     // Helper: format capture class label
     const captureClassLabel = (cc) => {
@@ -763,7 +1140,7 @@ function exportToPDF(idx) {
                     <td style="padding: 8px; border: 1px solid #ddd;">${captureClassLabel(opp.capture_class)}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Expected Value</td>
+                    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5; font-weight: bold;">Est. Value</td>
                     <td style="padding: 8px; border: 1px solid #ddd;">$${(opp.expected_value || 0).toFixed(2)}</td>
                 </tr>
                 <tr>
@@ -780,25 +1157,45 @@ function exportToPDF(idx) {
                 </tr>
             </table>
 
-            ${opp.page_metadata ? `
+            ${pm.has_crawl_data ? `
             <h3 style="color: #1a1a2e; margin-top: 20px;">Page Context</h3>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 100px; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.title || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${pm.title || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${opp.page_metadata.h1 || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${pm.h1 || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${opp.page_metadata.meta_description || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.meta_description || '[Not found]'}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 6px 10px; font-weight: bold;">Canonical</td>
-                    <td style="padding: 6px 10px;">${opp.page_metadata.canonical_url || '[Not set]'}</td>
+                    <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Canonical</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.canonical_url || '[Not set]'}</td>
                 </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Word Count</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.word_count || '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold;">Content Preview</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5;">${pm.content_preview || '[Not available]'}</td>
+                </tr>
+                ${pm.robots_meta ? `<tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee;">Robots</td>
+                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-family: monospace;">${pm.robots_meta}</td>
+                </tr>` : ''}
+                ${pm.above_fold_html ? `<tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee; vertical-align: top;">Above Fold</td>
+                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-size: 11px; font-family: monospace; word-break: break-all;">${(pm.above_fold_html || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,500)}</td>
+                </tr>` : ''}
+                ${pm.internal_outlinks && pm.internal_outlinks.length > 0 ? `<tr>
+                    <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee; vertical-align: top;">Outlinks</td>
+                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-size: 11px;">${pm.internal_outlinks.slice(0,10).map(l => l.anchor_text + ' → ' + l.target_url).join('<br/>')}</td>
+                </tr>` : ''}
             </table>
             ` : ''}
 
@@ -889,10 +1286,10 @@ function exportToPDF(idx) {
             </div>
             ` : ''}
 
-            ${hasAI ? `
+            ${aiHtml ? `
             <h3 style="color: #1a1a2e; margin-top: 20px;">AI Recommendations</h3>
             <div style="border: 1px solid #ddd; padding: 12px; border-radius: 5px; background: #f5f3ff;">
-                ${aiContentEl.innerHTML}
+                ${aiHtml}
             </div>
             ` : ''}
 
@@ -902,42 +1299,37 @@ function exportToPDF(idx) {
         </div>
     `;
 
-    // Generate filename from URL
-    const urlPath = new URL(opp.url).pathname.replace(/\//g, '-').replace(/^-|-$/g, '') || 'opportunity';
-    const filename = `seo-opportunity-${urlPath}-${new Date().toISOString().slice(0,10)}.pdf`;
-
-    // Append to DOM temporarily so html2canvas can measure/render it
-    pdfContent.style.position = 'absolute';
-    pdfContent.style.left = '-9999px';
-    pdfContent.style.top = '0';
-    pdfContent.style.width = '210mm';  // A4 width
-    document.body.appendChild(pdfContent);
-
-    // PDF options — scale 1 avoids oversized canvas causing blank pages
-    const opt = {
-        margin: [10, 10, 10, 10],
-        filename: filename,
-        image: { type: 'jpeg', quality: 0.95 },
-        html2canvas: {
-            scale: 1,
-            useCORS: true,
-            logging: false,
-            width: pdfContent.scrollWidth,
-            windowWidth: pdfContent.scrollWidth,
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-    };
-
-    // Generate PDF
-    html2pdf().set(opt).from(pdfContent).save().then(() => {
-        document.body.removeChild(pdfContent);
-        showToast('PDF exported successfully!', 'success');
-    }).catch(err => {
-        document.body.removeChild(pdfContent);
-        console.error('PDF export failed:', err);
-        showToast('Failed to export PDF', 'error');
-    });
+    // Open a print-friendly window — browser's native Print/Save-as-PDF handles rendering
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        showToast('Pop-up blocked — please allow pop-ups for this site', 'error');
+        return;
+    }
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>SEO Opportunity Report — ${opp.url}</title>
+            <style>
+                @media print {
+                    body { margin: 0; }
+                    .no-print { display: none; }
+                }
+                body { font-family: Arial, sans-serif; color: #333; max-width: 800px; margin: 20px auto; padding: 0 20px; }
+                .print-btn { margin: 10px 0 20px; padding: 8px 20px; background: #4f46e5; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+                .print-btn:hover { background: #4338ca; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print">
+                <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+            </div>
+            ${pdfContent.innerHTML}
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+    showToast('Report opened — use Print or Ctrl+P to save as PDF', 'info');
 }
 
 async function quickApprove(idx) {
@@ -968,6 +1360,18 @@ async function approveAction(idx) {
                 action_surface: opp.action_surface || 'other',
                 score_type: opp.score_type || 'EV',
                 source: opp.source || 'evaluation',
+                // Full opportunity context for the task board
+                constraints: opp.constraints || [],
+                top_queries: opp.top_queries || [],
+                page_metadata: opp.page_metadata || {},
+                ai_recommendations: opp.ai_recommendations || null,
+                ai_reproducibility: opp.ai_reproducibility || null,
+                issues: opp.issues || [],
+                rollback_plan: opp.rollback_plan || '',
+                learning_reference: opp.learning_reference || '',
+                capture_class: opp.capture_class || '',
+                intent_score: opp.intent_score,
+                visibility_score: opp.visibility_score,
             }),
         });
 
@@ -1007,6 +1411,35 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 let jobPollInterval = null;
+let autoAIAfterEval = false;
+
+async function updateAutoAILabel() {
+    const cb = document.getElementById('auto-ai-checkbox');
+    const label = document.getElementById('auto-ai-label');
+    autoAIAfterEval = cb.checked;
+
+    if (!cb.checked) {
+        label.textContent = '+ Auto AI';
+        return;
+    }
+
+    label.textContent = '+ Auto AI (checking cost...)';
+    try {
+        const res = await fetch('/api/ai/batch-estimate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: false }),
+        });
+        const est = await res.json();
+        if (est.error) {
+            label.textContent = '+ Auto AI';
+            return;
+        }
+        label.textContent = `+ Auto AI (${est.model}, ~$${est.estimated_cost.toFixed(2)} for ${est.actionable} pages)`;
+    } catch {
+        label.textContent = '+ Auto AI';
+    }
+}
 
 async function runEvaluation(withCrawl) {
     const btnRun = document.getElementById('btn-run');
@@ -1057,6 +1490,7 @@ async function checkJobStatus() {
             progressDiv.classList.remove('hidden');
             document.getElementById('btn-run').disabled = true;
             document.getElementById('btn-crawl').disabled = true;
+            document.getElementById('btn-batch-ai').disabled = true;
 
             const pct = status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
             progressFill.style.width = pct + '%';
@@ -1075,21 +1509,207 @@ async function checkJobStatus() {
 
             if (status.error) {
                 showToast('Error: ' + status.error, 'error');
-            } else if (status.message && status.message.includes('complete')) {
-                showToast('Evaluation complete! Refreshing...', 'success');
+                resetJobUI();
+            } else if (status.message && status.message.includes('Batch complete')) {
+                showToast('Batch AI analysis complete! Refreshing...', 'success');
                 setTimeout(() => loadOpportunities(), 500);
+                resetJobUI();
+            } else if (status.message && status.message.includes('complete') && status.type === 'evaluation') {
+                // Evaluation finished — chain AI batch if auto-run is checked
+                if (autoAIAfterEval) {
+                    showToast('Evaluation complete! Starting AI analysis...', 'success');
+                    setTimeout(() => loadOpportunities(), 500);
+                    startBatchAIJob();
+                } else {
+                    showToast('Evaluation complete! Refreshing...', 'success');
+                    setTimeout(() => loadOpportunities(), 500);
+                    resetJobUI();
+                }
+            } else {
+                resetJobUI();
             }
-
-            resetJobUI();
         }
     } catch (err) {
         // Ignore polling errors
     }
 }
 
+async function runBatchAI() {
+    // First get cost estimate with type breakdown
+    let est;
+    try {
+        const estRes = await fetch('/api/ai/batch-estimate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: true }),
+        });
+        est = await estRes.json();
+
+        if (est.error) {
+            showToast(est.error, 'error');
+            return;
+        }
+
+        if (est.to_analyze === 0) {
+            showToast('All actionable pages already analyzed!', 'info');
+            return;
+        }
+    } catch (err) {
+        showToast('Failed to get cost estimate', 'error');
+        return;
+    }
+
+    // Show batch AI modal with type checkboxes
+    const typeCounts = est.type_counts || {};
+    const typeOrder = ['category', 'product', 'blog', 'other'];
+    const typeLabels = { category: 'Category', product: 'Product', blog: 'Blog', other: 'Other' };
+
+    let typeCheckboxesHtml = '';
+    for (const t of typeOrder) {
+        const tc = typeCounts[t];
+        if (!tc || tc.total === 0) continue;
+        const typeCost = (tc.to_analyze * est.cost_per_page).toFixed(2);
+        typeCheckboxesHtml += `
+            <label class="batch-type-option">
+                <input type="checkbox" class="batch-type-cb" value="${t}" checked
+                    onchange="updateBatchEstimate()">
+                <span class="batch-type-label">${typeLabels[t] || t}</span>
+                <span class="batch-type-counts">${tc.to_analyze} to analyze / ${tc.analyzed} done / ${tc.total} total</span>
+                <span class="batch-type-cost">~$${typeCost}</span>
+            </label>`;
+    }
+
+    const modalHtml = `
+        <div class="batch-modal-body">
+            <h3>Batch AI Analysis</h3>
+            <div class="batch-summary">
+                <div>Model: <strong>${est.model}</strong></div>
+                <div>Cost per page: <strong>$${est.cost_per_page.toFixed(3)}</strong></div>
+            </div>
+            <div class="batch-type-section">
+                <h4>Select page types to analyze:</h4>
+                ${typeCheckboxesHtml}
+            </div>
+            <div class="batch-total" id="batch-total-line">
+                <span>Selected: <strong id="batch-selected-count">${est.to_analyze}</strong> pages</span>
+                <span>Est. cost: <strong id="batch-selected-cost">~$${est.estimated_cost.toFixed(2)}</strong></span>
+            </div>
+            <div class="batch-actions">
+                <button class="btn btn-primary" onclick="confirmBatchAI()">Run Selected</button>
+                <button class="btn btn-secondary" onclick="closeBatchModal()">Cancel</button>
+            </div>
+        </div>`;
+
+    // Store estimate data for recalculation
+    window._batchEstimate = est;
+
+    const modal = document.getElementById('detail-modal');
+    document.getElementById('modal-title').textContent = 'Run AI Batch';
+    document.getElementById('modal-body').innerHTML = modalHtml;
+    modal.classList.remove('hidden');
+}
+
+function updateBatchEstimate() {
+    const est = window._batchEstimate;
+    if (!est) return;
+
+    const checked = Array.from(document.querySelectorAll('.batch-type-cb:checked')).map(cb => cb.value);
+    const typeCounts = est.type_counts || {};
+
+    let totalToAnalyze = 0;
+    for (const t of checked) {
+        if (typeCounts[t]) totalToAnalyze += typeCounts[t].to_analyze;
+    }
+
+    const totalCost = (totalToAnalyze * est.cost_per_page).toFixed(2);
+    document.getElementById('batch-selected-count').textContent = totalToAnalyze;
+    document.getElementById('batch-selected-cost').textContent = `~$${totalCost}`;
+}
+
+function closeBatchModal() {
+    document.getElementById('detail-modal').classList.add('hidden');
+    window._batchEstimate = null;
+}
+
+async function confirmBatchAI() {
+    const checked = Array.from(document.querySelectorAll('.batch-type-cb:checked')).map(cb => cb.value);
+    if (checked.length === 0) {
+        showToast('Select at least one page type', 'error');
+        return;
+    }
+
+    closeBatchModal();
+
+    // Start the batch
+    const btnRun = document.getElementById('btn-run');
+    const btnCrawl = document.getElementById('btn-crawl');
+    const btnBatch = document.getElementById('btn-batch-ai');
+    const progressDiv = document.getElementById('job-progress');
+
+    btnRun.disabled = true;
+    btnCrawl.disabled = true;
+    btnBatch.disabled = true;
+    progressDiv.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/ai/batch-analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: true, page_types: checked }),
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetJobUI();
+            return;
+        }
+
+        showToast(`Batch AI started for ${checked.map(t => t).join(', ')} pages...`, 'info');
+        jobPollInterval = setInterval(checkJobStatus, 1000);
+
+    } catch (err) {
+        showToast('Failed to start batch AI analysis', 'error');
+        resetJobUI();
+    }
+}
+
+async function startBatchAIJob() {
+    // Start batch AI without confirmation (called after evaluation when auto-AI is on)
+    const progressDiv = document.getElementById('job-progress');
+    document.getElementById('btn-run').disabled = true;
+    document.getElementById('btn-crawl').disabled = true;
+    document.getElementById('btn-batch-ai').disabled = true;
+    progressDiv.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/ai/batch-analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skip_analyzed: false }),
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            showToast(data.error, 'error');
+            resetJobUI();
+            return;
+        }
+
+        showToast('AI analysis started automatically...', 'info');
+        jobPollInterval = setInterval(checkJobStatus, 1000);
+
+    } catch (err) {
+        showToast('Failed to start batch AI', 'error');
+        resetJobUI();
+    }
+}
+
 function resetJobUI() {
     document.getElementById('btn-run').disabled = false;
     document.getElementById('btn-crawl').disabled = false;
+    document.getElementById('btn-batch-ai').disabled = false;
     document.getElementById('job-progress').classList.add('hidden');
     document.getElementById('progress-fill').style.width = '0%';
 }

@@ -89,10 +89,15 @@ class PageAsset(BaseModel):
     h1: str = Field(default="")
     meta_description: str = Field(default="")
     word_count: int = Field(default=0, ge=0)
+    content_preview: str = Field(default="", description="First ~200 words of page body text")
+    above_fold_html: str = Field(default="", description="Above-the-fold HTML snippet after H1")
+    body_html: str = Field(default="", description="Raw body HTML for structural analysis")
 
     # Internal link graph metrics
     inlinks: int = Field(default=0, ge=0, description="Number of internal pages linking to this page")
     outlinks: int = Field(default=0, ge=0, description="Number of internal links from this page")
+    internal_outlinks: list = Field(default_factory=list, description="Detailed outlinks: [{target_url, anchor_text, location}]")
+    breadcrumb_links: list = Field(default_factory=list, description="Breadcrumb nav links: [{target_url, anchor_text}]")
     link_authority_score: float = Field(
         default=0.0,
         ge=0.0,

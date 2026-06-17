@@ -73,7 +73,7 @@ from src.ledger.action_ledger import (
 class GovernorConfig:
     """Configuration for the Agentic Governor."""
     # Confidence thresholds
-    min_confidence_threshold: float = 0.65
+    min_confidence_threshold: float = 0.55
     min_evuv_confidence: float = 0.50  # Lower bar for opportunity discovery
     min_av_confidence: float = 0.40    # Lower bar for assist value
 

@@ -15,8 +15,9 @@
         <ul class="nav-links">
             <li><a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a></li>
             <li><a href="/opportunities" class="{% if request.path == '/opportunities' %}active{% endif %}">Opportunities</a></li>
-            <li><a href="/tasks" class="{% if request.path == '/tasks' %}active{% endif %}">Task Board</a></li>
+            <li><a href="/tasks" class="{% if request.path == '/tasks' %}active{% endif %}">Task Board <span id="task-alert-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></a></li>
             <li><a href="/learning" class="{% if request.path == '/learning' %}active{% endif %}">Learning</a></li>
+            <li><a href="/link-map" class="{% if request.path == '/link-map' %}active{% endif %}">Link Map</a></li>
             <li><a href="/tracking" class="{% if request.path == '/tracking' %}active{% endif %}">Tracking</a></li>
             <li><a href="/admin" class="{% if request.path == '/admin' %}active{% endif %}">Admin</a></li>
         </ul>
@@ -37,6 +38,18 @@
     </main>
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script>
+    // Check for tasks ready for measurement (runs on every page)
+    fetch('/api/dashboard').then(r => r.json()).then(data => {
+        const alerts = data.task_alerts || [];
+        const ready = alerts.filter(a => a.ready).length;
+        const badge = document.getElementById('task-alert-badge');
+        if (badge && ready > 0) {
+            badge.textContent = ready;
+            badge.style.display = 'inline';
+        }
+    }).catch(() => {});
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

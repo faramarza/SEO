@@ -42,7 +42,7 @@ class RAIPEstimate(BaseModel):
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Confidence score (must be >= 0.65 to pass gate)"
+        description="Confidence score (checked against lane-aware thresholds)"
     )
     downside_risk: float = Field(
         default=0.0,
@@ -59,8 +59,8 @@ class RAIPEstimate(BaseModel):
 
     @property
     def passes_confidence_gate(self) -> bool:
-        """Check if confidence meets minimum threshold (0.65)."""
-        return self.confidence_multiplier >= 0.65
+        """Check if confidence meets minimum threshold (exploration=0.55)."""
+        return self.confidence_multiplier >= 0.55
 
     @property
     def is_positive(self) -> bool:
@@ -143,7 +143,7 @@ class DecisionEnvelope(BaseModel):
         Check if decision passes all doctrine gates.
 
         Gate 1: RAIP > 0
-        Gate 2: Confidence >= 0.65
+        Gate 2: Confidence >= lane threshold (exploration 0.55 / preservation 0.75)
         Gate 3: Expected profit >= 5× cost (checked externally)
         Gate 4: Reversible or has regret budget (checked externally)
         """

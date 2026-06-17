@@ -1,67 +1,404 @@
 {% extends "base.html" %}
 
 {% block title %}Tracking{% endblock %}
-{% block header %}Tracking Integrity{% endblock %}
+{% block header %}Tracking & Data Quality{% endblock %}
 
 {% block content %}
 <div class="tracking-page">
-    <!-- Status Banner -->
-    <div class="status-banner" id="status-banner">
-        <div class="status-icon" id="status-icon"></div>
-        <div class="status-text">
-            <h2 id="status-title">Checking...</h2>
-            <p id="status-message">Loading tracking integrity data...</p>
+    <!-- Tab Navigation -->
+    <div class="tab-bar" style="display:flex; gap:0; margin-bottom:24px; border-bottom:2px solid var(--border-color);">
+        <button class="tab-btn active" onclick="switchTab('quality')" id="tab-quality"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid var(--accent-blue); margin-bottom:-2px; color:var(--accent-blue);">
+            Data Quality (GSC vs GA4)
+        </button>
+        <button class="tab-btn" onclick="switchTab('integrity')" id="tab-integrity"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
+            Tracking Integrity
+        </button>
+    </div>
+
+    <!-- ============================================================
+         TAB 1: Data Quality (GSC vs GA4 Comparison)
+         ============================================================ -->
+    <div id="panel-quality">
+        <!-- Status Banner -->
+        <div class="status-banner" id="dq-status-banner" style="margin-bottom:20px;">
+            <div class="status-icon" id="dq-status-icon">...</div>
+            <div class="status-text">
+                <h2 id="dq-status-title">Loading...</h2>
+                <p id="dq-status-message">Comparing GSC and GA4 data...</p>
+            </div>
+        </div>
+
+        <!-- Summary Cards Row -->
+        <div class="count-row" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:16px; margin-bottom:20px;">
+            <div class="count-card" style="border-left:3px solid var(--accent-blue);">
+                <span class="count-value" id="dq-total">0</span>
+                <span class="count-label">Total Pages</span>
+                <p class="count-desc" id="dq-coverage">—</p>
+            </div>
+            <div class="count-card" style="border-left:3px solid var(--accent-green);">
+                <span class="count-value" id="dq-healthy">0</span>
+                <span class="count-label">Ratio Healthy</span>
+                <p class="count-desc">GSC clicks ~ GA4 sessions</p>
+            </div>
+            <div class="count-card" style="border-left:3px solid var(--accent-orange);">
+                <span class="count-value" id="dq-problems">0</span>
+                <span class="count-label">Ratio Problems</span>
+                <p class="count-desc" id="dq-problem-detail">—</p>
+            </div>
+            <div class="count-card" style="border-left:3px solid var(--accent-red);">
+                <span class="count-value" id="dq-zero">0</span>
+                <span class="count-label">Zero Sessions</span>
+                <p class="count-desc">GSC clicks but no GA4</p>
+            </div>
+        </div>
+
+        <!-- Site-Wide Aggregates -->
+        <div class="card" style="margin-bottom:20px;">
+            <h3>Site-Wide Totals (28 days)</h3>
+            <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:16px; margin-top:12px;">
+                <div>
+                    <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px;">GSC Impressions</div>
+                    <div style="font-size:22px; font-weight:700;" id="dq-impressions">—</div>
+                </div>
+                <div>
+                    <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px;">GSC Clicks</div>
+                    <div style="font-size:22px; font-weight:700;" id="dq-clicks">—</div>
+                </div>
+                <div>
+                    <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px;">GA4 Sessions</div>
+                    <div style="font-size:22px; font-weight:700;" id="dq-sessions">—</div>
+                </div>
+                <div>
+                    <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px;">Site Ratio</div>
+                    <div style="font-size:22px; font-weight:700;" id="dq-site-ratio">—</div>
+                    <div style="font-size:11px; color:var(--text-muted);">Healthy: 0.7 – 1.3</div>
+                </div>
+                <div>
+                    <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.5px;">GA4 Revenue</div>
+                    <div style="font-size:22px; font-weight:700;" id="dq-revenue">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Source Coverage Breakdown -->
+        <div class="card" style="margin-bottom:20px;">
+            <h3>Data Source Coverage</h3>
+            <p class="card-subtitle" style="color:var(--text-secondary); margin-bottom:12px;">
+                Which pages have data from GSC, GA4, or both?
+            </p>
+            <div id="dq-coverage-bar" style="display:flex; height:32px; border-radius:6px; overflow:hidden; margin-bottom:8px;"></div>
+            <div id="dq-coverage-legend" style="display:flex; gap:20px; font-size:12px; color:var(--text-secondary);"></div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card" style="margin-bottom:20px;">
+            <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+                <h3 style="margin:0;">Per-Page Comparison</h3>
+                <select id="dq-filter-status" onchange="applyDQFilters()" style="padding:6px 10px; border:1px solid var(--border-color); border-radius:6px; font-size:13px;">
+                    <option value="all">All Pages</option>
+                    <option value="zero_sessions">Zero Sessions</option>
+                    <option value="low">Low Ratio (&lt; 0.7)</option>
+                    <option value="high">High Ratio (&gt; 1.3)</option>
+                    <option value="healthy">Healthy</option>
+                    <option value="insufficient_data">Insufficient Data</option>
+                </select>
+                <select id="dq-filter-type" onchange="applyDQFilters()" style="padding:6px 10px; border:1px solid var(--border-color); border-radius:6px; font-size:13px;">
+                    <option value="all">All Types</option>
+                    <option value="product">Product</option>
+                    <option value="category">Category</option>
+                    <option value="blog">Blog</option>
+                    <option value="other">Other</option>
+                </select>
+                <span id="dq-showing" style="font-size:12px; color:var(--text-muted);"></span>
+            </div>
+        </div>
+
+        <!-- Per-Page Table -->
+        <div class="card">
+            <div style="overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead>
+                        <tr style="border-bottom:2px solid var(--border-color); text-align:left;">
+                            <th style="padding:8px 12px; font-weight:600; color:var(--text-secondary);">URL</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary);">Type</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GSC Impr.</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GSC Clicks</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GSC CTR</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GSC Pos.</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GA4 Sess.</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GA4 Eng.%</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GA4 Rev.</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:center;">Ratio</th>
+                            <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:center;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dq-table-body">
+                        <tr><td colspan="11" style="padding:24px; text-align:center; color:var(--text-muted);">Loading data quality comparison...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
-    <!-- Counts -->
-    <div class="count-row">
-        <div class="count-card tier-a">
-            <span class="count-value" id="tier-a-count">0</span>
-            <span class="count-label">Tier A Blockers</span>
-            <p class="count-desc">Must fix before any action</p>
+    <!-- ============================================================
+         TAB 2: Tracking Integrity (existing)
+         ============================================================ -->
+    <div id="panel-integrity" style="display:none;">
+        <!-- Status Banner -->
+        <div class="status-banner" id="status-banner">
+            <div class="status-icon" id="status-icon"></div>
+            <div class="status-text">
+                <h2 id="status-title">Checking...</h2>
+                <p id="status-message">Loading tracking integrity data...</p>
+            </div>
         </div>
-        <div class="count-card tier-b">
-            <span class="count-value" id="tier-b-count">0</span>
-            <span class="count-label">Tier B Warnings</span>
-            <p class="count-desc">Reduce confidence but don't block</p>
-        </div>
-    </div>
 
-    <!-- Tier A Issues -->
-    <div class="card" id="tier-a-section">
-        <h3>Tier A — Blocking Issues</h3>
-        <p class="card-subtitle">These issues must be resolved before the Governor can take action.</p>
-        <div id="tier-a-list" class="issue-list">
-            <p class="empty">No Tier A issues.</p>
+        <!-- Counts -->
+        <div class="count-row">
+            <div class="count-card tier-a">
+                <span class="count-value" id="tier-a-count">0</span>
+                <span class="count-label">Tier A Blockers</span>
+                <p class="count-desc">Must fix before any action</p>
+            </div>
+            <div class="count-card tier-b">
+                <span class="count-value" id="tier-b-count">0</span>
+                <span class="count-label">Tier B Warnings</span>
+                <p class="count-desc">Reduce confidence but don't block</p>
+            </div>
         </div>
-    </div>
 
-    <!-- Tier B Issues -->
-    <div class="card" id="tier-b-section">
-        <h3>Tier B — Warnings</h3>
-        <p class="card-subtitle">These issues reduce confidence but don't block actions.</p>
-        <div id="tier-b-list" class="issue-list">
-            <p class="empty">No Tier B warnings.</p>
+        <!-- Tier A Issues -->
+        <div class="card" id="tier-a-section">
+            <h3>Tier A -- Blocking Issues</h3>
+            <p class="card-subtitle">These issues must be resolved before the Governor can take action.</p>
+            <div id="tier-a-list" class="issue-list">
+                <p class="empty">No Tier A issues.</p>
+            </div>
         </div>
-    </div>
 
-    <!-- Last Check -->
-    <div class="card">
-        <h3>Last Diagnostic Check</h3>
-        <p id="last-check">Never</p>
-        <button class="btn btn-secondary" onclick="runDiagnostics()">Run Diagnostics</button>
+        <!-- Tier B Issues -->
+        <div class="card" id="tier-b-section">
+            <h3>Tier B -- Warnings</h3>
+            <p class="card-subtitle">These issues reduce confidence but don't block actions.</p>
+            <div id="tier-b-list" class="issue-list">
+                <p class="empty">No Tier B warnings.</p>
+            </div>
+        </div>
+
+        <!-- Last Check -->
+        <div class="card">
+            <h3>Last Diagnostic Check</h3>
+            <p id="last-check">Never</p>
+            <button class="btn btn-secondary" onclick="runDiagnostics()">Run Diagnostics</button>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+// ============================================================
+// Tab switching
+// ============================================================
+function switchTab(tab) {
+    document.getElementById('panel-quality').style.display = tab === 'quality' ? 'block' : 'none';
+    document.getElementById('panel-integrity').style.display = tab === 'integrity' ? 'block' : 'none';
+
+    document.getElementById('tab-quality').style.borderBottomColor = tab === 'quality' ? 'var(--accent-blue)' : 'transparent';
+    document.getElementById('tab-quality').style.color = tab === 'quality' ? 'var(--accent-blue)' : 'var(--text-secondary)';
+    document.getElementById('tab-integrity').style.borderBottomColor = tab === 'integrity' ? 'var(--accent-blue)' : 'transparent';
+    document.getElementById('tab-integrity').style.color = tab === 'integrity' ? 'var(--accent-blue)' : 'var(--text-secondary)';
+}
+
+// ============================================================
+// Data Quality Tab
+// ============================================================
+let dqAllPages = [];
+
+async function loadDataQuality() {
+    try {
+        const res = await fetch('/api/data-quality');
+        const data = await res.json();
+
+        if (data.summary.status === 'no_data' || !data.summary) {
+            document.getElementById('dq-status-banner').className = 'status-banner status-gray';
+            document.getElementById('dq-status-icon').textContent = '?';
+            document.getElementById('dq-status-title').textContent = 'NO DATA';
+            document.getElementById('dq-status-message').textContent = data.message || 'Run the evaluation workflow first to load GSC and GA4 data.';
+            return;
+        }
+
+        const s = data.summary;
+
+        // Status banner
+        const banner = document.getElementById('dq-status-banner');
+        const statusMap = {
+            healthy: { icon: '\u2713', title: 'HEALTHY', msg: 'GSC and GA4 data are well-aligned. Tracking appears reliable.', css: 'status-green' },
+            warning: { icon: '\u26A0', title: 'WARNING', msg: `${s.ratio_low + s.ratio_high} pages with ratio mismatches, ${s.zero_sessions} with zero sessions.`, css: 'status-orange' },
+            critical: { icon: '\u26D4', title: 'CRITICAL', msg: `Significant tracking gaps detected. ${s.zero_sessions} pages with clicks but no GA4 sessions.`, css: 'status-red' },
+            no_data: { icon: '?', title: 'NO DATA', msg: 'Evaluation data has no GSC/GA4 metrics. Re-run the workflow.', css: 'status-gray' },
+        };
+        const st = statusMap[s.status] || statusMap.no_data;
+        banner.className = 'status-banner ' + st.css;
+        document.getElementById('dq-status-icon').textContent = st.icon;
+        document.getElementById('dq-status-title').textContent = st.title;
+        document.getElementById('dq-status-message').textContent = st.msg;
+
+        // Summary cards
+        document.getElementById('dq-total').textContent = s.total_pages.toLocaleString();
+        document.getElementById('dq-coverage').textContent = `${s.both_sources} both, ${s.gsc_only} GSC-only, ${s.ga4_only} GA4-only`;
+        document.getElementById('dq-healthy').textContent = s.ratio_healthy;
+        document.getElementById('dq-problems').textContent = s.ratio_low + s.ratio_high;
+        document.getElementById('dq-problem-detail').textContent = `${s.ratio_low} low, ${s.ratio_high} high ratio`;
+        document.getElementById('dq-zero').textContent = s.zero_sessions;
+
+        // Aggregates
+        document.getElementById('dq-impressions').textContent = s.total_gsc_impressions.toLocaleString();
+        document.getElementById('dq-clicks').textContent = s.total_gsc_clicks.toLocaleString();
+        document.getElementById('dq-sessions').textContent = s.total_ga4_sessions.toLocaleString();
+        document.getElementById('dq-revenue').textContent = '$' + s.total_ga4_revenue.toLocaleString();
+
+        const ratioEl = document.getElementById('dq-site-ratio');
+        if (s.site_ratio !== null) {
+            ratioEl.textContent = s.site_ratio.toFixed(2);
+            if (s.site_ratio >= 0.7 && s.site_ratio <= 1.3) {
+                ratioEl.style.color = 'var(--accent-green)';
+            } else {
+                ratioEl.style.color = 'var(--accent-red)';
+            }
+        } else {
+            ratioEl.textContent = 'N/A';
+        }
+
+        // Coverage bar
+        const total = s.total_pages || 1;
+        const coverageBar = document.getElementById('dq-coverage-bar');
+        const pctBoth = (s.both_sources / total * 100).toFixed(1);
+        const pctGSC = (s.gsc_only / total * 100).toFixed(1);
+        const pctGA4 = (s.ga4_only / total * 100).toFixed(1);
+        const pctNone = (s.neither_source / total * 100).toFixed(1);
+        coverageBar.innerHTML = `
+            <div style="width:${pctBoth}%; background:var(--accent-green); transition:width 0.3s;" title="Both: ${s.both_sources}"></div>
+            <div style="width:${pctGSC}%; background:var(--accent-blue); transition:width 0.3s;" title="GSC only: ${s.gsc_only}"></div>
+            <div style="width:${pctGA4}%; background:var(--accent-purple); transition:width 0.3s;" title="GA4 only: ${s.ga4_only}"></div>
+            <div style="width:${pctNone}%; background:var(--border-color); transition:width 0.3s;" title="Neither: ${s.neither_source}"></div>
+        `;
+        document.getElementById('dq-coverage-legend').innerHTML = `
+            <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent-green);border-radius:2px;margin-right:4px;"></span>Both (${s.both_sources})</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent-blue);border-radius:2px;margin-right:4px;"></span>GSC only (${s.gsc_only})</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:var(--accent-purple);border-radius:2px;margin-right:4px;"></span>GA4 only (${s.ga4_only})</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:var(--border-color);border-radius:2px;margin-right:4px;"></span>Neither (${s.neither_source})</span>
+        `;
+
+        // Store pages and render table
+        dqAllPages = data.pages || [];
+        applyDQFilters();
+
+    } catch (err) {
+        document.getElementById('dq-status-banner').className = 'status-banner status-red';
+        document.getElementById('dq-status-icon').textContent = '!';
+        document.getElementById('dq-status-title').textContent = 'ERROR';
+        document.getElementById('dq-status-message').textContent = 'Failed to load data quality: ' + err.message;
+    }
+}
+
+function applyDQFilters() {
+    const statusFilter = document.getElementById('dq-filter-status').value;
+    const typeFilter = document.getElementById('dq-filter-type').value;
+
+    let filtered = dqAllPages;
+    if (statusFilter !== 'all') {
+        filtered = filtered.filter(p => p.ratio_status === statusFilter);
+    }
+    if (typeFilter !== 'all') {
+        filtered = filtered.filter(p => p.asset_type === typeFilter);
+    }
+
+    document.getElementById('dq-showing').textContent = `Showing ${filtered.length} of ${dqAllPages.length} pages`;
+    renderDQTable(filtered);
+}
+
+function renderDQTable(pages) {
+    const tbody = document.getElementById('dq-table-body');
+
+    if (pages.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" style="padding:24px; text-align:center; color:var(--text-muted);">No pages match the selected filters.</td></tr>';
+        return;
+    }
+
+    // Limit to 200 rows for performance
+    const display = pages.slice(0, 200);
+
+    tbody.innerHTML = display.map(p => {
+        const shortUrl = p.url.replace(/^https?:\/\/[^/]+/, '');
+        const truncUrl = shortUrl.length > 50 ? shortUrl.slice(0, 47) + '...' : shortUrl;
+
+        // Ratio badge color
+        let ratioBg, ratioColor, ratioText;
+        switch (p.ratio_status) {
+            case 'healthy':
+                ratioBg = 'rgba(5,150,105,0.1)'; ratioColor = 'var(--accent-green)';
+                ratioText = p.clicks_sessions_ratio.toFixed(2);
+                break;
+            case 'low':
+                ratioBg = 'rgba(234,88,12,0.1)'; ratioColor = 'var(--accent-orange)';
+                ratioText = p.clicks_sessions_ratio.toFixed(2);
+                break;
+            case 'high':
+                ratioBg = 'rgba(124,58,237,0.1)'; ratioColor = 'var(--accent-purple)';
+                ratioText = p.clicks_sessions_ratio.toFixed(2);
+                break;
+            case 'zero_sessions':
+                ratioBg = 'rgba(220,38,38,0.1)'; ratioColor = 'var(--accent-red)';
+                ratioText = '0.00';
+                break;
+            default:
+                ratioBg = 'var(--bg-hover)'; ratioColor = 'var(--text-muted)';
+                ratioText = '—';
+        }
+
+        // Status label
+        const statusLabels = {
+            healthy: '<span style="color:var(--accent-green); font-weight:600;">OK</span>',
+            low: '<span style="color:var(--accent-orange); font-weight:600;">LOW</span>',
+            high: '<span style="color:var(--accent-purple); font-weight:600;">HIGH</span>',
+            zero_sessions: '<span style="color:var(--accent-red); font-weight:600;">ZERO</span>',
+            insufficient_data: '<span style="color:var(--text-muted);">—</span>',
+        };
+
+        const typeColors = { product: 'var(--accent-blue)', category: 'var(--accent-teal)', blog: 'var(--accent-purple)', other: 'var(--text-muted)' };
+
+        return `<tr style="border-bottom:1px solid var(--border-light);">
+            <td style="padding:6px 12px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${shortUrl}">${truncUrl}</td>
+            <td style="padding:6px 8px;"><span style="color:${typeColors[p.asset_type] || 'inherit'}; font-size:11px; text-transform:uppercase; font-weight:600;">${p.asset_type}</span></td>
+            <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">${p.gsc_impressions.toLocaleString()}</td>
+            <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums; font-weight:600;">${p.gsc_clicks.toLocaleString()}</td>
+            <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">${p.gsc_ctr}%</td>
+            <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">${p.gsc_position}</td>
+            <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums; font-weight:600;">${p.ga4_sessions.toLocaleString()}</td>
+            <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">${p.ga4_engagement_rate}%</td>
+            <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">${p.ga4_revenue > 0 ? '$' + p.ga4_revenue.toFixed(2) : '—'}</td>
+            <td style="padding:6px 8px; text-align:center;"><span style="background:${ratioBg}; color:${ratioColor}; padding:2px 8px; border-radius:4px; font-size:12px; font-weight:600;">${ratioText}</span></td>
+            <td style="padding:6px 8px; text-align:center;">${statusLabels[p.ratio_status] || '—'}</td>
+        </tr>`;
+    }).join('');
+
+    if (pages.length > 200) {
+        tbody.innerHTML += `<tr><td colspan="11" style="padding:12px; text-align:center; color:var(--text-muted); font-size:12px;">Showing first 200 of ${pages.length} pages. Use filters to narrow results.</td></tr>`;
+    }
+}
+
+// ============================================================
+// Tracking Integrity Tab (existing)
+// ============================================================
 async function loadTracking() {
     const res = await fetch('/api/tracking');
     const data = await res.json();
 
-    // Status banner
     const banner = document.getElementById('status-banner');
     const icon = document.getElementById('status-icon');
     const title = document.getElementById('status-title');
@@ -70,15 +407,15 @@ async function loadTracking() {
     banner.className = 'status-banner status-' + data.status_color;
 
     if (data.status === 'BLOCKED') {
-        icon.textContent = '⛔';
+        icon.textContent = '\u26D4';
         title.textContent = 'BLOCKED';
         message.textContent = 'Tier A issues detected. Governor cannot take action until resolved.';
     } else if (data.status === 'WARNING') {
-        icon.textContent = '⚠️';
+        icon.textContent = '\u26A0';
         title.textContent = 'WARNING';
         message.textContent = 'Multiple Tier B warnings. Confidence will be reduced.';
     } else if (data.status === 'HEALTHY') {
-        icon.textContent = '✓';
+        icon.textContent = '\u2713';
         title.textContent = 'HEALTHY';
         message.textContent = 'Tracking integrity is acceptable.';
     } else {
@@ -87,11 +424,9 @@ async function loadTracking() {
         message.textContent = data.message || 'Run diagnostics to check tracking integrity.';
     }
 
-    // Counts
     document.getElementById('tier-a-count').textContent = data.tier_a_count || 0;
     document.getElementById('tier-b-count').textContent = data.tier_b_count || 0;
 
-    // Tier A list
     const tierAList = document.getElementById('tier-a-list');
     if (data.tier_a && data.tier_a.length > 0) {
         tierAList.innerHTML = data.tier_a.map(issue => renderIssue(issue, 'A')).join('');
@@ -99,7 +434,6 @@ async function loadTracking() {
         tierAList.innerHTML = '<p class="empty">No Tier A issues.</p>';
     }
 
-    // Tier B list
     const tierBList = document.getElementById('tier-b-list');
     if (data.tier_b && data.tier_b.length > 0) {
         tierBList.innerHTML = data.tier_b.map(issue => renderIssue(issue, 'B')).join('');
@@ -107,19 +441,16 @@ async function loadTracking() {
         tierBList.innerHTML = '<p class="empty">No Tier B warnings.</p>';
     }
 
-    // Last check
     document.getElementById('last-check').textContent = data.last_check || 'Never';
 }
 
 function renderIssue(issue, tier) {
-    // Get first failure details (most issues have one primary failure)
     const failure = issue.failures && issue.failures[0];
     const issueType = failure ? failure.code : 'Unknown';
     const details = failure ? failure.interpretation : 'No details';
     const fix = failure ? failure.recommended_fix : null;
     const severity = failure ? failure.severity : '';
 
-    // Render additional failures if multiple
     let additionalFailures = '';
     if (issue.failures && issue.failures.length > 1) {
         additionalFailures = issue.failures.slice(1).map(f => `
@@ -147,6 +478,8 @@ async function runDiagnostics() {
     alert('Run diagnostics from CLI:\npython scripts/run_diagnostics.py');
 }
 
+// Load both tabs
+loadDataQuality();
 loadTracking();
 </script>
 {% endblock %}

@@ -4,6 +4,9 @@
 {% block header %}Dashboard{% endblock %}
 
 {% block content %}
+<!-- Task Alerts Banner -->
+<div id="task-alerts-banner" class="hidden" style="margin-bottom: 16px;"></div>
+
 <div class="dashboard-grid">
     <!-- KPI Cards -->
     <div class="kpi-row">
@@ -16,8 +19,13 @@
             <span class="kpi-value" id="kpi-action-rate">—</span>
         </div>
         <div class="kpi-card">
-            <span class="kpi-label">Expected Value</span>
+            <span class="kpi-label">Est. Value</span>
             <span class="kpi-value" id="kpi-ev">—</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">AI Est. Value</span>
+            <span class="kpi-value" id="kpi-ai-ev">—</span>
+            <span class="kpi-sub" id="kpi-ai-coverage"></span>
         </div>
         <div class="kpi-card">
             <span class="kpi-label">Regret Budget</span>
@@ -40,7 +48,8 @@
             <table class="config-table">
                 <tr><td>AOV</td><td id="config-aov">—</td></tr>
                 <tr><td>Margin</td><td id="config-margin">—</td></tr>
-                <tr><td>Confidence Gate</td><td>0.65</td></tr>
+                <tr><td>Exploration Gate</td><td id="config-exploration-gate">—</td></tr>
+                <tr><td>Preservation Gate</td><td id="config-preservation-gate">—</td></tr>
                 <tr><td>ROI Gate</td><td>5×</td></tr>
             </table>
         </div>
@@ -167,6 +176,17 @@ async function loadDashboard() {
             (actionRate !== undefined && actionRate !== null) ? actionRate.toFixed(1) + '%' : '—';
         document.getElementById('kpi-ev').textContent =
             (ev !== undefined && ev !== null) ? '$' + ev.toLocaleString() : '—';
+
+        const aiEv = data.kpis?.ai_revised_total;
+        const aiCount = data.kpis?.ai_analyzed_count || 0;
+        const aiTotalPages = data.kpis?.ai_total_pages || 0;
+        document.getElementById('kpi-ai-ev').textContent =
+            (aiEv !== undefined && aiEv !== null) ? '$' + aiEv.toLocaleString() : '—';
+        const coverageEl = document.getElementById('kpi-ai-coverage');
+        if (coverageEl && aiCount > 0) {
+            coverageEl.textContent = `${aiCount}/${aiTotalPages} analyzed`;
+        }
+
         document.getElementById('kpi-regret').textContent =
             (data.config?.regret_budget ?? 2) + '/2';
 
@@ -188,6 +208,14 @@ async function loadDashboard() {
         if (data.config) {
             document.getElementById('config-aov').textContent = '$' + (data.config.aov || 0).toFixed(2);
             document.getElementById('config-margin').textContent = ((data.config.margin || 0) * 100).toFixed(0) + '%';
+            document.getElementById('config-exploration-gate').textContent =
+                (data.config.exploration_confidence_threshold !== undefined)
+                    ? data.config.exploration_confidence_threshold.toFixed(2)
+                    : '0.55';
+            document.getElementById('config-preservation-gate').textContent =
+                (data.config.preservation_confidence_threshold !== undefined)
+                    ? data.config.preservation_confidence_threshold.toFixed(2)
+                    : '0.75';
         }
 
         // Ledger
@@ -208,6 +236,44 @@ async function loadDashboard() {
         if (badge && data.posture) {
             badge.textContent = data.posture.mode;
             badge.className = 'posture-badge posture-' + data.posture.color;
+        }
+
+        // Task alerts banner
+        const alerts = data.task_alerts || [];
+        const banner = document.getElementById('task-alerts-banner');
+        if (alerts.length > 0) {
+            const ready = alerts.filter(a => a.ready);
+            const approaching = alerts.filter(a => !a.ready && a.days_remaining <= 3);
+            const waiting = alerts.filter(a => !a.ready && a.days_remaining > 3);
+
+            let html = '';
+            if (ready.length > 0) {
+                html += `<div style="padding: 12px 16px; background: #dcfce7; border: 1px solid #86efac; border-radius: 8px; margin-bottom: 8px;">
+                    <strong style="color: #166534;">Ready for measurement (${ready.length})</strong>
+                    <span style="color: #15803d; margin-left: 8px;">— <a href="/tasks" style="color: #15803d; font-weight: 600;">Go to Task Board</a> and click "Check Measurements"</span>
+                    <div style="margin-top: 6px; font-size: 12px; color: #166534;">${ready.map(a =>
+                        `<div style="margin: 2px 0;">${a.action_type.replace(/_/g, ' ')} — ${a.url.replace(/https?:\/\/[^\/]+/, '')}</div>`
+                    ).join('')}</div>
+                </div>`;
+            }
+            if (approaching.length > 0) {
+                html += `<div style="padding: 12px 16px; background: #fef9c3; border: 1px solid #fde047; border-radius: 8px; margin-bottom: 8px;">
+                    <strong style="color: #854d0e;">Almost ready (${approaching.length})</strong>
+                    <div style="margin-top: 6px; font-size: 12px; color: #713f12;">${approaching.map(a =>
+                        `<div style="margin: 2px 0;">${a.action_type.replace(/_/g, ' ')} — ${a.url.replace(/https?:\/\/[^\/]+/, '')} — ${a.days_remaining}d remaining</div>`
+                    ).join('')}</div>
+                </div>`;
+            }
+            if (waiting.length > 0) {
+                html += `<div style="padding: 10px 16px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;">
+                    <strong style="color: #0c4a6e;">In progress (${waiting.length})</strong>
+                    <div style="margin-top: 6px; font-size: 12px; color: #0369a1;">${waiting.map(a =>
+                        `<div style="margin: 2px 0;">${a.action_type.replace(/_/g, ' ')} — ${a.url.replace(/https?:\/\/[^\/]+/, '')} — ${a.days_remaining}d of ${a.evaluation_window_days}d remaining</div>`
+                    ).join('')}</div>
+                </div>`;
+            }
+            banner.innerHTML = html;
+            banner.classList.remove('hidden');
         }
     } catch (err) {
         console.error('Failed to load dashboard:', err);

@@ -12,10 +12,20 @@
             <div class="form-group">
                 <label for="ai-model">Model</label>
                 <select id="ai-model">
-                    <option value="gpt-4o-mini">gpt-4o-mini</option>
-                    <option value="gpt-4o">gpt-4o</option>
-                    <option value="gpt-4-turbo">gpt-4-turbo</option>
-                    <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                    <optgroup label="Anthropic">
+                        <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                        <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
+                        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                    </optgroup>
+                    <optgroup label="OpenAI">
+                        <option value="gpt-5.2">GPT-5.2 Thinking</option>
+                        <option value="gpt-5">GPT-5</option>
+                        <option value="gpt-5-mini">GPT-5 Mini</option>
+                        <option value="gpt-4.1">GPT-4.1</option>
+                        <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+                        <option value="gpt-4o">GPT-4o</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    </optgroup>
                 </select>
             </div>
             <div class="form-group">
@@ -39,8 +49,8 @@
                 <input type="number" id="ai-max-issues" min="0" max="20" value="0">
             </div>
             <div class="form-group">
-                <label for="ai-min-context">Min Context Fields Required <span class="form-hint">out of 4</span></label>
-                <input type="number" id="ai-min-context" min="1" max="4" value="3">
+                <label for="ai-min-context">Min Context Fields Required <span class="form-hint">out of 5</span></label>
+                <input type="number" id="ai-min-context" min="1" max="5" value="3">
             </div>
             <button class="btn btn-primary" onclick="saveAIConfig()">Save AI Settings</button>
         </div>
@@ -75,8 +85,14 @@
                 <input type="number" id="gov-regret" min="0" max="20" value="2">
             </div>
             <div class="form-group">
-                <label for="gov-confidence">Min Confidence Threshold</label>
-                <input type="number" id="gov-confidence" min="0" max="1" step="0.05" value="0.65">
+                <label for="gov-exploration-confidence">Exploration Confidence Threshold</label>
+                <input type="number" id="gov-exploration-confidence" min="0" max="1" step="0.05" value="0.55">
+                <small style="color: var(--text-muted);">Additive, reversible actions (internal links, title tests, blog ideas)</small>
+            </div>
+            <div class="form-group">
+                <label for="gov-preservation-confidence">Preservation Confidence Threshold</label>
+                <input type="number" id="gov-preservation-confidence" min="0" max="1" step="0.05" value="0.75">
+                <small style="color: var(--text-muted);">Irreversible, high-risk actions (canonical changes, URL structure)</small>
             </div>
             <div class="form-group">
                 <label for="gov-defensive">Defensive Action Weight</label>
@@ -92,6 +108,76 @@
             </div>
             <button class="btn btn-primary" onclick="saveGovernance()">Save Governance</button>
         </div>
+
+        <!-- Data Sources -->
+        <div class="admin-card">
+            <h3>Data Sources</h3>
+            <div class="form-group">
+                <label for="ds-sitemap-url">Sitemap URL</label>
+                <input type="text" id="ds-sitemap-url" placeholder="https://example.com/sitemap.xml" style="width: 100%;">
+                <small style="color: var(--text-muted);">XML sitemap URL. Supports sitemap index files.</small>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="btn btn-primary" onclick="saveDataSources()">Save</button>
+                <button class="btn btn-secondary" onclick="importSitemap()">Import Sitemap</button>
+                <span id="sitemap-status" style="font-size: 13px; color: var(--text-secondary);"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sitemap Import Results -->
+    <div class="admin-card" id="sitemap-results-card" style="margin-top: 20px; display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="margin: 0;">Sitemap Import Results</h3>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <select id="sitemap-type-filter" onchange="filterSitemapTable()" style="font-size: 13px; padding: 4px 8px;">
+                    <option value="">All Types</option>
+                </select>
+                <span id="sitemap-showing" style="font-size: 12px; color: var(--text-muted);"></span>
+            </div>
+        </div>
+        <div class="table-container" style="max-height: 500px; overflow-y: auto;">
+            <table class="data-table" id="sitemap-table">
+                <thead>
+                    <tr>
+                        <th style="cursor:pointer;" onclick="sortSitemapTable('url')">URL <span id="sitemap-sort-url"></span></th>
+                        <th style="cursor:pointer; width: 100px;" onclick="sortSitemapTable('type')">Type <span id="sitemap-sort-type"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="sitemap-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Run Evaluation -->
+    <div class="admin-card" style="margin-top: 20px;">
+        <h3>Run Evaluation</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 12px;">
+            Pull fresh data from GSC &amp; GA4, run diagnostics, and evaluate all pages.
+        </p>
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="runEvaluation(false)" id="btn-run-eval">
+                Run Evaluation
+            </button>
+            <button class="btn btn-secondary" onclick="runEvaluation(true)" id="btn-run-crawl">
+                Run with Crawl
+            </button>
+            <span style="font-size: 12px; color: var(--text-muted);">
+                Crawl fetches page titles, canonicals &amp; meta descriptions (slower but needed for AI recommendations)
+            </span>
+        </div>
+        <div id="eval-status" style="margin-top: 12px; display: none;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div id="eval-spinner" style="width:16px; height:16px; border:2px solid var(--border-color); border-top-color:var(--accent-blue); border-radius:50%; animation: spin 0.8s linear infinite;"></div>
+                <span id="eval-message" style="font-size: 13px; color: var(--text-secondary);">Starting...</span>
+            </div>
+            <div id="eval-progress-bar" style="margin-top: 8px; height: 4px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
+                <div id="eval-progress-fill" style="width: 0%; height: 100%; background: var(--accent-blue); transition: width 0.3s;"></div>
+            </div>
+        </div>
+        <div id="eval-error" style="margin-top: 12px; display: none; color: var(--accent-red); font-size: 13px;"></div>
+        <div id="eval-done" style="margin-top: 12px; display: none; color: var(--accent-green); font-size: 13px; font-weight: 600;"></div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
     </div>
 
     <!-- AI Call Log (Reproducibility) -->
@@ -150,10 +236,15 @@ async function loadConfig() {
         document.getElementById('pm-margin-high').value = pm.gross_margin_high ?? 0.30;
         document.getElementById('pm-window').value = pm.evaluation_window_days ?? 28;
 
+        // Data Sources
+        const ds = config.data_sources || {};
+        document.getElementById('ds-sitemap-url').value = ds.sitemap_url || '';
+
         // Governance
         const gov = config.governance || {};
         document.getElementById('gov-regret').value = gov.regret_budget_year ?? 2;
-        document.getElementById('gov-confidence').value = gov.min_confidence_threshold ?? 0.65;
+        document.getElementById('gov-exploration-confidence').value = gov.exploration_confidence_threshold ?? 0.55;
+        document.getElementById('gov-preservation-confidence').value = gov.preservation_confidence_threshold ?? 0.75;
         document.getElementById('gov-defensive').value = gov.defensive_action_weight ?? 2.0;
         document.getElementById('gov-exploratory').value = gov.exploratory_action_penalty ?? 3.0;
         document.getElementById('gov-ratio').value = gov.profit_to_cost_ratio_gate ?? 5.0;
@@ -195,13 +286,135 @@ async function saveGovernance() {
     const payload = {
         governance: {
             regret_budget_year: parseInt(document.getElementById('gov-regret').value),
-            min_confidence_threshold: parseFloat(document.getElementById('gov-confidence').value),
+            exploration_confidence_threshold: parseFloat(document.getElementById('gov-exploration-confidence').value),
+            preservation_confidence_threshold: parseFloat(document.getElementById('gov-preservation-confidence').value),
             defensive_action_weight: parseFloat(document.getElementById('gov-defensive').value),
             exploratory_action_penalty: parseFloat(document.getElementById('gov-exploratory').value),
             profit_to_cost_ratio_gate: parseFloat(document.getElementById('gov-ratio').value),
         }
     };
     await saveConfig(payload, 'Governance settings saved');
+}
+
+async function saveDataSources() {
+    const payload = {
+        data_sources: {
+            sitemap_url: document.getElementById('ds-sitemap-url').value.trim(),
+        }
+    };
+    await saveConfig(payload, 'Data sources saved');
+}
+
+// ── Sitemap import table state ──
+let sitemapData = [];       // full URL list from last import
+let sitemapSortCol = 'url';
+let sitemapSortAsc = true;
+
+async function importSitemap() {
+    const url = document.getElementById('ds-sitemap-url').value.trim();
+    if (!url) {
+        showToast('Enter a sitemap URL first', 'error');
+        return;
+    }
+
+    const statusEl = document.getElementById('sitemap-status');
+    statusEl.textContent = 'Fetching sitemap...';
+
+    try {
+        const res = await fetch('/api/admin/import-sitemap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sitemap_url: url }),
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            statusEl.textContent = '';
+            showToast(data.error, 'error');
+        } else {
+            statusEl.textContent = `${data.imported} URLs imported (${data.new} new, ${data.existing} already in pipeline)`;
+            showToast(`Imported ${data.new} new URLs from sitemap`, 'success');
+
+            // Populate results table
+            if (data.urls && data.urls.length > 0) {
+                sitemapData = data.urls;
+                buildSitemapTypeFilter();
+                sitemapSortCol = 'url';
+                sitemapSortAsc = true;
+                renderSitemapTable();
+                document.getElementById('sitemap-results-card').style.display = 'block';
+                // Scroll so the eval buttons below remain visible
+                document.getElementById('sitemap-results-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    } catch (err) {
+        statusEl.textContent = '';
+        showToast('Import failed: ' + err.message, 'error');
+    }
+}
+
+function buildSitemapTypeFilter() {
+    const types = [...new Set(sitemapData.map(r => r.type))].sort();
+    const sel = document.getElementById('sitemap-type-filter');
+    sel.innerHTML = '<option value="">All Types</option>' +
+        types.map(t => `<option value="${t}">${t} (${sitemapData.filter(r => r.type === t).length})</option>`).join('');
+}
+
+function filterSitemapTable() {
+    renderSitemapTable();
+}
+
+function sortSitemapTable(col) {
+    if (sitemapSortCol === col) {
+        sitemapSortAsc = !sitemapSortAsc;
+    } else {
+        sitemapSortCol = col;
+        sitemapSortAsc = true;
+    }
+    renderSitemapTable();
+}
+
+function renderSitemapTable() {
+    const filter = document.getElementById('sitemap-type-filter').value;
+    let rows = sitemapData;
+    if (filter) {
+        rows = rows.filter(r => r.type === filter);
+    }
+
+    // Sort
+    rows = [...rows].sort((a, b) => {
+        const va = (a[sitemapSortCol] || '').toLowerCase();
+        const vb = (b[sitemapSortCol] || '').toLowerCase();
+        if (va < vb) return sitemapSortAsc ? -1 : 1;
+        if (va > vb) return sitemapSortAsc ? 1 : -1;
+        return 0;
+    });
+
+    // Update sort indicators
+    document.getElementById('sitemap-sort-url').textContent = sitemapSortCol === 'url' ? (sitemapSortAsc ? '▲' : '▼') : '';
+    document.getElementById('sitemap-sort-type').textContent = sitemapSortCol === 'type' ? (sitemapSortAsc ? '▲' : '▼') : '';
+
+    // Show count
+    document.getElementById('sitemap-showing').textContent =
+        `Showing ${rows.length} of ${sitemapData.length}`;
+
+    const typeColors = {
+        product: 'var(--accent-blue)',
+        category: 'var(--accent-purple)',
+        blog: 'var(--accent-green)',
+        other: 'var(--text-muted)',
+        unknown: 'var(--text-muted)',
+    };
+
+    const tbody = document.getElementById('sitemap-body');
+    tbody.innerHTML = rows.map(r => {
+        const shortUrl = r.url.replace(/https?:\/\/[^\/]+/, '');
+        const color = typeColors[r.type] || 'var(--text-muted)';
+        return `<tr>
+            <td title="${r.url}" style="max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px;">${shortUrl}</td>
+            <td><span style="color: ${color}; font-weight: 600; font-size: 12px; text-transform: uppercase;">${r.type}</span></td>
+        </tr>`;
+    }).join('');
 }
 
 async function saveConfig(payload, successMsg) {
@@ -271,6 +484,81 @@ function showToast(message, type = 'info') {
     toast.className = `toast toast-${type}`;
     toast.classList.remove('hidden');
     setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+
+async function runEvaluation(withCrawl) {
+    const statusEl = document.getElementById('eval-status');
+    const errorEl = document.getElementById('eval-error');
+    const doneEl = document.getElementById('eval-done');
+    const msgEl = document.getElementById('eval-message');
+    const fillEl = document.getElementById('eval-progress-fill');
+    const btnRun = document.getElementById('btn-run-eval');
+    const btnCrawl = document.getElementById('btn-run-crawl');
+
+    // Reset UI
+    statusEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    doneEl.style.display = 'none';
+    fillEl.style.width = '0%';
+    btnRun.disabled = true;
+    btnCrawl.disabled = true;
+    msgEl.textContent = withCrawl ? 'Starting evaluation with crawl...' : 'Starting evaluation...';
+
+    try {
+        const res = await fetch('/api/run-evaluation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ crawl: withCrawl }),
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            statusEl.style.display = 'none';
+            errorEl.style.display = 'block';
+            errorEl.textContent = data.error;
+            btnRun.disabled = false;
+            btnCrawl.disabled = false;
+            return;
+        }
+
+        // Poll job status
+        const poll = setInterval(async () => {
+            try {
+                const jr = await fetch('/api/job-status');
+                const job = await jr.json();
+
+                msgEl.textContent = job.message || 'Working...';
+
+                if (job.total > 0 && job.progress > 0) {
+                    fillEl.style.width = Math.round(job.progress / job.total * 100) + '%';
+                }
+
+                if (!job.running) {
+                    clearInterval(poll);
+                    statusEl.style.display = 'none';
+                    btnRun.disabled = false;
+                    btnCrawl.disabled = false;
+
+                    if (job.error) {
+                        errorEl.style.display = 'block';
+                        errorEl.textContent = job.error;
+                    } else {
+                        doneEl.style.display = 'block';
+                        doneEl.textContent = 'Evaluation complete! Go to Tracking > Data Quality to see results.';
+                    }
+                }
+            } catch (e) {
+                // Network blip, keep polling
+            }
+        }, 1500);
+
+    } catch (err) {
+        statusEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        errorEl.textContent = 'Failed to start: ' + err.message;
+        btnRun.disabled = false;
+        btnCrawl.disabled = false;
+    }
 }
 
 // Load on page ready

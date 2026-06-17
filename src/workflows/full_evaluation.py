@@ -59,8 +59,12 @@ class WorkflowConfig:
     aov: float = 53.19
     margin: float = 0.27
 
-    # Governance
-    min_confidence_threshold: float = 0.65
+    # Governance — lane-aware confidence thresholds
+    # EXPLORATION (additive, reversible): lower bar
+    # PRESERVATION (irreversible, high-risk): higher bar
+    exploration_confidence_threshold: float = 0.55
+    preservation_confidence_threshold: float = 0.75
+    min_confidence_threshold: float = 0.55  # Lowest threshold (backward compat)
     regret_budget_year: int = 2
     profit_to_cost_ratio_gate: float = 5.0
 
@@ -82,6 +86,7 @@ class WorkflowConfig:
     google_ads_login_customer_id: Optional[str] = None
     google_ads_use_service_account: bool = False
     brand_terms: Optional[list[str]] = None
+    product_families: Optional[list[str]] = None
 
     @classmethod
     def from_json(cls, path: Path) -> "WorkflowConfig":
@@ -98,7 +103,9 @@ class WorkflowConfig:
             credentials_path=data["data_sources"]["gsc"]["credentials_path"],
             aov=data.get("profit_model", {}).get("aov", 53.19),
             margin=data.get("profit_model", {}).get("gross_margin_low", 0.27),
-            min_confidence_threshold=data.get("governance", {}).get("min_confidence_threshold", 0.65),
+            exploration_confidence_threshold=data.get("governance", {}).get("exploration_confidence_threshold", 0.55),
+            preservation_confidence_threshold=data.get("governance", {}).get("preservation_confidence_threshold", 0.75),
+            min_confidence_threshold=data.get("governance", {}).get("min_confidence_threshold", 0.55),
             regret_budget_year=data.get("governance", {}).get("regret_budget_year", 2),
             profit_to_cost_ratio_gate=data.get("governance", {}).get("profit_to_cost_ratio_gate", 5.0),
             google_ads_customer_id=ads_config.get("customer_id"),
@@ -107,6 +114,7 @@ class WorkflowConfig:
             google_ads_login_customer_id=ads_config.get("login_customer_id"),
             google_ads_use_service_account=ads_config.get("use_service_account", False),
             brand_terms=ads_config.get("brand_terms", []),
+            product_families=data.get("business_context", {}).get("product_families", []),
         )
 
 
@@ -157,7 +165,7 @@ class FullEvaluationWorkflow:
         governor_config = GovernorConfig(
             aov=config.aov,
             gross_margin=config.margin,
-            min_confidence_threshold=config.min_confidence_threshold,
+            min_confidence_threshold=config.exploration_confidence_threshold,
             profit_to_cost_ratio_gate=config.profit_to_cost_ratio_gate,
         )
 
@@ -207,6 +215,33 @@ class FullEvaluationWorkflow:
         self._diagnostic_results: list = []
         self._evaluation_results: list = []
 
+        # Build product-family slugs for URL classification.
+        # Config product_families like ["name trains", "step stools"] become
+        # slug fragments ["name-train", "step-stool"] to match URL patterns.
+        families = config.product_families or []
+        self._product_family_slugs = []
+        for fam in families:
+            slug = fam.lower().strip().replace(" ", "-")
+            # Strip trailing 's' to match both singular and plural URLs
+            # "name trains" → "name-train" matches /name-trains.html
+            if slug.endswith("s"):
+                slug = slug[:-1]
+            self._product_family_slugs.append(slug)
+
+        # Load sitemap-derived type map if available.  The sitemap import
+        # in the dashboard writes data/sitemap_types.json with URL→type
+        # derived from sub-sitemap filenames (e.g. sitemap_products_1.xml).
+        # This is the most reliable classification source.
+        self._sitemap_types: dict[str, str] = {}
+        sitemap_types_path = Path(__file__).parent.parent.parent / "data" / "sitemap_types.json"
+        if sitemap_types_path.exists():
+            try:
+                with open(sitemap_types_path) as f:
+                    self._sitemap_types = json.load(f)
+                print(f"  Loaded sitemap type map: {len(self._sitemap_types)} URLs")
+            except (json.JSONDecodeError, IOError):
+                pass
+
     # Tracking/marketing query parameters to strip from URLs
     _STRIP_PARAMS = {
         "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -214,6 +249,12 @@ class FullEvaluationWorkflow:
         "fbclid", "msclkid", "twclid",
         "mc_cid", "mc_eid",
         "ref", "source",
+        # Pagination & filtering — these create duplicate entries for the
+        # same underlying page.  Metrics should merge into the canonical URL.
+        "p", "page", "pg", "start", "offset",
+        "product_list_limit", "limit", "product_list_order", "product_list_dir",
+        "product_list_mode", "order", "dir", "sort", "sortby", "sort_by",
+        "mode", "view",
     }
 
     @staticmethod
@@ -295,8 +336,42 @@ class FullEvaluationWorkflow:
 
         # Normalize URLs: strip tracking params, merge duplicates
         gsc_data = self._normalize_url_data(gsc_data_raw)
-        ga4_data = self._normalize_url_data(ga4_data_raw)
-        print(f"  After normalization: GSC {len(gsc_data)}, GA4 {len(ga4_data)}")
+        ga4_data_normalized = self._normalize_url_data(ga4_data_raw)
+        print(f"  After normalization: GSC {len(gsc_data)}, GA4 {len(ga4_data_normalized)}")
+
+        # GA4 returns paths ("/page.html"), GSC returns full URLs
+        # ("https://domain.com/page.html").  Align GA4 keys to full URLs
+        # so the merge matches correctly.
+        gsc_prop = self.config.gsc_property
+        if gsc_prop.startswith("sc-domain:"):
+            domain = gsc_prop.replace("sc-domain:", "").strip("/")
+            base_url = f"https://{domain}"
+        elif gsc_prop.startswith("http"):
+            # URL-prefix property (e.g. "https://alphabet-trains.com/")
+            base_url = gsc_prop.rstrip("/")
+        else:
+            base_url = f"https://{gsc_prop.strip('/')}"
+
+        ga4_data = {}
+        for key, value in ga4_data_normalized.items():
+            if key.startswith("http://") or key.startswith("https://"):
+                full_url = key  # Already a full URL
+            elif key.startswith("/"):
+                full_url = base_url + key
+            else:
+                full_url = base_url + "/" + key
+            # Normalize through the same pipeline as GSC URLs
+            full_url = self._normalize_url(full_url)
+            if full_url in ga4_data:
+                # Merge duplicate (same page reached via different GA4 paths)
+                existing = ga4_data[full_url]
+                for k in ("sessions", "users", "engaged_sessions",
+                          "conversions", "revenue", "add_to_carts"):
+                    if k in value:
+                        existing[k] = existing.get(k, 0) + value[k]
+            else:
+                ga4_data[full_url] = value
+        print(f"  GA4 after URL alignment: {len(ga4_data)}")
 
         # Merge into PageAssets
         all_urls = set(gsc_data.keys()) | set(ga4_data.keys())
@@ -415,20 +490,117 @@ class FullEvaluationWorkflow:
             # Absence of Ads data is neutral, not a failure
             self.ads_data = None
 
-    def _classify_asset_type(self, url: str) -> AssetType:
-        """Classify URL into asset type."""
-        url_lower = url.lower()
+    # Utility / info page slugs — these are never products or categories.
+    _UTILITY_SLUGS = {
+        "faq", "faqs", "about", "about-us", "contact", "contact-us",
+        "return-policy", "privacy-policy", "terms-of-service", "terms",
+        "shipping", "shipping-policy", "price-match-policy", "testimonials",
+        "reviews", "sitemap", "search", "cart", "checkout", "account",
+        "login", "register", "wishlist", "gift-cards", "gift-certificates",
+    }
 
-        if "/product" in url_lower or "/p/" in url_lower:
-            return AssetType.PRODUCT
-        elif "/category" in url_lower or "/c/" in url_lower or "/collections" in url_lower:
-            return AssetType.CATEGORY
-        elif "/blog" in url_lower or "/article" in url_lower or "/post" in url_lower:
-            return AssetType.BLOG
-        elif url_lower.endswith("/") and url_lower.count("/") <= 3:
-            return AssetType.CATEGORY  # Likely homepage or main category
-        else:
+    # Generic listing-page slugs that indicate category / collection pages.
+    _CATEGORY_SLUGS = {
+        "all-products", "featured-products", "latest-products", "new-arrivals",
+        "best-sellers", "sale", "clearance", "shop-all", "shop-by",
+        "made-in-usa-montessori-toys",
+    }
+
+    def _classify_asset_type(self, url: str) -> AssetType:
+        """
+        Classify URL into asset type.
+
+        Priority: sitemap-derived type (most reliable) → URL pattern heuristics.
+        Handles both structured URLs (/product/..., /category/...) and flat
+        URL schemes where products and categories sit at the root level
+        (e.g. /name-trains.html, /3-letter-name-train.html).
+        """
+        # ── Sitemap-derived type (highest priority) ──
+        sitemap_type = self._sitemap_types.get(url)
+        if sitemap_type:
+            type_map = {"product": AssetType.PRODUCT, "category": AssetType.CATEGORY,
+                        "blog": AssetType.BLOG, "other": AssetType.OTHER}
+            if sitemap_type in type_map:
+                mapped = type_map[sitemap_type]
+                # Safety net: some sitemaps put blog posts in a generic
+                # sub-sitemap (e.g. sitemap_pages.xml) causing them to be
+                # classified as "other".  If the URL clearly lives under
+                # /blog/ or /article/, override to BLOG.
+                if mapped == AssetType.OTHER:
+                    _path = urlparse(url.lower()).path
+                    if "/blog" in _path or "/article" in _path:
+                        return AssetType.BLOG
+                return mapped
+
+        parsed = urlparse(url.lower())
+        path = parsed.path.rstrip("/")
+
+        # ── Non-page resources (images, fonts, scripts, etc.) ──
+        _MEDIA_EXTS = {
+            ".jpeg", ".jpg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp",
+            ".pdf", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot",
+            ".mp4", ".webm", ".mp3", ".ogg", ".zip", ".gz",
+        }
+        ext = Path(path).suffix.lower()
+        if ext in _MEDIA_EXTS:
             return AssetType.OTHER
+
+        # ── Blog ──
+        if "/blog" in path or "/article" in path:
+            return AssetType.BLOG
+
+        # ── FAQ / help pages ──
+        if "/faq" in path or "/help" in path:
+            return AssetType.OTHER
+
+        # ── Structured paths (sites with /product/ or /category/) ──
+        if "/product" in path or "/p/" in path:
+            return AssetType.PRODUCT
+        if "/category" in path or "/c/" in path or "/collections" in path:
+            return AssetType.CATEGORY
+
+        # ── Homepage ──
+        if not path or path == "/":
+            return AssetType.CATEGORY
+
+        # Extract slug (last path component, without extension)
+        slug = path.split("/")[-1]
+        slug_no_ext = slug.rsplit(".", 1)[0] if "." in slug else slug
+
+        # ── Utility / info pages ──
+        if slug_no_ext in self._UTILITY_SLUGS:
+            return AssetType.OTHER
+        # Catch policy-like pages by keyword
+        if any(kw in slug_no_ext for kw in ("policy", "terms-of")):
+            return AssetType.OTHER
+
+        # ── Known category slugs ──
+        if slug_no_ext in self._CATEGORY_SLUGS:
+            return AssetType.CATEGORY
+
+        # ── Product-family matching ──
+        # Config-driven: if the slug contains a product family name AND
+        # is a short generic slug, it's a category page.  The max word
+        # count scales with family slug length so short families like
+        # "rug" (1 word) don't over-match specific product names like
+        # "literacy-squares-seating-rug" (4 words).
+        word_count = len(slug_no_ext.split("-"))
+        starts_with_digit = slug_no_ext[0].isdigit() if slug_no_ext else False
+        for family_slug in self._product_family_slugs:
+            if family_slug in slug_no_ext:
+                family_words = len(family_slug.split("-"))
+                max_words = family_words + 2  # e.g. "rug"→3, "name-train"→4
+                if not starts_with_digit and word_count <= max_words:
+                    return AssetType.CATEGORY
+
+        # ── Default: root-level pages are products ──
+        # On e-commerce sites with flat URL structures, products vastly
+        # outnumber categories (typically 50-100x).  Root-level .html
+        # pages that don't match any category pattern are products.
+        if path.count("/") <= 1:
+            return AssetType.PRODUCT
+
+        return AssetType.OTHER
 
     def _load_crawl_data(self, csv_path: str) -> None:
         """
@@ -488,7 +660,15 @@ class FullEvaluationWorkflow:
         for asset in self._assets:
             normalized_path = self.diagnostics.normalize_url(asset.url)
             # Use GA4 sessions as proxy for organic (GA4 client filters organic by default)
-            organic_sessions_map[normalized_path] = asset.ga4.sessions_28d
+            # Use max when multiple assets normalize to the same path (e.g.
+            # http:// vs https:// variants of the homepage).
+            sessions = asset.ga4.sessions_28d
+            if normalized_path in organic_sessions_map:
+                organic_sessions_map[normalized_path] = max(
+                    organic_sessions_map[normalized_path], sessions
+                )
+            else:
+                organic_sessions_map[normalized_path] = sessions
 
         # Run diagnostics using the correct method
         results = self.diagnostics.diagnose_all(
@@ -528,7 +708,11 @@ class FullEvaluationWorkflow:
                 metrics = self.link_graph.get_page_metrics(asset.url)
                 if metrics:
                     asset.inlinks = metrics.inlinks
-                    asset.outlinks = metrics.outlinks
+                    # Only use link_graph outlinks if crawler didn't already populate them.
+                    # The crawler parses actual on-page links (accurate); the link_graph
+                    # builds from PageInventory which may have empty placeholders.
+                    if not asset.internal_outlinks:
+                        asset.outlinks = metrics.outlinks
                     asset.link_authority_score = metrics.authority_score
 
         summary = self.link_graph.summary()
@@ -586,11 +770,14 @@ class FullEvaluationWorkflow:
         constraint_result = self.constraint_detector.evaluate(asset, self._assets)
 
         # Store constraint data to include in all results
+        # data_confidence = constraint_detector's assessment of data quality for this page
+        # This is separate from action-specific confidence of the winning candidate.
         constraint_data = {
             "capture_class": constraint_result.capture_class.value,
             "demand_score": round(constraint_result.demand_score, 2),
             "intent_score": round(constraint_result.intent_score, 2),
             "visibility_score": round(constraint_result.visibility_score, 2),
+            "data_confidence": round(constraint_result.confidence, 2),
             "primary_constraint": constraint_result.primary_constraint.value if constraint_result.primary_constraint else None,
             "constraints": [
                 {
@@ -618,19 +805,27 @@ class FullEvaluationWorkflow:
             "has_ads_data": constraint_result.has_ads_data,
             "monetization_score": round(constraint_result.monetization_score, 2),
             "coverage_gap_score": round(constraint_result.coverage_gap_score, 2),
+            # Raw GSC/GA4 metrics for data quality comparison
+            "gsc_impressions": asset.gsc.impressions_28d,
+            "gsc_clicks": asset.gsc.clicks_28d,
+            "gsc_ctr": round(asset.gsc.ctr_28d, 4),
+            "gsc_position": round(asset.gsc.avg_position_28d, 1),
+            "ga4_sessions": asset.ga4.sessions_28d,
+            "ga4_users": asset.ga4.users_28d,
+            "ga4_engaged_sessions": asset.ga4.engaged_sessions_28d,
+            "ga4_engagement_rate": round(asset.ga4.engagement_rate_28d, 4),
+            "ga4_revenue": round(asset.ga4.revenue_28d, 2),
+            "ga4_purchases": asset.ga4.purchases_28d,
+            "ga4_bounce_rate": round(asset.ga4.bounce_rate_28d, 4),
         }
 
         candidates = []
         is_blog = asset.asset_type == AssetType.BLOG
 
-        # BLOG ENFORCEMENT: Blogs must NOT generate visibility or title test candidates
-        # Blogs are routing infrastructure — only internal linking changes are permitted
-
         # If visibility is blocked but demand exists, prioritize visibility fix
-        # (NOT for blogs — blogs must not get traffic-expansion recommendations)
-        if (not is_blog
-            and constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
-            and constraint_result.demand_score >= 0.4):
+        # Lowered from 0.4 to 0.2 (≥100 impressions) to surface more blocked pages.
+        if (constraint_result.primary_constraint == ConstraintType.VISIBILITY_BLOCKED
+            and constraint_result.demand_score >= 0.2):
             # Calculate expected value based on potential, not current revenue
             potential_clicks = asset.gsc.impressions_28d * 0.05  # ~5% CTR at good position
             expected_value = potential_clicks * self.config.aov * self.config.margin * 0.1
@@ -645,9 +840,7 @@ class FullEvaluationWorkflow:
             })
 
         # If CTR is suppressed, prioritize title test
-        # (NOT for blogs — blogs must never get traffic-driven meta title changes)
-        if (not is_blog
-            and constraint_result.primary_constraint == ConstraintType.CTR_SUPPRESSED):
+        if constraint_result.primary_constraint == ConstraintType.CTR_SUPPRESSED:
             ctr_constraint = next(
                 (c for c in constraint_result.constraints if c.constraint_type == ConstraintType.CTR_SUPPRESSED),
                 None
@@ -743,8 +936,9 @@ class FullEvaluationWorkflow:
                 })
 
         # Run specialized evaluators
-        # Title/Meta evaluation (NOT for blogs — blogs must not get title/keyword changes)
-        if asset.gsc.impressions_28d >= 500 and not is_blog:
+        # Title/Meta evaluation — lowered from 500 to 100 so more pages
+        # get title analysis; confidence scores handle data-quality risk.
+        if asset.gsc.impressions_28d >= 100:
             title_result = self.title_evaluator.evaluate(asset)
             # TitleTestResult uses should_test and expected_ctr_lift
             if title_result.should_test and title_result.recommended_variant:
@@ -811,6 +1005,53 @@ class FullEvaluationWorkflow:
                     link_candidate["routing_data"]["has_primary_destination"] = link_result.routing_assessment.has_primary_destination
             candidates.append(link_candidate)
 
+        # FALLBACK: Create opportunities for pages that no specific evaluator
+        # caught. The system should surface ALL pages so operators can see the
+        # full inventory, not just the high-traffic tail.
+        if not candidates:
+            if asset.gsc.impressions_28d > 0:
+                # Any impressions = demand exists. Create a basic opportunity.
+                potential_ctr = 0.03 if asset.gsc.avg_position_28d > 20 else 0.05
+                potential_clicks = asset.gsc.impressions_28d * potential_ctr
+                expected_value = potential_clicks * self.config.aov * self.config.margin * 0.1
+
+                steps = constraint_result.recommended_actions if constraint_result.recommended_actions else [
+                    "Review title tag, meta description, and on-page content",
+                    "Add internal links from relevant category or blog pages",
+                    "Monitor for 28 days",
+                ]
+
+                candidates.append({
+                    "mode": "OPPORTUNITY_DISCOVERY",
+                    "action": "PAGE_REINVESTMENT",
+                    "expected_value": max(expected_value, 0.50),
+                    # Use constraint confidence directly — PAGE_REINVESTMENT is a
+                    # low-risk review action, no need to penalize further.
+                    "confidence": max(constraint_result.confidence, self.config.exploration_confidence_threshold),
+                    "risk_level": "low",
+                    "implementation_steps": steps,
+                    "source": "demand_coverage_gap",
+                })
+
+            else:
+                # Zero impressions — page may not be indexed, missing from
+                # sitemap, lacking internal links, or cannibalised.
+                # Surface ALL asset types so operators can investigate.
+                candidates.append({
+                    "mode": "OPPORTUNITY_DISCOVERY",
+                    "action": "VISIBILITY_FIX",
+                    "expected_value": self.config.aov * self.config.margin * 0.1,
+                    "confidence": self.config.exploration_confidence_threshold,
+                    "risk_level": "low",
+                    "implementation_steps": [
+                        "Check if page is indexed (use URL Inspection in GSC)",
+                        "Verify page is in XML sitemap",
+                        "Review meta robots and canonical tag",
+                        "Ensure page has internal links from category/navigation",
+                    ],
+                    "source": "zero_visibility_review",
+                })
+
         # Apply learning rules to adjust confidence
         for candidate in candidates:
             fingerprint = ActionFingerprint(
@@ -823,7 +1064,7 @@ class FullEvaluationWorkflow:
             adjusted_conf, insight = self.ledger.apply_learning_rules(
                 base_confidence=candidate["confidence"],
                 fingerprint=fingerprint,
-                min_confidence_threshold=self.config.min_confidence_threshold,
+                min_confidence_threshold=self.config.exploration_confidence_threshold,
             )
 
             candidate["original_confidence"] = candidate["confidence"]
@@ -853,25 +1094,38 @@ class FullEvaluationWorkflow:
             candidates.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
             best = candidates[0]
 
-            # Check confidence threshold
-            if best["confidence"] < self.config.min_confidence_threshold:
+            # Check confidence threshold — lane-aware
+            # High-risk (irreversible) actions need PRESERVATION threshold (0.75)
+            # Low/medium-risk (reversible) actions need EXPLORATION threshold (0.55)
+            is_preservation = best.get("risk_level") == "high"
+            confidence_threshold = (
+                self.config.preservation_confidence_threshold if is_preservation
+                else self.config.exploration_confidence_threshold
+            )
+            if best["confidence"] < confidence_threshold:
+                lane = "PRESERVATION" if is_preservation else "EXPLORATION"
                 return {
                     "url": asset.url,
                     "asset_type": asset.asset_type.value,
                     "recommended_action": "OBSERVE_ONLY",
                     "mode": best["mode"],
                     "expected_value": best["expected_value"],
-                    "confidence": best["confidence"],
+                    "confidence": round(constraint_result.confidence, 2),
+                    "action_confidence": round(best["confidence"], 2),
                     "priority_score": 0,
-                    "risk_level": "low",
+                    "risk_level": best.get("risk_level", "low"),
                     "implementation_steps": [],
-                    "reason": f"Confidence {best['confidence']:.2f} below threshold {self.config.min_confidence_threshold}",
+                    "reason": f"Action confidence {best['confidence']:.2f} below {lane} threshold {confidence_threshold}",
                     "page_metadata": {
                         "title": asset.title,
                         "h1": asset.h1,
                         "meta_description": asset.meta_description,
                         "canonical_url": asset.canonical_url,
                         "word_count": asset.word_count,
+                        "content_preview": asset.content_preview,
+                        "above_fold_html": asset.above_fold_html,
+                        "internal_outlinks": asset.internal_outlinks,
+                        "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
                         "has_crawl_data": asset.has_crawl_data,
                     },
                     **constraint_data,  # Include constraint detection data
@@ -883,7 +1137,10 @@ class FullEvaluationWorkflow:
                 "recommended_action": best["action"],
                 "mode": best["mode"],
                 "expected_value": best["expected_value"],
-                "confidence": best["confidence"],
+                # Use data quality confidence (from constraint_detector) as headline.
+                # This reflects how much data we have, not action-specific confidence.
+                "confidence": round(constraint_result.confidence, 2),
+                "action_confidence": round(best["confidence"], 2),
                 "priority_score": best.get("priority_score", 0),
                 "risk_level": best["risk_level"],
                 "implementation_steps": best["implementation_steps"],
@@ -897,6 +1154,9 @@ class FullEvaluationWorkflow:
                     "meta_description": asset.meta_description,
                     "canonical_url": asset.canonical_url,
                     "word_count": asset.word_count,
+                    "content_preview": asset.content_preview,
+                    "above_fold_html": asset.above_fold_html,
+                    "internal_outlinks": asset.internal_outlinks,
                     "has_crawl_data": asset.has_crawl_data,
                 },
                 **constraint_data,  # Include constraint detection data
@@ -932,6 +1192,10 @@ class FullEvaluationWorkflow:
                 "meta_description": asset.meta_description,
                 "canonical_url": asset.canonical_url,
                 "word_count": asset.word_count,
+                "content_preview": asset.content_preview,
+                "above_fold_html": asset.above_fold_html,
+                "internal_outlinks": asset.internal_outlinks,
+                "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
                 "has_crawl_data": asset.has_crawl_data,
             },
             **constraint_data,  # Include constraint detection data

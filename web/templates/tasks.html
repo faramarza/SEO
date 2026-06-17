@@ -4,6 +4,13 @@
 {% block header %}Task Board{% endblock %}
 
 {% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <p style="margin: 0; color: var(--text-muted); font-size: 13px;">
+        Approve, then deploy changes and click "Mark as Done" to start the evaluation clock.
+    </p>
+    <button class="btn btn-small" id="btn-check-measurements" onclick="runAutoMeasure()">Check Measurements</button>
+</div>
+
 <div class="task-board">
     <div class="board-column" data-status="proposed">
         <div class="column-header">
@@ -13,28 +20,12 @@
         <div class="column-tasks" id="tasks-proposed"></div>
     </div>
 
-    <div class="board-column" data-status="approved">
-        <div class="column-header">
-            <h3>Approved</h3>
-            <span class="column-count" id="count-approved">0</span>
-        </div>
-        <div class="column-tasks" id="tasks-approved"></div>
-    </div>
-
     <div class="board-column" data-status="implemented">
         <div class="column-header">
-            <h3>Implemented</h3>
+            <h3>In Progress</h3>
             <span class="column-count" id="count-implemented">0</span>
         </div>
         <div class="column-tasks" id="tasks-implemented"></div>
-    </div>
-
-    <div class="board-column" data-status="measured">
-        <div class="column-header">
-            <h3>Measured</h3>
-            <span class="column-count" id="count-measured">0</span>
-        </div>
-        <div class="column-tasks" id="tasks-measured"></div>
     </div>
 
     <div class="board-column" data-status="closed">
@@ -55,11 +46,11 @@
     </div>
 </div>
 
-<!-- Outcome Modal -->
+<!-- Outcome Modal (manual fallback) -->
 <div id="outcome-modal" class="modal hidden">
     <div class="modal-content">
         <span class="modal-close" onclick="closeOutcomeModal()">&times;</span>
-        <h2>Record Outcome</h2>
+        <h2>Record Outcome Manually</h2>
         <form id="outcome-form">
             <input type="hidden" id="outcome-action-id">
             <div class="form-group">
@@ -105,7 +96,7 @@
     <div class="modal-content">
         <span class="modal-close" onclick="closeSendBackModal()">&times;</span>
         <h2>Send Back for Re-evaluation</h2>
-        <p style="color: var(--text-secondary); margin-bottom: 12px;">This will close the task. The URL will be re-scored on the next evaluation run and may appear in the opportunities queue again with updated data.</p>
+        <p style="color: var(--text-secondary); margin-bottom: 12px;">This will remove the task from the board. The URL will be re-scored on the next evaluation run and reappear in the opportunities queue with updated data.</p>
         <form id="sendback-form">
             <input type="hidden" id="sendback-action-id">
             <div class="form-group">
@@ -132,7 +123,7 @@ async function loadTasks() {
     const res = await fetch('/api/tasks');
     tasksData = await res.json();
 
-    for (const status of ['proposed', 'approved', 'implemented', 'measured', 'closed']) {
+    for (const status of ['proposed', 'implemented', 'closed']) {
         const tasks = tasksData[status] || [];
         document.getElementById('count-' + status).textContent = tasks.length;
         document.getElementById('tasks-' + status).innerHTML =
@@ -147,17 +138,121 @@ function renderTask(task, status) {
     const riskColor = task.risk_level === 'high' ? 'var(--accent-red)'
         : task.risk_level === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-green)';
 
-    // Constraint display
-    const constraintLabel = task.primary_constraint
-        ? task.primary_constraint.replace(/_/g, ' ')
-        : '';
+    // Date formatting helper
+    const fmtDate = (iso) => {
+        if (!iso) return null;
+        try {
+            const d = new Date(iso);
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch(e) { return null; }
+    };
 
-    // Implementation summary: first step or summary
-    const summary = task.implementation_summary
-        || (task.implementation_steps && task.implementation_steps[0])
-        || '';
+    // Timeline info per column
+    let timelineHtml = '';
+    if (status === 'proposed') {
+        const created = fmtDate(task.created_at);
+        if (created) {
+            timelineHtml = `<div style="margin: 4px 0; font-size: 11px; color: var(--text-muted);">Proposed: ${created}</div>`;
+        }
+    } else if (status === 'implemented') {
+        const started = fmtDate(task.implemented_at || task.created_at);
+        if (started) {
+            timelineHtml = `<div style="margin: 4px 0; font-size: 11px; color: var(--text-muted);">Started: ${started}</div>`;
+        }
+    } else if (status === 'closed') {
+        const parts = [];
+        const started = fmtDate(task.implemented_at);
+        if (started) parts.push(`Started: ${started}`);
+        if (task.implemented_at) {
+            const startDt = new Date(task.implemented_at);
+            const elapsed = Math.round((Date.now() - startDt.getTime()) / 86400000);
+            parts.push(`${elapsed}d ago`);
+        }
+        if (parts.length > 0) {
+            timelineHtml = `<div style="margin: 4px 0; font-size: 11px; color: var(--text-muted);">${parts.join(' &middot; ')}</div>`;
+        }
+    }
 
-    // Advance / Reject / Send Back actions per status
+    // Implementation steps
+    const steps = task.implementation_steps || [];
+    const summaryText = task.implementation_summary || '';
+    let stepsHtml = '';
+    if (steps.length > 0) {
+        stepsHtml = `
+            <div style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Implementation Steps</label>
+                <ol style="margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                    ${steps.map(s => `<li style="margin-bottom: 2px;">${s}</li>`).join('')}
+                </ol>
+            </div>`;
+    } else if (summaryText) {
+        stepsHtml = `
+            <div style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+                <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Summary</label>
+                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4; margin: 0;">${summaryText}</p>
+            </div>`;
+    }
+
+    // Variant indicator for tasks with sequential test variants
+    let variantHtml = '';
+    if (status === 'implemented' && task.variants && task.variants.length > 0) {
+        const vi = task.active_variant_index;
+        const v = task.variants[vi];
+        const dots = task.variants.map((_, i) => {
+            const pastOutcome = task.variant_outcomes.find(vo => vo.variant_index === i);
+            if (pastOutcome) {
+                const c = pastOutcome.outcome === 'positive' ? '#059669' : pastOutcome.outcome === 'negative' ? '#dc2626' : '#ca8a04';
+                return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:3px;" title="Variant ${i+1}: ${pastOutcome.outcome}"></span>`;
+            }
+            const active = i === vi;
+            return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${active ? 'var(--accent-blue, #3b82f6)' : 'var(--border-color)'};margin-right:3px;" title="Variant ${i+1}${active ? ' (active)' : ''}"></span>`;
+        }).join('');
+        variantHtml = `
+            <div style="margin: 6px 0; padding: 6px 8px; background: var(--bg-secondary, #f8fafc); border-radius: 4px; font-size: 12px;">
+                <div style="margin-bottom: 4px;">${dots} <strong>Variant ${vi + 1}/${task.variants.length}</strong></div>
+                ${v ? `<div style="color: var(--text-secondary);" title="${v.title || ''}">Title: ${(v.title || '').slice(0, 50)}${(v.title || '').length > 50 ? '...' : ''}</div>` : ''}
+            </div>`;
+    }
+
+    // Countdown for in-progress tasks (only if baseline captured)
+    let countdownHtml = '';
+    if (status === 'implemented' && !task.baseline_captured) {
+        // Baseline not captured yet — user needs to deploy and mark as done
+        countdownHtml = `
+            <div style="margin: 8px 0 2px; padding: 6px 8px; background: #fffbeb; border-radius: 4px; border-left: 3px solid #f59e0b;">
+                <div style="font-size: 11px; color: #92400e;">Deploy the change, then click "Mark as Done" to start the evaluation clock.</div>
+            </div>
+        `;
+    } else if (status === 'implemented' && task.days_remaining !== null && task.days_remaining !== undefined) {
+        const pct = task.evaluation_window_days
+            ? Math.min(100, Math.round(100 * (1 - task.days_remaining / task.evaluation_window_days)))
+            : 0;
+        const barColor = task.days_remaining === 0 ? 'var(--accent-green)' : 'var(--accent-blue, #3b82f6)';
+        const label = task.days_remaining === 0
+            ? 'Ready for measurement'
+            : `${task.days_remaining}d of ${task.evaluation_window_days}d remaining`;
+        countdownHtml = `
+            <div style="margin: 8px 0 2px;">
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 3px;">${label}</div>
+                <div style="height: 4px; background: var(--border-color); border-radius: 2px; overflow: hidden;">
+                    <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 2px; transition: width .3s;"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Outcome with metrics for closed tasks
+    let outcomeHtml = '';
+    if (task.outcome) {
+        let metricsSnippet = '';
+        if (task.outcome_metrics && task.outcome_metrics.baseline_clicks !== undefined) {
+            const m = task.outcome_metrics;
+            metricsSnippet = ` | Clicks: ${m.baseline_clicks} → ${m.current_clicks}, Impr: ${m.baseline_impressions} → ${m.current_impressions}`;
+        }
+        outcomeHtml = `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 100) : ''}${metricsSnippet}</div>`;
+    }
+
+    // Actions per column
     let actions = '';
     if (status === 'proposed') {
         actions = `
@@ -165,20 +260,23 @@ function renderTask(task, status) {
             <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
             <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
         `;
-    } else if (status === 'approved') {
-        actions = `
-            <button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Mark Implemented</button>
-            <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
-            <button class="btn btn-small btn-reject-task" onclick="showRejectModal('${task.action_id}')">Reject</button>
-        `;
     } else if (status === 'implemented') {
-        actions = `
-            <button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Record Outcome</button>
-            <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
-        `;
-    } else if (status === 'measured') {
-        actions = `<button class="btn btn-small" onclick="advanceTask('${task.action_id}')">Close</button>`;
+        if (!task.baseline_captured) {
+            actions = `
+                <button class="btn btn-small btn-approve-task" onclick="markDone('${task.action_id}')">Mark as Done</button>
+                <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
+            `;
+        } else {
+            actions = `
+                <button class="btn btn-small" onclick="showOutcomeModal('${task.action_id}')">Close Manually</button>
+                <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
+            `;
+        }
     }
+
+    const constraintLabel = task.primary_constraint
+        ? task.primary_constraint.replace(/_/g, ' ')
+        : '';
 
     return `
         <div class="task-card ${outcomeClass}" onclick="showTaskDetail('${task.action_id}', '${status}')" style="cursor: pointer;">
@@ -192,88 +290,417 @@ function renderTask(task, status) {
             ${constraintLabel ? `
             <div style="margin: 4px 0; font-size: 12px; color: var(--text-muted);">
                 Constraint: <strong style="color: var(--text-secondary);">${constraintLabel}</strong>
-            </div>
-            ` : ''}
-            ${summary ? `
-            <div style="margin: 6px 0; font-size: 12px; color: var(--text-secondary); line-height: 1.4; border-left: 2px solid var(--border-color); padding-left: 8px;">
-                ${summary.length > 120 ? summary.slice(0, 120) + '...' : summary}
-            </div>
-            ` : ''}
+            </div>` : ''}
             <div class="task-metrics">
                 <span title="Expected Value">EV: $${task.score_value}</span>
                 <span title="Confidence">${(task.confidence * 100).toFixed(0)}%</span>
                 <span style="color: ${riskColor};" title="Risk Level">${task.risk_level || 'low'}</span>
             </div>
-            ${task.outcome ? `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 50) : ''}</div>` : ''}
+            ${timelineHtml}
+            ${variantHtml}
+            ${countdownHtml}
+            ${outcomeHtml}
             <div class="task-actions" onclick="event.stopPropagation();">${actions}</div>
         </div>
     `;
 }
 
+// ── Shared AI rendering (same as opportunities page) ──
+function buildAIHtml(rec, reproducibility) {
+    const esc = (s) => {
+        if (!s || typeof s !== 'string') return s || '';
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    };
+    if (rec.no_action) {
+        return `<div class="ai-recommendation"><div class="rec-item critical"><h5>No Action</h5><p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>${rec.missing_context ? '<p><strong>Missing:</strong> ' + rec.missing_context.join(', ') + '</p>' : ''}</div></div>`;
+    }
+    if (rec.raw_response) {
+        try {
+            let raw = rec.raw_response.trim();
+            if (raw.toLowerCase().startsWith('```json')) raw = raw.slice(7);
+            else if (raw.startsWith('```')) raw = raw.slice(3);
+            if (raw.trimEnd().endsWith('```')) raw = raw.trimEnd().slice(0, -3);
+            raw = raw.trim();
+            const braceIdx = raw.indexOf('{');
+            if (braceIdx > 0) raw = raw.slice(braceIdx);
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && (parsed.validity_audit || parsed.recommendations || parsed.funnel_analysis)) return buildAIHtml(parsed, reproducibility);
+        } catch (e) {}
+        return `<div class="ai-recommendation"><div class="rec-item"><h5>AI Response</h5><pre style="white-space: pre-wrap;">${rec.raw_response}</pre></div></div>`;
+    }
+    const va = rec.validity_audit || {};
+    const fa = rec.funnel_analysis || {};
+    const ca = rec.constraint_accountability || {};
+    const actions = rec.recommendations || rec.actions || [];
+    const noActions = rec.no_actions || [];
+    const isAllNoAction = actions.length === 0 || actions.every(a => a.action_type === 'NO_ACTION');
+    const vBadge = (status) => {
+        const s = (status || '').split('—')[0].trim().toUpperCase();
+        const color = s === 'VALID' ? '#059669' : s === 'INVALID' ? '#dc2626' : '#ca8a04';
+        return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${color}18;color:${color};font-weight:600;font-size:11px;">${s}</span> <span style="color:#6b7280;font-size:12px;">${(status || '').includes('—') ? status.split('—').slice(1).join('—').trim() : ''}</span>`;
+    };
+    let validityHtml = '';
+    if (Object.keys(va).length > 0) {
+        validityHtml = `<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Step 1: Validity Audit</h5><table style="width:100%;font-size:12px;border-collapse:collapse;">${Object.entries(va).map(([k, v]) => '<tr><td style="padding:3px 8px;font-weight:bold;text-transform:capitalize;width:140px;border-bottom:1px solid #f0f0f0;">' + k.replace(/_/g, ' ') + '</td><td style="padding:3px 8px;border-bottom:1px solid #f0f0f0;">' + vBadge(v) + '</td></tr>').join('')}</table></div>`;
+    }
+    let funnelHtml = '';
+    if (Object.keys(fa).length > 0) {
+        const oe = fa.opportunity_estimate;
+        let oeStr = '—';
+        if (oe) {
+            if (typeof oe === 'string') { oeStr = oe; }
+            else {
+                let parts = [];
+                if (oe.summary) parts.push(oe.summary);
+                else {
+                    const lo = oe.low?.total ?? '?', ba = oe.base?.total ?? '?', hi = oe.high?.total ?? '?';
+                    const loR = oe.low?.routing_pct ?? '?', baR = oe.base?.routing_pct ?? '?', hiR = oe.high?.routing_pct ?? '?';
+                    parts.push('$' + lo + ' / $' + ba + ' / $' + hi + ' (low/base/high @ ' + loR + '%/' + baR + '%/' + hiR + '% routing)');
+                }
+                if (oe.base?.math) parts.push('<br><small style="font-weight:400;color:#6b7280;">Base: ' + oe.base.math + '</small>');
+                if (oe.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.routing_evidence + '</small>');
+                else if (oe.base?.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.base.routing_evidence + '</small>');
+                oeStr = parts.join('');
+            }
+        }
+        funnelHtml = `<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Step 2: Funnel Analysis</h5><table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
+            <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${oeStr}</td></tr>
+            ${fa.pipeline_reconciliation ? '<tr><td style="padding:4px 8px;font-weight:bold;border-top:1px solid #f0f0f0;vertical-align:top;">Pipeline Check</td><td style="padding:4px 8px;border-top:1px solid #f0f0f0;font-size:11px;color:#6b7280;">' + fa.pipeline_reconciliation + '</td></tr>' : ''}
+        </table></div>`;
+    }
+    let accountabilityHtml = '';
+    if (Object.keys(ca).length > 0) {
+        const dispBadge = (d) => { const colors = { ACTIONED: '#059669', DEFERRED: '#ca8a04', SUPERSEDED: '#6b7280' }; const c = colors[(d||'').toUpperCase()] || '#6b7280'; return '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:' + c + '18;color:' + c + ';font-weight:600;font-size:11px;">' + (d||'UNKNOWN').toUpperCase() + '</span>'; };
+        accountabilityHtml = `<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Constraint Accountability</h5><table style="width:100%;font-size:12px;border-collapse:collapse;">
+            <tr style="background:#f8fafc;"><th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:150px;">Constraint</th><th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;width:100px;">Disposition</th><th style="padding:4px 8px;text-align:left;border-bottom:2px solid #e5e7eb;">Reasoning</th></tr>
+            ${Object.entries(ca).map(([k, v]) => '<tr><td style="padding:4px 8px;font-weight:bold;text-transform:capitalize;border-bottom:1px solid #f0f0f0;">' + k.replace(/_/g, ' ') + '</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">' + dispBadge(v.disposition) + (v.action_ref ? ' <span style="font-size:11px;color:#6b7280;">(→ #' + v.action_ref + ')</span>' : '') + '</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">' + (v.reasoning || '—') + '</td></tr>').join('')}
+        </table></div>`;
+    }
+    let actionsHtml = '';
+    if (actions.length > 0) {
+        actionsHtml = '<h5 style="margin: 12px 0 4px 0;">Step 3: Recommendations</h5>' + actions.map((a, i) => {
+            const isNoAct = a.action_type === 'NO_ACTION';
+            const riskColor = a.risk_level === 'high' ? '#dc2626' : a.risk_level === 'medium' ? '#ea580c' : '#059669';
+            return `<div class="rec-item ${isNoAct ? 'critical' : ''}" style="margin-top: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <h5 style="margin: 0;">Action ${i + 1}: ${(a.action_type || 'NO_ACTION').replace(/_/g, ' ')}</h5>
+                    <span style="font-size: 12px; padding: 2px 8px; border-radius: 4px; background: ${riskColor}20; color: ${riskColor}; font-weight: 600;">${a.risk_level || 'low'} risk</span>
+                </div>
+                ${a.diagnosed_constraint ? '<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ' + esc(a.diagnosed_constraint) + '</p>' : ''}
+                ${a.target_urls && a.target_urls.length ? '<p style="margin: 4px 0; font-size: 12px;"><strong>Target URLs:</strong> ' + a.target_urls.map(u => '<code style="background:#e8f4fd;padding:1px 4px;border-radius:3px;font-size:11px;">' + u + '</code>').join(', ') + '</p>' : ''}
+                <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
+                    <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
+                    <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${esc(a.exact_changes) || 'N/A'}</pre>
+                </div>
+                ${a.variants && a.variants.length > 1 ? '<div style="margin: 8px 0; padding: 10px; background: #fef3c7; border-radius: 6px; border-left: 3px solid #f59e0b;"><p style="margin: 0 0 6px 0; font-weight: 600; font-size: 13px;">All ' + a.variants.length + ' Variants (deploy sequentially):</p>' + a.variants.map(v => '<div style="margin: 4px 0; padding: 6px 8px; background: #fffbeb; border-radius: 4px;"><strong style="font-size: 12px;">Priority ' + v.priority + ':</strong>' + (v.title ? '<div style="margin: 2px 0; font-size: 12px;"><strong>Title:</strong> ' + esc(v.title) + '</div>' : '') + (v.meta_description ? '<div style="margin: 2px 0; font-size: 12px;"><strong>Meta:</strong> ' + esc(v.meta_description) + '</div>' : '') + '<div style="margin: 2px 0; font-size: 11px; color: #6b7280;">' + (esc(v.why) || '') + '</div></div>').join('') + '</div>' : ''}
+                <p style="margin: 6px 0;"><strong>Why:</strong> ${esc(a.why_this_works) || 'N/A'}</p>
+                <p style="margin: 6px 0; color: #6b7280; font-size: 13px;"><strong>Rollback:</strong> ${esc(a.rollback_plan) || 'N/A'}</p>
+                ${a.measurement ? '<table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; background: #f9fafb; border-radius: 4px;"><tr><td style="padding: 3px 8px; font-weight: bold;">Metric</td><td style="padding: 3px 8px;">' + (a.measurement.primary_metric || '—') + '</td><td style="padding: 3px 8px; font-weight: bold;">Direction</td><td style="padding: 3px 8px;">' + (a.measurement.expected_direction || '—') + '</td></tr><tr><td style="padding: 3px 8px; font-weight: bold;">Window</td><td style="padding: 3px 8px;">' + (a.measurement.evaluation_window || '—') + '</td><td style="padding: 3px 8px; font-weight: bold;">Stop if</td><td style="padding: 3px 8px; color: #dc2626;">' + (a.measurement.stop_threshold || '—') + '</td></tr></table>' : ''}
+            </div>`;
+        }).join('');
+    }
+    let inboundHtml = '';
+    const ilo = rec.inbound_link_opportunities;
+    if (ilo && ilo.available && ilo.top_3 && ilo.top_3.length > 0) {
+        inboundHtml = '<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Step 4: Inbound Link Opportunities</h5><p style="font-size:12px;color:#6b7280;margin:0 0 8px 0;">Top pages that should link <strong>to this page</strong>, ranked by linking potential:</p>' + ilo.top_3.map((link, i) => {
+            const prioColor = link.priority === 'PRIMARY' ? '#4f46e5' : '#6b7280';
+            return '<div style="margin: 6px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid ' + prioColor + ';"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><strong style="font-size:13px;">' + (i + 1) + '. ' + (link.source_title || link.source_url) + '</strong><span style="font-size:11px;padding:1px 6px;border-radius:3px;background:' + prioColor + '18;color:' + prioColor + ';font-weight:600;">' + (link.priority || 'SECONDARY') + '</span></div><code style="font-size:11px;background:#e8f4fd;padding:1px 4px;border-radius:3px;">' + link.source_url + '</code><div style="font-size:12px;margin-top:6px;color:#374151;"><span style="margin-right:12px;">link_score=<strong>' + (link.link_score || 0).toLocaleString() + '</strong></span><span style="margin-right:12px;">impr=' + (link.impressions || 0) + '</span><span style="margin-right:12px;">pos=' + (link.position || '?') + '</span><span>overlap=' + (link.query_overlap || 0) + '</span></div><p style="margin:6px 0 0 0;font-size:12px;">' + (link.justification || '') + '</p><p style="margin:4px 0 0 0;font-size:12px;color:#6b7280;"><strong>Placement:</strong> ' + (link.placement || '—') + '</p><p style="margin:2px 0 0 0;font-size:12px;color:#6b7280;"><strong>Anchor:</strong> "' + (link.anchor_text || '—') + '"</p></div>';
+        }).join('') + '</div>';
+    } else if (ilo && !ilo.available) {
+        inboundHtml = '<div class="rec-item" style="margin-top: 8px; background: #fffbeb; padding: 10px; border-radius: 6px;"><h5 style="margin: 0 0 4px 0;">Step 4: Inbound Link Opportunities</h5><p style="margin: 0; font-size: 12px; color: #92400e;">Inbound link analysis unavailable — run full evaluation first.</p></div>';
+    }
+    let authorityHtml = '';
+    const auth = rec.authority_analysis;
+    if (auth && auth.available) {
+        const verdictColor = auth.authority_verdict?.startsWith('STRONG') ? '#059669' : auth.authority_verdict?.startsWith('ADEQUATE') ? '#2563eb' : auth.authority_verdict?.startsWith('WEAK') ? '#ea580c' : '#dc2626';
+        const gap = auth.backlink_gap || {};
+        const tiers = [gap.high_da_links, gap.medium_da_links, gap.low_da_links].filter(Boolean);
+        const scenariosHtml = tiers.length ? tiers.map(s => '<tr style="border-top: 1px solid #e5e7eb;"><td style="padding: 4px 8px; color: #1e40af; font-weight: 500;">DA ' + (s.da_range || '—') + '</td><td style="padding: 4px 8px; text-align: center; font-weight: 700;">' + (s.links_needed || '?') + '</td><td style="padding: 4px 8px; color: #4b5563;">' + (s.sources || '—') + '</td><td style="padding: 4px 8px; color: #6b7280;">' + (s.timeline || '—') + '</td></tr>').join('') : '';
+        authorityHtml = '<div class="rec-item" style="margin-top: 8px;"><h5 style="margin: 0 0 8px 0;">Step 5: Authority & Backlink Analysis</h5><div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px;"><div style="padding: 8px 12px; background: #f8fafc; border-radius: 6px; text-align: center;"><div style="font-size: 22px; font-weight: 700; color: #1e293b;">' + (auth.domain_authority || 0) + '</div><div style="font-size: 11px; color: #6b7280;">Domain Authority</div></div><div style="padding: 8px 12px; background: #f8fafc; border-radius: 6px; text-align: center;"><div style="font-size: 22px; font-weight: 700; color: #1e293b;">' + (auth.page_authority || 0) + '</div><div style="font-size: 11px; color: #6b7280;">Page Authority</div></div><div style="padding: 8px 12px; background: #f8fafc; border-radius: 6px; text-align: center;"><div style="font-size: 22px; font-weight: 700; color: #1e293b;">' + (auth.referring_domains || 0) + '</div><div style="font-size: 11px; color: #6b7280;">Referring Domains</div></div><div style="padding: 8px 12px; background: ' + verdictColor + '10; border-radius: 6px; text-align: center; border: 1px solid ' + verdictColor + '30;"><div style="font-size: 14px; font-weight: 700; color: ' + verdictColor + ';">' + (auth.authority_verdict || '—') + '</div><div style="font-size: 11px; color: #6b7280;">Verdict</div></div></div>' + (scenariosHtml ? '<div style="padding: 10px; background: #eff6ff; border-radius: 6px; border-left: 3px solid #2563eb; margin-bottom: 8px;"><p style="margin: 0 0 4px 0; font-size: 13px; font-weight: 600; color: #1e40af;">Backlink Gap to Position ' + (gap.target_position || '1-3') + ' <span style="font-weight: 400; font-size: 11px; color: #6b7280;">from position ' + (gap.current_position || '?') + ' | PA ' + (auth.page_authority || '?') + ' → ' + (gap.pa_target || '?') + ' needed (gap: +' + (gap.pa_gap || '?') + ') | ' + (gap.confidence || 'LOW') + ' confidence</span></p><table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px;"><tr style="background: #dbeafe;"><td style="padding: 4px 8px; font-weight: 600;">DA Range</td><td style="padding: 4px 8px; font-weight: 600; text-align: center;">Links Needed</td><td style="padding: 4px 8px; font-weight: 600;">Source Types</td><td style="padding: 4px 8px; font-weight: 600;">Timeline</td></tr>' + scenariosHtml + '</table><p style="margin: 6px 0 0 0; font-size: 12px; color: #4b5563;">' + (gap.reasoning || '') + '</p></div>' : '') + (auth.quick_wins && auth.quick_wins !== 'N/A' ? '<p style="margin: 4px 0 0 0; font-size: 12px; color: #6b7280;"><strong>Quick wins:</strong> ' + auth.quick_wins + '</p>' : '') + '</div>';
+    } else if (auth && !auth.available) {
+        authorityHtml = '<div class="rec-item" style="margin-top: 8px; background: #fffbeb; padding: 10px; border-radius: 6px;"><h5 style="margin: 0 0 4px 0;">Step 5: Authority & Backlink Analysis</h5><p style="margin: 0; font-size: 12px; color: #92400e;">Authority analysis unavailable — configure MOZ_API_TOKEN to enable.</p></div>';
+    }
+    let noActionsHtml = '';
+    if (noActions.length > 0) {
+        noActionsHtml = '<div class="rec-item" style="margin-top: 8px; background: #f0fdf4; padding: 10px; border-radius: 6px;"><h5 style="margin: 0 0 6px 0;">Explicitly Preserved (No Change)</h5><ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #059669;">' + noActions.map(n => '<li style="margin: 2px 0;">' + n + '</li>').join('') + '</ul></div>';
+    }
+    let html = `<div class="ai-recommendation">
+        <div class="rec-item" style="background: ${isAllNoAction ? '#fef2f2' : '#f0fdf4'}; padding: 12px; border-radius: 6px;"><p style="margin: 0; font-size: 14px;"><strong>Summary:</strong> ${rec.summary || (isAllNoAction ? 'No actionable issues found — all elements valid.' : 'Analysis complete.')}</p></div>
+        ${validityHtml}${funnelHtml}${accountabilityHtml}${actionsHtml}${inboundHtml}${authorityHtml}${noActionsHtml}
+    </div>`;
+    if (reproducibility) {
+        const r = reproducibility;
+        html += '<div class="rec-item" style="margin-top: 10px; background: #f9fafb; padding: 10px; border-radius: 4px; font-size: 12px; color: #6b7280;"><strong>Reproducibility</strong><span style="margin-left: 12px;">Hash: <code>' + (r.prompt_hash || '—') + '</code></span><span style="margin-left: 12px;">Model: ' + (r.model || '—') + '</span><span style="margin-left: 12px;">Temp: ' + (r.temperature ?? '—') + '</span><span style="margin-left: 12px;">Tokens: ' + (r.tokens_used?.total ?? '—') + '</span></div>';
+    }
+    return html;
+}
+
 function showTaskDetail(actionId, status) {
-    // Find the task in the data
     const tasks = tasksData[status] || [];
     const task = tasks.find(t => t.action_id === actionId);
     if (!task) return;
 
+    const pm = task.page_metadata || {};
+
     document.getElementById('task-detail-title').textContent = `${task.action_type?.replace(/_/g, ' ') || 'Task'} — ${task.action_id}`;
 
+    // Helper: score class
+    const scoreClass = (val) => val >= 0.6 ? 'score-high' : val >= 0.3 ? 'score-medium' : 'score-low';
+
+    // Helper: capture class label
+    const captureClassLabel = (cc) => {
+        const labels = { 'capture_expansion': 'Capture Expansion', 'capture_validation': 'Capture Validation', 'capture_deferred': 'Capture Deferred', 'no_action': 'No Action' };
+        return labels[cc] || cc || '—';
+    };
+
+    // Helper: format constraint
+    const formatConstraint = (c) => {
+        const labels = { 'visibility_blocked': 'Visibility', 'ctr_suppressed': 'CTR', 'intent_mismatch': 'Intent', 'coverage_gap': 'Coverage', 'cannibalization': 'Cannibal.', 'economic_invalid': 'Economics', 'no_constraint': '—' };
+        return labels[c] || (c || '').replace(/_/g, ' ');
+    };
+
+    // Implementation steps
     const steps = task.implementation_steps || [];
     const stepsHtml = steps.length > 0
-        ? '<ol style="margin: 8px 0; padding-left: 20px; line-height: 1.8;">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
-        : '<p style="color: var(--text-muted);">No implementation steps specified.</p>';
+        ? '<ol class="impl-steps">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
+        : '<p class="no-steps">No implementation steps specified.</p>';
+
+    // Constraint scores bars
+    const constraintScoresHtml = (task.demand_score !== undefined) ? `
+        <div class="constraint-scores">
+            <div class="score-item">
+                <span class="score-label">Demand</span>
+                <span class="score-value ${scoreClass(task.demand_score)}">${((task.demand_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar"><div class="score-bar-fill fill-demand" style="width: ${(task.demand_score || 0) * 100}%"></div></div>
+            </div>
+            <div class="score-item">
+                <span class="score-label">Intent</span>
+                <span class="score-value ${scoreClass(task.intent_score)}">${((task.intent_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar"><div class="score-bar-fill fill-intent" style="width: ${(task.intent_score || 0) * 100}%"></div></div>
+            </div>
+            <div class="score-item">
+                <span class="score-label">Visibility</span>
+                <span class="score-value ${scoreClass(task.visibility_score)}">${((task.visibility_score || 0) * 100).toFixed(0)}%</span>
+                <div class="score-bar"><div class="score-bar-fill fill-visibility" style="width: ${(task.visibility_score || 0) * 100}%"></div></div>
+            </div>
+        </div>
+    ` : '';
+
+    // Detected constraints
+    const detectedConstraints = task.constraints || [];
+    const constraintsHtml = detectedConstraints.length > 0 ? `
+        <div class="detail-section constraints-list">
+            <h4>Detected Constraints</h4>
+            ${detectedConstraints.map(c => `
+                <div class="constraint-item severity-${c.severity}">
+                    <div class="constraint-item-header">
+                        <span class="constraint-type-label">${(c.constraint_type || '').replace(/_/g, ' ')}</span>
+                        <span class="severity-badge severity-${c.severity}">${c.severity}</span>
+                    </div>
+                    <p class="constraint-description">${c.description}</p>
+                    ${c.evidence ? `<div class="constraint-evidence"><code>${JSON.stringify(c.evidence, null, 2)}</code></div>` : ''}
+                    <p class="constraint-action">${c.recommended_action}</p>
+                </div>
+            `).join('')}
+        </div>
+    ` : '';
+
+    // GSC query data table
+    const topQueries = task.top_queries || [];
+    const queriesHtml = `
+        <div class="detail-section">
+            <h4>GSC Query Data</h4>
+            ${topQueries.length > 0 ? `
+            <table class="query-data-table">
+                <thead>
+                    <tr><th>Query</th><th>Impr</th><th>Clicks</th><th>Position</th><th>CTR</th></tr>
+                </thead>
+                <tbody>
+                    ${topQueries.map(q => `
+                        <tr class="${q.position <= 10 ? 'page-one' : q.position <= 20 ? 'page-two' : 'page-three-plus'}">
+                            <td class="query-text">${q.query}</td>
+                            <td class="number">${q.impressions.toLocaleString()}</td>
+                            <td class="number">${q.clicks.toLocaleString()}</td>
+                            <td class="number position-cell">${q.position}</td>
+                            <td class="number">${q.ctr}%</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <p class="query-legend">
+                <span class="legend-item page-one">● Page 1 (1-10)</span>
+                <span class="legend-item page-two">● Page 2 (11-20)</span>
+                <span class="legend-item page-three-plus">● Page 3+ (21+)</span>
+            </p>
+            ` : `<p class="empty-state">No query data available.</p>`}
+        </div>
+    `;
+
+    // Technical issues
+    const issuesHtml = (task.issues && task.issues.length > 0) ? `
+        <div class="detail-section issues-section">
+            <h4>Technical Issues</h4>
+            ${task.issues.map(issue => `
+                <div class="issue-detail issue-${issue.severity}">
+                    <div class="issue-header-detail">
+                        <span class="issue-type-badge">${issue.type.replace(/_/g, ' ')}</span>
+                        <span class="severity-badge severity-${issue.severity}">${issue.severity}</span>
+                    </div>
+                    <p class="issue-description">${issue.description}</p>
+                    <div class="issue-fix-box"><strong>Fix:</strong> <code>${issue.fix}</code></div>
+                    <p class="issue-impact"><em>Impact: ${issue.impact}</em></p>
+                </div>
+            `).join('')}
+        </div>
+    ` : '';
+
+    // Page context table
+    const pageContextHtml = pm.has_crawl_data ? `
+        <div class="detail-section page-context-section">
+            <h4>Page Context</h4>
+            <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${pm.title || '[Not found]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${pm.h1 || '[Not found]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.meta_description || '<em style="color:#999;">[Not found]</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.canonical_url || '<em style="color:#999;">[Not set]</em>'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.word_count || '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Content Preview</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); border-bottom: 1px solid #eee;">${pm.content_preview || '[Not available]'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Robots Meta</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;"><code>${pm.robots_meta || '[None]'}</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Internal Outlinks</td>
+                    <td style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #eee;">${pm.internal_outlinks && pm.internal_outlinks.length > 0 ? pm.internal_outlinks.slice(0,15).map(l => '<div style="margin-bottom:2px;"><span style="color:#6b7280;">' + l.anchor_text + '</span> → <code style="font-size:11px;">' + l.target_url + '</code></div>').join('') : '—'}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Above Fold</td>
+                    <td style="padding: 6px 10px; font-size: 11px; line-height: 1.4; color: var(--text-secondary); max-height: 80px; overflow: auto;">${pm.above_fold_html ? '<code style="word-break:break-all;">' + (pm.above_fold_html || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,300) + (pm.above_fold_html.length > 300 ? '...' : '') + '</code>' : '[Not available]'}</td>
+                </tr>
+            </table>
+        </div>
+    ` : '';
+
+    // AI recommendations — reuse buildAIHtml if available, otherwise render stored HTML
+    const aiRec = task.ai_recommendations;
+    let aiHtml = '';
+    if (aiRec) {
+        if (typeof buildAIHtml === 'function') {
+            aiHtml = buildAIHtml(aiRec, task.ai_reproducibility);
+        } else {
+            aiHtml = '<pre style="white-space: pre-wrap; font-size: 12px;">' + JSON.stringify(aiRec, null, 2) + '</pre>';
+        }
+    }
+
+    // Metrics comparison (if closed with auto-measure data)
+    let metricsHtml = '';
+    if (task.outcome_metrics) {
+        const m = task.outcome_metrics;
+        metricsHtml = `
+        <div style="margin-bottom: 16px;">
+            <h4 style="margin-bottom: 8px;">Metrics Comparison</h4>
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 4px 8px;">Metric</th>
+                    <th style="text-align: right; padding: 4px 8px;">Before</th>
+                    <th style="text-align: right; padding: 4px 8px;">After</th>
+                </tr>
+                ${m.baseline_clicks !== undefined ? `<tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 4px 8px;">Clicks (28d)</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.baseline_clicks}</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.current_clicks}</td>
+                </tr>` : ''}
+                ${m.baseline_impressions !== undefined ? `<tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 4px 8px;">Impressions (28d)</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.baseline_impressions}</td>
+                    <td style="text-align: right; padding: 4px 8px;">${m.current_impressions}</td>
+                </tr>` : ''}
+                ${m.baseline_position !== undefined ? `<tr>
+                    <td style="padding: 4px 8px;">Avg Position</td>
+                    <td style="text-align: right; padding: 4px 8px;">${Number(m.baseline_position).toFixed(1)}</td>
+                    <td style="text-align: right; padding: 4px 8px;">${Number(m.current_position).toFixed(1)}</td>
+                </tr>` : ''}
+            </table>
+        </div>`;
+    }
 
     document.getElementById('task-detail-body').innerHTML = `
-        <div class="detail-grid" style="margin-bottom: 16px;">
+        <div class="detail-grid">
             <div class="detail-item">
                 <label>URL</label>
                 <p><a href="${task.url}" target="_blank" class="detail-link">${task.url}</a></p>
             </div>
             <div class="detail-item">
-                <label>Action Type</label>
-                <p><span class="action-badge action-${(task.action_type || '').toLowerCase()}">${(task.action_type || '').replace(/_/g, ' ')}</span></p>
+                <label>Capture Class</label>
+                <p><span class="capture-class-badge ${(task.capture_class || 'no_action').replace(/_/g, '-')}">${captureClassLabel(task.capture_class)}</span></p>
             </div>
             <div class="detail-item">
-                <label>Expected Value</label>
-                <p class="detail-value">$${task.score_value}</p>
+                <label>Est. Value</label>
+                <p class="detail-value" title="Monthly recoverable value">$${task.score_value}</p>
             </div>
             <div class="detail-item">
                 <label>Confidence</label>
                 <p class="detail-value">${(task.confidence * 100).toFixed(0)}%</p>
             </div>
-            ${task.primary_constraint ? `
             <div class="detail-item">
                 <label>Primary Constraint</label>
-                <p>${task.primary_constraint.replace(/_/g, ' ')}</p>
-            </div>` : ''}
+                <p><span class="constraint-badge constraint-${(task.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(task.primary_constraint)}</span></p>
+            </div>
             <div class="detail-item">
                 <label>Risk Level</label>
                 <p><span class="risk-badge risk-${task.risk_level || 'low'}">${task.risk_level || 'low'}</span></p>
             </div>
-            ${task.asset_type ? `
-            <div class="detail-item">
-                <label>Asset Type</label>
-                <p>${task.asset_type}</p>
-            </div>` : ''}
-            ${task.mode ? `
-            <div class="detail-item">
-                <label>Mode</label>
-                <p>${task.mode.replace(/_/g, ' ')}</p>
-            </div>` : ''}
-            <div class="detail-item">
-                <label>Created</label>
-                <p>${task.created_at ? new Date(task.created_at).toLocaleString() : '—'}</p>
-            </div>
-            ${task.implemented_at ? `
-            <div class="detail-item">
-                <label>Implemented</label>
-                <p>${new Date(task.implemented_at).toLocaleString()}</p>
-            </div>` : ''}
         </div>
-        <div style="margin-bottom: 16px;">
-            <h4 style="margin-bottom: 8px;">Implementation Steps</h4>
+        ${constraintScoresHtml}
+        ${constraintsHtml}
+        ${queriesHtml}
+        ${issuesHtml}
+        <div class="detail-section">
+            <h4>Implementation Steps</h4>
             ${stepsHtml}
         </div>
+        ${task.rollback_plan ? `
+        <div class="detail-section rollback-section">
+            <h4>Rollback Plan</h4>
+            <p>${task.rollback_plan}</p>
+        </div>
+        ` : ''}
+        ${task.learning_reference ? `
+        <div class="detail-section learning-ref">
+            <h4>Learning Reference</h4>
+            <p>${task.learning_reference}</p>
+        </div>
+        ` : ''}
+        ${pageContextHtml}
+        ${aiHtml ? `
+        <div class="detail-section ai-section">
+            <h4>AI Recommendations</h4>
+            <div class="ai-content">${aiHtml}</div>
+        </div>
+        ` : ''}
+        ${metricsHtml}
         ${task.outcome ? `
         <div style="margin-bottom: 16px; padding: 12px; border-radius: 6px; background: ${task.outcome === 'positive' ? '#f0fdf4' : task.outcome === 'negative' ? '#fef2f2' : '#f9fafb'};">
             <h4 style="margin-bottom: 4px;">Outcome: ${task.outcome.toUpperCase()}</h4>
@@ -281,6 +708,7 @@ function showTaskDetail(actionId, status) {
         </div>
         ` : ''}
         <div style="display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--border-color); padding-top: 12px;">
+            <button class="btn btn-secondary" onclick="printTaskDetail()">Print</button>
             <button class="btn btn-secondary" onclick="closeTaskDetail()">Close</button>
         </div>
     `;
@@ -290,6 +718,30 @@ function showTaskDetail(actionId, status) {
 
 function closeTaskDetail() {
     document.getElementById('task-detail-modal').classList.add('hidden');
+}
+
+function printTaskDetail() {
+    const title = document.getElementById('task-detail-title').textContent;
+    const body = document.getElementById('task-detail-body').innerHTML;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    w.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 20px auto; padding: 0 20px; color: #1a1a1a; font-size: 13px; line-height: 1.5; }
+            h2 { font-size: 18px; border-bottom: 2px solid #333; padding-bottom: 6px; margin-bottom: 16px; }
+            h4 { font-size: 14px; margin: 16px 0 8px; }
+            h5 { font-size: 13px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            td, th { padding: 4px 8px; border-bottom: 1px solid #ddd; text-align: left; }
+            code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+            pre { white-space: pre-wrap; font-size: 12px; background: #f8f9fa; padding: 10px; border-radius: 4px; border-left: 3px solid #4f46e5; }
+            .btn, button { display: none !important; }
+            a { color: #2563eb; }
+            @media print { body { margin: 0; } }
+        </style>
+    </head><body><h2>${title}</h2>${body}</body></html>`);
+    w.document.close();
+    w.focus();
+    w.print();
 }
 
 function formatUrl(url) {
@@ -307,6 +759,51 @@ async function advanceTask(actionId) {
         loadTasks();
     } else {
         showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+    }
+}
+
+async function markDone(actionId) {
+    if (!confirm('Confirm: you have deployed the change (e.g., in Magento). The evaluation clock will start now.')) return;
+    try {
+        const res = await fetch(`/api/tasks/${actionId}/mark-done`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            loadTasks();
+        } else {
+            showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (e) {
+        showToast('Network error: ' + e.message, 'error');
+    }
+}
+
+async function runAutoMeasure() {
+    const btn = document.getElementById('btn-check-measurements');
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+
+    try {
+        const res = await fetch('/api/tasks/auto-measure', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.measured > 0) {
+            // Check if any tasks advanced to the next variant
+            const advanced = (data.results || []).filter(r => r.variant_advanced);
+            if (advanced.length > 0) {
+                advanced.forEach(r => showToast(r.message, 'warning'));
+            }
+            const closed = data.measured - advanced.length;
+            if (closed > 0) showToast(`Measured and closed ${closed} task(s)`, 'success');
+            loadTasks();
+        } else {
+            showToast('No tasks ready for measurement yet', 'info');
+        }
+    } catch (err) {
+        showToast('Error checking measurements: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Check Measurements';
     }
 }
 
@@ -419,6 +916,26 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.classList.add('hidden'), 3000);
 }
 
+// Initial load, then silently check for auto-measurable tasks
 loadTasks();
+fetch('/api/tasks/auto-measure', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+        if (data.measured > 0) {
+            showToast(`Auto-measured ${data.measured} task(s)`, 'success');
+            loadTasks();
+        }
+    })
+    .catch(() => {});
+
+// Close any open modal on Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeTaskDetail();
+        closeOutcomeModal();
+        closeRejectModal();
+        closeSendBackModal();
+    }
+});
 </script>
 {% endblock %}

@@ -257,26 +257,51 @@ class ConstraintDetector:
 
     def _evaluate_intent(self, asset: PageAsset) -> float:
         """
-        Evaluate commercial intent from behavior signals.
+        Evaluate commercial intent from behavior AND query signals.
 
         Intent is semantic and behavioral, not financial.
+        Blogs with commercial-informational queries (e.g. "best X for Y")
+        have real intent even with zero GA4 conversions.
         """
         score = 0.0
 
-        # Asset type implies intent
+        # Asset type implies baseline intent
         if asset.asset_type == AssetType.PRODUCT:
             score += 0.4  # Product pages have inherent commercial intent
         elif asset.asset_type == AssetType.CATEGORY:
             score += 0.3
+        elif asset.asset_type == AssetType.BLOG:
+            score += 0.05  # Blogs have minimal baseline, but queries can boost
+
+        # GSC query commercial intent signals
+        # Queries reveal what users actually want — this is the strongest
+        # semantic signal for blogs that lack GA4 conversion data.
+        if asset.gsc.top_queries:
+            commercial_patterns = (
+                "best", "buy", "review", "top", "vs", "compare", "price",
+                "cheap", "affordable", "worth", "recommend", "guide",
+                "for toddlers", "for kids", "for baby", "for children",
+                "gift", "set", "kit",
+            )
+            total_impressions = sum(q.impressions for q in asset.gsc.top_queries)
+            commercial_impressions = 0
+            for q in asset.gsc.top_queries:
+                query_lower = q.query.lower()
+                if any(p in query_lower for p in commercial_patterns):
+                    commercial_impressions += q.impressions
+            if total_impressions > 0:
+                commercial_ratio = commercial_impressions / total_impressions
+                # Up to 0.35 from query intent (significant weight)
+                score += commercial_ratio * 0.35
 
         # GA4 engagement signals
         if asset.ga4.sessions_28d > 0:
             engagement_rate = asset.ga4.engaged_sessions_28d / asset.ga4.sessions_28d
-            score += engagement_rate * 0.3
+            score += engagement_rate * 0.2
 
-        # Add-to-cart behavior (strongest intent signal)
+        # Add-to-cart behavior (strongest behavioral intent signal)
         if asset.ga4.add_to_carts_28d > 0:
-            score += 0.3
+            score += 0.25
 
         # Revenue existence (but don't penalize absence)
         if asset.ga4.revenue_28d > 0:
@@ -308,8 +333,10 @@ class ConstraintDetector:
         else:
             visibility_score = 0.1
 
-        # CONSTRAINT: Visibility blocked (high impressions, poor position)
-        if impressions >= 500 and position > 10:
+        # CONSTRAINT: Visibility blocked (impressions exist, poor position)
+        # Lowered from 500 to 50: any meaningful impression signal with poor
+        # position represents blocked demand worth surfacing to operators.
+        if impressions >= 50 and position > 10:
             severity = "critical" if impressions >= 5000 else "high" if impressions >= 1000 else "medium"
             constraints.append(ConstraintSignal(
                 constraint_type=ConstraintType.VISIBILITY_BLOCKED,
@@ -326,7 +353,9 @@ class ConstraintDetector:
             ))
 
         # CONSTRAINT: CTR suppressed (good position but low CTR)
-        if position <= 10 and impressions >= 500:
+        # Lowered from 500 to 100: pages ranking on page 1 with any
+        # meaningful impressions deserve CTR analysis.
+        if position <= 10 and impressions >= 100:
             expected_ctr = self.expected_ctr_by_position.get(int(position), 0.01)
             if actual_ctr < expected_ctr * 0.5:  # Less than half expected
                 constraints.append(ConstraintSignal(
@@ -380,15 +409,22 @@ class ConstraintDetector:
                             competing_pages.append(other.url)
 
                 if len(competing_pages) > 0:
+                    competing_display = ", ".join(competing_pages[:3])
                     constraints.append(ConstraintSignal(
                         constraint_type=ConstraintType.CANNIBALIZATION,
                         severity="medium",
-                        description=f"Query '{top_query}' also targets {len(competing_pages)} other page(s)",
+                        description=(
+                            f"Query '{top_query}' also targets {len(competing_pages)} other page(s): "
+                            f"{competing_display}"
+                        ),
                         evidence={
                             "query": top_query,
-                            "competing_pages": competing_pages[:3],  # Limit for display
+                            "competing_pages": competing_pages[:3],
                         },
-                        recommended_action="Consolidate content or differentiate targeting",
+                        recommended_action=(
+                            f"Review competing page(s) ({competing_display}) and either "
+                            f"consolidate content or differentiate targeting for '{top_query}'"
+                        ),
                         reversibility="slow",
                     ))
 
@@ -573,9 +609,13 @@ class ConstraintDetector:
                          if a.asset_type in (AssetType.PRODUCT, AssetType.CATEGORY)]
         total_revenue_pages = len(revenue_pages)
 
+        # Prefer live-fetched internal_outlinks (accurate) over batch outlinks count
+        # Batch crawl may report 0 outlinks if run without --crawl; live fetch is ground truth
+        effective_outlinks = len(asset.internal_outlinks) if asset.internal_outlinks else asset.outlinks
+
         # If blog has meaningful traffic but few outlinks, it's poorly routed
         has_traffic = asset.ga4.sessions_28d >= 10 or asset.gsc.impressions_28d >= 500
-        has_few_outlinks = asset.outlinks < 3
+        has_few_outlinks = effective_outlinks < 3
 
         if has_traffic and has_few_outlinks:
             severity = "high" if asset.gsc.impressions_28d >= 2000 else "medium"
@@ -584,13 +624,13 @@ class ConstraintDetector:
                 severity=severity,
                 description=(
                     f"Blog has {asset.gsc.impressions_28d:,} impressions and "
-                    f"{asset.ga4.sessions_28d} sessions but only {asset.outlinks} outlinks. "
+                    f"{asset.ga4.sessions_28d} sessions but only {effective_outlinks} outlinks. "
                     f"Traffic without routing to revenue pages has low value."
                 ),
                 evidence={
                     "impressions": asset.gsc.impressions_28d,
                     "sessions": asset.ga4.sessions_28d,
-                    "outlinks": asset.outlinks,
+                    "outlinks": effective_outlinks,
                     "total_revenue_pages_on_site": total_revenue_pages,
                 },
                 recommended_action=(
@@ -701,28 +741,53 @@ class ConstraintDetector:
         """
         Calculate confidence in the assessment.
 
-        More data = higher confidence.
+        More data = higher confidence. Missing data = lower confidence.
+        A page with 0 GA4 sessions, 0% intent, and 1 click should NOT
+        be 85% confident — that's a data-poor assessment.
         """
         confidence = 0.5  # Base
 
-        # More impressions = more confident about demand
+        # ── Rewards: more data → higher confidence ──
+        # Impressions (demand signal strength)
         if asset.gsc.impressions_28d >= 5000:
-            confidence += 0.2
-        elif asset.gsc.impressions_28d >= 1000:
-            confidence += 0.1
-
-        # More clicks = more confident about behavior
-        if asset.gsc.clicks_28d >= 100:
             confidence += 0.15
-        elif asset.gsc.clicks_28d >= 20:
-            confidence += 0.1
+        elif asset.gsc.impressions_28d >= 1000:
+            confidence += 0.08
+        elif asset.gsc.impressions_28d >= 100:
+            confidence += 0.03
 
-        # GA4 data present
+        # Clicks (behavioral validation)
+        if asset.gsc.clicks_28d >= 100:
+            confidence += 0.1
+        elif asset.gsc.clicks_28d >= 20:
+            confidence += 0.05
+
+        # GA4 data present (on-site behavior observed)
         if asset.ga4.sessions_28d > 0:
             confidence += 0.1
 
-        # Query data present
+        # Query data richness
         if asset.gsc.top_queries and len(asset.gsc.top_queries) >= 3:
             confidence += 0.05
 
-        return min(confidence, 0.95)
+        # ── Penalties: missing data → lower confidence ──
+        # No GA4 sessions means we have ZERO on-site behavior data
+        if asset.ga4.sessions_28d == 0:
+            confidence -= 0.1
+
+        # Very low intent means we don't understand user needs well
+        if intent_score < 0.1:
+            confidence -= 0.1
+        elif intent_score < 0.2:
+            confidence -= 0.05
+
+        # Very few clicks means behavioral signal is weak
+        if asset.gsc.clicks_28d < 5:
+            confidence -= 0.1
+
+        # No query data means we can't assess search intent
+        if not asset.gsc.top_queries:
+            confidence -= 0.05
+
+        # Floor at 0.2 (never zero — we still have URL + type)
+        return min(max(confidence, 0.2), 0.95)
