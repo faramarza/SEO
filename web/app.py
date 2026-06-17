@@ -605,13 +605,16 @@ def api_ai_recommend():
     exploration_threshold = gov_config.get("exploration_confidence_threshold", 0.55)
     preservation_threshold = gov_config.get("preservation_confidence_threshold", 0.75)
 
-    # Get API key from environment or config
-    api_key_env = ai_config.get("api_key_env", "OPENAI_API_KEY")
+    model = ai_config.get("model", "gpt-4o-mini")
+
+    # Resolve the correct API key based on the selected model
+    if model.startswith("claude-"):
+        api_key_env = "ANTHROPIC_API_KEY"
+    else:
+        api_key_env = ai_config.get("api_key_env", "OPENAI_API_KEY")
     api_key = os.environ.get(api_key_env)
     if not api_key:
         return jsonify({"error": f"AI API key not configured. Set {api_key_env} environment variable."}), 400
-
-    model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
     max_tokens = ai_config.get("max_tokens", 4500)
     timeout_sec = ai_config.get("timeout", 120)
@@ -1953,6 +1956,21 @@ If nothing is broken or improvable:
             anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
             if not anthropic_key:
                 return jsonify({"error": "ANTHROPIC_API_KEY not set. Add it to your environment."}), 400
+
+            anthropic_body = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": system_message,
+                "messages": [
+                    {"role": "user", "content": prompt},
+                ],
+            }
+            # Fable 5 has thinking always-on; temperature is not supported alongside thinking
+            if model == "claude-fable-5":
+                anthropic_body["thinking"] = {"type": "adaptive"}
+            else:
+                anthropic_body["temperature"] = temperature
+
             api_response = httpx.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -1960,21 +1978,18 @@ If nothing is broken or improvable:
                     "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "system": system_message,
-                    "messages": [
-                        {"role": "user", "content": prompt},
-                    ],
-                },
+                json=anthropic_body,
                 timeout=api_timeout,
             )
             if api_response.status_code != 200:
                 return jsonify({"error": f"Anthropic API error: {api_response.text}"}), 500
             result = api_response.json()
-            ai_content = result.get("content", [{}])[0].get("text", "")
+            # Extract text from content blocks (skip thinking blocks for Fable 5)
+            ai_content = ""
+            for block in result.get("content", []):
+                if block.get("type") == "text":
+                    ai_content = block.get("text", "")
+                    break
             usage = result.get("usage", {})
             usage = {
                 "prompt_tokens": usage.get("input_tokens"),
@@ -2907,11 +2922,10 @@ def api_ads():
         project_root = Path(__file__).parent.parent
         creds_path = str(project_root / creds_path)
 
-    # Debug: Check if file exists
     if not Path(creds_path).exists():
         return jsonify({
             "connected": False,
-            "message": f"Credentials file not found: {creds_path}",
+            "message": "Google Ads not configured — credentials file missing",
             "campaigns": [],
             "summary": {},
         })
@@ -3648,11 +3662,16 @@ def api_ai_batch_estimate():
 
     # Per-million-token pricing
     cost_table = {
+        "claude-fable-5": (10.0, 50.0),
+        "claude-opus-4-8": (5.0, 25.0),
+        "claude-opus-4-7": (5.0, 25.0),
         "claude-opus-4-6": (5.0, 25.0),
-        "claude-sonnet-4-5-20250929": (3.0, 15.0),
+        "claude-sonnet-4-6": (3.0, 15.0),
+        "claude-haiku-4-5": (1.0, 5.0),
+        "gpt-4o": (2.50, 10.0),
         "gpt-4o-mini": (0.15, 0.60),
-        "gpt-5.2": (2.0, 8.0),
         "gpt-4.1": (2.0, 8.0),
+        "gpt-4.1-mini": (0.40, 1.60),
     }
     input_price, output_price = cost_table.get(model, (3.0, 15.0))
 

@@ -394,8 +394,8 @@ async function loadAdsData() {
                 `).join('');
             }
         } else {
-            indicator.style.color = '#da1e28';
-            statusText.textContent = data.message || 'Not connected';
+            indicator.style.color = '#878d96';
+            statusText.textContent = data.message || 'Not configured';
         }
     } catch (err) {
         console.error('Failed to load Ads data:', err);

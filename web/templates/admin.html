@@ -13,18 +13,18 @@
                 <label for="ai-model">Model</label>
                 <select id="ai-model">
                     <optgroup label="Anthropic">
-                        <option value="claude-opus-4-6">Claude Opus 4.6</option>
-                        <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
-                        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                        <option value="claude-fable-5">Claude Fable 5 ($10/$50 per 1M)</option>
+                        <option value="claude-opus-4-8">Claude Opus 4.8 ($5/$25 per 1M)</option>
+                        <option value="claude-opus-4-7">Claude Opus 4.7 ($5/$25 per 1M)</option>
+                        <option value="claude-opus-4-6">Claude Opus 4.6 ($5/$25 per 1M)</option>
+                        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 ($3/$15 per 1M)</option>
+                        <option value="claude-haiku-4-5">Claude Haiku 4.5 ($1/$5 per 1M)</option>
                     </optgroup>
                     <optgroup label="OpenAI">
-                        <option value="gpt-5.2">GPT-5.2 Thinking</option>
-                        <option value="gpt-5">GPT-5</option>
-                        <option value="gpt-5-mini">GPT-5 Mini</option>
-                        <option value="gpt-4.1">GPT-4.1</option>
-                        <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
                         <option value="gpt-4o">GPT-4o</option>
                         <option value="gpt-4o-mini">GPT-4o Mini</option>
+                        <option value="gpt-4.1">GPT-4.1</option>
+                        <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
                     </optgroup>
                 </select>
             </div>
@@ -256,9 +256,13 @@ async function loadConfig() {
 }
 
 async function saveAIConfig() {
+    const model = document.getElementById('ai-model').value;
+    const isAnthropic = model.startsWith('claude-');
     const payload = {
         ai: {
-            model: document.getElementById('ai-model').value,
+            provider: isAnthropic ? 'anthropic' : 'openai',
+            model: model,
+            api_key_env: isAnthropic ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY',
             temperature: parseFloat(document.getElementById('ai-temperature').value),
             max_tokens: parseInt(document.getElementById('ai-max-tokens').value),
             timeout: parseInt(document.getElementById('ai-timeout').value),
