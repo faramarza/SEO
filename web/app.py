@@ -40,15 +40,45 @@ app = Flask(__name__,
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "defaults.json"
 DATA_PATH = Path(__file__).parent.parent / "data"
 
-# Global state for background jobs
-job_state = {
-    "running": False,
-    "type": None,
-    "progress": 0,
-    "total": 0,
-    "message": "",
-    "error": None,
-}
+# Global state for background jobs — synced to a JSON file so all gunicorn
+# workers can read the current state via /api/job-status.
+JOB_STATE_PATH = DATA_PATH / "job_state.json"
+
+
+class _SyncDict(dict):
+    """Dict that auto-syncs to a JSON file on every write.
+
+    Unlike the old proxy class, reads use standard dict (in-memory) so the
+    worker running the job always sees its own updates. Only the status
+    endpoint reads from the file for cross-worker visibility.
+    """
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._sync()
+
+    def update(self, __m=(), **kwargs):
+        super().update(__m, **kwargs)
+        self._sync()
+
+    def _sync(self):
+        try:
+            tmp = JOB_STATE_PATH.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                json.dump(dict(self), f)
+            tmp.replace(JOB_STATE_PATH)
+        except OSError:
+            pass
+
+
+job_state = _SyncDict(
+    running=False,
+    type=None,
+    progress=0,
+    total=0,
+    message="",
+    error=None,
+)
 
 
 NOTIFICATIONS_PATH = DATA_PATH / "notifications.json"
@@ -4497,8 +4527,14 @@ def api_internal_link_map():
 
 @app.route("/api/job-status")
 def api_job_status():
-    """Get current job status."""
-    return jsonify(job_state)
+    """Get current job status — reads from shared file for cross-worker visibility."""
+    try:
+        if JOB_STATE_PATH.exists():
+            with open(JOB_STATE_PATH) as f:
+                return jsonify(json.load(f))
+    except (json.JSONDecodeError, OSError):
+        pass
+    return jsonify(dict(job_state))
 
 
 @app.route("/api/debug")
