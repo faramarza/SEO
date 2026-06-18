@@ -2821,6 +2821,26 @@ def api_fix_sent_back_tasks():
     })
 
 
+@app.route("/api/tasks/fix-rejected", methods=["POST"])
+def api_fix_rejected_tasks():
+    """Clean up tasks that were incorrectly closed by the old reject bug.
+    Deletes any closed task whose notes start with 'REJECTED' so the URL
+    rejoins the opportunity pool."""
+    ledger = ActionLedger()
+    fixed = []
+    for action in ledger.get_actions_by_status(ActionStatus.CLOSED):
+        if action.notes and action.notes.startswith("REJECTED"):
+            fixed.append({"action_id": action.action_id, "url": action.url})
+            ledger.delete_action(action.action_id)
+
+    return jsonify({
+        "success": True,
+        "fixed": len(fixed),
+        "tasks": fixed,
+        "message": f"Removed {len(fixed)} incorrectly rejected task(s). Their URLs will rejoin the opportunity pool.",
+    })
+
+
 @app.route("/api/tasks/<action_id>/outcome", methods=["POST"])
 def api_record_outcome(action_id):
     """Record outcome for a task."""
