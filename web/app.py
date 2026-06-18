@@ -1605,6 +1605,15 @@ Any TITLE_META_TEST recommendation MUST include the EXACT proposed text:
   2. The complete new meta description text (not a description — the actual text)
   3. WHY this specific wording — tie to dominant GSC queries by name
 
+CHARACTER LENGTH RULES (Google best practices):
+  - Title tag: 50-60 characters MAX. Google truncates at ~60 characters (or ~580px).
+    Titles over 60 chars get cut off with "..." in SERPs — losing your key message.
+  - Meta description: 150-160 characters MAX. Google truncates at ~160 characters.
+    Descriptions over 160 chars get cut off. Front-load the value proposition.
+  - Include character count in parentheses after each proposed title and meta description.
+    Example: "Best Wooden Trains for Kids" (28 chars)
+  - If a proposed title exceeds 60 chars, REWRITE it shorter. No exceptions.
+
 YEAR RULE: If any variant includes a year, it MUST use current_year from INPUTS (currently {datetime.now().year}).
 NEVER use a past year. Stale years make the page look outdated in SERPs.
 
