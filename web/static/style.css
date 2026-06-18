@@ -646,6 +646,10 @@ body {
     padding: 10px 16px;
 }
 
+.job-progress.hidden {
+    display: none;
+}
+
 .progress-bar {
     flex: 1;
     height: 14px;
