@@ -40,13 +40,8 @@ app = Flask(__name__,
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "defaults.json"
 DATA_PATH = Path(__file__).parent.parent / "data"
 
-# Global state for background jobs — file-backed so all gunicorn workers see the same state.
-# Each gunicorn worker is a separate process with its own memory. Worker A starts the
-# eval thread and sets running=True in memory, but worker B (handling /api/job-status
-# polls) has running=False in its own memory. File-backing fixes this.
-JOB_STATE_PATH = DATA_PATH / "job_state.json"
-
-_JOB_STATE_DEFAULTS = {
+# Global state for background jobs
+job_state = {
     "running": False,
     "type": None,
     "progress": 0,
@@ -54,63 +49,6 @@ _JOB_STATE_DEFAULTS = {
     "message": "",
     "error": None,
 }
-
-
-class _JobState:
-    """Dict-like proxy backed by a shared JSON file for cross-worker visibility.
-
-    Keeps an in-memory copy and syncs to disk on writes. Reads from disk
-    on __getitem__/get/to_dict so other workers' updates are visible.
-    All file operations are wrapped in try/except so permission errors
-    don't crash the application.
-    """
-
-    def __init__(self):
-        self._mem = dict(_JOB_STATE_DEFAULTS)
-
-    def _read_file(self) -> dict:
-        try:
-            if JOB_STATE_PATH.exists():
-                with open(JOB_STATE_PATH) as f:
-                    data = json.loads(f.read())
-                    if isinstance(data, dict):
-                        return data
-        except (json.JSONDecodeError, OSError, ValueError):
-            pass
-        return dict(_JOB_STATE_DEFAULTS)
-
-    def _write_file(self):
-        try:
-            DATA_PATH.mkdir(parents=True, exist_ok=True)
-            tmp = JOB_STATE_PATH.with_suffix(".tmp")
-            with open(tmp, "w") as f:
-                json.dump(self._mem, f)
-            tmp.replace(JOB_STATE_PATH)
-        except OSError as e:
-            print(f"[job_state] Warning: could not write {JOB_STATE_PATH}: {e}")
-
-    def __getitem__(self, key):
-        # Read from file to see cross-worker updates
-        file_state = self._read_file()
-        return file_state.get(key, _JOB_STATE_DEFAULTS.get(key))
-
-    def __setitem__(self, key, value):
-        self._mem[key] = value
-        self._write_file()
-
-    def get(self, key, default=None):
-        file_state = self._read_file()
-        return file_state.get(key, default)
-
-    def update(self, d):
-        self._mem.update(d)
-        self._write_file()
-
-    def to_dict(self):
-        return self._read_file()
-
-
-job_state = _JobState()
 
 
 NOTIFICATIONS_PATH = DATA_PATH / "notifications.json"
@@ -3837,14 +3775,13 @@ def api_run_evaluation():
     data = request.json or {}
     run_crawl = data.get("crawl", False)
 
-    # Set running state BEFORE starting the thread — single write to file
     job_state.update({
         "running": True,
         "type": "evaluation",
+        "error": None,
+        "message": "Starting evaluation...",
         "progress": 0,
         "total": 0,
-        "message": "Starting evaluation...",
-        "error": None,
     })
 
     def run_workflow():
@@ -4561,11 +4498,7 @@ def api_internal_link_map():
 @app.route("/api/job-status")
 def api_job_status():
     """Get current job status."""
-    state = job_state.to_dict()
-    # Add file path info for debugging
-    state["_debug_file"] = str(JOB_STATE_PATH)
-    state["_debug_file_exists"] = JOB_STATE_PATH.exists()
-    return jsonify(state)
+    return jsonify(job_state)
 
 
 @app.route("/api/debug")
