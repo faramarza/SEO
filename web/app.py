@@ -41,9 +41,9 @@ CONFIG_PATH = Path(__file__).parent.parent / "config" / "defaults.json"
 DATA_PATH = Path(__file__).parent.parent / "data"
 
 # Global state for background jobs — file-backed so all gunicorn workers see the same state.
-# Without this, worker A starts the job and sets running=True, but worker B (handling
-# the /api/job-status poll) has its own copy with running=False, so the progress bar
-# never updates.
+# Each gunicorn worker is a separate process with its own memory. Worker A starts the
+# eval thread and sets running=True in memory, but worker B (handling /api/job-status
+# polls) has running=False in its own memory. File-backing fixes this.
 JOB_STATE_PATH = DATA_PATH / "job_state.json"
 
 _JOB_STATE_DEFAULTS = {
@@ -56,45 +56,58 @@ _JOB_STATE_DEFAULTS = {
 }
 
 
-def _read_job_state() -> dict:
-    try:
-        if JOB_STATE_PATH.exists():
-            with open(JOB_STATE_PATH) as f:
-                return json.loads(f.read())
-    except (json.JSONDecodeError, OSError):
-        pass
-    return dict(_JOB_STATE_DEFAULTS)
-
-
-def _write_job_state(state: dict):
-    DATA_PATH.mkdir(parents=True, exist_ok=True)
-    tmp = JOB_STATE_PATH.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump(state, f)
-    tmp.replace(JOB_STATE_PATH)
-
-
 class _JobState:
-    """Dict-like proxy that reads/writes to a shared JSON file."""
+    """Dict-like proxy backed by a shared JSON file for cross-worker visibility.
+
+    Keeps an in-memory copy and syncs to disk on writes. Reads from disk
+    on __getitem__/get/to_dict so other workers' updates are visible.
+    All file operations are wrapped in try/except so permission errors
+    don't crash the application.
+    """
+
+    def __init__(self):
+        self._mem = dict(_JOB_STATE_DEFAULTS)
+
+    def _read_file(self) -> dict:
+        try:
+            if JOB_STATE_PATH.exists():
+                with open(JOB_STATE_PATH) as f:
+                    data = json.loads(f.read())
+                    if isinstance(data, dict):
+                        return data
+        except (json.JSONDecodeError, OSError, ValueError):
+            pass
+        return dict(_JOB_STATE_DEFAULTS)
+
+    def _write_file(self):
+        try:
+            DATA_PATH.mkdir(parents=True, exist_ok=True)
+            tmp = JOB_STATE_PATH.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                json.dump(self._mem, f)
+            tmp.replace(JOB_STATE_PATH)
+        except OSError as e:
+            print(f"[job_state] Warning: could not write {JOB_STATE_PATH}: {e}")
 
     def __getitem__(self, key):
-        return _read_job_state().get(key, _JOB_STATE_DEFAULTS.get(key))
+        # Read from file to see cross-worker updates
+        file_state = self._read_file()
+        return file_state.get(key, _JOB_STATE_DEFAULTS.get(key))
 
     def __setitem__(self, key, value):
-        state = _read_job_state()
-        state[key] = value
-        _write_job_state(state)
+        self._mem[key] = value
+        self._write_file()
 
     def get(self, key, default=None):
-        return _read_job_state().get(key, default)
+        file_state = self._read_file()
+        return file_state.get(key, default)
 
     def update(self, d):
-        state = _read_job_state()
-        state.update(d)
-        _write_job_state(state)
+        self._mem.update(d)
+        self._write_file()
 
     def to_dict(self):
-        return _read_job_state()
+        return self._read_file()
 
 
 job_state = _JobState()
@@ -3824,18 +3837,17 @@ def api_run_evaluation():
     data = request.json or {}
     run_crawl = data.get("crawl", False)
 
-    # Set running state BEFORE starting the thread to prevent race condition
-    # where the frontend polls /api/job-status before the thread sets running=True,
-    # sees running=False, and stops polling.
-    job_state["running"] = True
-    job_state["type"] = "evaluation"
-    job_state["progress"] = 0
-    job_state["total"] = 0
-    job_state["message"] = "Starting evaluation..."
-    job_state["error"] = None
+    # Set running state BEFORE starting the thread — single write to file
+    job_state.update({
+        "running": True,
+        "type": "evaluation",
+        "progress": 0,
+        "total": 0,
+        "message": "Starting evaluation...",
+        "error": None,
+    })
 
     def run_workflow():
-        global job_state
         import traceback
         try:
 
@@ -4139,15 +4151,17 @@ def api_ai_batch_analyze():
     page_types = data.get("page_types", [])  # e.g. ["product", "category"]
     selected_urls = set(data.get("urls", []))  # specific URLs to analyze
 
-    # Set running state BEFORE starting the thread (same race fix as evaluation)
-    job_state["running"] = True
-    job_state["type"] = "batch_ai"
-    job_state["error"] = None
-    job_state["message"] = "Starting AI analysis..."
-    job_state["progress"] = 0
+    # Set running state BEFORE starting the thread — single write to file
+    job_state.update({
+        "running": True,
+        "type": "batch_ai",
+        "error": None,
+        "message": "Starting AI analysis...",
+        "progress": 0,
+        "total": 0,
+    })
 
     def run_batch():
-        global job_state
         import traceback
         try:
 
@@ -4547,7 +4561,11 @@ def api_internal_link_map():
 @app.route("/api/job-status")
 def api_job_status():
     """Get current job status."""
-    return jsonify(job_state.to_dict())
+    state = job_state.to_dict()
+    # Add file path info for debugging
+    state["_debug_file"] = str(JOB_STATE_PATH)
+    state["_debug_file_exists"] = JOB_STATE_PATH.exists()
+    return jsonify(state)
 
 
 @app.route("/api/debug")
