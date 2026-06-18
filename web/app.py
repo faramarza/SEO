@@ -40,8 +40,13 @@ app = Flask(__name__,
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "defaults.json"
 DATA_PATH = Path(__file__).parent.parent / "data"
 
-# Global state for background jobs
-job_state = {
+# Global state for background jobs — file-backed so all gunicorn workers see the same state.
+# Without this, worker A starts the job and sets running=True, but worker B (handling
+# the /api/job-status poll) has its own copy with running=False, so the progress bar
+# never updates.
+JOB_STATE_PATH = DATA_PATH / "job_state.json"
+
+_JOB_STATE_DEFAULTS = {
     "running": False,
     "type": None,
     "progress": 0,
@@ -49,6 +54,50 @@ job_state = {
     "message": "",
     "error": None,
 }
+
+
+def _read_job_state() -> dict:
+    try:
+        if JOB_STATE_PATH.exists():
+            with open(JOB_STATE_PATH) as f:
+                return json.loads(f.read())
+    except (json.JSONDecodeError, OSError):
+        pass
+    return dict(_JOB_STATE_DEFAULTS)
+
+
+def _write_job_state(state: dict):
+    DATA_PATH.mkdir(parents=True, exist_ok=True)
+    tmp = JOB_STATE_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    tmp.replace(JOB_STATE_PATH)
+
+
+class _JobState:
+    """Dict-like proxy that reads/writes to a shared JSON file."""
+
+    def __getitem__(self, key):
+        return _read_job_state().get(key, _JOB_STATE_DEFAULTS.get(key))
+
+    def __setitem__(self, key, value):
+        state = _read_job_state()
+        state[key] = value
+        _write_job_state(state)
+
+    def get(self, key, default=None):
+        return _read_job_state().get(key, default)
+
+    def update(self, d):
+        state = _read_job_state()
+        state.update(d)
+        _write_job_state(state)
+
+    def to_dict(self):
+        return _read_job_state()
+
+
+job_state = _JobState()
 
 
 NOTIFICATIONS_PATH = DATA_PATH / "notifications.json"
@@ -3810,11 +3859,11 @@ def api_run_evaluation():
             job_state["message"] = "Initializing workflow..."
             workflow = FullEvaluationWorkflow(config)
 
-            # Step 1: Load data
-            job_state["message"] = f"Loading data from GSC ({config.gsc_property}) and GA4 ({config.ga4_property_id})..."
+            # Step 1: Load data (GSC + GA4 API calls — typically 2-5 min for large sites)
+            job_state["message"] = f"Loading data from GSC + GA4 (28 days)... this takes a few minutes"
             workflow.load_data(days=28)
             job_state["total"] = len(workflow._assets)
-            job_state["message"] = f"Loaded {len(workflow._assets)} pages"
+            job_state["message"] = f"Loaded {len(workflow._assets)} pages from GSC + GA4"
 
             # Step 2: Crawl if requested
             if run_crawl and workflow._assets:
@@ -3901,9 +3950,11 @@ def api_run_evaluation():
                                 )
 
                             completed += 1
-                            job_state["progress"] = completed
                             if completed % 20 == 0 or completed == len(urls):
-                                job_state["message"] = f"Crawling... {completed}/{len(urls)}"
+                                job_state.update({
+                                    "progress": completed,
+                                    "message": f"Crawling... {completed}/{len(urls)}",
+                                })
                             return result
 
                     async with httpx.AsyncClient(
@@ -4496,7 +4547,7 @@ def api_internal_link_map():
 @app.route("/api/job-status")
 def api_job_status():
     """Get current job status."""
-    return jsonify(job_state)
+    return jsonify(job_state.to_dict())
 
 
 @app.route("/api/debug")

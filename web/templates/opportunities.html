@@ -1472,11 +1472,17 @@ async function runEvaluation(withCrawl) {
     const btnRun = document.getElementById('btn-run');
     const btnCrawl = document.getElementById('btn-crawl');
     const progressDiv = document.getElementById('job-progress');
+    const progressText = document.getElementById('progress-text');
+    const progressFill = document.getElementById('progress-fill');
 
-    // Disable buttons
+    // Disable buttons and show progress immediately with descriptive text
     btnRun.disabled = true;
     btnCrawl.disabled = true;
     progressDiv.classList.remove('hidden');
+    progressFill.style.width = '100%';
+    progressText.textContent = withCrawl
+        ? 'Starting evaluation with crawl... (loading GSC & GA4 data)'
+        : 'Starting evaluation... (loading GSC & GA4 data)';
 
     try {
         const res = await fetch('/api/run-evaluation', {
@@ -1495,8 +1501,10 @@ async function runEvaluation(withCrawl) {
 
         showToast(withCrawl ? 'Evaluation with crawling started...' : 'Evaluation started...', 'info');
 
-        // Start polling for status
-        jobPollInterval = setInterval(checkJobStatus, 1000);
+        // Start polling for status (2s delay for first poll to let thread start)
+        setTimeout(() => {
+            jobPollInterval = setInterval(checkJobStatus, 1000);
+        }, 2000);
 
     } catch (err) {
         showToast('Failed to start evaluation', 'error');
@@ -1558,7 +1566,7 @@ async function checkJobStatus() {
             }
         }
     } catch (err) {
-        // Ignore polling errors
+        console.error('[poll] job-status error:', err);
     }
 }
 
