@@ -154,7 +154,12 @@ def _run_scheduled_measurement():
 
 
 def _run_serp_collector():
-    """Background thread: collect SERP data for top opportunities, respecting daily quota."""
+    """Background thread: collect SERP data for top opportunities, respecting daily quota.
+    Only runs when SERP_AUTO_COLLECT=true is set in environment.
+    """
+    if not os.environ.get("SERP_AUTO_COLLECT", "").lower() in ("true", "1", "yes"):
+        print("[SERP Collector] Auto-collection disabled. Set SERP_AUTO_COLLECT=true in .env to enable.")
+        return
     time.sleep(30)  # Wait for app to be fully ready
     while True:
         try:
@@ -1008,7 +1013,7 @@ def api_ai_recommend():
             f'anchor_text: "{ol.get("anchor_text", "")}", '
             f'location: "{ol.get("location", "body")}"}}'
         )
-    outlinks_str = "\n".join(outlinks_lines) if outlinks_lines else "null"
+    outlinks_str = "\n".join(outlinks_lines) if outlinks_lines else "null (NO CRAWL DATA — run evaluation with crawl to get link data. Do NOT suggest internal links without this data.)"
 
     # Build explicit blocklist of existing outlink target URLs for dedup enforcement
     existing_outlink_urls = sorted(set(
