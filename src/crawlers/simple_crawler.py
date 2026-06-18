@@ -39,6 +39,7 @@ class CrawlResult:
     body_html: str = ""  # Raw body HTML for structural analysis (e.g. HTMLIssueEvaluator)
     internal_outlinks: list = None  # List of {target_url, anchor_text, location}
     breadcrumb_links: list = None  # List of {target_url, anchor_text} from breadcrumb nav
+    schema_types: list = None  # List of JSON-LD @type values found on the page
     error: Optional[str] = None
 
     def __post_init__(self):
@@ -46,6 +47,8 @@ class CrawlResult:
             self.internal_outlinks = []
         if self.breadcrumb_links is None:
             self.breadcrumb_links = []
+        if self.schema_types is None:
+            self.schema_types = []
 
 
 class HTMLMetaParser(HTMLParser):
@@ -100,6 +103,11 @@ class HTMLMetaParser(HTMLParser):
         self._breadcrumb_link_href: str = ""
         self._breadcrumb_link_text: list[str] = []
 
+        # Schema/structured data (JSON-LD)
+        self._schema_types: list[str] = []
+        self._in_jsonld = False
+        self._jsonld_parts: list[str] = []
+
     def _is_internal(self, href: str) -> bool:
         """Check if a URL is internal based on base_url."""
         if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
@@ -135,6 +143,10 @@ class HTMLMetaParser(HTMLParser):
                 self._in_breadcrumb_link = True
                 self._breadcrumb_link_href = href
                 self._breadcrumb_link_text = []
+
+        if tag == "script" and (attrs_dict.get("type", "") or "").lower() == "application/ld+json":
+            self._in_jsonld = True
+            self._jsonld_parts = []
 
         if tag in self._SKIP_TAGS:
             self._skip_depth += 1
@@ -199,6 +211,22 @@ class HTMLMetaParser(HTMLParser):
                 self._above_fold_pending_tags.append(html_piece)
 
     def handle_endtag(self, tag: str):
+        if tag == "script" and self._in_jsonld:
+            self._in_jsonld = False
+            import json as _json
+            try:
+                raw = "".join(self._jsonld_parts)
+                schema = _json.loads(raw)
+                if isinstance(schema, dict) and "@type" in schema:
+                    self._schema_types.append(schema["@type"])
+                elif isinstance(schema, list):
+                    for item in schema:
+                        if isinstance(item, dict) and "@type" in item:
+                            self._schema_types.append(item["@type"])
+            except (ValueError, TypeError):
+                pass
+            self._jsonld_parts = []
+
         if tag in self._SKIP_TAGS and self._skip_depth > 0:
             self._skip_depth -= 1
         if tag in self._ABOVE_FOLD_TAGS and self._above_fold_skip_depth > 0:
@@ -264,6 +292,10 @@ class HTMLMetaParser(HTMLParser):
                     self._above_fold_len += len(piece)
 
     def handle_data(self, data: str):
+        if self._in_jsonld:
+            self._jsonld_parts.append(data)
+            return
+
         if self._in_title:
             self.title += data
         elif self._in_h1:
@@ -370,6 +402,10 @@ class HTMLMetaParser(HTMLParser):
             })
         return resolved
 
+    def get_schema_types(self) -> list[str]:
+        """Get JSON-LD schema @type values found on the page."""
+        return list(set(self._schema_types))
+
     @property
     def is_indexable(self) -> bool:
         """Check if page is indexable based on meta robots."""
@@ -465,6 +501,7 @@ class SimpleCrawler:
                     body_html=body_html,
                     internal_outlinks=parser.get_internal_outlinks(),
                     breadcrumb_links=parser.get_breadcrumb_links(),
+                    schema_types=parser.get_schema_types(),
                 )
 
             except httpx.TimeoutException:
@@ -567,6 +604,8 @@ class SimpleCrawler:
             # Set breadcrumb links for parent category detection
             if result.breadcrumb_links:
                 asset.breadcrumb_links = result.breadcrumb_links
+            if result.schema_types:
+                asset.schema_types = result.schema_types
 
         return asset
 

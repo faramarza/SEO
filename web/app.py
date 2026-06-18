@@ -28,6 +28,7 @@ from src.data_sources.ga4_client import GA4Client
 from src.data_sources.google_ads_client import GoogleAdsClient
 from src.data_sources.moz_client import MozClient
 from src.data_sources import serp_client
+from src.data_sources.crux_client import CrUXClient
 from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
 
 
@@ -1220,6 +1221,43 @@ def api_ai_recommend():
         print(f"[MozClient] Error fetching metrics for {url}: {exc}")
         moz_str = "null (error fetching Moz data)"
 
+    # ── 5c) Core Web Vitals (CrUX API) ──────────────────────
+    cwv_str = "null (GOOGLE_API_KEY not configured)"
+    try:
+        crux = CrUXClient()
+        if crux.api_key:
+            cwv_data = crux.get_cwv(url)
+            if cwv_data:
+                cwv_str = (
+                    f"level: {cwv_data.get('level', 'url')} ({'page-level' if cwv_data.get('level') == 'url' else 'origin-level fallback'})\n"
+                    f"LCP: {cwv_data.get('lcp_ms', 'N/A')}ms ({cwv_data.get('lcp_rating', 'unknown')})\n"
+                    f"INP: {cwv_data.get('inp_ms', 'N/A')}ms ({cwv_data.get('inp_rating', 'unknown')})\n"
+                    f"CLS: {cwv_data.get('cls', 'N/A')} ({cwv_data.get('cls_rating', 'unknown')})\n"
+                    f"FCP: {cwv_data.get('fcp_ms', 'N/A')}ms\n"
+                    f"TTFB: {cwv_data.get('ttfb_ms', 'N/A')}ms\n"
+                    f"overall: {cwv_data.get('overall_rating', 'unknown')}"
+                )
+            else:
+                cwv_str = "null (no CrUX data available for this URL or origin)"
+    except Exception as exc:
+        print(f"[CrUX] Error: {exc}")
+        cwv_str = "null (error fetching CrUX data)"
+
+    # ── 5d) URL Inspection data ──────────────────────────────
+    url_inspection = pm.get("url_inspection")
+    if url_inspection and "error" not in url_inspection:
+        url_insp_str = (
+            f"verdict: {url_inspection.get('verdict', 'UNKNOWN')}\n"
+            f"coverage_state: {url_inspection.get('coverage_state', 'UNKNOWN')}\n"
+            f"indexing_state: {url_inspection.get('indexing_state', 'UNKNOWN')}\n"
+            f"robotstxt_state: {url_inspection.get('robotstxt_state', 'UNKNOWN')}\n"
+            f"page_fetch_state: {url_inspection.get('page_fetch_state', 'UNKNOWN')}\n"
+            f"last_crawl_time: {url_inspection.get('last_crawl_time', 'UNKNOWN')}\n"
+            f"crawled_as: {url_inspection.get('crawled_as', 'UNKNOWN')}"
+        )
+    else:
+        url_insp_str = "null (URL inspection data not available — run evaluation with crawl to get inspection data)"
+
     # ── 6) Above-fold HTML and robots meta ──────────────────────
     above_fold_html_raw = pm.get("above_fold_html", "")
     robots_meta = pm.get("robots_meta", "")
@@ -1961,6 +1999,7 @@ h1_current: {cached_h1 or 'null'}
 canonical_current: {cached_canonical or 'null'}
 robots_meta: {robots_meta or 'null'}
 word_count: {cached_word_count}
+schema_types: {', '.join(pm.get('schema_types', [])) or 'none detected'}
 above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
 {html_issues_str}
 internal_outlinks (DIAGNOSTIC ONLY — these links ALREADY EXIST on this page, do NOT recommend these):
@@ -1986,6 +2025,12 @@ serp_competitors (ACTUAL search results for this page's queries — use to craft
 IMPORTANT: If SERP competitor data is provided, you MUST reference it when proposing title/meta changes.
 Your proposed title MUST be differentiated from competitors shown above — not generic SEO.
 Study what competitors say and find an angle they DON'T cover (e.g., personalization, material, age range).
+
+core_web_vitals (real-user performance data from Chrome UX Report):
+{cwv_str}
+
+url_inspection (Google URL Inspection API — indexing status from Googlebot's perspective):
+{url_insp_str}
 {ctr_suppression_flag}
 ────────────────────────────────
 OUTPUT FORMAT (STRICT)
@@ -1998,7 +2043,8 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
     "intent_alignment": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
     "serp_alignment": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
     "internal_links": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
-    "funnel_role": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>"
+    "funnel_role": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
+    "schema_markup": "<VALID | INVALID | MISSING | INCONCLUSIVE> — <brief reason based on schema_types input>"
   }}}},
   "funnel_analysis": {{{{
     "entry_intent": "<dominant query clusters, impression share, what users expect next>",

@@ -13,6 +13,7 @@ This is the main entry point for running the Governor.
 """
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -650,6 +651,22 @@ class FullEvaluationWorkflow:
         total, enriched = crawler.enrich_assets(self._assets)
         print(f"  Enriched: {enriched}/{total} assets with crawl data")
 
+        # Fetch URL inspection data for a sample of pages
+        print("  Fetching URL inspection data...")
+        inspection_count = 0
+        for asset in self._assets[:50]:  # API has daily quotas, limit to top 50
+            try:
+                inspection = self.gsc_client.inspect_url(asset.url)
+                if "error" not in inspection:
+                    asset._url_inspection = inspection
+                    inspection_count += 1
+                else:
+                    asset._url_inspection = None
+            except Exception:
+                asset._url_inspection = None
+            time.sleep(0.2)  # Rate limiting
+        print(f"  URL inspection: {inspection_count}/{min(len(self._assets), 50)} URLs inspected")
+
     def run_diagnostics(self) -> dict:
         """
         Run tracking sanity diagnostics.
@@ -1130,6 +1147,8 @@ class FullEvaluationWorkflow:
                         "above_fold_html": asset.above_fold_html,
                         "internal_outlinks": asset.internal_outlinks,
                         "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
+                        "schema_types": getattr(asset, "schema_types", []),
+                        "url_inspection": getattr(asset, "_url_inspection", None),
                         "has_crawl_data": asset.has_crawl_data,
                     },
                     **constraint_data,  # Include constraint detection data
@@ -1161,6 +1180,9 @@ class FullEvaluationWorkflow:
                     "content_preview": asset.content_preview,
                     "above_fold_html": asset.above_fold_html,
                     "internal_outlinks": asset.internal_outlinks,
+                    "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
+                    "schema_types": getattr(asset, "schema_types", []),
+                    "url_inspection": getattr(asset, "_url_inspection", None),
                     "has_crawl_data": asset.has_crawl_data,
                 },
                 **constraint_data,  # Include constraint detection data
@@ -1200,6 +1222,8 @@ class FullEvaluationWorkflow:
                 "above_fold_html": asset.above_fold_html,
                 "internal_outlinks": asset.internal_outlinks,
                 "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
+                "schema_types": getattr(asset, "schema_types", []),
+                "url_inspection": getattr(asset, "_url_inspection", None),
                 "has_crawl_data": asset.has_crawl_data,
             },
             **constraint_data,  # Include constraint detection data

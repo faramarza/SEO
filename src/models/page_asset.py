@@ -98,6 +98,7 @@ class PageAsset(BaseModel):
     outlinks: int = Field(default=0, ge=0, description="Number of internal links from this page")
     internal_outlinks: list = Field(default_factory=list, description="Detailed outlinks: [{target_url, anchor_text, location}]")
     breadcrumb_links: list = Field(default_factory=list, description="Breadcrumb nav links: [{target_url, anchor_text}]")
+    schema_types: list = Field(default_factory=list, description="JSON-LD @type values found on page")
     link_authority_score: float = Field(
         default=0.0,
         ge=0.0,
