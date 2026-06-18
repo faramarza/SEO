@@ -23,16 +23,24 @@ DAILY_LIMIT = 100
 
 def _load_cache() -> dict:
     if SERP_CACHE_PATH.exists():
-        with open(SERP_CACHE_PATH) as f:
-            return json.load(f)
+        try:
+            with open(SERP_CACHE_PATH) as f:
+                content = f.read().strip()
+                if not content:
+                    return {"queries": {}, "daily_usage": {}}
+                return json.loads(content)
+        except (json.JSONDecodeError, OSError):
+            return {"queries": {}, "daily_usage": {}}
     return {"queries": {}, "daily_usage": {}}
 
 
 def _save_cache(cache: dict):
     SERP_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SERP_CACHE_PATH, "w") as f:
+    tmp_path = SERP_CACHE_PATH.with_suffix(".tmp")
+    with open(tmp_path, "w") as f:
         json.dump(cache, f, indent=2)
         f.write("\n")
+    tmp_path.replace(SERP_CACHE_PATH)
 
 
 def _today() -> str:
