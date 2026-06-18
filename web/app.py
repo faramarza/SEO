@@ -2760,21 +2760,21 @@ def _get_variants(action) -> list[dict]:
 
 @app.route("/api/tasks/<action_id>/reject", methods=["POST"])
 def api_reject_task(action_id):
-    """Reject a task — removes it from the board."""
+    """Reject a task — sends it back to opportunities for re-evaluation."""
     ledger = ActionLedger()
-    data = request.json or {}
     action = ledger.get_action(action_id)
 
     if not action:
         return jsonify({"error": "Action not found"}), 404
 
-    # Record rejection as negative outcome with notes, then close
-    action.outcome = ActionOutcome.NEGATIVE
-    action.notes = f"REJECTED: {data.get('reason', 'No reason given')}"
-    action.update_status(ActionStatus.CLOSED)
-    ledger.update_action(action)
+    url = action.url
+    ledger.delete_action(action_id)
 
-    return jsonify({"success": True, "message": f"Task {action_id} rejected and closed"})
+    return jsonify({
+        "success": True,
+        "message": f"Task {action_id} rejected. URL will be re-evaluated on next run.",
+        "url": url,
+    })
 
 
 @app.route("/api/tasks/<action_id>/send-back", methods=["POST"])
