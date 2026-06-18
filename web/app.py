@@ -3775,16 +3775,20 @@ def api_run_evaluation():
     data = request.json or {}
     run_crawl = data.get("crawl", False)
 
+    # Set running state BEFORE starting the thread to prevent race condition
+    # where the frontend polls /api/job-status before the thread sets running=True,
+    # sees running=False, and stops polling.
+    job_state["running"] = True
+    job_state["type"] = "evaluation"
+    job_state["progress"] = 0
+    job_state["total"] = 0
+    job_state["message"] = "Starting evaluation..."
+    job_state["error"] = None
+
     def run_workflow():
         global job_state
         import traceback
         try:
-            job_state["running"] = True
-            job_state["type"] = "evaluation"
-            job_state["progress"] = 0
-            job_state["total"] = 0
-            job_state["message"] = "Starting evaluation..."
-            job_state["error"] = None
 
             from src.workflows.full_evaluation import FullEvaluationWorkflow, WorkflowConfig
             from src.output.decision_formatter import OutputFormat
@@ -3871,6 +3875,7 @@ def api_run_evaluation():
                                         body_html=_batch_body,
                                         internal_outlinks=parser.get_internal_outlinks(),
                                         breadcrumb_links=parser.get_breadcrumb_links(),
+                                        schema_types=parser.get_schema_types(),
                                     )
                                 else:
                                     result = CrawlResult(
@@ -4083,13 +4088,17 @@ def api_ai_batch_analyze():
     page_types = data.get("page_types", [])  # e.g. ["product", "category"]
     selected_urls = set(data.get("urls", []))  # specific URLs to analyze
 
+    # Set running state BEFORE starting the thread (same race fix as evaluation)
+    job_state["running"] = True
+    job_state["type"] = "batch_ai"
+    job_state["error"] = None
+    job_state["message"] = "Starting AI analysis..."
+    job_state["progress"] = 0
+
     def run_batch():
         global job_state
         import traceback
         try:
-            job_state["running"] = True
-            job_state["type"] = "batch_ai"
-            job_state["error"] = None
 
             # Re-read fresh data inside thread
             with open(eval_path) as f:
