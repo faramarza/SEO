@@ -3990,6 +3990,8 @@ def api_run_evaluation():
             job_state["message"] = f"Error: {e}"
             print(f"Evaluation error: {e}\n{tb}")  # Also log to Flask console
         finally:
+            from datetime import datetime
+            job_state["finished_at"] = datetime.now().strftime("%b %d, %Y %I:%M %p")
             job_state["running"] = False
 
     # Run in background thread
@@ -4279,6 +4281,8 @@ def api_ai_batch_analyze():
             job_state["error"] = f"{e}\n\nTraceback:\n{tb}"
             job_state["message"] = f"Error: {e}"
         finally:
+            from datetime import datetime
+            job_state["finished_at"] = datetime.now().strftime("%b %d, %Y %I:%M %p")
             job_state["running"] = False
 
     thread = threading.Thread(target=run_batch)

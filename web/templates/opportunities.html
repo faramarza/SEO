@@ -1480,6 +1480,7 @@ async function runEvaluation(withCrawl) {
     btnCrawl.disabled = true;
     progressDiv.classList.remove('hidden');
     progressFill.style.width = '100%';
+    progressFill.style.backgroundColor = '';
     progressText.textContent = withCrawl
         ? 'Starting evaluation with crawl... (loading GSC & GA4 data)'
         : 'Starting evaluation... (loading GSC & GA4 data)';
@@ -1543,15 +1544,21 @@ async function checkJobStatus() {
                 jobPollInterval = null;
             }
 
+            // Re-enable buttons
+            document.getElementById('btn-run').disabled = false;
+            document.getElementById('btn-crawl').disabled = false;
+            document.getElementById('btn-batch-ai').disabled = false;
+            const btnSelected = document.getElementById('btn-selected-ai');
+            if (btnSelected) btnSelected.disabled = false;
+
             if (status.error) {
                 showToast('Error: ' + status.error, 'error');
-                resetJobUI();
+                showFinishedBar(status);
             } else if (status.message && status.message.includes('Batch complete')) {
                 showToast('Batch AI analysis complete! Refreshing...', 'success');
                 setTimeout(() => loadOpportunities(), 500);
-                resetJobUI();
+                showFinishedBar(status);
             } else if (status.message && status.message.includes('complete') && status.type === 'evaluation') {
-                // Evaluation finished — chain AI batch if auto-run is checked
                 if (autoAIAfterEval) {
                     showToast('Evaluation complete! Starting AI analysis...', 'success');
                     setTimeout(() => loadOpportunities(), 500);
@@ -1559,8 +1566,10 @@ async function checkJobStatus() {
                 } else {
                     showToast('Evaluation complete! Refreshing...', 'success');
                     setTimeout(() => loadOpportunities(), 500);
-                    resetJobUI();
+                    showFinishedBar(status);
                 }
+            } else if (status.finished_at) {
+                showFinishedBar(status);
             } else {
                 resetJobUI();
             }
@@ -1816,6 +1825,24 @@ async function runSelectedAI() {
     }
 }
 
+function showFinishedBar(status) {
+    const progressDiv = document.getElementById('job-progress');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+
+    progressDiv.classList.remove('hidden');
+    progressFill.style.width = '100%';
+
+    const timestamp = status.finished_at ? ` — ${status.finished_at}` : '';
+    if (status.error) {
+        progressText.textContent = `Error: ${status.message}${timestamp}`;
+        progressFill.style.backgroundColor = '#e74c3c';
+    } else {
+        progressText.textContent = `${status.message || 'Complete'}${timestamp}`;
+        progressFill.style.backgroundColor = '#27ae60';
+    }
+}
+
 function resetJobUI() {
     document.getElementById('btn-run').disabled = false;
     document.getElementById('btn-crawl').disabled = false;
@@ -1824,6 +1851,7 @@ function resetJobUI() {
     if (btnSelected) btnSelected.disabled = false;
     document.getElementById('job-progress').classList.add('hidden');
     document.getElementById('progress-fill').style.width = '0%';
+    document.getElementById('progress-fill').style.backgroundColor = '';
 }
 
 // ── Resizable columns ──────────────────────────────────
