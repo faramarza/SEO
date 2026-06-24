@@ -2565,3 +2565,72 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 }
 .notification-item:last-child { border-bottom: none; }
 .notification-item:hover { background: #f9fafb; }
+
+/* ── Growth & AI Visibility Page ── */
+.growth-page { display: flex; flex-direction: column; gap: 20px; }
+
+.charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.chart-card {
+    padding: 20px;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+}
+.chart-card h3 { margin: 0 0 12px 0; font-size: 15px; }
+.chart-card canvas { flex: 1; }
+
+.chart-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 40px 20px;
+    font-size: 14px;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.card-header h3 { margin: 0; font-size: 15px; }
+.card-sub { font-size: 12px; color: var(--text-muted); }
+.card-actions { display: flex; gap: 8px; }
+
+.btn { cursor: pointer; border: none; border-radius: 6px; font-weight: 500; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+.btn-primary { background: var(--accent-blue); color: #fff; }
+.btn-primary:hover { opacity: 0.9; }
+.btn-secondary { background: var(--bg-hover); color: var(--text-primary); border: 1px solid var(--border-color); }
+.btn-secondary:hover { background: var(--border-color); }
+
+.movers-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+.movers-col h4 { margin: 0 0 8px 0; font-size: 14px; }
+.movers-col h4.gain { color: var(--accent-green); }
+.movers-col h4.loss { color: var(--accent-red); }
+.movers-col .data-table { font-size: 12px; }
+.movers-col .data-table th { font-size: 11px; }
+
+.gain { color: var(--accent-green); }
+.loss { color: var(--accent-red); }
+.text-muted { color: var(--text-muted); }
+
+.why-cell {
+    max-width: 200px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kpi-value.gain { color: var(--accent-green); }
+.kpi-value.loss { color: var(--accent-red); }

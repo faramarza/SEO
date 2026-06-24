@@ -29,6 +29,7 @@ from src.data_sources.google_ads_client import GoogleAdsClient
 from src.data_sources.moz_client import MozClient
 from src.data_sources import serp_client
 from src.data_sources.crux_client import CrUXClient
+from src.data_sources import ai_visibility
 from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
 
 
@@ -371,6 +372,12 @@ def admin():
 def link_map():
     """Internal link map view."""
     return render_template("link_map.html")
+
+
+@app.route("/growth")
+def growth():
+    """Growth & AI Visibility view."""
+    return render_template("growth.html")
 
 
 # ============================================================
@@ -3401,6 +3408,202 @@ def api_mark_notifications_read():
     return jsonify({"success": True})
 
 
+# ============================================================
+# GROWTH & AI VISIBILITY
+# ============================================================
+
+EVAL_HISTORY_PATH = DATA_PATH / "eval_history"
+
+
+@app.route("/api/growth/summary")
+def api_growth_summary():
+    """Growth movers + evaluation history for charts."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    history_path = EVAL_HISTORY_PATH
+
+    # Load evaluation history for charts
+    history = []
+    if history_path.exists():
+        for f in sorted(history_path.glob("*.json")):
+            try:
+                with open(f) as fh:
+                    snap = json.load(fh)
+                results = snap.get("results", [])
+                total_clicks = sum(r.get("gsc_clicks", 0) for r in results)
+                total_impressions = sum(r.get("gsc_impressions", 0) for r in results)
+                total_pages = len(results)
+                history.append({
+                    "date": snap.get("timestamp", f.stem)[:10],
+                    "total_clicks": total_clicks,
+                    "total_impressions": total_impressions,
+                    "total_pages": total_pages,
+                })
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # Compute movers: compare latest vs previous eval
+    gainers = []
+    decliners = []
+    net_clicks = 0
+    current_date = ""
+    previous_date = ""
+
+    snapshots = sorted(history_path.glob("*.json")) if history_path.exists() else []
+    if len(snapshots) >= 2:
+        try:
+            with open(snapshots[-1]) as f:
+                current = json.load(f)
+            with open(snapshots[-2]) as f:
+                previous = json.load(f)
+
+            current_date = current.get("timestamp", "")[:10]
+            previous_date = previous.get("timestamp", "")[:10]
+
+            prev_by_url = {r["url"]: r for r in previous.get("results", [])}
+            ledger = ActionLedger()
+            all_actions = ledger.get_all_actions()
+            actions_by_url = {}
+            for a in all_actions:
+                actions_by_url.setdefault(a.url, []).append(a)
+
+            for r in current.get("results", []):
+                url = r["url"]
+                prev = prev_by_url.get(url)
+                if not prev:
+                    continue
+
+                clicks_cur = r.get("gsc_clicks", 0)
+                clicks_prev = prev.get("gsc_clicks", 0)
+                impr_cur = r.get("gsc_impressions", 0)
+                impr_prev = prev.get("gsc_impressions", 0)
+                pos_cur = r.get("gsc_position", 0)
+                pos_prev = prev.get("gsc_position", 0)
+
+                clicks_delta = clicks_cur - clicks_prev
+                impr_delta = impr_cur - impr_prev
+                pos_delta = pos_cur - pos_prev
+                net_clicks += clicks_delta
+
+                if clicks_delta == 0 and impr_delta == 0:
+                    continue
+
+                why = _explain_mover(url, actions_by_url.get(url, []), clicks_delta, pos_delta)
+
+                mover = {
+                    "url": url,
+                    "page_type": r.get("asset_type", ""),
+                    "clicks_cur": clicks_cur,
+                    "clicks_prev": clicks_prev,
+                    "clicks_delta": clicks_delta,
+                    "impressions_cur": impr_cur,
+                    "impressions_prev": impr_prev,
+                    "impressions_delta": impr_delta,
+                    "position_cur": pos_cur,
+                    "position_prev": pos_prev,
+                    "position_delta": round(pos_delta, 1),
+                    "why": why,
+                }
+
+                if clicks_delta > 0:
+                    gainers.append(mover)
+                elif clicks_delta < 0:
+                    decliners.append(mover)
+
+            gainers.sort(key=lambda m: m["clicks_delta"], reverse=True)
+            decliners.sort(key=lambda m: m["clicks_delta"])
+
+        except (json.JSONDecodeError, OSError, KeyError):
+            pass
+
+    return jsonify({
+        "history": history,
+        "gainers": gainers[:20],
+        "decliners": decliners[:20],
+        "net_clicks": net_clicks,
+        "current_date": current_date,
+        "previous_date": previous_date,
+    })
+
+
+def _explain_mover(url: str, actions: list, clicks_delta: int, pos_delta: float) -> str:
+    """Try to explain why a page moved."""
+    reasons = []
+
+    for action in actions:
+        if action.status.value in ("implemented", "closed"):
+            atype = action.action_type or "change"
+            label = atype.replace("_", " ").title()
+            if action.outcome and action.outcome.value == "positive":
+                reasons.append(f"{label} (positive outcome)")
+            elif action.status.value == "implemented":
+                reasons.append(f"{label} in progress")
+            else:
+                reasons.append(f"{label} applied")
+
+    if not reasons:
+        if pos_delta < -2:
+            reasons.append("Position improved significantly")
+        elif pos_delta > 2:
+            reasons.append("Position dropped")
+        elif abs(clicks_delta) > 50:
+            reasons.append("Traffic shift (no task found)")
+        else:
+            reasons.append("Organic fluctuation")
+
+    return "; ".join(reasons[:2])
+
+
+@app.route("/api/growth/ai-visibility")
+def api_growth_ai_visibility():
+    """Get AI visibility summary."""
+    return jsonify(ai_visibility.get_visibility_summary())
+
+
+@app.route("/api/growth/ai-visibility/check", methods=["POST"])
+def api_growth_ai_visibility_check():
+    """Run an AI visibility check across all tracked prompts."""
+    data = ai_visibility._load_data()
+    if not data.get("prompts"):
+        return jsonify({"error": "No prompts configured. Add prompts first."}), 400
+
+    config = data.get("config", {})
+    if not config.get("brand_keywords") and not config.get("site_domain"):
+        return jsonify({"error": "Configure brand keywords or site domain first."}), 400
+
+    results = ai_visibility.run_visibility_check()
+    return jsonify({"success": True, "results": results, "count": len(results)})
+
+
+@app.route("/api/growth/ai-visibility/prompts", methods=["POST"])
+def api_growth_add_prompt():
+    """Add a new prompt to track."""
+    data = request.json or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "Prompt text required"}), 400
+    engines = data.get("engines", ["chatgpt", "claude", "gemini", "perplexity"])
+    prompt = ai_visibility.add_prompt(text, engines)
+    return jsonify({"success": True, "prompt": prompt})
+
+
+@app.route("/api/growth/ai-visibility/prompts/<prompt_id>", methods=["DELETE"])
+def api_growth_remove_prompt(prompt_id):
+    """Remove a tracked prompt."""
+    ai_visibility.remove_prompt(prompt_id)
+    return jsonify({"success": True})
+
+
+@app.route("/api/growth/ai-visibility/config", methods=["POST"])
+def api_growth_config():
+    """Update AI visibility config."""
+    data = request.json or {}
+    ai_visibility.update_config(
+        brand_keywords=data.get("brand_keywords"),
+        site_domain=data.get("site_domain"),
+    )
+    return jsonify({"success": True})
+
+
 @app.route("/api/admin/config")
 def api_admin_config():
     """Get current configuration."""
@@ -4000,6 +4203,17 @@ def api_run_evaluation():
             # Step 6: Save results
             job_state["message"] = "Saving results..."
             workflow.save_results_for_dashboard()
+
+            # Save snapshot for growth tracking
+            try:
+                eval_file = DATA_PATH / "latest_evaluation.json"
+                if eval_file.exists():
+                    EVAL_HISTORY_PATH.mkdir(parents=True, exist_ok=True)
+                    snapshot_name = datetime.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
+                    import shutil
+                    shutil.copy2(eval_file, EVAL_HISTORY_PATH / snapshot_name)
+            except OSError:
+                pass
 
             job_state["message"] = "Evaluation complete!"
             job_state["progress"] = job_state["total"]

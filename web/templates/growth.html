@@ -1,0 +1,546 @@
+{% extends "base.html" %}
+{% block title %}Growth & AI Visibility{% endblock %}
+{% block header %}Growth & AI Visibility{% endblock %}
+
+{% block content %}
+<div class="growth-page">
+    <!-- KPI Cards -->
+    <div class="kpi-row" id="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-label">AI Visibility</div>
+            <div class="kpi-value" id="kpi-visibility">—</div>
+            <div class="kpi-sub" id="kpi-visibility-sub">across AI engines</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Top Gainer</div>
+            <div class="kpi-value gain" id="kpi-gainer">—</div>
+            <div class="kpi-sub" id="kpi-gainer-sub">&nbsp;</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Top Decliner</div>
+            <div class="kpi-value loss" id="kpi-decliner">—</div>
+            <div class="kpi-sub" id="kpi-decliner-sub">&nbsp;</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Net Click Change</div>
+            <div class="kpi-value" id="kpi-net-clicks">—</div>
+            <div class="kpi-sub" id="kpi-net-clicks-sub">vs previous eval</div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="charts-row">
+        <div class="card chart-card">
+            <h3>Traffic Trend</h3>
+            <canvas id="traffic-chart" height="280"></canvas>
+            <div id="traffic-chart-empty" class="chart-empty" style="display:none;">
+                Run at least 2 evaluations to see trends.
+            </div>
+        </div>
+        <div class="card chart-card">
+            <h3>AI Visibility by Engine</h3>
+            <canvas id="visibility-chart" height="280"></canvas>
+            <div id="visibility-chart-empty" class="chart-empty" style="display:none;">
+                Add prompts below and run a visibility check.
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Movers Table -->
+    <div class="card">
+        <div class="card-header">
+            <h3>Top Movers</h3>
+            <span class="card-sub" id="movers-period"></span>
+        </div>
+        <div id="movers-empty" class="chart-empty" style="display:none;">
+            Need at least 2 evaluation runs to compute movers. Run an evaluation, wait, then run another.
+        </div>
+        <div class="movers-split" id="movers-container" style="display:none;">
+            <div class="movers-col">
+                <h4 class="gain">Gainers</h4>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>URL</th>
+                            <th>Type</th>
+                            <th>Clicks</th>
+                            <th>Impr</th>
+                            <th>Pos</th>
+                            <th>Why</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gainers-body"></tbody>
+                </table>
+            </div>
+            <div class="movers-col">
+                <h4 class="loss">Decliners</h4>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>URL</th>
+                            <th>Type</th>
+                            <th>Clicks</th>
+                            <th>Impr</th>
+                            <th>Pos</th>
+                            <th>Why</th>
+                        </tr>
+                    </thead>
+                    <tbody id="decliners-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Visibility Tracking -->
+    <div class="card">
+        <div class="card-header">
+            <h3>AI Visibility Tracking</h3>
+            <div class="card-actions">
+                <button class="btn btn-sm btn-primary" onclick="runVisibilityCheck()">Run Check</button>
+                <button class="btn btn-sm btn-secondary" onclick="showAddPrompt()">Add Prompt</button>
+                <button class="btn btn-sm btn-secondary" onclick="showConfig()">Config</button>
+            </div>
+        </div>
+
+        <!-- Add prompt form (hidden by default) -->
+        <div id="add-prompt-form" style="display:none; margin-bottom: 16px;">
+            <div style="display:flex; gap:8px; align-items:center;">
+                <input type="text" id="new-prompt-text" placeholder="e.g. best wooden puzzles for kids"
+                       style="flex:1; padding:8px 12px; border:1px solid var(--border-color); border-radius:6px; font-size:13px;">
+                <label style="font-size:12px; display:flex; gap:4px; align-items:center;">
+                    <input type="checkbox" id="eng-chatgpt" checked> ChatGPT
+                </label>
+                <label style="font-size:12px; display:flex; gap:4px; align-items:center;">
+                    <input type="checkbox" id="eng-claude" checked> Claude
+                </label>
+                <label style="font-size:12px; display:flex; gap:4px; align-items:center;">
+                    <input type="checkbox" id="eng-gemini" checked> Gemini
+                </label>
+                <label style="font-size:12px; display:flex; gap:4px; align-items:center;">
+                    <input type="checkbox" id="eng-perplexity" checked> Perplexity
+                </label>
+                <button class="btn btn-sm btn-primary" onclick="addPrompt()">Add</button>
+                <button class="btn btn-sm btn-secondary" onclick="hideAddPrompt()">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Config form (hidden by default) -->
+        <div id="config-form" style="display:none; margin-bottom: 16px;">
+            <div style="display:flex; gap:8px; align-items:center;">
+                <label style="font-size:12px; white-space:nowrap;">Brand keywords:</label>
+                <input type="text" id="config-brand" placeholder="alphabet trains, alphabet-trains"
+                       style="flex:1; padding:8px 12px; border:1px solid var(--border-color); border-radius:6px; font-size:13px;">
+                <label style="font-size:12px; white-space:nowrap;">Domain:</label>
+                <input type="text" id="config-domain" placeholder="alphabet-trains.com"
+                       style="width:200px; padding:8px 12px; border:1px solid var(--border-color); border-radius:6px; font-size:13px;">
+                <button class="btn btn-sm btn-primary" onclick="saveConfig()">Save</button>
+                <button class="btn btn-sm btn-secondary" onclick="hideConfig()">Cancel</button>
+            </div>
+            <div id="engine-status" style="margin-top:8px; font-size:12px; color:var(--text-secondary);"></div>
+        </div>
+
+        <!-- Visibility results grid -->
+        <div id="visibility-grid"></div>
+        <div id="visibility-empty" class="chart-empty" style="display:none;">
+            No prompts configured yet. Click "Add Prompt" to start tracking AI visibility for your brand.
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+let trafficChart = null;
+let visibilityChart = null;
+
+// ── Load Data ──
+async function loadGrowthData() {
+    try {
+        const [moversRes, visRes] = await Promise.all([
+            fetch('/api/growth/summary'),
+            fetch('/api/growth/ai-visibility'),
+        ]);
+        const movers = await moversRes.json();
+        const vis = await visRes.json();
+
+        renderKPIs(movers, vis);
+        renderTrafficChart(movers.history || []);
+        renderMovers(movers);
+        renderVisibilityChart(vis);
+        renderVisibilityGrid(vis);
+    } catch (err) {
+        console.error('Failed to load growth data:', err);
+    }
+}
+
+// ── KPIs ──
+function renderKPIs(movers, vis) {
+    const el = id => document.getElementById(id);
+
+    // AI Visibility
+    if (vis.total_checks > 0) {
+        el('kpi-visibility').textContent = vis.overall_visibility + '%';
+        el('kpi-visibility-sub').textContent = `${vis.total_checks} checks across engines`;
+    }
+
+    // Top Gainer
+    const gainers = movers.gainers || [];
+    if (gainers.length > 0) {
+        const g = gainers[0];
+        const pct = g.clicks_prev > 0 ? Math.round((g.clicks_delta / g.clicks_prev) * 100) : 0;
+        el('kpi-gainer').textContent = (pct > 0 ? '+' : '') + pct + '%';
+        el('kpi-gainer-sub').textContent = truncUrl(g.url);
+    }
+
+    // Top Decliner
+    const decliners = movers.decliners || [];
+    if (decliners.length > 0) {
+        const d = decliners[0];
+        const pct = d.clicks_prev > 0 ? Math.round((d.clicks_delta / d.clicks_prev) * 100) : 0;
+        el('kpi-decliner').textContent = (pct > 0 ? '+' : '') + pct + '%';
+        el('kpi-decliner-sub').textContent = truncUrl(d.url);
+    }
+
+    // Net clicks
+    if (movers.net_clicks !== undefined) {
+        const n = movers.net_clicks;
+        el('kpi-net-clicks').textContent = (n >= 0 ? '+' : '') + n.toLocaleString();
+        el('kpi-net-clicks').classList.add(n >= 0 ? 'gain' : 'loss');
+        if (movers.current_date && movers.previous_date) {
+            el('kpi-net-clicks-sub').textContent = `${movers.previous_date} → ${movers.current_date}`;
+        }
+    }
+}
+
+// ── Traffic Trend Chart ──
+function renderTrafficChart(history) {
+    const canvas = document.getElementById('traffic-chart');
+    const empty = document.getElementById('traffic-chart-empty');
+
+    if (history.length < 2) {
+        canvas.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+
+    canvas.style.display = 'block';
+    empty.style.display = 'none';
+
+    const labels = history.map(h => h.date);
+    const clicks = history.map(h => h.total_clicks);
+    const impressions = history.map(h => h.total_impressions);
+
+    if (trafficChart) trafficChart.destroy();
+    trafficChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Clicks',
+                    data: clicks,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 4,
+                },
+                {
+                    label: 'Impressions',
+                    data: impressions,
+                    borderColor: '#7c3aed',
+                    backgroundColor: 'rgba(124, 58, 237, 0.05)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 4,
+                    yAxisID: 'y1',
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { position: 'top' } },
+            scales: {
+                y: { title: { display: true, text: 'Clicks' }, beginAtZero: true },
+                y1: { title: { display: true, text: 'Impressions' }, position: 'right', grid: { drawOnChartArea: false }, beginAtZero: true },
+            },
+        },
+    });
+}
+
+// ── AI Visibility Chart ──
+function renderVisibilityChart(vis) {
+    const canvas = document.getElementById('visibility-chart');
+    const empty = document.getElementById('visibility-chart-empty');
+    const byEngine = vis.by_engine || {};
+
+    if (Object.keys(byEngine).length === 0) {
+        canvas.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+
+    canvas.style.display = 'block';
+    empty.style.display = 'none';
+
+    const engines = Object.keys(byEngine);
+    const mentioned = engines.map(e => byEngine[e].mentioned || 0);
+    const notMentioned = engines.map(e => (byEngine[e].total || 0) - (byEngine[e].mentioned || 0));
+    const engineLabels = engines.map(e => e.charAt(0).toUpperCase() + e.slice(1));
+
+    const colors = {
+        chatgpt: '#10a37f',
+        claude: '#d4a574',
+        gemini: '#4285f4',
+        perplexity: '#20808d',
+    };
+
+    if (visibilityChart) visibilityChart.destroy();
+    visibilityChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: engineLabels,
+            datasets: [
+                {
+                    label: 'Mentioned',
+                    data: mentioned,
+                    backgroundColor: engines.map(e => colors[e] || '#2563eb'),
+                },
+                {
+                    label: 'Not Mentioned',
+                    data: notMentioned,
+                    backgroundColor: '#e5e7eb',
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        afterBody: function(ctx) {
+                            const eng = engines[ctx[0].dataIndex];
+                            const pct = byEngine[eng]?.pct || 0;
+                            return `Visibility: ${pct}%`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { stacked: true },
+                y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Prompts' } },
+            },
+        },
+    });
+}
+
+// ── Movers Table ──
+function renderMovers(data) {
+    const container = document.getElementById('movers-container');
+    const empty = document.getElementById('movers-empty');
+    const gainers = data.gainers || [];
+    const decliners = data.decliners || [];
+
+    if (gainers.length === 0 && decliners.length === 0) {
+        container.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+
+    container.style.display = 'flex';
+    empty.style.display = 'none';
+
+    if (data.current_date && data.previous_date) {
+        document.getElementById('movers-period').textContent = `${data.previous_date} → ${data.current_date}`;
+    }
+
+    document.getElementById('gainers-body').innerHTML = gainers.slice(0, 15).map(m => moverRow(m, true)).join('');
+    document.getElementById('decliners-body').innerHTML = decliners.slice(0, 15).map(m => moverRow(m, false)).join('');
+}
+
+function moverRow(m, isGain) {
+    const clicksPct = m.clicks_prev > 0 ? Math.round((m.clicks_delta / m.clicks_prev) * 100) : (m.clicks_delta > 0 ? 999 : 0);
+    const imprPct = m.impressions_prev > 0 ? Math.round((m.impressions_delta / m.impressions_prev) * 100) : 0;
+    const posDelta = m.position_delta ? m.position_delta.toFixed(1) : '0';
+    const posClass = m.position_delta < 0 ? 'gain' : (m.position_delta > 0 ? 'loss' : '');
+    const clicksClass = isGain ? 'gain' : 'loss';
+
+    const typeBadge = m.page_type
+        ? `<span class="badge badge-${m.page_type.toLowerCase()}">${m.page_type}</span>`
+        : '';
+
+    return `<tr>
+        <td title="${m.url}"><a href="${m.url}" target="_blank">${truncUrl(m.url)}</a></td>
+        <td>${typeBadge}</td>
+        <td class="${clicksClass}">${clicksPct > 0 ? '+' : ''}${clicksPct}%</td>
+        <td>${imprPct > 0 ? '+' : ''}${imprPct}%</td>
+        <td class="${posClass}">${parseFloat(posDelta) > 0 ? '+' : ''}${posDelta}</td>
+        <td class="why-cell">${m.why || '—'}</td>
+    </tr>`;
+}
+
+// ── AI Visibility Grid ──
+function renderVisibilityGrid(vis) {
+    const grid = document.getElementById('visibility-grid');
+    const empty = document.getElementById('visibility-empty');
+    const byPrompt = vis.by_prompt || {};
+    const prompts = vis.prompts || [];
+
+    if (prompts.length === 0) {
+        grid.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+    }
+
+    empty.style.display = 'none';
+    const engines = ['chatgpt', 'claude', 'gemini', 'perplexity'];
+    const available = vis.available_engines || {};
+
+    let html = `<table class="data-table">
+        <thead><tr>
+            <th>Prompt</th>
+            ${engines.map(e => `<th>${e.charAt(0).toUpperCase() + e.slice(1)}</th>`).join('')}
+            <th>Last Check</th>
+            <th></th>
+        </tr></thead><tbody>`;
+
+    for (const p of prompts) {
+        const data = byPrompt[p.text] || { engines: {} };
+        html += `<tr><td title="${p.text}" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.text}</td>`;
+
+        for (const eng of engines) {
+            const d = data.engines[eng];
+            if (!d) {
+                html += `<td class="text-muted">—</td>`;
+            } else if (d.error) {
+                html += `<td title="${d.error}" style="color:var(--text-muted);">N/A</td>`;
+            } else if (d.mentioned) {
+                html += `<td title="${d.context || ''}" style="cursor:help;">
+                    <span style="color:var(--accent-green);font-weight:600;">Yes</span>
+                </td>`;
+            } else {
+                html += `<td><span style="color:var(--accent-red);">No</span></td>`;
+            }
+        }
+
+        const timestamps = Object.values(data.engines).map(e => e.timestamp).filter(Boolean);
+        const lastCheck = timestamps.length > 0 ? formatTimeAgo(Math.max(...timestamps.map(t => new Date(t)))) : '—';
+        html += `<td class="text-muted">${lastCheck}</td>`;
+        html += `<td><button class="btn btn-sm btn-secondary" onclick="removePrompt('${p.id}')" title="Remove">x</button></td>`;
+        html += '</tr>';
+    }
+
+    html += '</tbody></table>';
+    grid.innerHTML = html;
+
+    // Populate config form with current values
+    const config = vis.config || {};
+    document.getElementById('config-brand').value = (config.brand_keywords || []).join(', ');
+    document.getElementById('config-domain').value = config.site_domain || '';
+
+    // Show engine status
+    const statusEl = document.getElementById('engine-status');
+    const statusParts = Object.entries(available).map(([eng, ok]) =>
+        `${eng}: ${ok ? '<span style="color:var(--accent-green);">key set</span>' : '<span style="color:var(--accent-red);">no key</span>'}`
+    );
+    statusEl.innerHTML = 'API Keys: ' + statusParts.join(' | ');
+}
+
+// ── Actions ──
+function showAddPrompt() {
+    document.getElementById('add-prompt-form').style.display = 'block';
+    document.getElementById('new-prompt-text').focus();
+}
+function hideAddPrompt() { document.getElementById('add-prompt-form').style.display = 'none'; }
+function showConfig() { document.getElementById('config-form').style.display = 'block'; }
+function hideConfig() { document.getElementById('config-form').style.display = 'none'; }
+
+async function addPrompt() {
+    const text = document.getElementById('new-prompt-text').value.trim();
+    if (!text) return;
+    const engines = [];
+    if (document.getElementById('eng-chatgpt').checked) engines.push('chatgpt');
+    if (document.getElementById('eng-claude').checked) engines.push('claude');
+    if (document.getElementById('eng-gemini').checked) engines.push('gemini');
+    if (document.getElementById('eng-perplexity').checked) engines.push('perplexity');
+
+    await fetch('/api/growth/ai-visibility/prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, engines }),
+    });
+    document.getElementById('new-prompt-text').value = '';
+    hideAddPrompt();
+    loadGrowthData();
+}
+
+async function removePrompt(id) {
+    await fetch(`/api/growth/ai-visibility/prompts/${id}`, { method: 'DELETE' });
+    loadGrowthData();
+}
+
+async function saveConfig() {
+    const keywords = document.getElementById('config-brand').value.split(',').map(s => s.trim()).filter(Boolean);
+    const domain = document.getElementById('config-domain').value.trim();
+    await fetch('/api/growth/ai-visibility/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_keywords: keywords, site_domain: domain }),
+    });
+    hideConfig();
+    showToast('Config saved', 'success');
+}
+
+async function runVisibilityCheck() {
+    showToast('Running AI visibility check... this may take a minute.', 'info');
+    try {
+        const res = await fetch('/api/growth/ai-visibility/check', { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+            showToast(data.error, 'error');
+        } else {
+            const mentioned = (data.results || []).filter(r => r.mentioned).length;
+            const total = (data.results || []).filter(r => !r.error).length;
+            showToast(`Check complete: mentioned in ${mentioned}/${total} responses`, 'success');
+            loadGrowthData();
+        }
+    } catch (e) {
+        showToast('Visibility check failed: ' + e.message, 'error');
+    }
+}
+
+// ── Helpers ──
+function truncUrl(url) {
+    try {
+        const path = new URL(url, 'https://x.com').pathname;
+        return path.length > 35 ? '...' + path.slice(-32) : path;
+    } catch { return url?.slice(0, 35) || ''; }
+}
+
+function formatTimeAgo(date) {
+    const diff = Math.floor((Date.now() - date) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+}
+
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + (type || '');
+    t.classList.remove('hidden');
+    setTimeout(() => t.classList.add('hidden'), 4000);
+}
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', loadGrowthData);
+</script>
+{% endblock %}
