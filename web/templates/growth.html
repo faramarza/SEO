@@ -403,17 +403,21 @@ function renderVisibilityGrid(vis) {
     const engines = ['chatgpt', 'claude', 'gemini', 'perplexity'];
     const available = vis.available_engines || {};
 
-    let html = `<table class="data-table">
+    let html = `<table class="data-table visibility-table">
         <thead><tr>
             <th>Prompt</th>
             ${engines.map(e => `<th>${e.charAt(0).toUpperCase() + e.slice(1)}</th>`).join('')}
+            <th>Status</th>
             <th>Last Check</th>
             <th></th>
         </tr></thead><tbody>`;
 
     for (const p of prompts) {
         const data = byPrompt[p.text] || { engines: {} };
-        html += `<tr><td title="${p.text}" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.text}</td>`;
+        const tier = data.tier || {};
+        const recs = data.recommendation || [];
+
+        html += `<tr><td title="${p.text}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.text}</td>`;
 
         for (const eng of engines) {
             const d = data.engines[eng];
@@ -421,20 +425,38 @@ function renderVisibilityGrid(vis) {
                 html += `<td class="text-muted">—</td>`;
             } else if (d.error) {
                 html += `<td title="${d.error}" style="color:var(--text-muted);">N/A</td>`;
+            } else if (d.url_cited) {
+                html += `<td title="URL cited: ${(d.urls_cited || []).join(', ')}\n\n${d.context || ''}" style="cursor:help;">
+                    <span class="vis-badge vis-cited">Cited</span>
+                </td>`;
             } else if (d.mentioned) {
                 html += `<td title="${d.context || ''}" style="cursor:help;">
-                    <span style="color:var(--accent-green);font-weight:600;">Yes</span>
+                    <span class="vis-badge vis-named">Named</span>
                 </td>`;
             } else {
-                html += `<td><span style="color:var(--accent-red);">No</span></td>`;
+                html += `<td><span class="vis-badge vis-absent">No</span></td>`;
             }
         }
+
+        const tierColor = {red: 'var(--accent-red)', orange: 'var(--accent-orange)', yellow: 'var(--accent-yellow)', green: 'var(--accent-green)', gray: 'var(--text-muted)'}[tier.color] || 'var(--text-muted)';
+        html += `<td><span class="tier-badge" style="color:${tierColor};border-color:${tierColor};">${tier.label || '—'}</span></td>`;
 
         const timestamps = Object.values(data.engines).map(e => e.timestamp).filter(Boolean);
         const lastCheck = timestamps.length > 0 ? formatTimeAgo(Math.max(...timestamps.map(t => new Date(t)))) : '—';
         html += `<td class="text-muted">${lastCheck}</td>`;
         html += `<td><button class="btn btn-sm btn-secondary" onclick="removePrompt('${p.id}')" title="Remove">x</button></td>`;
         html += '</tr>';
+
+        if (recs.length > 0) {
+            html += `<tr class="rec-row"><td colspan="${engines.length + 4}">
+                <div class="rec-list">
+                    ${recs.map(r => `<div class="rec-item rec-${r.priority}">
+                        <span class="rec-priority">${r.priority.toUpperCase()}</span>
+                        ${r.action}
+                    </div>`).join('')}
+                </div>
+            </td></tr>`;
+        }
     }
 
     html += '</tbody></table>';

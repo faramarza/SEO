@@ -253,9 +253,11 @@ def get_visibility_summary():
     for r in latest_results:
         p = r["prompt"]
         if p not in by_prompt:
-            by_prompt[p] = {"engines": {}, "mentioned_count": 0, "total": 0}
+            by_prompt[p] = {"engines": {}, "mentioned_count": 0, "url_cited_count": 0, "total": 0}
         by_prompt[p]["engines"][r["engine"]] = {
             "mentioned": r.get("mentioned", False),
+            "url_cited": bool(r.get("urls_cited")),
+            "urls_cited": r.get("urls_cited", []),
             "context": r.get("context", ""),
             "timestamp": r.get("timestamp", ""),
             "error": r.get("error"),
@@ -264,6 +266,13 @@ def get_visibility_summary():
             by_prompt[p]["total"] += 1
             if r.get("mentioned"):
                 by_prompt[p]["mentioned_count"] += 1
+            if r.get("urls_cited"):
+                by_prompt[p]["url_cited_count"] += 1
+
+    for p in by_prompt:
+        bp = by_prompt[p]
+        bp["tier"] = _compute_tier(bp)
+        bp["recommendation"] = _get_recommendation(bp)
 
     from collections import defaultdict
     daily = defaultdict(lambda: {"mentioned": 0, "total": 0})
@@ -294,6 +303,108 @@ def get_visibility_summary():
         "trend": trend, "latest_results": latest_results,
         "available_engines": get_available_engines(),
     }
+
+
+def _compute_tier(bp: dict) -> dict:
+    total = bp["total"]
+    mentioned = bp["mentioned_count"]
+    url_cited = bp["url_cited_count"]
+
+    if total == 0:
+        return {"level": "unknown", "label": "No Data", "color": "gray"}
+    if mentioned == 0:
+        return {"level": "invisible", "label": "Invisible", "color": "red"}
+    if mentioned <= total * 0.25:
+        return {"level": "weak", "label": "Weak", "color": "orange"}
+    if mentioned <= total * 0.5:
+        return {"level": "partial", "label": "Partial", "color": "yellow"}
+    if url_cited >= mentioned * 0.5:
+        return {"level": "strong_cited", "label": "Strong + Cited", "color": "green"}
+    return {"level": "strong", "label": "Strong", "color": "green"}
+
+
+def _get_recommendation(bp: dict) -> list:
+    tier = bp.get("tier", {}).get("level", "unknown")
+    mentioned = bp["mentioned_count"]
+    total = bp["total"]
+    url_cited = bp["url_cited_count"]
+
+    missing_engines = [
+        eng for eng, d in bp.get("engines", {}).items()
+        if not d.get("error") and not d.get("mentioned")
+    ]
+    cited_engines = [
+        eng for eng, d in bp.get("engines", {}).items()
+        if d.get("url_cited")
+    ]
+
+    recs = []
+
+    if tier == "invisible":
+        recs.append({
+            "priority": "high",
+            "action": "Create dedicated content targeting this query — a blog post, buying guide, or landing page optimized for this topic.",
+        })
+        recs.append({
+            "priority": "high",
+            "action": "Add comprehensive FAQ schema markup covering this topic on your most relevant existing page.",
+        })
+        recs.append({
+            "priority": "medium",
+            "action": "Build topical authority: publish 3-5 related articles that interlink and establish expertise.",
+        })
+
+    elif tier == "weak":
+        recs.append({
+            "priority": "high",
+            "action": f"Strengthen existing content — you're only visible in {mentioned}/{total} engines. Expand depth, add data, improve structure.",
+        })
+        recs.append({
+            "priority": "medium",
+            "action": "Add JSON-LD structured data (Product, FAQ, HowTo) to help AI engines parse your content as a source.",
+        })
+        if missing_engines:
+            names = ", ".join(e.capitalize() for e in missing_engines)
+            recs.append({
+                "priority": "medium",
+                "action": f"Missing from: {names}. Research what sources these engines cite instead and match that content depth.",
+            })
+
+    elif tier == "partial":
+        if missing_engines:
+            names = ", ".join(e.capitalize() for e in missing_engines)
+            recs.append({
+                "priority": "medium",
+                "action": f"Not mentioned in: {names}. Analyze competitor content these engines cite and differentiate.",
+            })
+        if url_cited == 0:
+            recs.append({
+                "priority": "medium",
+                "action": "Mentioned by name but no URLs cited. Add authoritative, linkable content (guides, data, tools) that AI engines can reference directly.",
+            })
+        recs.append({
+            "priority": "low",
+            "action": "Earn backlinks and citations from authoritative sources — AI engines weight domain authority in source selection.",
+        })
+
+    elif tier in ("strong", "strong_cited"):
+        recs.append({
+            "priority": "low",
+            "action": "Maintain position — keep content fresh and updated. Monitor for drops.",
+        })
+        if url_cited < mentioned:
+            recs.append({
+                "priority": "low",
+                "action": f"URL cited in {url_cited}/{mentioned} mentions. Add more linkable assets (tools, calculators, downloadable guides) to increase citation rate.",
+            })
+        if cited_engines:
+            names = ", ".join(e.capitalize() for e in cited_engines)
+            recs.append({
+                "priority": "low",
+                "action": f"URLs cited by: {names}. Double down on what works — analyze cited pages and replicate the pattern.",
+            })
+
+    return recs
 
 
 def get_available_engines():
