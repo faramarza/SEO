@@ -148,8 +148,9 @@
                 <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px; margin-bottom:6px;">
                     <label>Min volume: <input type="number" id="filter-min-vol" value="100" min="0" style="width:70px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
                     <label>Max KD: <input type="number" id="filter-max-kd" placeholder="any" min="0" max="100" style="width:70px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
-                    <label>Must contain (comma-sep): <input type="text" id="filter-must-contain" value="puzzle, train, stool, wooden, toy, personalized, montessori, name" style="width:350px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
-                    <label>Exclude (comma-sep): <input type="text" id="filter-exclude" value="amazon, etsy, walmart, target, costco, ikea" style="width:250px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                    <label>Extra must-contain (comma-sep): <input type="text" id="filter-must-contain" placeholder="auto-uses product families from config" style="width:350px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                    <label>Extra exclude (comma-sep): <input type="text" id="filter-exclude" value="amazon, etsy, walmart, target, costco, ikea" style="width:250px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                    <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">Auto-filters: product families from config + competitor names from CSV headers are applied automatically</div>
                 </div>
                 <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:12px; align-items:center;">
                     <label style="display:flex;gap:4px;align-items:center;"><input type="checkbox" id="filter-skip-info"> Skip informational (no buying intent)</label>
@@ -767,7 +768,18 @@ async function uploadCSV(e) {
         }
         status.style.background = '#e8f5e9';
         status.style.color = '#2e7d32';
-        status.textContent = `Imported ${data.imported} keywords from ${data.total_in_csv} rows → ${data.total_batches} batch(es) of ${data.batch_size}. Click "Activate Next Batch" to start checking.`;
+        let msg = `Imported ${data.imported} keywords from ${data.total_in_csv} rows → ${data.total_batches} batch(es) of ${data.batch_size}.`;
+        if (data.auto_detected) {
+            const ad = data.auto_detected;
+            if (ad.competitors_excluded && ad.competitors_excluded.length > 0) {
+                msg += ` Auto-excluded competitors: ${ad.competitors_excluded.join(', ')}.`;
+            }
+            if (ad.product_families && ad.product_families.length > 0) {
+                msg += ` Matched against ${ad.product_families.length} product families.`;
+            }
+        }
+        msg += ' Click "Activate Next Batch" to start checking.';
+        status.textContent = msg;
         showToast(`Imported ${data.imported} keywords into ${data.total_batches} batch(es)`, 'success');
         loadQueueData();
     } catch (err) {

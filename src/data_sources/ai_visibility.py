@@ -535,8 +535,16 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
             if "organic position" in field_lower and field_orig != col_map.get("position"):
                 competitor_pos_cols.append(field_orig)
 
+    competitor_domains = set()
+    if reader.fieldnames:
+        for f in reader.fieldnames:
+            match = re.match(r'["\s]*(?:https?://)?(?:www\.)?([a-z0-9-]+\.[a-z]+)/?.*:\s', _clean_header(f))
+            if match:
+                domain = match.group(1)
+                competitor_domains.add(domain.split(".")[0])
+
     if "keyword" not in col_map:
-        return []
+        return [], list(competitor_domains)
 
     for row in reader:
         kw = row.get(col_map.get("keyword", ""), "").strip()
@@ -582,14 +590,40 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
             "competitors_ranking": competitors_ranking,
         })
 
-    return rows
+    return rows, list(competitor_domains)
+
+
+def _load_product_families() -> list:
+    config_path = DATA_PATH.parent / "config" / "defaults.json"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            return config.get("business_context", {}).get("product_families", [])
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def _load_brand_terms() -> list:
+    config_path = DATA_PATH.parent / "config" / "defaults.json"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            return config.get("data_sources", {}).get("google_ads", {}).get("brand_terms", [])
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
 
 
 def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
     if filters is None:
         filters = {}
 
-    all_rows = _parse_ahrefs_csv(csv_text)
+    parsed = _parse_ahrefs_csv(csv_text)
+    all_rows, detected_competitors = parsed
+
     if not all_rows:
         delimiter = _detect_delimiter(csv_text)
         try:
@@ -605,11 +639,44 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
                      f"File starts with: {first_50}"
         }
 
+    product_families = _load_product_families()
+    brand_terms = _load_brand_terms()
+    brand_terms_lower = {t.lower() for t in brand_terms}
+
+    too_broad = {"toy", "toys", "store", "stores", "shop", "shops", "best", "top", "new"}
+    pf_terms = set()
+    for pf in product_families:
+        pf_lower = pf.lower()
+        pf_terms.add(pf_lower)
+        for word in pf_lower.split():
+            if len(word) > 2 and word not in too_broad:
+                pf_terms.add(word)
+                if word.endswith("ies") and len(word) > 4:
+                    pf_terms.add(word[:-3] + "y")
+                elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+                    pf_terms.add(word[:-1])
+    auto_must_contain = sorted(pf_terms)
+    auto_exclude_domains = set()
+    auto_exclude = []
+    for c in detected_competitors:
+        c_lower = c.lower()
+        if c_lower in brand_terms_lower:
+            continue
+        auto_exclude_domains.add(c_lower)
+        auto_exclude.append(c_lower)
+        no_suffix = re.sub(r'(toys|shop|store|online|com)$', '', c_lower).rstrip('.')
+        if no_suffix and no_suffix != c_lower and len(no_suffix) > 3:
+            auto_exclude.append(no_suffix)
+
     total_in_csv = len(all_rows)
     min_volume = filters.get("min_volume", 100)
     max_kd = filters.get("max_kd")
-    must_contain = [t.lower().strip() for t in filters.get("must_contain", []) if t.strip()]
-    exclude_terms = [t.lower().strip() for t in filters.get("exclude_terms", []) if t.strip()]
+    user_must_contain = [t.lower().strip() for t in filters.get("must_contain", []) if t.strip()]
+    user_exclude = [t.lower().strip() for t in filters.get("exclude_terms", []) if t.strip()]
+
+    must_contain = list(set(auto_must_contain + user_must_contain))
+    exclude_terms = list(set(auto_exclude + user_exclude))
+
     skip_informational = filters.get("skip_informational", False)
     require_commercial = filters.get("require_commercial", False)
     min_cpc = filters.get("min_cpc")
@@ -634,6 +701,9 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         if must_contain and not any(term in kw_lower for term in must_contain):
             continue
         if exclude_terms and any(term in kw_lower for term in exclude_terms):
+            continue
+        kw_nospace = kw_lower.replace(" ", "").replace("-", "")
+        if auto_exclude_domains and any(dom in kw_nospace or kw_nospace in dom for dom in auto_exclude_domains):
             continue
         if len(row["keyword"].split()) <= 1:
             continue
@@ -714,6 +784,12 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         "imported": len(filtered),
         "total_batches": total_batches,
         "batch_size": batch_size,
+        "auto_detected": {
+            "product_families": auto_must_contain,
+            "competitors_excluded": auto_exclude,
+            "must_contain_used": must_contain,
+            "exclude_used": exclude_terms,
+        },
     }
 
 
