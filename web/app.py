@@ -3621,6 +3621,11 @@ def api_growth_ai_visibility_check():
             summary = f"AI visibility complete: mentioned in {mentioned}/{len(non_error)} responses"
             if errors:
                 summary += f" ({errors} errors — check API keys)"
+
+            batch_result = ai_visibility.process_batch_results()
+            if batch_result.get("processed", 0) > 0:
+                summary += f" | Queue: {batch_result['retained']} retained, {batch_result['archived']} archived"
+
             job_state["message"] = summary
             job_state["progress"] = len(prompts)
 
@@ -3666,6 +3671,82 @@ def api_growth_config():
         brand_keywords=data.get("brand_keywords"),
         site_domain=data.get("site_domain"),
     )
+    return jsonify({"success": True})
+
+
+# ── Keyword Queue Endpoints ──
+
+@app.route("/api/growth/keyword-queue")
+def api_keyword_queue():
+    """Get keyword queue summary."""
+    return jsonify(ai_visibility.get_queue_summary())
+
+
+@app.route("/api/growth/keyword-queue/import", methods=["POST"])
+def api_keyword_queue_import():
+    """Import keywords from Ahrefs CSV."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = request.files["file"]
+    if not file.filename.endswith(".csv"):
+        return jsonify({"error": "File must be a CSV"}), 400
+
+    csv_text = file.read().decode("utf-8-sig", errors="replace")
+
+    filters = {}
+    if request.form.get("min_volume"):
+        filters["min_volume"] = int(request.form["min_volume"])
+    if request.form.get("max_kd"):
+        filters["max_kd"] = int(request.form["max_kd"])
+    if request.form.get("must_contain"):
+        filters["must_contain"] = [t.strip() for t in request.form["must_contain"].split(",") if t.strip()]
+    if request.form.get("exclude_terms"):
+        filters["exclude_terms"] = [t.strip() for t in request.form["exclude_terms"].split(",") if t.strip()]
+
+    result = ai_visibility.import_keywords_csv(csv_text, filters)
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/api/growth/keyword-queue/activate", methods=["POST"])
+def api_keyword_queue_activate():
+    """Activate the next batch of keywords (add as prompts)."""
+    result = ai_visibility.activate_next_batch()
+    if result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/api/growth/keyword-queue/process", methods=["POST"])
+def api_keyword_queue_process():
+    """Process batch results — retain mentioned, archive invisible."""
+    result = ai_visibility.process_batch_results()
+    return jsonify(result)
+
+
+@app.route("/api/growth/keyword-queue/recheck", methods=["POST"])
+def api_keyword_queue_recheck():
+    """Reactivate archived keywords due for monthly re-check."""
+    result = ai_visibility.reactivate_rechecks()
+    return jsonify(result)
+
+
+@app.route("/api/growth/keyword-queue/settings", methods=["POST"])
+def api_keyword_queue_settings():
+    """Update queue settings (batch size)."""
+    data = request.json or {}
+    ai_visibility.update_queue_settings(
+        batch_size=data.get("batch_size"),
+    )
+    return jsonify({"success": True})
+
+
+@app.route("/api/growth/keyword-queue/clear", methods=["POST"])
+def api_keyword_queue_clear():
+    """Clear the entire keyword queue."""
+    ai_visibility.clear_queue()
     return jsonify({"success": True})
 
 

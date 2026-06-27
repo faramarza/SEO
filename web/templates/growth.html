@@ -106,6 +106,7 @@
             <div class="card-actions">
                 <button class="btn btn-sm btn-primary" onclick="runVisibilityCheck()">Run Check</button>
                 <button class="btn btn-sm btn-secondary" onclick="showAddPrompt()">Add Prompt</button>
+                <button class="btn btn-sm btn-secondary" onclick="showImportPanel()">Import CSV</button>
                 <button class="btn btn-sm btn-secondary" onclick="showConfig()">Config</button>
             </div>
         </div>
@@ -133,6 +134,37 @@
                 <button class="btn btn-sm btn-primary" onclick="addPrompt()">Add</button>
                 <button class="btn btn-sm btn-secondary" onclick="hideAddPrompt()">Cancel</button>
             </div>
+        </div>
+
+        <!-- Import CSV form (hidden by default) -->
+        <div id="import-form" style="display:none; margin-bottom: 16px; padding:12px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-secondary);">
+            <h4 style="margin:0 0 8px;">Import Keywords from Ahrefs CSV</h4>
+            <form id="csv-upload-form" onsubmit="uploadCSV(event)">
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                    <input type="file" id="csv-file" accept=".csv" required style="font-size:13px;">
+                    <button type="submit" class="btn btn-sm btn-primary">Upload & Filter</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="hideImportPanel()">Cancel</button>
+                </div>
+                <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px;">
+                    <label>Min volume: <input type="number" id="filter-min-vol" value="100" min="0" style="width:70px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                    <label>Max KD: <input type="number" id="filter-max-kd" placeholder="any" min="0" max="100" style="width:70px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                    <label>Must contain (comma-sep): <input type="text" id="filter-must-contain" placeholder="puzzle, train, stool, wooden" style="width:250px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                    <label>Exclude (comma-sep): <input type="text" id="filter-exclude" placeholder="amazon, etsy, walmart" style="width:200px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                </div>
+            </form>
+        </div>
+
+        <!-- Keyword Queue (shown when queue has data) -->
+        <div id="keyword-queue-section" style="display:none; margin-bottom: 16px; padding:12px; border:1px solid var(--border-color); border-radius:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <h4 style="margin:0;">Keyword Queue</h4>
+                <div style="display:flex; gap:6px;">
+                    <button class="btn btn-sm btn-primary" id="activate-batch-btn" onclick="activateNextBatch()">Activate Next Batch</button>
+                    <button class="btn btn-sm btn-secondary" onclick="clearQueue()">Clear Queue</button>
+                </div>
+            </div>
+            <div id="queue-stats" style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;"></div>
+            <div id="queue-keywords-table" style="max-height:300px; overflow-y:auto;"></div>
         </div>
 
         <!-- Config form (hidden by default) -->
@@ -663,7 +695,162 @@ function showToast(msg, type) {
     setTimeout(() => t.classList.add('hidden'), 4000);
 }
 
+// ── Keyword Queue ──
+function showImportPanel() { document.getElementById('import-form').style.display = 'block'; }
+function hideImportPanel() { document.getElementById('import-form').style.display = 'none'; }
+
+async function uploadCSV(e) {
+    e.preventDefault();
+    const file = document.getElementById('csv-file').files[0];
+    if (!file) return;
+
+    const form = new FormData();
+    form.append('file', file);
+
+    const minVol = document.getElementById('filter-min-vol').value;
+    const maxKd = document.getElementById('filter-max-kd').value;
+    const mustContain = document.getElementById('filter-must-contain').value;
+    const exclude = document.getElementById('filter-exclude').value;
+
+    if (minVol) form.append('min_volume', minVol);
+    if (maxKd) form.append('max_kd', maxKd);
+    if (mustContain) form.append('must_contain', mustContain);
+    if (exclude) form.append('exclude_terms', exclude);
+
+    try {
+        const res = await fetch('/api/growth/keyword-queue/import', { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.error) {
+            showToast(data.error, 'error');
+            return;
+        }
+        showToast(`Imported ${data.imported} keywords from ${data.total_in_csv} rows (${data.total_batches} batches of ${data.batch_size})`, 'success');
+        hideImportPanel();
+        loadQueueData();
+    } catch (err) {
+        showToast('Upload failed: ' + err.message, 'error');
+    }
+}
+
+async function loadQueueData() {
+    try {
+        const res = await fetch('/api/growth/keyword-queue');
+        const data = await res.json();
+        renderQueue(data);
+    } catch (err) {
+        console.error('Queue load error:', err);
+    }
+}
+
+function renderQueue(data) {
+    const section = document.getElementById('keyword-queue-section');
+    const stats = document.getElementById('queue-stats');
+    const table = document.getElementById('queue-keywords-table');
+    const btn = document.getElementById('activate-batch-btn');
+
+    if (data.total_keywords === 0) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = 'block';
+    const s = data.by_status || {};
+    const queued = s.queued || 0;
+    const active = s.active || 0;
+    const retained = s.retained || 0;
+    const archived = s.archived || 0;
+
+    stats.innerHTML = `<strong>${data.total_keywords}</strong> keywords total — `
+        + `<span style="color:var(--text-muted);">${queued} queued</span> · `
+        + `<span style="color:var(--accent-blue, #2563eb);">${active} active</span> · `
+        + `<span style="color:var(--accent-green);">${retained} retained</span> · `
+        + `<span style="color:var(--text-muted);">${archived} archived</span>`
+        + (data.next_batch ? ` · Next batch: #${data.next_batch}` : ' · <em>All batches processed</em>')
+        + (data.recheck_due > 0 ? ` · <span style="color:var(--accent-orange);">${data.recheck_due} due for re-check</span>` : '');
+
+    if (!data.next_batch && queued === 0) {
+        btn.disabled = true;
+        btn.textContent = 'All Batches Done';
+    } else {
+        btn.disabled = false;
+        btn.textContent = `Activate Batch #${data.next_batch || '?'} (${Math.min(data.settings.batch_size, queued)} keywords)`;
+    }
+
+    const keywords = data.keywords || [];
+    if (keywords.length === 0) {
+        table.innerHTML = '';
+        return;
+    }
+
+    const statusBadge = (s) => {
+        const colors = {queued: 'var(--text-muted)', active: 'var(--accent-blue, #2563eb)', retained: 'var(--accent-green)', archived: '#888'};
+        return `<span style="color:${colors[s] || '#888'}; font-size:11px; font-weight:600; text-transform:uppercase;">${s}</span>`;
+    };
+
+    const mentionBadge = (r) => {
+        if (!r) return '—';
+        if (r.mentioned) return `<span style="color:var(--accent-green);">${r.engines_mentioned.length}/${r.engines_total}</span>`;
+        return `<span style="color:var(--accent-red);">0/${r.engines_total}</span>`;
+    };
+
+    let html = `<table class="data-table" style="font-size:12px;">
+        <thead><tr><th>#</th><th>Keyword</th><th>Vol</th><th>KD</th><th>Status</th><th>Mentioned</th></tr></thead><tbody>`;
+
+    for (const kw of keywords.slice(0, 100)) {
+        html += `<tr>
+            <td class="text-muted">${kw.batch}</td>
+            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${kw.keyword}">${kw.keyword}</td>
+            <td>${kw.volume.toLocaleString()}</td>
+            <td>${kw.kd}</td>
+            <td>${statusBadge(kw.status)}</td>
+            <td>${mentionBadge(kw.last_result)}</td>
+        </tr>`;
+    }
+    if (keywords.length > 100) {
+        html += `<tr><td colspan="6" class="text-muted" style="text-align:center;">+ ${keywords.length - 100} more keywords...</td></tr>`;
+    }
+    html += '</tbody></table>';
+    table.innerHTML = html;
+}
+
+async function activateNextBatch() {
+    const btn = document.getElementById('activate-batch-btn');
+    btn.disabled = true;
+    btn.textContent = 'Activating...';
+
+    try {
+        const res = await fetch('/api/growth/keyword-queue/activate', { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+            showToast(data.error, 'error');
+            btn.disabled = false;
+            return;
+        }
+        showToast(`Batch #${data.batch}: ${data.activated} keywords added as prompts. ${data.remaining_batches} batches remaining.`, 'success');
+        loadQueueData();
+        loadGrowthData();
+    } catch (err) {
+        showToast('Activation failed: ' + err.message, 'error');
+        btn.disabled = false;
+    }
+}
+
+async function clearQueue() {
+    if (!confirm('Clear the entire keyword queue? This will also remove active/retained prompts that came from the queue.')) return;
+    try {
+        await fetch('/api/growth/keyword-queue/clear', { method: 'POST' });
+        showToast('Queue cleared', 'success');
+        loadQueueData();
+        loadGrowthData();
+    } catch (err) {
+        showToast('Clear failed: ' + err.message, 'error');
+    }
+}
+
 // ── Init ──
-document.addEventListener('DOMContentLoaded', loadGrowthData);
+document.addEventListener('DOMContentLoaded', () => {
+    loadGrowthData();
+    loadQueueData();
+});
 </script>
 {% endblock %}

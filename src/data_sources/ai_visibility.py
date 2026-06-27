@@ -5,6 +5,8 @@ and checks whether the brand/site is mentioned in the response. Results
 are stored with timestamps for trend analysis.
 """
 
+import csv
+import io
 import json
 import os
 import re
@@ -17,6 +19,7 @@ import httpx
 
 DATA_PATH = Path(__file__).parent.parent.parent / "data"
 VISIBILITY_PATH = DATA_PATH / "ai_visibility.json"
+QUEUE_PATH = DATA_PATH / "keyword_queue.json"
 
 ENGINE_CONFIG = {
     "chatgpt": {"key_env": "OPENAI_API_KEY"},
@@ -452,3 +455,334 @@ def update_config(brand_keywords: list = None, site_domain: str = None):
     if site_domain is not None:
         data["config"]["site_domain"] = site_domain
     _save_data(data)
+
+
+# ── Keyword Queue System ──
+
+def _load_queue():
+    if QUEUE_PATH.exists():
+        try:
+            with open(QUEUE_PATH) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {
+        "settings": {"batch_size": 20},
+        "imports": [],
+        "keywords": [],
+    }
+
+
+def _save_queue(queue):
+    DATA_PATH.mkdir(parents=True, exist_ok=True)
+    tmp = QUEUE_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(queue, f, indent=2)
+    tmp.replace(QUEUE_PATH)
+
+
+def _parse_ahrefs_csv(csv_text: str) -> list:
+    reader = csv.DictReader(io.StringIO(csv_text))
+    rows = []
+    col_map = {}
+    if reader.fieldnames:
+        lower_fields = {f.lower().strip(): f for f in reader.fieldnames}
+        for target, candidates in [
+            ("keyword", ["keyword"]),
+            ("volume", ["volume", "monthly volume", "search volume", "volume ▼"]),
+            ("kd", ["kd", "keyword difficulty"]),
+            ("cpc", ["cpc"]),
+            ("traffic", ["traffic", "org. traffic"]),
+            ("position", ["position", "org. pos.", "org. pos"]),
+            ("url", ["url", "current url"]),
+        ]:
+            for c in candidates:
+                if c in lower_fields:
+                    col_map[target] = lower_fields[c]
+                    break
+
+    if "keyword" not in col_map:
+        return []
+
+    for row in reader:
+        kw = row.get(col_map.get("keyword", ""), "").strip()
+        if not kw:
+            continue
+        vol_raw = row.get(col_map.get("volume", ""), "0")
+        vol_raw = re.sub(r"[^\d.]", "", str(vol_raw))
+        kd_raw = row.get(col_map.get("kd", ""), "0")
+        kd_raw = re.sub(r"[^\d.]", "", str(kd_raw))
+        cpc_raw = row.get(col_map.get("cpc", ""), "0")
+        cpc_raw = re.sub(r"[^\d.]", "", str(cpc_raw))
+
+        rows.append({
+            "keyword": kw,
+            "volume": int(float(vol_raw)) if vol_raw else 0,
+            "kd": int(float(kd_raw)) if kd_raw else 0,
+            "cpc": round(float(cpc_raw), 2) if cpc_raw else 0,
+            "traffic": int(float(re.sub(r"[^\d.]", "", row.get(col_map.get("traffic", ""), "0")) or "0")),
+            "position": int(float(re.sub(r"[^\d.]", "", row.get(col_map.get("position", ""), "0")) or "0")),
+            "url": row.get(col_map.get("url", ""), ""),
+        })
+
+    return rows
+
+
+def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
+    if filters is None:
+        filters = {}
+
+    all_rows = _parse_ahrefs_csv(csv_text)
+    if not all_rows:
+        return {"error": "Could not parse CSV. Make sure it has a 'Keyword' column."}
+
+    total_in_csv = len(all_rows)
+    min_volume = filters.get("min_volume", 100)
+    max_kd = filters.get("max_kd")
+    must_contain = [t.lower().strip() for t in filters.get("must_contain", []) if t.strip()]
+    exclude_terms = [t.lower().strip() for t in filters.get("exclude_terms", []) if t.strip()]
+
+    queue = _load_queue()
+    existing_keywords = {kw["keyword"].lower() for kw in queue["keywords"]}
+    vis_data = _load_data()
+    existing_prompts = {p["text"].lower() for p in vis_data.get("prompts", [])}
+
+    filtered = []
+    for row in all_rows:
+        kw_lower = row["keyword"].lower()
+        if kw_lower in existing_keywords or kw_lower in existing_prompts:
+            continue
+        if row["volume"] < min_volume:
+            continue
+        if max_kd is not None and row["kd"] > max_kd:
+            continue
+        if must_contain and not any(term in kw_lower for term in must_contain):
+            continue
+        if exclude_terms and any(term in kw_lower for term in exclude_terms):
+            continue
+        if len(row["keyword"].split()) <= 1:
+            continue
+        filtered.append(row)
+
+    filtered.sort(key=lambda r: r["volume"], reverse=True)
+
+    import_id = f"imp_{int(time.time())}"
+    batch_size = queue["settings"].get("batch_size", 20)
+    existing_batches = max((kw.get("batch", 0) for kw in queue["keywords"]), default=0)
+
+    for i, row in enumerate(filtered):
+        batch_num = existing_batches + (i // batch_size) + 1
+        queue["keywords"].append({
+            "keyword": row["keyword"],
+            "volume": row["volume"],
+            "kd": row["kd"],
+            "cpc": row["cpc"],
+            "traffic": row.get("traffic", 0),
+            "position": row.get("position", 0),
+            "url": row.get("url", ""),
+            "import_id": import_id,
+            "batch": batch_num,
+            "status": "queued",
+            "prompt_id": None,
+            "last_checked_at": None,
+            "next_recheck_at": None,
+            "last_result": None,
+        })
+
+    queue["imports"].append({
+        "id": import_id,
+        "imported_at": datetime.now().isoformat(),
+        "filters": filters,
+        "stats": {
+            "total_in_csv": total_in_csv,
+            "after_filters": len(filtered),
+            "duplicates_skipped": total_in_csv - len(filtered) - (total_in_csv - len(all_rows)),
+        },
+    })
+
+    _save_queue(queue)
+
+    total_batches = max((kw["batch"] for kw in queue["keywords"]), default=0)
+    return {
+        "import_id": import_id,
+        "total_in_csv": total_in_csv,
+        "imported": len(filtered),
+        "total_batches": total_batches,
+        "batch_size": batch_size,
+    }
+
+
+def get_queue_summary() -> dict:
+    queue = _load_queue()
+    keywords = queue["keywords"]
+
+    by_status = {}
+    for kw in keywords:
+        s = kw["status"]
+        by_status[s] = by_status.get(s, 0) + 1
+
+    by_batch = {}
+    for kw in keywords:
+        b = kw["batch"]
+        if b not in by_batch:
+            by_batch[b] = {"total": 0, "queued": 0, "active": 0, "retained": 0, "archived": 0}
+        by_batch[b]["total"] += 1
+        by_batch[b][kw["status"]] += 1
+
+    next_batch = None
+    for b in sorted(by_batch.keys()):
+        if by_batch[b]["queued"] > 0:
+            next_batch = b
+            break
+
+    recheck_due = sum(
+        1 for kw in keywords
+        if kw["status"] == "archived"
+        and kw.get("next_recheck_at")
+        and kw["next_recheck_at"] <= datetime.now().isoformat()
+    )
+
+    return {
+        "settings": queue["settings"],
+        "total_keywords": len(keywords),
+        "by_status": by_status,
+        "by_batch": by_batch,
+        "next_batch": next_batch,
+        "recheck_due": recheck_due,
+        "imports": queue.get("imports", []),
+        "keywords": keywords,
+    }
+
+
+def activate_next_batch() -> dict:
+    queue = _load_queue()
+    keywords = queue["keywords"]
+
+    queued_batches = sorted(set(
+        kw["batch"] for kw in keywords if kw["status"] == "queued"
+    ))
+    if not queued_batches:
+        return {"error": "No more batches in queue.", "activated": 0}
+
+    batch_num = queued_batches[0]
+    batch_keywords = [kw for kw in keywords if kw["batch"] == batch_num and kw["status"] == "queued"]
+
+    activated = []
+    for kw in batch_keywords:
+        prompt = add_prompt(kw["keyword"])
+        kw["status"] = "active"
+        kw["prompt_id"] = prompt["id"]
+        kw["activated_at"] = datetime.now().isoformat()
+        activated.append(kw["keyword"])
+
+    _save_queue(queue)
+
+    remaining_queued = sum(1 for kw in keywords if kw["status"] == "queued")
+    remaining_batches = len(set(kw["batch"] for kw in keywords if kw["status"] == "queued"))
+
+    return {
+        "batch": batch_num,
+        "activated": len(activated),
+        "keywords": activated,
+        "remaining_keywords": remaining_queued,
+        "remaining_batches": remaining_batches,
+    }
+
+
+def process_batch_results():
+    queue = _load_queue()
+    vis_data = _load_data()
+    results = vis_data.get("results", [])
+
+    active_keywords = [kw for kw in queue["keywords"] if kw["status"] == "active"]
+    if not active_keywords:
+        return {"processed": 0}
+
+    latest = {}
+    for r in results:
+        key = f"{r['prompt']}|{r['engine']}"
+        if key not in latest or r.get("timestamp", "") > latest[key].get("timestamp", ""):
+            latest[key] = r
+
+    processed = 0
+    retained = 0
+    archived = 0
+
+    for kw in active_keywords:
+        kw_results = [r for r in latest.values() if r.get("prompt") == kw["keyword"]]
+        if not kw_results:
+            continue
+
+        non_error = [r for r in kw_results if not r.get("error")]
+        mentioned_engines = [r["engine"] for r in non_error if r.get("mentioned")]
+        was_mentioned = len(mentioned_engines) > 0
+
+        kw["last_checked_at"] = datetime.now().isoformat()
+        kw["last_result"] = {
+            "mentioned": was_mentioned,
+            "engines_mentioned": mentioned_engines,
+            "engines_total": len(non_error),
+        }
+
+        if was_mentioned:
+            kw["status"] = "retained"
+            retained += 1
+        else:
+            kw["status"] = "archived"
+            kw["next_recheck_at"] = (datetime.now() + timedelta(days=30)).isoformat()
+            if kw.get("prompt_id"):
+                remove_prompt(kw["prompt_id"])
+                kw["prompt_id"] = None
+            archived += 1
+
+        processed += 1
+
+    _save_queue(queue)
+
+    return {
+        "processed": processed,
+        "retained": retained,
+        "archived": archived,
+    }
+
+
+def reactivate_rechecks() -> dict:
+    queue = _load_queue()
+    now = datetime.now().isoformat()
+
+    recheck_kws = [
+        kw for kw in queue["keywords"]
+        if kw["status"] == "archived"
+        and kw.get("next_recheck_at")
+        and kw["next_recheck_at"] <= now
+    ]
+
+    activated = []
+    for kw in recheck_kws:
+        prompt = add_prompt(kw["keyword"])
+        kw["status"] = "active"
+        kw["prompt_id"] = prompt["id"]
+        kw["activated_at"] = datetime.now().isoformat()
+        kw["next_recheck_at"] = None
+        activated.append(kw["keyword"])
+
+    _save_queue(queue)
+    return {"reactivated": len(activated), "keywords": activated}
+
+
+def update_queue_settings(batch_size: int = None):
+    queue = _load_queue()
+    if batch_size is not None:
+        queue["settings"]["batch_size"] = batch_size
+    _save_queue(queue)
+
+
+def clear_queue():
+    queue = _load_queue()
+    active_prompt_ids = [kw["prompt_id"] for kw in queue["keywords"]
+                         if kw.get("prompt_id") and kw["status"] in ("active", "retained")]
+    for pid in active_prompt_ids:
+        remove_prompt(pid)
+    queue["keywords"] = []
+    queue["imports"] = []
+    _save_queue(queue)
