@@ -643,19 +643,53 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
     brand_terms = _load_brand_terms()
     brand_terms_lower = {t.lower() for t in brand_terms}
 
-    too_broad = {"toy", "toys", "store", "stores", "shop", "shops", "best", "top", "new"}
-    pf_terms = set()
+    generic_words = {
+        "toy", "toys", "store", "stores", "shop", "shops", "best", "top", "new",
+        "name", "step", "play", "art", "supply", "supplies",
+        "stool", "stools", "book", "books", "rug", "rugs",
+        "kitchen", "kitchens", "game", "games", "gift", "gifts",
+        "set", "sets", "food",
+    }
+    child_context = {
+        "kid", "kids", "children", "child", "baby", "toddler", "infant",
+        "montessori", "toy", "toys", "pretend", "wooden", "play",
+        "nursery", "preschool", "waldorf", "educational",
+        "sticker", "coloring", "activity", "busy", "abc", "alphabet",
+        "learning", "doll", "dollhouse", "craft", "crafts",
+        "personalized", "custom", "toddlers", "kit", "kits",
+    }
+
+    specific_terms = set()
+    generic_terms = set()
     for pf in product_families:
         pf_lower = pf.lower()
-        pf_terms.add(pf_lower)
+        if " " in pf_lower:
+            specific_terms.add(pf_lower)
+            singular = re.sub(r's$', '', pf_lower)
+            if singular != pf_lower:
+                specific_terms.add(singular)
         for word in pf_lower.split():
-            if len(word) > 2 and word not in too_broad:
-                pf_terms.add(word)
+            if len(word) <= 2:
+                continue
+            if word in generic_words:
+                generic_terms.add(word)
                 if word.endswith("ies") and len(word) > 4:
-                    pf_terms.add(word[:-3] + "y")
+                    generic_terms.add(word[:-3] + "y")
                 elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
-                    pf_terms.add(word[:-1])
-    auto_must_contain = sorted(pf_terms)
+                    generic_terms.add(word[:-1])
+            else:
+                specific_terms.add(word)
+                if word.endswith("ies") and len(word) > 4:
+                    specific_terms.add(word[:-3] + "y")
+                elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+                    specific_terms.add(word[:-1])
+
+    specific_pats = [re.compile(r'\b' + re.escape(t) + r'(?:s|es)?\b') for t in specific_terms]
+    generic_pats = [re.compile(r'\b' + re.escape(t) + r'\b') for t in generic_terms]
+    child_ctx_pats = [re.compile(r'\b' + re.escape(w) + r's?\b') for w in child_context]
+
+    auto_must_contain = sorted(specific_terms | generic_terms)
+
     auto_exclude_domains = set()
     auto_exclude = []
     for c in detected_competitors:
@@ -668,13 +702,18 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         if no_suffix and no_suffix != c_lower and len(no_suffix) > 3:
             auto_exclude.append(no_suffix)
 
+    auto_exclude.extend(["for adults", "gardening", "espresso", "cocktail",
+                          "invitations", "invites", "gadgets", "ukulele",
+                          "parenting", "porsche", "birthday book"])
+
     total_in_csv = len(all_rows)
     min_volume = filters.get("min_volume", 100)
     max_kd = filters.get("max_kd")
     user_must_contain = [t.lower().strip() for t in filters.get("must_contain", []) if t.strip()]
     user_exclude = [t.lower().strip() for t in filters.get("exclude_terms", []) if t.strip()]
 
-    must_contain = list(set(auto_must_contain + user_must_contain))
+    for t in user_must_contain:
+        specific_pats.append(re.compile(r'\b' + re.escape(t) + r'(?:s|es)?\b'))
     exclude_terms = list(set(auto_exclude + user_exclude))
 
     skip_informational = filters.get("skip_informational", False)
@@ -698,9 +737,12 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
             continue
         if max_kd is not None and row["kd"] > max_kd:
             continue
-        if must_contain and not any(term in kw_lower for term in must_contain):
+        has_specific = any(p.search(kw_lower) for p in specific_pats)
+        has_generic = any(p.search(kw_lower) for p in generic_pats)
+        has_child_ctx = any(p.search(kw_lower) for p in child_ctx_pats)
+        if not has_specific and not (has_generic and has_child_ctx):
             continue
-        if exclude_terms and any(term in kw_lower for term in exclude_terms):
+        if exclude_terms and any(re.search(r'\b' + re.escape(t) + r'\b', kw_lower) for t in exclude_terms):
             continue
         kw_nospace = kw_lower.replace(" ", "").replace("-", "")
         if auto_exclude_domains and any(dom in kw_nospace or kw_nospace in dom for dom in auto_exclude_domains):
@@ -787,7 +829,7 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         "auto_detected": {
             "product_families": auto_must_contain,
             "competitors_excluded": auto_exclude,
-            "must_contain_used": must_contain,
+            "must_contain_used": auto_must_contain,
             "exclude_used": exclude_terms,
         },
     }
