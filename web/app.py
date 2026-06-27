@@ -3693,7 +3693,16 @@ def api_keyword_queue_import():
         if not file.filename or not file.filename.endswith(".csv"):
             return jsonify({"error": "File must be a CSV"}), 400
 
-        csv_text = file.read().decode("utf-8-sig", errors="replace")
+        raw = file.read()
+        for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "latin-1"):
+            try:
+                csv_text = raw.decode(encoding)
+                if "keyword" in csv_text.lower()[:500]:
+                    break
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        else:
+            csv_text = raw.decode("utf-8", errors="replace")
         if not csv_text.strip():
             return jsonify({"error": "CSV file is empty"}), 400
 

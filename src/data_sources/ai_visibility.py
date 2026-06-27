@@ -489,7 +489,8 @@ def _detect_delimiter(csv_text: str) -> str:
 
 
 def _clean_header(s: str) -> str:
-    return re.sub(r"[^\x20-\x7E]", "", s).strip().lower()
+    s = re.sub(r"[^\x20-\x7E]", "", s).strip().strip('"').strip("'").strip()
+    return s.lower()
 
 
 def _parse_ahrefs_csv(csv_text: str) -> list:
