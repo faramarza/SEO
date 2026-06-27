@@ -476,7 +476,8 @@ function renderVisibilityGrid(vis) {
             if (!d) {
                 html += `<td class="text-muted">—</td>`;
             } else if (d.error) {
-                html += `<td title="${d.error}" style="color:var(--text-muted);">N/A</td>`;
+                const short = d.error.length > 40 ? d.error.substring(0, 40) + '…' : d.error;
+                html += `<td style="color:var(--accent-red);font-size:0.75rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${d.error}">${short}</td>`;
             } else if (d.url_cited) {
                 html += `<td title="URL cited: ${(d.urls_cited || []).join(', ')}\n\n${d.context || ''}" style="cursor:help;">
                     <span class="vis-badge vis-cited">Cited</span>

@@ -75,12 +75,18 @@ def _query_gemini(prompt: str, api_key: str) -> Optional[str]:
         json={"contents": [{"parts": [{"text": prompt}]}]},
         timeout=30,
     )
-    if resp.status_code == 200:
-        candidates = resp.json().get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if parts:
-                return parts[0].get("text")
+    if resp.status_code != 200:
+        try:
+            err = resp.json().get("error", {})
+            msg = err.get("message", resp.text[:300])
+        except Exception:
+            msg = resp.text[:300]
+        raise RuntimeError(f"Gemini API {resp.status_code}: {msg}")
+    candidates = resp.json().get("candidates", [])
+    if candidates:
+        parts = candidates[0].get("content", {}).get("parts", [])
+        if parts:
+            return parts[0].get("text")
     return None
 
 
