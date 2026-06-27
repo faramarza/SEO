@@ -481,8 +481,16 @@ def _save_queue(queue):
     tmp.replace(QUEUE_PATH)
 
 
+def _detect_delimiter(csv_text: str) -> str:
+    first_line = csv_text.split("\n", 1)[0]
+    if "\t" in first_line:
+        return "\t"
+    return ","
+
+
 def _parse_ahrefs_csv(csv_text: str) -> list:
-    reader = csv.DictReader(io.StringIO(csv_text))
+    delimiter = _detect_delimiter(csv_text)
+    reader = csv.DictReader(io.StringIO(csv_text), delimiter=delimiter)
     rows = []
     col_map = {}
     if reader.fieldnames:
@@ -492,14 +500,25 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
             ("volume", ["volume", "monthly volume", "search volume", "volume ▼"]),
             ("kd", ["kd", "keyword difficulty"]),
             ("cpc", ["cpc"]),
-            ("traffic", ["traffic", "org. traffic"]),
-            ("position", ["position", "org. pos.", "org. pos"]),
+            ("traffic", ["traffic", "org. traffic", "organic traffic"]),
+            ("position", ["position", "org. pos.", "org. pos", "organic position"]),
             ("url", ["url", "current url"]),
         ]:
             for c in candidates:
                 if c in lower_fields:
                     col_map[target] = lower_fields[c]
                     break
+            if target not in col_map:
+                for field_lower, field_orig in lower_fields.items():
+                    if target == "traffic" and "organic traffic" in field_lower:
+                        col_map[target] = field_orig
+                        break
+                    if target == "position" and "organic position" in field_lower:
+                        col_map[target] = field_orig
+                        break
+                    if target == "url" and field_lower.endswith(": url"):
+                        col_map[target] = field_orig
+                        break
 
     if "keyword" not in col_map:
         return []
@@ -508,21 +527,20 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
         kw = row.get(col_map.get("keyword", ""), "").strip()
         if not kw:
             continue
-        vol_raw = row.get(col_map.get("volume", ""), "0")
-        vol_raw = re.sub(r"[^\d.]", "", str(vol_raw))
-        kd_raw = row.get(col_map.get("kd", ""), "0")
-        kd_raw = re.sub(r"[^\d.]", "", str(kd_raw))
-        cpc_raw = row.get(col_map.get("cpc", ""), "0")
-        cpc_raw = re.sub(r"[^\d.]", "", str(cpc_raw))
+        vol_raw = re.sub(r"[^\d.]", "", str(row.get(col_map.get("volume", ""), "0") or "0"))
+        kd_raw = re.sub(r"[^\d.]", "", str(row.get(col_map.get("kd", ""), "0") or "0"))
+        cpc_raw = re.sub(r"[^\d.]", "", str(row.get(col_map.get("cpc", ""), "0") or "0"))
+        traffic_raw = re.sub(r"[^\d.]", "", str(row.get(col_map.get("traffic", ""), "0") or "0"))
+        pos_raw = re.sub(r"[^\d.]", "", str(row.get(col_map.get("position", ""), "0") or "0"))
 
         rows.append({
             "keyword": kw,
             "volume": int(float(vol_raw)) if vol_raw else 0,
             "kd": int(float(kd_raw)) if kd_raw else 0,
             "cpc": round(float(cpc_raw), 2) if cpc_raw else 0,
-            "traffic": int(float(re.sub(r"[^\d.]", "", row.get(col_map.get("traffic", ""), "0")) or "0")),
-            "position": int(float(re.sub(r"[^\d.]", "", row.get(col_map.get("position", ""), "0")) or "0")),
-            "url": row.get(col_map.get("url", ""), ""),
+            "traffic": int(float(traffic_raw)) if traffic_raw else 0,
+            "position": int(float(pos_raw)) if pos_raw else 0,
+            "url": row.get(col_map.get("url", ""), "") or "",
         })
 
     return rows
