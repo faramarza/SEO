@@ -605,6 +605,64 @@ def _load_product_families() -> list:
     return []
 
 
+INVENTORY_PATH = DATA_PATH / "page_inventory.json"
+
+
+def _load_site_terms() -> set:
+    """Extract product/category terms from the page inventory (sitemap data)."""
+    if not INVENTORY_PATH.exists():
+        return set()
+    try:
+        with open(INVENTORY_PATH) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return set()
+
+    pages = data.get("pages", {})
+    if not pages:
+        return set()
+
+    stop_words = {
+        "the", "and", "for", "with", "from", "that", "this", "are", "was",
+        "has", "have", "had", "our", "your", "all", "can", "will", "just",
+        "more", "also", "than", "each", "about", "new", "best", "top",
+        "com", "www", "http", "https", "html", "htm", "php", "asp",
+        "page", "home", "index", "category", "product", "products",
+        "shop", "store", "buy", "cart", "checkout", "account", "login",
+        "search", "tag", "tags", "blog", "post", "posts", "news",
+        "contact", "about", "faq", "help", "privacy", "terms", "policy",
+        "shipping", "returns", "return", "order", "orders",
+    }
+
+    bigrams = set()
+    for url, page_data in pages.items():
+        if isinstance(page_data, dict):
+            title = page_data.get("title", "")
+            h1 = page_data.get("h1", "")
+        else:
+            continue
+
+        path = re.sub(r'https?://[^/]+', '', url)
+        path_words = [w.lower() for w in re.split(r'[-_/.]', path)
+                       if len(w) > 2 and w.lower() not in stop_words]
+
+        for text in [title, h1]:
+            if not text:
+                continue
+            text_clean = re.sub(r'[|–—\-].*$', '', text).strip()
+            words = [w.lower() for w in re.findall(r'[a-zA-Z]+', text_clean)
+                     if len(w) > 2 and w.lower() not in stop_words]
+            for i in range(len(words) - 1):
+                bigrams.add(f"{words[i]} {words[i+1]}")
+            for i in range(len(words) - 2):
+                bigrams.add(f"{words[i]} {words[i+1]} {words[i+2]}")
+
+        for i in range(len(path_words) - 1):
+            bigrams.add(f"{path_words[i]} {path_words[i+1]}")
+
+    return bigrams
+
+
 def _load_brand_terms() -> list:
     config_path = DATA_PATH.parent / "config" / "defaults.json"
     if config_path.exists():
@@ -642,14 +700,57 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
     product_families = _load_product_families()
     brand_terms = _load_brand_terms()
     brand_terms_lower = {t.lower() for t in brand_terms}
+    site_terms = _load_site_terms()
+    has_site_data = len(site_terms) > 0
 
-    generic_words = {
-        "toy", "toys", "store", "stores", "shop", "shops", "best", "top", "new",
-        "name", "step", "play", "art", "supply", "supplies",
-        "stool", "stools", "book", "books", "rug", "rugs",
-        "kitchen", "kitchens", "game", "games", "gift", "gifts",
-        "set", "sets", "food",
-    }
+    if has_site_data:
+        specific_terms = set(site_terms)
+        generic_terms = set()
+        for pf in product_families:
+            pf_lower = pf.lower()
+            if " " in pf_lower:
+                specific_terms.add(pf_lower)
+                singular = re.sub(r's$', '', pf_lower)
+                if singular != pf_lower:
+                    specific_terms.add(singular)
+            else:
+                generic_terms.add(pf_lower)
+                if pf_lower.endswith("s") and len(pf_lower) > 3:
+                    generic_terms.add(pf_lower[:-1])
+    else:
+        generic_words = {
+            "toy", "toys", "store", "stores", "shop", "shops", "best", "top", "new",
+            "name", "step", "play", "art", "supply", "supplies",
+            "stool", "stools", "book", "books", "rug", "rugs",
+            "kitchen", "kitchens", "game", "games", "gift", "gifts",
+            "set", "sets", "food",
+        }
+        specific_terms = set()
+        generic_terms = set()
+        for pf in product_families:
+            pf_lower = pf.lower()
+            if " " in pf_lower:
+                specific_terms.add(pf_lower)
+                singular = re.sub(r's$', '', pf_lower)
+                if singular != pf_lower:
+                    specific_terms.add(singular)
+            for word in pf_lower.split():
+                if len(word) <= 2:
+                    continue
+                if word in generic_words:
+                    generic_terms.add(word)
+                    if word.endswith("ies") and len(word) > 4:
+                        generic_terms.add(word[:-3] + "y")
+                    elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+                        generic_terms.add(word[:-1])
+                else:
+                    specific_terms.add(word)
+                    if word.endswith("ies") and len(word) > 4:
+                        specific_terms.add(word[:-3] + "y")
+                    elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+                        specific_terms.add(word[:-1])
+        generic_terms -= {"toy", "toys"}
+
     child_context = {
         "kid", "kids", "children", "child", "baby", "toddler", "infant",
         "montessori", "toy", "toys", "pretend", "wooden", "play",
@@ -658,33 +759,6 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         "learning", "doll", "dollhouse", "craft", "crafts",
         "personalized", "custom", "toddlers", "kit", "kits",
     }
-
-    specific_terms = set()
-    generic_terms = set()
-    for pf in product_families:
-        pf_lower = pf.lower()
-        if " " in pf_lower:
-            specific_terms.add(pf_lower)
-            singular = re.sub(r's$', '', pf_lower)
-            if singular != pf_lower:
-                specific_terms.add(singular)
-        for word in pf_lower.split():
-            if len(word) <= 2:
-                continue
-            if word in generic_words:
-                generic_terms.add(word)
-                if word.endswith("ies") and len(word) > 4:
-                    generic_terms.add(word[:-3] + "y")
-                elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
-                    generic_terms.add(word[:-1])
-            else:
-                specific_terms.add(word)
-                if word.endswith("ies") and len(word) > 4:
-                    specific_terms.add(word[:-3] + "y")
-                elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
-                    specific_terms.add(word[:-1])
-
-    generic_terms -= {"toy", "toys"}
 
     specific_pats = [re.compile(r'\b' + re.escape(t) + r'(?:s|es)?\b') for t in specific_terms]
     generic_pats = [re.compile(r'\b' + re.escape(t) + r'\b') for t in generic_terms]
@@ -833,6 +907,8 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         "batch_size": batch_size,
         "auto_detected": {
             "product_families": auto_must_contain,
+            "site_terms_count": len(site_terms),
+            "used_site_data": has_site_data,
             "competitors_excluded": auto_exclude,
             "must_contain_used": auto_must_contain,
             "exclude_used": exclude_terms,

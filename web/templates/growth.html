@@ -774,8 +774,10 @@ async function uploadCSV(e) {
             if (ad.competitors_excluded && ad.competitors_excluded.length > 0) {
                 msg += ` Auto-excluded competitors: ${ad.competitors_excluded.join(', ')}.`;
             }
-            if (ad.product_families && ad.product_families.length > 0) {
-                msg += ` Matched against ${ad.product_families.length} product families.`;
+            if (ad.used_site_data) {
+                msg += ` Matched against ${ad.site_terms_count} site terms from page inventory + ${ad.product_families.length} product families.`;
+            } else if (ad.product_families && ad.product_families.length > 0) {
+                msg += ` Matched against ${ad.product_families.length} product families (no page inventory — crawl sitemap for smarter filtering).`;
             }
         }
         msg += ' Click "Activate Next Batch" to start checking.';
