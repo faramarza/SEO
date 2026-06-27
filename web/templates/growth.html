@@ -4,6 +4,14 @@
 
 {% block content %}
 <div class="growth-page">
+    <!-- Progress Bar -->
+    <div id="job-progress" class="job-progress hidden">
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <span id="progress-text"></span>
+    </div>
+
     <!-- KPI Cards -->
     <div class="kpi-row" id="kpi-row">
         <div class="kpi-card">
@@ -102,6 +110,9 @@
             </div>
         </div>
 
+        <!-- API key status (always visible) -->
+        <div id="engine-status-bar" style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;"></div>
+
         <!-- Add prompt form (hidden by default) -->
         <div id="add-prompt-form" style="display:none; margin-bottom: 16px;">
             <div style="display:flex; gap:8px; align-items:center;">
@@ -159,18 +170,59 @@ let visibilityChart = null;
 // ── Load Data ──
 async function loadGrowthData() {
     try {
-        const [moversRes, visRes] = await Promise.all([
+        const [moversRes, visRes, jobRes] = await Promise.all([
             fetch('/api/growth/summary'),
             fetch('/api/growth/ai-visibility'),
+            fetch('/api/job-status'),
         ]);
         const movers = await moversRes.json();
         const vis = await visRes.json();
+        const jobStatus = await jobRes.json();
 
         renderKPIs(movers, vis);
         renderTrafficChart(movers.history || []);
         renderMovers(movers);
         renderVisibilityChart(vis);
         renderVisibilityGrid(vis);
+
+        // Show last job status in progress bar
+        const progressDiv = document.getElementById('job-progress');
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+
+        if (jobStatus.running) {
+            progressDiv.classList.remove('hidden');
+            progressFill.style.width = '100%';
+            progressText.textContent = jobStatus.message || 'Running...';
+            if (!visCheckPoll) {
+                runVisibilityCheck.__polling = true;
+                visCheckPoll = setInterval(async () => {
+                    try {
+                        const sr = await fetch('/api/job-status');
+                        const s = await sr.json();
+                        if (s.running) {
+                            const pct = s.total > 0 ? Math.round((s.progress / s.total) * 100) : 0;
+                            progressFill.style.width = (s.total > 0 ? pct : 100) + '%';
+                            progressText.textContent = (s.message || 'Running...') + (s.total > 0 ? ` (${pct}%)` : '');
+                        } else {
+                            clearInterval(visCheckPoll);
+                            visCheckPoll = null;
+                            progressFill.style.width = '100%';
+                            progressFill.style.backgroundColor = s.error ? '#e74c3c' : '#27ae60';
+                            const ts = s.finished_at ? ` — ${s.finished_at}` : '';
+                            progressText.textContent = `${s.message || 'Complete'}${ts}`;
+                            loadGrowthData();
+                        }
+                    } catch (err) { console.error('[poll]', err); }
+                }, 1500);
+            }
+        } else if (jobStatus.finished_at && jobStatus.type === 'ai_visibility') {
+            progressDiv.classList.remove('hidden');
+            progressFill.style.width = '100%';
+            progressFill.style.backgroundColor = jobStatus.error ? '#e74c3c' : '#27ae60';
+            const ts = ` — ${jobStatus.finished_at}`;
+            progressText.textContent = `${jobStatus.message || 'Complete'}${ts}`;
+        }
     } catch (err) {
         console.error('Failed to load growth data:', err);
     }
@@ -467,12 +519,15 @@ function renderVisibilityGrid(vis) {
     document.getElementById('config-brand').value = (config.brand_keywords || []).join(', ');
     document.getElementById('config-domain').value = config.site_domain || '';
 
-    // Show engine status
-    const statusEl = document.getElementById('engine-status');
+    // Show engine status in both places
     const statusParts = Object.entries(available).map(([eng, ok]) =>
         `${eng}: ${ok ? '<span style="color:var(--accent-green);">key set</span>' : '<span style="color:var(--accent-red);">no key</span>'}`
     );
-    statusEl.innerHTML = 'API Keys: ' + statusParts.join(' | ');
+    const statusHtml = 'API Keys: ' + statusParts.join(' | ');
+    const statusEl = document.getElementById('engine-status');
+    if (statusEl) statusEl.innerHTML = statusHtml;
+    const statusBar = document.getElementById('engine-status-bar');
+    if (statusBar) statusBar.innerHTML = statusHtml;
 }
 
 // ── Actions ──
@@ -520,21 +575,66 @@ async function saveConfig() {
     showToast('Config saved', 'success');
 }
 
+let visCheckPoll = null;
+
 async function runVisibilityCheck() {
-    showToast('Running AI visibility check... this may take a minute.', 'info');
+    const btn = document.querySelector('[onclick="runVisibilityCheck()"]');
     try {
         const res = await fetch('/api/growth/ai-visibility/check', { method: 'POST' });
         const data = await res.json();
         if (data.error) {
             showToast(data.error, 'error');
-        } else {
-            const mentioned = (data.results || []).filter(r => r.mentioned).length;
-            const total = (data.results || []).filter(r => !r.error).length;
-            showToast(`Check complete: mentioned in ${mentioned}/${total} responses`, 'success');
-            loadGrowthData();
+            return;
         }
+        if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+        showToast('AI visibility check started...', 'info');
+
+        // Poll job-status for progress
+        const progressDiv = document.getElementById('job-progress');
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+        progressDiv.classList.remove('hidden');
+        progressFill.style.backgroundColor = '';
+        progressFill.style.width = '100%';
+        progressText.textContent = 'Starting AI visibility check...';
+
+        visCheckPoll = setInterval(async () => {
+            try {
+                const sr = await fetch('/api/job-status');
+                const status = await sr.json();
+
+                if (status.running) {
+                    const pct = status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
+                    progressFill.style.width = (status.total > 0 ? pct : 100) + '%';
+                    const pctText = status.total > 0 ? ` (${pct}% — ${status.progress}/${status.total})` : '';
+                    progressText.textContent = (status.message || 'Checking...') + pctText;
+                } else {
+                    clearInterval(visCheckPoll);
+                    visCheckPoll = null;
+                    if (btn) { btn.disabled = false; btn.textContent = 'Run Check'; }
+
+                    // Show finished state
+                    progressFill.style.width = '100%';
+                    const ts = status.finished_at ? ` — ${status.finished_at}` : '';
+                    if (status.error) {
+                        progressFill.style.backgroundColor = '#e74c3c';
+                        progressText.textContent = `Error: ${status.message}${ts}`;
+                        showToast('Visibility check failed', 'error');
+                    } else {
+                        progressFill.style.backgroundColor = '#27ae60';
+                        progressText.textContent = `${status.message || 'Complete'}${ts}`;
+                        showToast('AI visibility check complete!', 'success');
+                    }
+                    loadGrowthData();
+                }
+            } catch (err) {
+                console.error('[vis-poll]', err);
+            }
+        }, 1500);
+
     } catch (e) {
         showToast('Visibility check failed: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Run Check'; }
     }
 }
 

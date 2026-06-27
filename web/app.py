@@ -3561,17 +3561,82 @@ def api_growth_ai_visibility():
 
 @app.route("/api/growth/ai-visibility/check", methods=["POST"])
 def api_growth_ai_visibility_check():
-    """Run an AI visibility check across all tracked prompts."""
+    """Run an AI visibility check as a background job."""
+    global job_state
+
+    if job_state["running"]:
+        return jsonify({"error": "A job is already running", "status": "busy"}), 400
+
     data = ai_visibility._load_data()
     if not data.get("prompts"):
         return jsonify({"error": "No prompts configured. Add prompts first."}), 400
 
     config = data.get("config", {})
     if not config.get("brand_keywords") and not config.get("site_domain"):
-        return jsonify({"error": "Configure brand keywords or site domain first."}), 400
+        return jsonify({"error": "Configure brand keywords or site domain first. Click Config to set them."}), 400
 
-    results = ai_visibility.run_visibility_check()
-    return jsonify({"success": True, "results": results, "count": len(results)})
+    prompts = data["prompts"]
+    brand_keywords = config.get("brand_keywords", [])
+    site_domain = config.get("site_domain", "")
+
+    job_state.update({
+        "running": True,
+        "type": "ai_visibility",
+        "error": None,
+        "message": "Starting AI visibility check...",
+        "progress": 0,
+        "total": len(prompts),
+    })
+
+    def run_check():
+        import traceback
+        try:
+            all_results = []
+            for i, prompt in enumerate(prompts):
+                engines = prompt.get("engines", ["chatgpt", "claude", "gemini", "perplexity"])
+                short = prompt["text"][:50]
+                job_state["message"] = f"[{i+1}/{len(prompts)}] Checking: {short}..."
+                job_state["progress"] = i
+
+                results = ai_visibility.check_prompt(
+                    prompt["text"],
+                    engines=engines,
+                    brand_keywords=brand_keywords,
+                    site_domain=site_domain,
+                )
+                all_results.extend(results)
+
+            # Save all results
+            vis_data = ai_visibility._load_data()
+            vis_data["results"].extend(all_results)
+            from datetime import datetime, timedelta
+            cutoff = (datetime.now() - timedelta(days=90)).isoformat()
+            vis_data["results"] = [r for r in vis_data["results"] if r.get("timestamp", "") >= cutoff]
+            ai_visibility._save_data(vis_data)
+
+            mentioned = sum(1 for r in all_results if r.get("mentioned"))
+            non_error = [r for r in all_results if not r.get("error")]
+            errors = sum(1 for r in all_results if r.get("error"))
+
+            summary = f"AI visibility complete: mentioned in {mentioned}/{len(non_error)} responses"
+            if errors:
+                summary += f" ({errors} errors — check API keys)"
+            job_state["message"] = summary
+            job_state["progress"] = len(prompts)
+
+        except Exception as e:
+            tb = traceback.format_exc()
+            job_state["error"] = f"{e}\n\nTraceback:\n{tb}"
+            job_state["message"] = f"Error: {e}"
+        finally:
+            from datetime import datetime
+            job_state["finished_at"] = datetime.now().strftime("%b %d, %Y %I:%M %p")
+            job_state["running"] = False
+
+    thread = threading.Thread(target=run_check)
+    thread.start()
+
+    return jsonify({"message": "AI visibility check started", "status": "running"})
 
 
 @app.route("/api/growth/ai-visibility/prompts", methods=["POST"])
