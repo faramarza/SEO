@@ -488,7 +488,13 @@ def _detect_delimiter(csv_text: str) -> str:
     return ","
 
 
+def _clean_header(s: str) -> str:
+    return re.sub(r"[^\x20-\x7E]", "", s).strip().lower()
+
+
 def _parse_ahrefs_csv(csv_text: str) -> list:
+    csv_text = csv_text.lstrip("﻿￾\xef\xbb\xbf")
+
     delimiter = _detect_delimiter(csv_text)
     reader = csv.DictReader(io.StringIO(csv_text), delimiter=delimiter)
     rows = []
@@ -496,7 +502,7 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
     competitor_pos_cols = []
 
     if reader.fieldnames:
-        lower_fields = {f.lower().strip(): f for f in reader.fieldnames}
+        lower_fields = {_clean_header(f): f for f in reader.fieldnames}
         for target, candidates in [
             ("keyword", ["keyword"]),
             ("volume", ["volume", "monthly volume", "search volume", "volume ▼"]),
@@ -584,7 +590,19 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
 
     all_rows = _parse_ahrefs_csv(csv_text)
     if not all_rows:
-        return {"error": "Could not parse CSV. Make sure it has a 'Keyword' column."}
+        delimiter = _detect_delimiter(csv_text)
+        try:
+            reader = csv.DictReader(io.StringIO(csv_text), delimiter=delimiter)
+            found_cols = [_clean_header(f) for f in (reader.fieldnames or [])][:10]
+        except Exception:
+            found_cols = []
+        first_50 = csv_text[:200].replace("\n", " | ")
+        return {
+            "error": f"Could not parse CSV. No 'Keyword' column found. "
+                     f"Detected delimiter: {'TAB' if delimiter == chr(9) else repr(delimiter)}. "
+                     f"First columns found: {found_cols}. "
+                     f"File starts with: {first_50}"
+        }
 
     total_in_csv = len(all_rows)
     min_volume = filters.get("min_volume", 100)
