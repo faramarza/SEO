@@ -3685,29 +3685,36 @@ def api_keyword_queue():
 @app.route("/api/growth/keyword-queue/import", methods=["POST"])
 def api_keyword_queue_import():
     """Import keywords from Ahrefs CSV."""
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+    try:
+        if "file" not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
 
-    file = request.files["file"]
-    if not file.filename.endswith(".csv"):
-        return jsonify({"error": "File must be a CSV"}), 400
+        file = request.files["file"]
+        if not file.filename or not file.filename.endswith(".csv"):
+            return jsonify({"error": "File must be a CSV"}), 400
 
-    csv_text = file.read().decode("utf-8-sig", errors="replace")
+        csv_text = file.read().decode("utf-8-sig", errors="replace")
+        if not csv_text.strip():
+            return jsonify({"error": "CSV file is empty"}), 400
 
-    filters = {}
-    if request.form.get("min_volume"):
-        filters["min_volume"] = int(request.form["min_volume"])
-    if request.form.get("max_kd"):
-        filters["max_kd"] = int(request.form["max_kd"])
-    if request.form.get("must_contain"):
-        filters["must_contain"] = [t.strip() for t in request.form["must_contain"].split(",") if t.strip()]
-    if request.form.get("exclude_terms"):
-        filters["exclude_terms"] = [t.strip() for t in request.form["exclude_terms"].split(",") if t.strip()]
+        filters = {}
+        if request.form.get("min_volume"):
+            filters["min_volume"] = int(request.form["min_volume"])
+        if request.form.get("max_kd"):
+            filters["max_kd"] = int(request.form["max_kd"])
+        if request.form.get("must_contain"):
+            filters["must_contain"] = [t.strip() for t in request.form["must_contain"].split(",") if t.strip()]
+        if request.form.get("exclude_terms"):
+            filters["exclude_terms"] = [t.strip() for t in request.form["exclude_terms"].split(",") if t.strip()]
 
-    result = ai_visibility.import_keywords_csv(csv_text, filters)
-    if result.get("error"):
-        return jsonify(result), 400
-    return jsonify(result)
+        result = ai_visibility.import_keywords_csv(csv_text, filters)
+        if result.get("error"):
+            return jsonify(result), 400
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Import failed: {str(e)}"}), 500
 
 
 @app.route("/api/growth/keyword-queue/activate", methods=["POST"])

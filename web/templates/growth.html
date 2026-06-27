@@ -731,7 +731,18 @@ async function uploadCSV(e) {
     try {
         status.textContent = 'Uploading and filtering keywords...';
         const res = await fetch('/api/growth/keyword-queue/import', { method: 'POST', body: form });
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (parseErr) {
+            status.style.background = '#fde8e8';
+            status.style.color = 'var(--accent-red)';
+            status.textContent = `Server error (${res.status}): ${text.substring(0, 200)}`;
+            btn.disabled = false;
+            btn.textContent = 'Upload & Filter';
+            return;
+        }
         if (data.error) {
             status.style.background = '#fde8e8';
             status.style.color = 'var(--accent-red)';
