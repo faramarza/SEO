@@ -2577,12 +2577,10 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 
 .chart-card {
     padding: 20px;
-    min-height: 320px;
-    display: flex;
-    flex-direction: column;
+    height: 360px;
 }
 .chart-card h3 { margin: 0 0 12px 0; font-size: 15px; }
-.chart-card canvas { flex: 1; }
+.chart-card canvas { max-height: 300px; }
 
 .chart-empty {
     color: var(--text-muted);
