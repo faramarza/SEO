@@ -142,7 +142,7 @@
             <form id="csv-upload-form" onsubmit="uploadCSV(event)">
                 <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
                     <input type="file" id="csv-file" accept=".csv" required style="font-size:13px;">
-                    <button type="submit" class="btn btn-sm btn-primary">Upload & Filter</button>
+                    <button type="submit" id="upload-btn" class="btn btn-sm btn-primary">Upload & Filter</button>
                     <button type="button" class="btn btn-sm btn-secondary" onclick="hideImportPanel()">Cancel</button>
                 </div>
                 <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px;">
@@ -151,6 +151,7 @@
                     <label>Must contain (comma-sep): <input type="text" id="filter-must-contain" placeholder="puzzle, train, stool, wooden" style="width:250px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
                     <label>Exclude (comma-sep): <input type="text" id="filter-exclude" placeholder="amazon, etsy, walmart" style="width:200px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
                 </div>
+                <div id="import-status" style="display:none; margin-top:8px; padding:8px; border-radius:4px; font-size:13px;"></div>
             </form>
         </div>
 
@@ -704,6 +705,16 @@ async function uploadCSV(e) {
     const file = document.getElementById('csv-file').files[0];
     if (!file) return;
 
+    const btn = document.getElementById('upload-btn');
+    const status = document.getElementById('import-status');
+
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+    status.style.display = 'block';
+    status.style.background = 'var(--bg-tertiary, #f0f0f0)';
+    status.style.color = 'var(--text-primary)';
+    status.textContent = `Reading ${file.name} (${(file.size / 1024).toFixed(0)} KB)...`;
+
     const form = new FormData();
     form.append('file', file);
 
@@ -718,17 +729,29 @@ async function uploadCSV(e) {
     if (exclude) form.append('exclude_terms', exclude);
 
     try {
+        status.textContent = 'Uploading and filtering keywords...';
         const res = await fetch('/api/growth/keyword-queue/import', { method: 'POST', body: form });
         const data = await res.json();
         if (data.error) {
-            showToast(data.error, 'error');
+            status.style.background = '#fde8e8';
+            status.style.color = 'var(--accent-red)';
+            status.textContent = 'Error: ' + data.error;
+            btn.disabled = false;
+            btn.textContent = 'Upload & Filter';
             return;
         }
-        showToast(`Imported ${data.imported} keywords from ${data.total_in_csv} rows (${data.total_batches} batches of ${data.batch_size})`, 'success');
-        hideImportPanel();
+        status.style.background = '#e8f5e9';
+        status.style.color = '#2e7d32';
+        status.textContent = `Imported ${data.imported} keywords from ${data.total_in_csv} rows → ${data.total_batches} batch(es) of ${data.batch_size}. Click "Activate Next Batch" to start checking.`;
+        showToast(`Imported ${data.imported} keywords into ${data.total_batches} batch(es)`, 'success');
         loadQueueData();
     } catch (err) {
-        showToast('Upload failed: ' + err.message, 'error');
+        status.style.background = '#fde8e8';
+        status.style.color = 'var(--accent-red)';
+        status.textContent = 'Upload failed: ' + err.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Upload & Filter';
     }
 }
 
