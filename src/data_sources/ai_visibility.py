@@ -493,6 +493,8 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
     reader = csv.DictReader(io.StringIO(csv_text), delimiter=delimiter)
     rows = []
     col_map = {}
+    competitor_pos_cols = []
+
     if reader.fieldnames:
         lower_fields = {f.lower().strip(): f for f in reader.fieldnames}
         for target, candidates in [
@@ -500,6 +502,8 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
             ("volume", ["volume", "monthly volume", "search volume", "volume ▼"]),
             ("kd", ["kd", "keyword difficulty"]),
             ("cpc", ["cpc"]),
+            ("serp_features", ["serp features", "sf"]),
+            ("intents", ["intents", "intent"]),
             ("traffic", ["traffic", "org. traffic", "organic traffic"]),
             ("position", ["position", "org. pos.", "org. pos", "organic position"]),
             ("url", ["url", "current url"]),
@@ -520,6 +524,10 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
                         col_map[target] = field_orig
                         break
 
+        for field_lower, field_orig in lower_fields.items():
+            if "organic position" in field_lower and field_orig != col_map.get("position"):
+                competitor_pos_cols.append(field_orig)
+
     if "keyword" not in col_map:
         return []
 
@@ -533,6 +541,24 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
         traffic_raw = re.sub(r"[^\d.]", "", str(row.get(col_map.get("traffic", ""), "0") or "0"))
         pos_raw = re.sub(r"[^\d.]", "", str(row.get(col_map.get("position", ""), "0") or "0"))
 
+        serp_raw = str(row.get(col_map.get("serp_features", ""), "") or "")
+        serp_features = [s.strip().lower() for s in serp_raw.split(",") if s.strip()]
+
+        intents_raw = str(row.get(col_map.get("intents", ""), "") or "")
+        intents = [s.strip().upper() for s in re.split(r"[,\s]+", intents_raw) if s.strip()]
+
+        competitors_ranking = 0
+        for comp_col in competitor_pos_cols:
+            comp_pos = re.sub(r"[^\d.]", "", str(row.get(comp_col, "") or ""))
+            if comp_pos:
+                pos_val = int(float(comp_pos))
+                if 0 < pos_val <= 10:
+                    competitors_ranking += 1
+
+        has_shopping = any("shopping" in f for f in serp_features)
+        has_ai_overview = any("ai overview" in f for f in serp_features)
+        is_informational = "I" in intents and "C" not in intents and "T" not in intents
+
         rows.append({
             "keyword": kw,
             "volume": int(float(vol_raw)) if vol_raw else 0,
@@ -541,6 +567,12 @@ def _parse_ahrefs_csv(csv_text: str) -> list:
             "traffic": int(float(traffic_raw)) if traffic_raw else 0,
             "position": int(float(pos_raw)) if pos_raw else 0,
             "url": row.get(col_map.get("url", ""), "") or "",
+            "serp_features": serp_features,
+            "intents": intents,
+            "has_shopping": has_shopping,
+            "has_ai_overview": has_ai_overview,
+            "is_informational": is_informational,
+            "competitors_ranking": competitors_ranking,
         })
 
     return rows
@@ -559,6 +591,12 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
     max_kd = filters.get("max_kd")
     must_contain = [t.lower().strip() for t in filters.get("must_contain", []) if t.strip()]
     exclude_terms = [t.lower().strip() for t in filters.get("exclude_terms", []) if t.strip()]
+    skip_informational = filters.get("skip_informational", False)
+    require_commercial = filters.get("require_commercial", False)
+    min_cpc = filters.get("min_cpc")
+    require_shopping = filters.get("require_shopping", False)
+    only_ai_overview = filters.get("only_ai_overview", False)
+    min_competitors = filters.get("min_competitors")
 
     queue = _load_queue()
     existing_keywords = {kw["keyword"].lower() for kw in queue["keywords"]}
@@ -580,9 +618,35 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
             continue
         if len(row["keyword"].split()) <= 1:
             continue
+        if skip_informational and row.get("is_informational"):
+            continue
+        if require_commercial and not (row.get("has_shopping") or row.get("cpc", 0) > 0.05):
+            continue
+        if min_cpc is not None and row.get("cpc", 0) < min_cpc:
+            continue
+        if require_shopping and not row.get("has_shopping"):
+            continue
+        if only_ai_overview and not row.get("has_ai_overview"):
+            continue
+        if min_competitors is not None and row.get("competitors_ranking", 0) < min_competitors:
+            continue
         filtered.append(row)
 
-    filtered.sort(key=lambda r: r["volume"], reverse=True)
+    def _score(row):
+        score = row["volume"]
+        if row.get("has_shopping"):
+            score *= 1.5
+        if row.get("has_ai_overview"):
+            score *= 1.3
+        if row.get("cpc", 0) > 0:
+            score *= 1.2
+        if row.get("is_informational"):
+            score *= 0.5
+        if row.get("competitors_ranking", 0) >= 2:
+            score *= 1.2
+        return score
+
+    filtered.sort(key=_score, reverse=True)
 
     import_id = f"imp_{int(time.time())}"
     batch_size = queue["settings"].get("batch_size", 20)
@@ -598,6 +662,10 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
             "traffic": row.get("traffic", 0),
             "position": row.get("position", 0),
             "url": row.get("url", ""),
+            "has_shopping": row.get("has_shopping", False),
+            "has_ai_overview": row.get("has_ai_overview", False),
+            "is_informational": row.get("is_informational", False),
+            "competitors_ranking": row.get("competitors_ranking", 0),
             "import_id": import_id,
             "batch": batch_num,
             "status": "queued",

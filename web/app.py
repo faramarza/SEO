@@ -3706,6 +3706,18 @@ def api_keyword_queue_import():
             filters["must_contain"] = [t.strip() for t in request.form["must_contain"].split(",") if t.strip()]
         if request.form.get("exclude_terms"):
             filters["exclude_terms"] = [t.strip() for t in request.form["exclude_terms"].split(",") if t.strip()]
+        if request.form.get("skip_informational"):
+            filters["skip_informational"] = True
+        if request.form.get("require_commercial"):
+            filters["require_commercial"] = True
+        if request.form.get("min_cpc"):
+            filters["min_cpc"] = float(request.form["min_cpc"])
+        if request.form.get("require_shopping"):
+            filters["require_shopping"] = True
+        if request.form.get("only_ai_overview"):
+            filters["only_ai_overview"] = True
+        if request.form.get("min_competitors"):
+            filters["min_competitors"] = int(request.form["min_competitors"])
 
         result = ai_visibility.import_keywords_csv(csv_text, filters)
         if result.get("error"):

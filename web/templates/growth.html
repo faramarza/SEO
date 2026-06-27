@@ -145,11 +145,18 @@
                     <button type="submit" id="upload-btn" class="btn btn-sm btn-primary">Upload & Filter</button>
                     <button type="button" class="btn btn-sm btn-secondary" onclick="hideImportPanel()">Cancel</button>
                 </div>
-                <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px;">
+                <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:12px; margin-bottom:6px;">
                     <label>Min volume: <input type="number" id="filter-min-vol" value="100" min="0" style="width:70px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
                     <label>Max KD: <input type="number" id="filter-max-kd" placeholder="any" min="0" max="100" style="width:70px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
                     <label>Must contain (comma-sep): <input type="text" id="filter-must-contain" placeholder="puzzle, train, stool, wooden" style="width:250px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
                     <label>Exclude (comma-sep): <input type="text" id="filter-exclude" placeholder="amazon, etsy, walmart" style="width:200px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                </div>
+                <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:12px; align-items:center;">
+                    <label style="display:flex;gap:4px;align-items:center;"><input type="checkbox" id="filter-skip-info"> Skip informational (no buying intent)</label>
+                    <label style="display:flex;gap:4px;align-items:center;"><input type="checkbox" id="filter-require-commercial"> Commercial only (has CPC or Shopping)</label>
+                    <label style="display:flex;gap:4px;align-items:center;"><input type="checkbox" id="filter-only-ai"> Only with AI Overview</label>
+                    <label>Min competitors in top 10: <input type="number" id="filter-min-comp" placeholder="any" min="0" max="20" style="width:50px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
+                    <label>Min CPC: $<input type="number" id="filter-min-cpc" placeholder="any" min="0" step="0.01" style="width:60px; padding:4px; border:1px solid var(--border-color); border-radius:4px;"></label>
                 </div>
                 <div id="import-status" style="display:none; margin-top:8px; padding:8px; border-radius:4px; font-size:13px;"></div>
             </form>
@@ -727,6 +734,13 @@ async function uploadCSV(e) {
     if (maxKd) form.append('max_kd', maxKd);
     if (mustContain) form.append('must_contain', mustContain);
     if (exclude) form.append('exclude_terms', exclude);
+    if (document.getElementById('filter-skip-info').checked) form.append('skip_informational', '1');
+    if (document.getElementById('filter-require-commercial').checked) form.append('require_commercial', '1');
+    if (document.getElementById('filter-only-ai').checked) form.append('only_ai_overview', '1');
+    const minComp = document.getElementById('filter-min-comp').value;
+    const minCpc = document.getElementById('filter-min-cpc').value;
+    if (minComp) form.append('min_competitors', minComp);
+    if (minCpc) form.append('min_cpc', minCpc);
 
     try {
         status.textContent = 'Uploading and filtering keywords...';
@@ -828,20 +842,28 @@ function renderQueue(data) {
     };
 
     let html = `<table class="data-table" style="font-size:12px;">
-        <thead><tr><th>#</th><th>Keyword</th><th>Vol</th><th>KD</th><th>Status</th><th>Mentioned</th></tr></thead><tbody>`;
+        <thead><tr><th>#</th><th>Keyword</th><th>Vol</th><th>KD</th><th>CPC</th><th>Signals</th><th>Comp</th><th>Status</th><th>Mentioned</th></tr></thead><tbody>`;
 
     for (const kw of keywords.slice(0, 100)) {
+        const signals = [];
+        if (kw.has_shopping) signals.push('<span style="color:#10a37f;" title="Shopping SERP">🛒</span>');
+        if (kw.has_ai_overview) signals.push('<span style="color:#4285f4;" title="AI Overview in SERP">AI</span>');
+        if (kw.is_informational) signals.push('<span style="color:var(--text-muted);" title="Informational intent">ℹ</span>');
+
         html += `<tr>
             <td class="text-muted">${kw.batch}</td>
-            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${kw.keyword}">${kw.keyword}</td>
+            <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${kw.keyword}">${kw.keyword}</td>
             <td>${kw.volume.toLocaleString()}</td>
             <td>${kw.kd}</td>
+            <td>${kw.cpc > 0 ? '$' + kw.cpc.toFixed(2) : '<span class="text-muted">—</span>'}</td>
+            <td>${signals.length > 0 ? signals.join(' ') : '<span class="text-muted">—</span>'}</td>
+            <td>${kw.competitors_ranking > 0 ? kw.competitors_ranking : '<span class="text-muted">—</span>'}</td>
             <td>${statusBadge(kw.status)}</td>
             <td>${mentionBadge(kw.last_result)}</td>
         </tr>`;
     }
     if (keywords.length > 100) {
-        html += `<tr><td colspan="6" class="text-muted" style="text-align:center;">+ ${keywords.length - 100} more keywords...</td></tr>`;
+        html += `<tr><td colspan="9" class="text-muted" style="text-align:center;">+ ${keywords.length - 100} more keywords...</td></tr>`;
     }
     html += '</tbody></table>';
     table.innerHTML = html;
