@@ -684,6 +684,8 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
                 elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
                     specific_terms.add(word[:-1])
 
+    generic_terms -= {"toy", "toys"}
+
     specific_pats = [re.compile(r'\b' + re.escape(t) + r'(?:s|es)?\b') for t in specific_terms]
     generic_pats = [re.compile(r'\b' + re.escape(t) + r'\b') for t in generic_terms]
     child_ctx_pats = [re.compile(r'\b' + re.escape(w) + r's?\b') for w in child_context]
@@ -704,7 +706,10 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
 
     auto_exclude.extend(["for adults", "gardening", "espresso", "cocktail",
                           "invitations", "invites", "gadgets", "ukulele",
-                          "parenting", "porsche", "birthday book"])
+                          "parenting", "porsche", "birthday book",
+                          "outdoor play", "active play", "water play",
+                          "outdoor toys", "bath toys", "pool toys",
+                          "beach toys", "fidget toys"])
 
     total_in_csv = len(all_rows)
     min_volume = filters.get("min_volume", 100)
