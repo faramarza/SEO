@@ -407,11 +407,12 @@ def _find_matching_pages(prompt_text: str, pages: dict) -> list:
     kw_product_words = kw_words & product_nouns
     kw_numbers = {w for w in kw_words if w.isdigit()}
 
-    non_product_indicators = {
-        "carpet", "rug", "rugs", "runner", "mat", "flooring",
-        "ft", "rectangle", "round", "square", "oval",
+    non_product_words = {
+        "carpet", "carpets", "rug", "rugs", "runner", "runners",
+        "mat", "mats", "flooring", "kidsoft",
+        "rectangle", "square", "oval",
     }
-    kw_has_carpet = kw_words & {"carpet", "rug", "rugs", "runner", "mat"}
+    kw_has_carpet = kw_words & {"carpet", "carpets", "rug", "rugs", "runner", "mat", "mats"}
 
     matches = []
     for url, page_data in pages.items():
@@ -423,7 +424,8 @@ def _find_matching_pages(prompt_text: str, pages: dict) -> list:
         page_text = f"{title} {h1} {path}"
         page_words = set(re.findall(r'[a-z0-9]+', page_text))
 
-        if not kw_has_carpet and page_words & non_product_indicators:
+        is_carpet_page = bool(page_words & non_product_words) or bool(re.search(r'\d+ft', page_text))
+        if not kw_has_carpet and is_carpet_page:
             continue
 
         if kw_numbers and not kw_numbers.issubset(page_words):
