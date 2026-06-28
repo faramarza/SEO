@@ -1093,9 +1093,6 @@ def process_batch_results():
         else:
             kw["status"] = "archived"
             kw["next_recheck_at"] = (datetime.now() + timedelta(days=30)).isoformat()
-            if kw.get("prompt_id"):
-                remove_prompt(kw["prompt_id"])
-                kw["prompt_id"] = None
             archived += 1
 
         processed += 1
@@ -1120,11 +1117,16 @@ def reactivate_rechecks() -> dict:
         and kw["next_recheck_at"] <= now
     ]
 
+    data = _load_data()
+    existing_prompts = {p["text"].lower(): p["id"] for p in data.get("prompts", [])}
     activated = []
     for kw in recheck_kws:
-        prompt = add_prompt(kw["keyword"])
+        if kw["keyword"].lower() in existing_prompts:
+            kw["prompt_id"] = existing_prompts[kw["keyword"].lower()]
+        else:
+            prompt = add_prompt(kw["keyword"])
+            kw["prompt_id"] = prompt["id"]
         kw["status"] = "active"
-        kw["prompt_id"] = prompt["id"]
         kw["activated_at"] = datetime.now().isoformat()
         kw["next_recheck_at"] = None
         activated.append(kw["keyword"])
@@ -1148,7 +1150,7 @@ def delete_keywords(keywords_to_delete: list[str]) -> dict:
     kept = []
     for kw in queue["keywords"]:
         if kw["keyword"].lower() in to_delete:
-            if kw.get("prompt_id") and kw["status"] in ("active", "retained"):
+            if kw.get("prompt_id") and kw["status"] in ("active", "retained", "archived"):
                 remove_prompt(kw["prompt_id"])
             removed.append(kw["keyword"])
         else:
