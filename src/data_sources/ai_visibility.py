@@ -1105,6 +1105,45 @@ def update_queue_settings(batch_size: int = None):
     _save_queue(queue)
 
 
+def delete_keywords(keywords_to_delete: list[str]) -> dict:
+    """Delete specific keywords from the queue."""
+    queue = _load_queue()
+    to_delete = {k.lower() for k in keywords_to_delete}
+    removed = []
+    kept = []
+    for kw in queue["keywords"]:
+        if kw["keyword"].lower() in to_delete:
+            if kw.get("prompt_id") and kw["status"] in ("active", "retained"):
+                remove_prompt(kw["prompt_id"])
+            removed.append(kw["keyword"])
+        else:
+            kept.append(kw)
+    queue["keywords"] = kept
+    _save_queue(queue)
+    return {"deleted": len(removed), "remaining": len(kept)}
+
+
+def activate_selected(keywords_to_activate: list[str]) -> dict:
+    """Activate specific keywords by adding them as prompts."""
+    queue = _load_queue()
+    to_activate = {k.lower() for k in keywords_to_activate}
+    activated = []
+    for kw in queue["keywords"]:
+        if kw["keyword"].lower() in to_activate and kw["status"] == "queued":
+            prompt = add_prompt(kw["keyword"])
+            kw["status"] = "active"
+            kw["prompt_id"] = prompt["id"]
+            kw["activated_at"] = datetime.now().isoformat()
+            activated.append(kw["keyword"])
+    _save_queue(queue)
+    remaining_queued = sum(1 for kw in queue["keywords"] if kw["status"] == "queued")
+    return {
+        "activated": len(activated),
+        "keywords": activated,
+        "remaining_keywords": remaining_queued,
+    }
+
+
 def clear_queue():
     queue = _load_queue()
     active_prompt_ids = [kw["prompt_id"] for kw in queue["keywords"]

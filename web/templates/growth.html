@@ -167,7 +167,9 @@
         <div id="keyword-queue-section" style="display:none; margin-bottom: 16px; padding:12px; border:1px solid var(--border-color); border-radius:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <h4 style="margin:0;">Keyword Queue</h4>
-                <div style="display:flex; gap:6px;">
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <button class="btn btn-sm btn-primary" id="activate-selected-btn" onclick="activateSelected()" style="display:none;">Activate Selected</button>
+                    <button class="btn btn-sm btn-danger" id="delete-selected-btn" onclick="deleteSelected()" style="display:none;">Delete Selected</button>
                     <button class="btn btn-sm btn-primary" id="activate-batch-btn" onclick="activateNextBatch()">Activate Next Batch</button>
                     <button class="btn btn-sm btn-secondary" onclick="clearQueue()">Clear Queue</button>
                 </div>
@@ -856,7 +858,7 @@ function renderQueue(data) {
     };
 
     let html = `<table class="data-table" style="font-size:12px;">
-        <thead><tr><th>#</th><th>Keyword</th><th>Vol</th><th>KD</th><th>CPC</th><th>Signals</th><th>Comp</th><th>Status</th><th>Mentioned</th></tr></thead><tbody>`;
+        <thead><tr><th style="width:28px;"><input type="checkbox" id="queue-select-all" onchange="toggleAllQueueCheckboxes(this)"></th><th>#</th><th>Keyword</th><th>Vol</th><th>KD</th><th>CPC</th><th>Signals</th><th>Comp</th><th>Status</th><th>Mentioned</th><th style="width:28px;"></th></tr></thead><tbody>`;
 
     for (const kw of keywords.slice(0, 100)) {
         const signals = [];
@@ -864,7 +866,9 @@ function renderQueue(data) {
         if (kw.has_ai_overview) signals.push('<span style="color:#4285f4;" title="AI Overview in SERP">AI</span>');
         if (kw.is_informational) signals.push('<span style="color:var(--text-muted);" title="Informational intent">ℹ</span>');
 
+        const isQueued = kw.status === 'queued';
         html += `<tr>
+            <td><input type="checkbox" class="queue-kw-cb" value="${kw.keyword.replace(/"/g, '&quot;')}" onchange="updateQueueSelection()" ${isQueued ? '' : 'disabled'}></td>
             <td class="text-muted">${kw.batch}</td>
             <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${kw.keyword}">${kw.keyword}</td>
             <td>${kw.volume.toLocaleString()}</td>
@@ -874,13 +878,92 @@ function renderQueue(data) {
             <td>${kw.competitors_ranking > 0 ? kw.competitors_ranking : '<span class="text-muted">—</span>'}</td>
             <td>${statusBadge(kw.status)}</td>
             <td>${mentionBadge(kw.last_result)}</td>
+            <td>${isQueued ? `<button onclick="deleteKeyword('${kw.keyword.replace(/'/g, "\\'")}')" title="Delete" style="background:none;border:none;color:var(--accent-red,#dc2626);cursor:pointer;font-size:14px;padding:0;">x</button>` : ''}</td>
         </tr>`;
     }
     if (keywords.length > 100) {
-        html += `<tr><td colspan="9" class="text-muted" style="text-align:center;">+ ${keywords.length - 100} more keywords...</td></tr>`;
+        html += `<tr><td colspan="11" class="text-muted" style="text-align:center;">+ ${keywords.length - 100} more keywords...</td></tr>`;
     }
     html += '</tbody></table>';
     table.innerHTML = html;
+}
+
+function toggleAllQueueCheckboxes(master) {
+    document.querySelectorAll('.queue-kw-cb:not(:disabled)').forEach(cb => cb.checked = master.checked);
+    updateQueueSelection();
+}
+
+function updateQueueSelection() {
+    const checked = document.querySelectorAll('.queue-kw-cb:checked');
+    const activateBtn = document.getElementById('activate-selected-btn');
+    const deleteBtn = document.getElementById('delete-selected-btn');
+    if (checked.length > 0) {
+        activateBtn.style.display = '';
+        activateBtn.textContent = `Activate Selected (${checked.length})`;
+        deleteBtn.style.display = '';
+        deleteBtn.textContent = `Delete Selected (${checked.length})`;
+    } else {
+        activateBtn.style.display = 'none';
+        deleteBtn.style.display = 'none';
+    }
+}
+
+function getSelectedKeywords() {
+    return Array.from(document.querySelectorAll('.queue-kw-cb:checked')).map(cb => cb.value);
+}
+
+async function deleteKeyword(keyword) {
+    try {
+        const res = await fetch('/api/growth/keyword-queue/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({keywords: [keyword]})
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+        showToast(`Deleted "${keyword}"`, 'success');
+        loadQueueData();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, 'error');
+    }
+}
+
+async function deleteSelected() {
+    const keywords = getSelectedKeywords();
+    if (!keywords.length) return;
+    if (!confirm(`Delete ${keywords.length} selected keyword(s)?`)) return;
+    try {
+        const res = await fetch('/api/growth/keyword-queue/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({keywords})
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+        showToast(`Deleted ${data.deleted} keywords`, 'success');
+        loadQueueData();
+    } catch (err) {
+        showToast('Delete failed: ' + err.message, 'error');
+    }
+}
+
+async function activateSelected() {
+    const keywords = getSelectedKeywords();
+    if (!keywords.length) return;
+    try {
+        const res = await fetch('/api/growth/keyword-queue/activate-selected', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({keywords})
+        });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+        showToast(`Activated ${data.activated} keywords. ${data.remaining_keywords} still queued.`, 'success');
+        loadQueueData();
+        loadGrowthData();
+    } catch (err) {
+        showToast('Activation failed: ' + err.message, 'error');
+    }
 }
 
 async function activateNextBatch() {

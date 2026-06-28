@@ -3771,6 +3771,28 @@ def api_keyword_queue_settings():
     return jsonify({"success": True})
 
 
+@app.route("/api/growth/keyword-queue/delete", methods=["POST"])
+def api_keyword_queue_delete():
+    """Delete specific keywords from the queue."""
+    data = request.json or {}
+    keywords = data.get("keywords", [])
+    if not keywords:
+        return jsonify({"error": "No keywords specified"}), 400
+    result = ai_visibility.delete_keywords(keywords)
+    return jsonify(result)
+
+
+@app.route("/api/growth/keyword-queue/activate-selected", methods=["POST"])
+def api_keyword_queue_activate_selected():
+    """Activate specific selected keywords."""
+    data = request.json or {}
+    keywords = data.get("keywords", [])
+    if not keywords:
+        return jsonify({"error": "No keywords specified"}), 400
+    result = ai_visibility.activate_selected(keywords)
+    return jsonify(result)
+
+
 @app.route("/api/growth/keyword-queue/clear", methods=["POST"])
 def api_keyword_queue_clear():
     """Clear the entire keyword queue."""
