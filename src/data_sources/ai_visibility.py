@@ -704,7 +704,31 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
     has_site_data = len(site_terms) > 0
 
     if has_site_data:
-        specific_terms = set(site_terms)
+        too_generic = {
+            "toy", "toys", "name", "step", "play", "art",
+            "supply", "supplies", "gift", "gifts", "idea", "ideas",
+            "set", "sets", "game", "games", "best", "top", "new",
+            "kid", "kids", "old", "year", "boy", "girl", "baby",
+        }
+        product_vocab = set()
+        for pf in product_families:
+            for word in pf.lower().split():
+                if len(word) > 2 and word not in too_generic:
+                    product_vocab.add(word)
+                    if word.endswith("ies") and len(word) > 4:
+                        product_vocab.add(word[:-3] + "y")
+                    elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+                        product_vocab.add(word[:-1])
+                    else:
+                        product_vocab.add(word + "s")
+
+        relevant_site_terms = set()
+        for term in site_terms:
+            term_words = set(term.split())
+            if term_words & product_vocab:
+                relevant_site_terms.add(term)
+
+        specific_terms = relevant_site_terms
         generic_terms = set()
         for pf in product_families:
             pf_lower = pf.lower()
@@ -907,7 +931,7 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         "batch_size": batch_size,
         "auto_detected": {
             "product_families": auto_must_contain,
-            "site_terms_count": len(site_terms),
+            "site_terms_count": len(specific_terms),
             "used_site_data": has_site_data,
             "competitors_excluded": auto_exclude,
             "must_contain_used": auto_must_contain,
