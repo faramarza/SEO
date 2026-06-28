@@ -489,6 +489,20 @@ function renderVisibilityGrid(vis) {
     const byPrompt = vis.by_prompt || {};
     const prompts = vis.prompts || [];
 
+    const config = vis.config || {};
+    document.getElementById('config-brand').value = (config.brand_keywords || []).join(', ');
+    document.getElementById('config-domain').value = config.site_domain || '';
+
+    const available = vis.available_engines || {};
+    const statusParts = Object.entries(available).map(([eng, ok]) =>
+        `${eng}: ${ok ? '<span style="color:var(--accent-green);">key set</span>' : '<span style="color:var(--accent-red);">no key</span>'}`
+    );
+    const statusHtml = 'API Keys: ' + statusParts.join(' | ');
+    const statusEl = document.getElementById('engine-status');
+    if (statusEl) statusEl.innerHTML = statusHtml;
+    const statusBar = document.getElementById('engine-status-bar');
+    if (statusBar) statusBar.innerHTML = statusHtml;
+
     if (prompts.length === 0) {
         grid.innerHTML = '';
         empty.style.display = 'block';
@@ -497,7 +511,6 @@ function renderVisibilityGrid(vis) {
 
     empty.style.display = 'none';
     const engines = ['chatgpt', 'claude', 'gemini', 'perplexity'];
-    const available = vis.available_engines || {};
 
     let html = `<table class="data-table visibility-table">
         <thead><tr>
@@ -562,21 +575,6 @@ function renderVisibilityGrid(vis) {
 
     html += '</tbody></table>';
     grid.innerHTML = html;
-
-    // Populate config form with current values
-    const config = vis.config || {};
-    document.getElementById('config-brand').value = (config.brand_keywords || []).join(', ');
-    document.getElementById('config-domain').value = config.site_domain || '';
-
-    // Show engine status in both places
-    const statusParts = Object.entries(available).map(([eng, ok]) =>
-        `${eng}: ${ok ? '<span style="color:var(--accent-green);">key set</span>' : '<span style="color:var(--accent-red);">no key</span>'}`
-    );
-    const statusHtml = 'API Keys: ' + statusParts.join(' | ');
-    const statusEl = document.getElementById('engine-status');
-    if (statusEl) statusEl.innerHTML = statusHtml;
-    const statusBar = document.getElementById('engine-status-bar');
-    if (statusBar) statusBar.innerHTML = statusHtml;
 }
 
 // ── Actions ──
