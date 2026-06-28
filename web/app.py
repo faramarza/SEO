@@ -3567,6 +3567,8 @@ def api_growth_ai_visibility_check():
     if job_state["running"]:
         return jsonify({"error": "A job is already running", "status": "busy"}), 400
 
+    ai_visibility.sync_queue_prompts()
+
     data = ai_visibility._load_data()
     if not data.get("prompts"):
         return jsonify({"error": "No prompts configured. Add prompts first."}), 400

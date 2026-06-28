@@ -941,6 +941,7 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
 
 
 def get_queue_summary() -> dict:
+    sync_queue_prompts()
     queue = _load_queue()
     keywords = queue["keywords"]
 
@@ -980,6 +981,28 @@ def get_queue_summary() -> dict:
         "imports": queue.get("imports", []),
         "keywords": keywords,
     }
+
+
+def sync_queue_prompts() -> int:
+    """Ensure active queue keywords have matching prompts. Re-adds missing ones."""
+    queue = _load_queue()
+    data = _load_data()
+    existing_prompts = {p["text"].lower(): p["id"] for p in data.get("prompts", [])}
+
+    repaired = 0
+    for kw in queue["keywords"]:
+        if kw["status"] != "active":
+            continue
+        if kw["keyword"].lower() in existing_prompts:
+            kw["prompt_id"] = existing_prompts[kw["keyword"].lower()]
+            continue
+        prompt = add_prompt(kw["keyword"])
+        kw["prompt_id"] = prompt["id"]
+        repaired += 1
+
+    if repaired:
+        _save_queue(queue)
+    return repaired
 
 
 def activate_next_batch() -> dict:
