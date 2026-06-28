@@ -117,7 +117,7 @@
         <!-- Add prompt form (hidden by default) -->
         <div id="add-prompt-form" style="display:none; margin-bottom: 16px;">
             <div style="display:flex; gap:8px; align-items:center;">
-                <input type="text" id="new-prompt-text" placeholder="e.g. best wooden puzzles for kids"
+                <input type="text" id="new-prompt-text" placeholder="e.g. best wooden puzzles for kids, wooden toys for toddlers"
                        style="flex:1; padding:8px 12px; border:1px solid var(--border-color); border-radius:6px; font-size:13px;">
                 <label style="font-size:12px; display:flex; gap:4px; align-items:center;">
                     <input type="checkbox" id="eng-chatgpt" checked> ChatGPT
@@ -589,22 +589,26 @@ function showConfig() { document.getElementById('config-form').style.display = '
 function hideConfig() { document.getElementById('config-form').style.display = 'none'; }
 
 async function addPrompt() {
-    const text = document.getElementById('new-prompt-text').value.trim();
-    if (!text) return;
+    const raw = document.getElementById('new-prompt-text').value.trim();
+    if (!raw) return;
     const engines = [];
     if (document.getElementById('eng-chatgpt').checked) engines.push('chatgpt');
     if (document.getElementById('eng-claude').checked) engines.push('claude');
     if (document.getElementById('eng-gemini').checked) engines.push('gemini');
     if (document.getElementById('eng-perplexity').checked) engines.push('perplexity');
 
-    await fetch('/api/growth/ai-visibility/prompts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, engines }),
-    });
+    const prompts = raw.split(',').map(s => s.trim()).filter(Boolean);
+    for (const text of prompts) {
+        await fetch('/api/growth/ai-visibility/prompts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, engines }),
+        });
+    }
     document.getElementById('new-prompt-text').value = '';
     hideAddPrompt();
     loadGrowthData();
+    if (prompts.length > 1) showToast(`Added ${prompts.length} prompts`, 'success');
 }
 
 async function removePrompt(id) {
