@@ -2675,6 +2675,8 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .rec-high .rec-priority { background: rgba(220, 38, 38, 0.12); color: var(--accent-red); }
 .rec-medium .rec-priority { background: rgba(217, 119, 6, 0.12); color: var(--accent-orange); }
 .rec-low .rec-priority { background: rgba(5, 150, 105, 0.12); color: var(--accent-green); }
+.rec-info { font-weight: 600; color: var(--text-primary); }
+.rec-info .rec-priority { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
 
 .visibility-table { border-collapse: collapse; }
 .visibility-table td, .visibility-table th { white-space: nowrap; }

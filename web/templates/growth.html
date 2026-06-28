@@ -531,7 +531,11 @@ function renderVisibilityGrid(vis) {
                     <span class="vis-badge vis-named">Named</span>
                 </td>`;
             } else {
-                html += `<td><span class="vis-badge vis-absent">No</span></td>`;
+                const compBrands = (d.competitor_brands || []).slice(0, 5);
+                const compTip = compBrands.length > 0
+                    ? `Instead recommends: ${compBrands.join(', ')}`
+                    : 'Not mentioned';
+                html += `<td title="${compTip}" style="cursor:help;"><span class="vis-badge vis-absent">No</span></td>`;
             }
         }
 
