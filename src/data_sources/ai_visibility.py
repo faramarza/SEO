@@ -384,9 +384,27 @@ def _compute_tier(bp: dict) -> dict:
 def _find_matching_pages(prompt_text: str, pages: dict) -> list:
     """Find pages from the inventory that match a keyword prompt."""
     kw_words = set(re.findall(r'[a-z]+', prompt_text.lower()))
-    kw_words -= {"the", "and", "for", "with", "from", "best", "top", "a", "of", "in", "to"}
+    stop = {"the", "and", "for", "with", "from", "best", "top", "a", "of", "in", "to",
+            "is", "are", "my", "your", "our", "how", "what", "where", "buy", "get", "on"}
+    kw_words -= stop
     if not kw_words:
         return []
+
+    product_families = _load_product_families()
+    product_nouns = set()
+    modifiers = {"play", "art", "name", "step", "wooden", "wood"}
+    for pf in product_families:
+        for word in pf.lower().split():
+            if len(word) > 2 and word not in modifiers:
+                product_nouns.add(word)
+                if word.endswith("ies") and len(word) > 4:
+                    product_nouns.add(word[:-3] + "y")
+                elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+                    product_nouns.add(word[:-1])
+                else:
+                    product_nouns.add(word + "s")
+
+    kw_product_words = kw_words & product_nouns
 
     matches = []
     for url, page_data in pages.items():
@@ -397,65 +415,49 @@ def _find_matching_pages(prompt_text: str, pages: dict) -> list:
         path = re.sub(r'https?://[^/]+', '', url).lower()
         page_text = f"{title} {h1} {path}"
         page_words = set(re.findall(r'[a-z]+', page_text))
-        overlap = kw_words & page_words
-        if len(overlap) >= max(2, len(kw_words) * 0.5):
+
+        if kw_product_words:
+            if not kw_product_words.issubset(page_words):
+                continue
+            overlap = kw_words & page_words
             matches.append({"url": url, "title": page_data.get("title", ""),
                             "h1": page_data.get("h1", ""), "overlap": len(overlap)})
+        else:
+            overlap = kw_words & page_words
+            if len(overlap) >= max(2, len(kw_words) * 0.75):
+                matches.append({"url": url, "title": page_data.get("title", ""),
+                                "h1": page_data.get("h1", ""), "overlap": len(overlap)})
 
     matches.sort(key=lambda m: m["overlap"], reverse=True)
     return matches[:3]
 
 
-def _extract_response_topics(excerpts: dict) -> list:
-    """Extract key topics/themes from AI response excerpts."""
+def _extract_content_signals(excerpts: dict) -> list:
+    """Extract content themes AI responses emphasize (pattern-matched, not bigrams)."""
+    if not excerpts:
+        return []
     combined = " ".join(excerpts.values()).lower()
-    combined = re.sub(r'[*#\[\](){}|]', ' ', combined)
-    combined = re.sub(r'https?://\S+', '', combined)
 
-    stop = {
-        "the", "and", "for", "with", "from", "that", "this", "are", "was", "were",
-        "has", "have", "had", "been", "being", "will", "would", "could", "should",
-        "can", "may", "might", "shall", "our", "your", "their", "its", "his", "her",
-        "you", "they", "them", "she", "not", "but", "also", "just", "more", "most",
-        "very", "really", "well", "here", "there", "when", "where", "what", "which",
-        "who", "how", "why", "all", "each", "every", "both", "few", "many", "some",
-        "any", "other", "than", "then", "into", "over", "such", "only", "own", "same",
-        "about", "these", "those", "like", "make", "made", "come", "look", "find",
-        "give", "take", "know", "want", "use", "way", "one", "two", "first",
-        "new", "good", "great", "best", "top", "high", "long", "old", "right",
-        "different", "while", "even", "still", "after", "before", "through", "between",
-        "under", "around", "often", "offer", "offers", "include", "including", "includes",
-        "available", "several", "various", "known", "range", "number", "much",
-    }
+    signals = [
+        ("buying guides", [r'\bbuying guide\b', r'\bguide to\b', r'\bhow to choose\b', r'\bhow to pick\b', r'\bwhat to look for\b']),
+        ("product comparisons", [r'\bcompar', r'\bvs\.?\s', r'\bversus\b', r'\balternative']),
+        ("reviews", [r'\breview', r'\brating', r'\btested\b']),
+        ("age-specific guidance", [r'\bage.appropriate\b', r'\bage \d', r'\byear.old', r'\btoddler', r'\bpreschool', r'\bdevelopmental stage']),
+        ("developmental benefits", [r'\bfine motor\b', r'\bhand.eye\b', r'\bcognitive\b', r'\bsensory\b', r'\bproblem.solving\b', r'\bcritical thinking\b', r'\bcreativity\b', r'\bimagination\b']),
+        ("safety and materials", [r'\bnon.toxic\b', r'\bbpa.free\b', r'\blead.free\b', r'\bsafety\b', r'\bsolid wood\b', r'\bhardwood\b', r'\bsustainable\b', r'\bnatural\b']),
+        ("educational value", [r'\bmontessori\b', r'\bwaldorf\b', r'\bstem\b', r'\beducational\b', r'\blearning through play\b']),
+        ("price and value", [r'\bbudget\b', r'\bprice range\b', r'\baffordable\b', r'\bpremium\b', r'\bworth\b', r'\binvestment\b']),
+        ("brand rankings", [r'\bbest.{1,20}brand', r'\btop.{1,20}brand', r'\bpopular brand', r'\brecommend']),
+    ]
 
-    words = re.findall(r'[a-z]+', combined)
-    words = [w for w in words if len(w) > 2 and w not in stop]
+    found = []
+    for signal_name, patterns in signals:
+        for pat in patterns:
+            if re.search(pat, combined):
+                found.append(signal_name)
+                break
 
-    bigrams = []
-    for i in range(len(words) - 1):
-        bigrams.append(f"{words[i]} {words[i+1]}")
-
-    from collections import Counter
-    phrase_counts = Counter(bigrams)
-    topics = [phrase for phrase, count in phrase_counts.most_common(30) if count >= 2]
-    if not topics:
-        topics = [phrase for phrase, _ in phrase_counts.most_common(15)]
-
-    return topics[:15]
-
-
-def _find_content_gaps(response_topics: list, page_title: str, page_h1: str, page_url: str) -> list:
-    """Find topics in AI responses that the user's page doesn't cover."""
-    page_text = f"{page_title} {page_h1} {page_url}".lower()
-    page_words = set(re.findall(r'[a-z]+', page_text))
-
-    gaps = []
-    for topic in response_topics:
-        topic_words = set(topic.split())
-        if not topic_words & page_words:
-            gaps.append(topic)
-
-    return gaps[:8]
+    return found
 
 
 def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> list:
@@ -480,7 +482,7 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
     has_competitors = len(comp_urls) > 0
 
     response_excerpts = bp.get("response_excerpts", {})
-    response_topics = _extract_response_topics(response_excerpts) if response_excerpts else []
+    content_signals = _extract_content_signals(response_excerpts)
 
     recs = []
 
@@ -496,17 +498,12 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
                 "action": f"AI engines cite instead: {', '.join(domains)}",
             })
 
-    if has_page and response_topics:
-        pg = matching_pages[0]
-        gaps = _find_content_gaps(
-            response_topics,
-            pg.get("title", ""), pg.get("h1", ""), pg.get("url", "")
-        )
-        if gaps:
-            recs.append({
-                "priority": "gap",
-                "action": f'Your page {pg["url"]} (title: "{pg.get("title", "")}") is missing topics that AI engines discuss: {", ".join(gaps)}',
-            })
+    if content_signals:
+        recs.append({
+            "priority": "gap",
+            "action": f"AI responses emphasize: {', '.join(content_signals)}. "
+                      f"Ensure your content covers these angles for \"{prompt_text}\".",
+        })
 
     if tier == "invisible":
         if has_page:
@@ -515,65 +512,104 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
                 comp_domain = re.sub(r'https?://(www\.)?', '', comp_urls[0]).split('/')[0]
                 recs.append({
                     "priority": "high",
-                    "action": f'Visit {comp_urls[0]} and compare against your page {pg["url"]}. '
-                              f'Note what {comp_domain} covers that you don\'t — then add those sections to your page.',
+                    "action": f'Study {comp_urls[0]} and compare against your page {pg["url"]}. '
+                              f'Note what {comp_domain} covers that you don\'t — then add those sections.',
+                })
+            elif content_signals:
+                detail = f'{content_signals[0]} and {content_signals[1]}' if len(content_signals) > 1 else content_signals[0]
+                recs.append({
+                    "priority": "high",
+                    "action": f'Your page {pg["url"]} isn\'t cited by any engine. '
+                              f'Add content covering {detail}.',
                 })
             else:
                 recs.append({
                     "priority": "high",
-                    "action": f'Your page {pg["url"]} exists but AI engines don\'t cite it. '
-                              f'It likely needs more depth — expand beyond product listings into guides, comparisons, or educational content.',
+                    "action": f'Your page {pg["url"]} exists but no AI engine cites it for "{prompt_text}". '
+                              f'Expand with in-depth content — guides, comparisons, or how-to sections.',
+                })
+        else:
+            if content_signals:
+                recs.append({
+                    "priority": "high",
+                    "action": f'No page on your site targets "{prompt_text}". '
+                              f'Create one covering {", ".join(content_signals[:3])}.',
+                })
+            else:
+                recs.append({
+                    "priority": "high",
+                    "action": f'No page on your site targets "{prompt_text}". '
+                              f'Create a dedicated page with in-depth guides and comparisons.',
+                })
+
+    elif tier == "weak":
+        engines_str = ", ".join(e.capitalize() for e in missing_engines) if missing_engines else "some engines"
+        if has_page:
+            pg = matching_pages[0]
+            if has_competitors and content_signals:
+                recs.append({
+                    "priority": "high",
+                    "action": f'Mentioned in {mentioned}/{total} engines but missing from {engines_str}. '
+                              f'Your page {pg["url"]} needs deeper coverage of {content_signals[0]}.',
+                })
+            elif has_competitors:
+                comp_domain = re.sub(r'https?://(www\.)?', '', comp_urls[0]).split('/')[0]
+                recs.append({
+                    "priority": "high",
+                    "action": f'Mentioned in {mentioned}/{total} engines. '
+                              f'Compare {pg["url"]} against {comp_domain} to find coverage gaps.',
+                })
+            else:
+                recs.append({
+                    "priority": "high",
+                    "action": f'Mentioned in {mentioned}/{total} engines, missing from {engines_str}. '
+                              f'Expand {pg["url"]} with more detailed content.',
                 })
         else:
             recs.append({
                 "priority": "high",
-                "action": f'No page on your site targets "{prompt_text}". Create one covering the topics above.',
-            })
-
-    elif tier == "weak":
-        if has_page:
-            pg = matching_pages[0]
-            recs.append({
-                "priority": "high",
-                "action": f'Mentioned in {mentioned}/{total} engines. Your page {pg["url"]} is close — '
-                          f'add the missing topics listed above to push into more engines.',
-            })
-        else:
-            recs.append({
-                "priority": "high",
-                "action": f"Mentioned in {mentioned}/{total} engines without a dedicated page. "
-                          f"Create one and you'll likely rank higher.",
+                "action": f'Mentioned in {mentioned}/{total} engines without a dedicated page. '
+                          f'Create one to appear in more engines.',
             })
 
     elif tier == "partial":
         if missing_engines:
             names = ", ".join(e.capitalize() for e in missing_engines)
-            recs.append({
-                "priority": "medium",
-                "action": f"Missing from: {names}. Add the gap topics above to your page to reach these engines.",
-            })
+            if content_signals:
+                recs.append({
+                    "priority": "medium",
+                    "action": f"Missing from {names}. These engines emphasize {content_signals[0]} — "
+                              f"strengthen that angle on your page.",
+                })
+            else:
+                recs.append({
+                    "priority": "medium",
+                    "action": f"Missing from {names}. Review what those engines recommend for \"{prompt_text}\" "
+                              f"and address the gap.",
+                })
         if url_cited == 0:
             recs.append({
                 "priority": "medium",
-                "action": "Named but no URLs cited — engines know you but don't link to you.",
+                "action": "Named but no URLs cited — engines know you but don't link to you. "
+                          "Add unique data, original research, or authoritative depth.",
             })
 
     elif tier in ("strong", "strong_cited"):
         if has_page:
             recs.append({
                 "priority": "low",
-                "action": f'Strong position. Keep {matching_pages[0]["url"]} updated.',
+                "action": f'Strong position for "{prompt_text}". Keep {matching_pages[0]["url"]} updated.',
             })
         else:
             recs.append({
                 "priority": "low",
-                "action": "Strong position. Keep content fresh and monitor for drops.",
+                "action": f'Strong position for "{prompt_text}". Keep content fresh and monitor for drops.',
             })
         if cited_engines:
             names = ", ".join(e.capitalize() for e in cited_engines)
             recs.append({
                 "priority": "low",
-                "action": f"URLs cited by: {names}. Use this page as a template for other keywords.",
+                "action": f"URLs cited by {names}. Use this content as a template for other keywords.",
             })
 
     return recs
