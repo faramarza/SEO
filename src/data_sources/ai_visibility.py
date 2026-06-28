@@ -532,47 +532,6 @@ def _find_matching_pages(prompt_text: str, pages: dict) -> list:
     return matches[:3]
 
 
-def _extract_content_signals(excerpts: dict) -> list:
-    """Extract content themes AI responses emphasize (pattern-matched, not bigrams)."""
-    if not excerpts:
-        return []
-    combined = " ".join(excerpts.values()).lower()
-
-    signals = [
-        ("buying guides", [r'\bbuying guide\b', r'\bguide to\b', r'\bhow to choose\b', r'\bhow to pick\b', r'\bwhat to look for\b']),
-        ("product comparisons", [r'\bcompar', r'\bvs\.?\s', r'\bversus\b', r'\balternative']),
-        ("reviews", [r'\breview', r'\brating', r'\btested\b']),
-        ("age-specific guidance", [r'\bage.appropriate\b', r'\bage \d', r'\byear.old', r'\btoddler', r'\bpreschool', r'\bdevelopmental stage']),
-        ("developmental benefits", [r'\bfine motor\b', r'\bhand.eye\b', r'\bcognitive\b', r'\bsensory\b', r'\bproblem.solving\b', r'\bcritical thinking\b', r'\bcreativity\b', r'\bimagination\b']),
-        ("safety and materials", [r'\bnon.toxic\b', r'\bbpa.free\b', r'\blead.free\b', r'\bsafety\b', r'\bsolid wood\b', r'\bhardwood\b', r'\bsustainable\b', r'\bnatural\b']),
-        ("educational value", [r'\bmontessori\b', r'\bwaldorf\b', r'\bstem\b', r'\beducational\b', r'\blearning through play\b']),
-        ("price and value", [r'\bbudget\b', r'\bprice range\b', r'\baffordable\b', r'\bpremium\b', r'\bworth\b', r'\binvestment\b']),
-        ("brand rankings", [r'\bbest.{1,20}brand', r'\btop.{1,20}brand', r'\bpopular brand', r'\brecommend']),
-    ]
-
-    found = []
-    for signal_name, patterns in signals:
-        for pat in patterns:
-            if re.search(pat, combined):
-                found.append(signal_name)
-                break
-
-    return found
-
-
-_SIGNAL_ACTIONS = {
-    "buying guides": "add a buying guide — what to look for when choosing, top picks with pros/cons",
-    "product comparisons": "add side-by-side product comparisons with specs and ratings",
-    "reviews": "add hands-on review content with photos, testing notes, and honest ratings",
-    "age-specific guidance": "add age-specific recommendations with milestones (what skills develop at each age)",
-    "developmental benefits": "explain which skills each product develops (fine motor, problem-solving, spatial reasoning)",
-    "safety and materials": "detail materials (wood type, paint), certifications (CPSC, ASTM), and safety testing",
-    "educational value": "explain the educational approach (Montessori, STEM, Waldorf) and specific learning outcomes",
-    "price and value": "add price tiers with budget vs premium picks and what justifies the price difference",
-    "brand rankings": "add a brand comparison — what makes each brand unique, quality and price differences",
-}
-
-
 def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> list:
     tier = bp.get("tier", {}).get("level", "unknown")
     mentioned = bp["mentioned_count"]
