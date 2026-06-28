@@ -832,37 +832,60 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
     existing_prompts = {p["text"].lower() for p in vis_data.get("prompts", [])}
 
     filtered = []
+    rejections = {}
+    max_samples = 5
+
+    def _reject(reason, kw_text, volume):
+        if reason not in rejections:
+            rejections[reason] = {"count": 0, "samples": []}
+        rejections[reason]["count"] += 1
+        if len(rejections[reason]["samples"]) < max_samples:
+            rejections[reason]["samples"].append({"keyword": kw_text, "volume": volume})
+
     for row in all_rows:
         kw_lower = row["keyword"].lower()
         if kw_lower in existing_keywords or kw_lower in existing_prompts:
+            _reject("Already imported or tracked", row["keyword"], row["volume"])
             continue
         if row["volume"] < min_volume:
+            _reject(f"Volume below {min_volume}", row["keyword"], row["volume"])
             continue
         if max_kd is not None and row["kd"] > max_kd:
+            _reject(f"Keyword difficulty above {max_kd}", row["keyword"], row["volume"])
             continue
         has_specific = any(p.search(kw_lower) for p in specific_pats)
         has_generic = any(p.search(kw_lower) for p in generic_pats)
         has_child_ctx = any(p.search(kw_lower) for p in child_ctx_pats)
         if not has_specific and not (has_generic and has_child_ctx):
+            _reject("No product family match", row["keyword"], row["volume"])
             continue
         if exclude_terms and any(re.search(r'\b' + re.escape(t) + r'\b', kw_lower) for t in exclude_terms):
+            _reject("Excluded term", row["keyword"], row["volume"])
             continue
         kw_nospace = kw_lower.replace(" ", "").replace("-", "")
         if auto_exclude_domains and any(dom in kw_nospace or kw_nospace in dom for dom in auto_exclude_domains):
+            _reject("Competitor brand", row["keyword"], row["volume"])
             continue
         if len(row["keyword"].split()) <= 1:
+            _reject("Single word", row["keyword"], row["volume"])
             continue
         if skip_informational and row.get("is_informational"):
+            _reject("Informational intent", row["keyword"], row["volume"])
             continue
         if require_commercial and not (row.get("has_shopping") or row.get("cpc", 0) > 0.05):
+            _reject("Not commercial", row["keyword"], row["volume"])
             continue
         if min_cpc is not None and row.get("cpc", 0) < min_cpc:
+            _reject(f"CPC below {min_cpc}", row["keyword"], row["volume"])
             continue
         if require_shopping and not row.get("has_shopping"):
+            _reject("No shopping SERP", row["keyword"], row["volume"])
             continue
         if only_ai_overview and not row.get("has_ai_overview"):
+            _reject("No AI overview", row["keyword"], row["volume"])
             continue
         if min_competitors is not None and row.get("competitors_ranking", 0) < min_competitors:
+            _reject(f"Fewer than {min_competitors} competitors ranking", row["keyword"], row["volume"])
             continue
         filtered.append(row)
 
@@ -929,6 +952,7 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         "imported": len(filtered),
         "total_batches": total_batches,
         "batch_size": batch_size,
+        "rejections": rejections,
         "auto_detected": {
             "product_families": auto_must_contain,
             "site_terms_count": len(specific_terms),

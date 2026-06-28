@@ -784,7 +784,36 @@ async function uploadCSV(e) {
             }
         }
         msg += ' Click "Activate Next Batch" to start checking.';
-        status.textContent = msg;
+        status.innerHTML = '';
+        const msgP = document.createElement('p');
+        msgP.style.margin = '0 0 8px 0';
+        msgP.textContent = msg;
+        status.appendChild(msgP);
+        if (data.rejections && Object.keys(data.rejections).length > 0) {
+            const details = document.createElement('details');
+            details.style.marginTop = '6px';
+            const summary = document.createElement('summary');
+            summary.style.cursor = 'pointer';
+            summary.style.fontWeight = '600';
+            const totalRejected = Object.values(data.rejections).reduce((s, r) => s + r.count, 0);
+            summary.textContent = `${totalRejected} keywords filtered out — click to see why`;
+            details.appendChild(summary);
+            const table = document.createElement('table');
+            table.style.cssText = 'width:100%;border-collapse:collapse;margin-top:6px;font-size:12px;';
+            table.innerHTML = '<thead><tr style="text-align:left;border-bottom:1px solid #ccc;"><th style="padding:4px 8px;">Reason</th><th style="padding:4px 8px;">Count</th><th style="padding:4px 8px;">Sample keywords (up to 5)</th></tr></thead>';
+            const tbody = document.createElement('tbody');
+            const sorted = Object.entries(data.rejections).sort((a, b) => b[1].count - a[1].count);
+            for (const [reason, info] of sorted) {
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #eee';
+                const samples = info.samples.map(s => `${s.keyword} (vol:${s.volume})`).join(', ');
+                tr.innerHTML = `<td style="padding:4px 8px;">${reason}</td><td style="padding:4px 8px;">${info.count}</td><td style="padding:4px 8px;color:#666;">${samples}</td>`;
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            details.appendChild(table);
+            status.appendChild(details);
+        }
         showToast(`Imported ${data.imported} keywords into ${data.total_batches} batch(es)`, 'success');
         loadQueueData();
     } catch (err) {
