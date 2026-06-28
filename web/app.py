@@ -3646,6 +3646,36 @@ def api_growth_ai_visibility_check():
     return jsonify({"message": "AI visibility check started", "status": "running"})
 
 
+@app.route("/api/growth/ai-visibility/generate-advice", methods=["POST"])
+def api_growth_generate_advice():
+    """Generate AI advice for all prompts that have results but no advice. Runs in background."""
+    global job_state
+    if job_state["running"]:
+        return jsonify({"error": "A job is already running", "status": "busy"}), 400
+
+    job_state.update({
+        "running": True, "type": "generate_advice", "error": None,
+        "message": "Generating AI advice...", "progress": 0, "total": 1,
+    })
+
+    def run_backfill():
+        try:
+            result = ai_visibility.backfill_ai_advice()
+            job_state["message"] = f"Generated advice for {result['generated']} keywords"
+            job_state["progress"] = 1
+        except Exception as e:
+            job_state["error"] = str(e)
+            job_state["message"] = f"Error: {e}"
+        finally:
+            from datetime import datetime
+            job_state["finished_at"] = datetime.now().strftime("%b %d, %Y %I:%M %p")
+            job_state["running"] = False
+
+    thread = threading.Thread(target=run_backfill)
+    thread.start()
+    return jsonify({"message": "Generating AI advice in background", "status": "running"})
+
+
 @app.route("/api/growth/ai-visibility/prompts", methods=["POST"])
 def api_growth_add_prompt():
     """Add a new prompt to track."""

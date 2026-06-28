@@ -383,27 +383,6 @@ def get_visibility_summary():
             if r.get("ai_advice") and "ai_advice" not in by_prompt[p]:
                 by_prompt[p]["ai_advice"] = r["ai_advice"]
 
-    config = data.get("config", {})
-    needs_save = False
-    for p, bp in by_prompt.items():
-        if bp.get("ai_advice") or not bp.get("response_excerpts"):
-            continue
-        advice = _generate_ai_advice(
-            p, bp["response_excerpts"],
-            bp["mentioned_count"] > 0,
-            config.get("site_domain", ""),
-        )
-        if advice:
-            bp["ai_advice"] = advice
-            for r in data["results"]:
-                if r.get("prompt") == p and not r.get("error"):
-                    r["ai_advice"] = advice
-                    needs_save = True
-                    break
-
-    if needs_save:
-        _save_data(data)
-
     inventory_pages = {}
     if INVENTORY_PATH.exists():
         try:
@@ -446,6 +425,53 @@ def get_visibility_summary():
         "trend": trend, "latest_results": latest_results,
         "available_engines": get_available_engines(),
     }
+
+
+def backfill_ai_advice() -> dict:
+    """Generate AI advice for all prompts that have response excerpts but no advice."""
+    data = _load_data()
+    results = data.get("results", [])
+    config = data.get("config", {})
+    site_domain = config.get("site_domain", "")
+
+    latest = {}
+    for r in results:
+        key = f"{r['prompt']}|{r['engine']}"
+        if key not in latest or r.get("timestamp", "") > latest[key].get("timestamp", ""):
+            latest[key] = r
+
+    by_prompt = {}
+    for r in latest.values():
+        p = r["prompt"]
+        if p not in by_prompt:
+            by_prompt[p] = {"excerpts": {}, "mentioned": False, "has_advice": False}
+        if r.get("response_excerpt") and not r.get("error"):
+            by_prompt[p]["excerpts"][r["engine"]] = r["response_excerpt"]
+        if r.get("mentioned"):
+            by_prompt[p]["mentioned"] = True
+        if r.get("ai_advice"):
+            by_prompt[p]["has_advice"] = True
+
+    generated = 0
+    for p, info in by_prompt.items():
+        if info["has_advice"] or not info["excerpts"]:
+            continue
+        try:
+            advice = _generate_ai_advice(p, info["excerpts"], info["mentioned"], site_domain)
+        except Exception:
+            continue
+        if not advice:
+            continue
+        for r in data["results"]:
+            if r.get("prompt") == p and not r.get("error"):
+                r["ai_advice"] = advice
+                break
+        generated += 1
+
+    if generated:
+        _save_data(data)
+
+    return {"generated": generated, "total_prompts": len(by_prompt)}
 
 
 def _compute_tier(bp: dict) -> dict:
