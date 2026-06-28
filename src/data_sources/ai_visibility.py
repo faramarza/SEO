@@ -169,6 +169,54 @@ def detect_mention(text: str, brand_keywords: list, site_domain: str) -> dict:
     }
 
 
+def _generate_ai_advice(prompt_text: str, engine_responses: dict, mentioned: bool, site_domain: str) -> str:
+    """Use Claude to analyze AI engine responses and generate specific advice."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or not engine_responses:
+        return ""
+
+    response_parts = []
+    for engine, text in engine_responses.items():
+        if text:
+            response_parts.append(f"[{engine.upper()}]: {text[:800]}")
+
+    if not response_parts:
+        return ""
+
+    status = "IS mentioned" if mentioned else "is NOT mentioned or cited"
+    analysis_prompt = (
+        f'A website ({site_domain}) {status} when AI engines answer: "{prompt_text}"\n\n'
+        f'Here is what each AI engine actually responded:\n\n'
+        f'{chr(10).join(response_parts)}\n\n'
+        f'Based on these actual responses, give 2-3 specific actionable steps '
+        f'the website owner should take to get cited by AI engines for this query. '
+        f'Reference specific things you see in the responses — competitor names, '
+        f'content angles, formats. Do NOT give generic SEO advice. '
+        f'Each step: one concise sentence. Number them. No preamble or intro.'
+    )
+
+    try:
+        resp = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 400,
+                "messages": [{"role": "user", "content": analysis_prompt}],
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            return resp.json()["content"][0]["text"]
+    except Exception:
+        pass
+    return ""
+
+
 def check_prompt(prompt_text: str, engines: list = None, brand_keywords: list = None, site_domain: str = ""):
     if engines is None:
         engines = list(_QUERY_FNS.keys())
@@ -220,6 +268,20 @@ def check_prompt(prompt_text: str, engines: list = None, brand_keywords: list = 
                 "prompt": prompt_text, "engine": engine, "timestamp": timestamp,
                 "mentioned": False, "error": str(e),
             })
+
+    engine_responses = {}
+    any_mentioned = False
+    for r in results:
+        if r.get("response_excerpt") and not r.get("error"):
+            engine_responses[r["engine"]] = r["response_excerpt"]
+            if r.get("mentioned"):
+                any_mentioned = True
+
+    if engine_responses:
+        advice = _generate_ai_advice(prompt_text, engine_responses, any_mentioned, site_domain)
+        if advice:
+            for r in results:
+                r["ai_advice"] = advice
 
     return results
 
@@ -318,6 +380,29 @@ def get_visibility_summary():
                     by_prompt[p]["competitor_brands"].append(cb)
             if r.get("response_excerpt"):
                 by_prompt[p]["response_excerpts"][r["engine"]] = r["response_excerpt"]
+            if r.get("ai_advice") and "ai_advice" not in by_prompt[p]:
+                by_prompt[p]["ai_advice"] = r["ai_advice"]
+
+    config = data.get("config", {})
+    needs_save = False
+    for p, bp in by_prompt.items():
+        if bp.get("ai_advice") or not bp.get("response_excerpts"):
+            continue
+        advice = _generate_ai_advice(
+            p, bp["response_excerpts"],
+            bp["mentioned_count"] > 0,
+            config.get("site_domain", ""),
+        )
+        if advice:
+            bp["ai_advice"] = advice
+            for r in data["results"]:
+                if r.get("prompt") == p and not r.get("error"):
+                    r["ai_advice"] = advice
+                    needs_save = True
+                    break
+
+    if needs_save:
+        _save_data(data)
 
     inventory_pages = {}
     if INVENTORY_PATH.exists():
@@ -494,10 +579,6 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
     total = bp["total"]
     url_cited = bp["url_cited_count"]
 
-    missing_engines = [
-        eng for eng, d in bp.get("engines", {}).items()
-        if not d.get("error") and not d.get("mentioned")
-    ]
     cited_engines = [
         eng for eng, d in bp.get("engines", {}).items()
         if d.get("url_cited")
@@ -509,8 +590,7 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
     comp_urls = bp.get("competitor_urls", [])
     has_competitors = len(comp_urls) > 0
 
-    response_excerpts = bp.get("response_excerpts", {})
-    content_signals = _extract_content_signals(response_excerpts)
+    ai_advice = bp.get("ai_advice", "")
 
     recs = []
 
@@ -526,98 +606,43 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
                 "action": f"AI engines cite instead: {', '.join(domains)}",
             })
 
-    if content_signals:
-        signal_checklist = ", ".join(content_signals[:4])
-        if has_page:
-            recs.append({
-                "priority": "gap",
-                "action": f"AI engines focus on: {signal_checklist}. "
-                          f"Verify your page covers these — if it already does, the gap is authority not content.",
-            })
-        else:
-            actions = [_SIGNAL_ACTIONS.get(s, s) for s in content_signals[:3]]
-            recs.append({
-                "priority": "gap",
-                "action": f"What AI engines want for \"{prompt_text}\": {'; '.join(actions)}.",
-            })
-
-    if tier == "invisible":
+    if ai_advice:
+        recs.append({
+            "priority": "high",
+            "action": ai_advice,
+        })
+    elif tier == "invisible":
         if has_page:
             pg = matching_pages[0]
-            if has_competitors:
-                comp_domain = re.sub(r'https?://(www\.)?', '', comp_urls[0]).split('/')[0]
-                recs.append({
-                    "priority": "high",
-                    "action": f'Study {comp_urls[0]} and compare against your page {pg["url"]}. '
-                              f'Note what {comp_domain} covers differently — structure, depth, or angle.',
-                })
-            else:
-                recs.append({
-                    "priority": "high",
-                    "action": f'Your page {pg["url"]} has content but isn\'t cited. '
-                              f'The gap is likely domain authority — earn backlinks and mentions from '
-                              f'parenting blogs, toy review sites, or gift guides that link to you.',
-                })
-        else:
-            if content_signals:
-                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
-                recs.append({
-                    "priority": "high",
-                    "action": f'No page on your site targets "{prompt_text}". '
-                              f'Create one — start by: {top_action}.',
-                })
-            else:
-                recs.append({
-                    "priority": "high",
-                    "action": f'No page on your site targets "{prompt_text}". '
-                              f'Create a dedicated page with in-depth guides and comparisons.',
-                })
-
-    elif tier == "weak":
-        engines_str = ", ".join(e.capitalize() for e in missing_engines) if missing_engines else "some engines"
-        if has_page:
-            pg = matching_pages[0]
-            if has_competitors:
-                comp_domain = re.sub(r'https?://(www\.)?', '', comp_urls[0]).split('/')[0]
-                recs.append({
-                    "priority": "high",
-                    "action": f'Mentioned in {mentioned}/{total} engines but missing from {engines_str}. '
-                              f'Compare {pg["url"]} against {comp_domain} — what do they cover differently?',
-                })
-            elif content_signals:
-                recs.append({
-                    "priority": "high",
-                    "action": f'Mentioned in {mentioned}/{total} engines, missing from {engines_str}. '
-                              f'Your page {pg["url"]} may need more authority — get cited by review sites.',
-                })
-            else:
-                recs.append({
-                    "priority": "high",
-                    "action": f'Mentioned in {mentioned}/{total} engines, missing from {engines_str}. '
-                              f'Expand {pg["url"]} with more detailed content.',
-                })
+            recs.append({
+                "priority": "high",
+                "action": f'Your page {pg["url"]} isn\'t cited. '
+                          f'AI advice will generate on next check or page reload.',
+            })
         else:
             recs.append({
                 "priority": "high",
-                "action": f'Mentioned in {mentioned}/{total} engines without a dedicated page. '
-                          f'Create one to appear in more engines.',
+                "action": f'No page on your site targets "{prompt_text}". Create a dedicated page.',
             })
-
+    elif tier == "weak":
+        if has_page:
+            recs.append({
+                "priority": "high",
+                "action": f'Mentioned in {mentioned}/{total} engines. '
+                          f'AI advice will generate on next check or page reload.',
+            })
+        else:
+            recs.append({
+                "priority": "high",
+                "action": f'Mentioned in {mentioned}/{total} engines without a dedicated page. Create one.',
+            })
     elif tier == "partial":
-        if missing_engines:
-            names = ", ".join(e.capitalize() for e in missing_engines)
+        if not ai_advice:
             recs.append({
                 "priority": "medium",
-                "action": f"Missing from {names}. These engines may weight authority differently — "
-                          f"earn mentions from sites those engines trust (review blogs, directories).",
+                "action": f"Mentioned in {mentioned}/{total} engines. "
+                          f"AI advice will generate on next check or page reload.",
             })
-        if url_cited == 0:
-            recs.append({
-                "priority": "medium",
-                "action": "Named but no URLs cited — engines recognize your brand but don't link to you. "
-                          "Build backlinks so engines have a URL to reference.",
-            })
-
     elif tier in ("strong", "strong_cited"):
         if has_page:
             recs.append({
@@ -627,7 +652,7 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
         else:
             recs.append({
                 "priority": "low",
-                "action": f'Strong position for "{prompt_text}". Keep content fresh and monitor for drops.',
+                "action": f'Strong position for "{prompt_text}". Keep content fresh.',
             })
         if cited_engines:
             names = ", ".join(e.capitalize() for e in cited_engines)
