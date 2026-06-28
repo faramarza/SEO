@@ -383,7 +383,7 @@ def _compute_tier(bp: dict) -> dict:
 
 def _find_matching_pages(prompt_text: str, pages: dict) -> list:
     """Find pages from the inventory that match a keyword prompt."""
-    kw_words = set(re.findall(r'[a-z]+', prompt_text.lower()))
+    kw_words = set(re.findall(r'[a-z0-9]+', prompt_text.lower()))
     stop = {"the", "and", "for", "with", "from", "best", "top", "a", "of", "in", "to",
             "is", "are", "my", "your", "our", "how", "what", "where", "buy", "get", "on"}
     kw_words -= stop
@@ -420,7 +420,7 @@ def _find_matching_pages(prompt_text: str, pages: dict) -> list:
         h1 = (page_data.get("h1") or "").lower()
         path = re.sub(r'https?://[^/]+', '', url).lower()
         page_text = f"{title} {h1} {path}"
-        page_words = set(re.findall(r'[a-z]+', page_text))
+        page_words = set(re.findall(r'[a-z0-9]+', page_text))
 
         if not kw_has_carpet and page_words & non_product_indicators:
             continue
@@ -469,6 +469,19 @@ def _extract_content_signals(excerpts: dict) -> list:
     return found
 
 
+_SIGNAL_ACTIONS = {
+    "buying guides": "add a buying guide — what to look for when choosing, top picks with pros/cons",
+    "product comparisons": "add side-by-side product comparisons with specs and ratings",
+    "reviews": "add hands-on review content with photos, testing notes, and honest ratings",
+    "age-specific guidance": "add age-specific recommendations with milestones (what skills develop at each age)",
+    "developmental benefits": "explain which skills each product develops (fine motor, problem-solving, spatial reasoning)",
+    "safety and materials": "detail materials (wood type, paint), certifications (CPSC, ASTM), and safety testing",
+    "educational value": "explain the educational approach (Montessori, STEM, Waldorf) and specific learning outcomes",
+    "price and value": "add price tiers with budget vs premium picks and what justifies the price difference",
+    "brand rankings": "add a brand comparison — what makes each brand unique, quality and price differences",
+}
+
+
 def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> list:
     tier = bp.get("tier", {}).get("level", "unknown")
     mentioned = bp["mentioned_count"]
@@ -508,10 +521,10 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
             })
 
     if content_signals:
+        actions = [_SIGNAL_ACTIONS.get(s, s) for s in content_signals[:3]]
         recs.append({
             "priority": "gap",
-            "action": f"AI responses emphasize: {', '.join(content_signals)}. "
-                      f"Ensure your content covers these angles for \"{prompt_text}\".",
+            "action": f"What AI engines want for \"{prompt_text}\": {'; '.join(actions)}.",
         })
 
     if tier == "invisible":
@@ -525,11 +538,10 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
                               f'Note what {comp_domain} covers that you don\'t — then add those sections.',
                 })
             elif content_signals:
-                detail = f'{content_signals[0]} and {content_signals[1]}' if len(content_signals) > 1 else content_signals[0]
+                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
                 recs.append({
                     "priority": "high",
-                    "action": f'Your page {pg["url"]} isn\'t cited by any engine. '
-                              f'Add content covering {detail}.',
+                    "action": f'Your page {pg["url"]} isn\'t cited. Top fix: {top_action}.',
                 })
             else:
                 recs.append({
@@ -539,10 +551,11 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
                 })
         else:
             if content_signals:
+                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
                 recs.append({
                     "priority": "high",
                     "action": f'No page on your site targets "{prompt_text}". '
-                              f'Create one covering {", ".join(content_signals[:3])}.',
+                              f'Create one — start by: {top_action}.',
                 })
             else:
                 recs.append({
@@ -556,10 +569,11 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
         if has_page:
             pg = matching_pages[0]
             if has_competitors and content_signals:
+                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
                 recs.append({
                     "priority": "high",
                     "action": f'Mentioned in {mentioned}/{total} engines but missing from {engines_str}. '
-                              f'Your page {pg["url"]} needs deeper coverage of {content_signals[0]}.',
+                              f'On {pg["url"]}: {top_action}.',
                 })
             elif has_competitors:
                 comp_domain = re.sub(r'https?://(www\.)?', '', comp_urls[0]).split('/')[0]
@@ -585,10 +599,10 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
         if missing_engines:
             names = ", ".join(e.capitalize() for e in missing_engines)
             if content_signals:
+                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
                 recs.append({
                     "priority": "medium",
-                    "action": f"Missing from {names}. These engines emphasize {content_signals[0]} — "
-                              f"strengthen that angle on your page.",
+                    "action": f"Missing from {names}. To reach them: {top_action}.",
                 })
             else:
                 recs.append({
