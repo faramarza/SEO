@@ -405,6 +405,7 @@ def _find_matching_pages(prompt_text: str, pages: dict) -> list:
                     product_nouns.add(word + "s")
 
     kw_product_words = kw_words & product_nouns
+    kw_numbers = {w for w in kw_words if w.isdigit()}
 
     non_product_indicators = {
         "carpet", "rug", "rugs", "runner", "mat", "flooring",
@@ -423,6 +424,9 @@ def _find_matching_pages(prompt_text: str, pages: dict) -> list:
         page_words = set(re.findall(r'[a-z0-9]+', page_text))
 
         if not kw_has_carpet and page_words & non_product_indicators:
+            continue
+
+        if kw_numbers and not kw_numbers.issubset(page_words):
             continue
 
         if kw_product_words:
