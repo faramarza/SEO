@@ -585,12 +585,10 @@ function showAddPrompt() {
 function hideAddPrompt() { document.getElementById('add-prompt-form').style.display = 'none'; }
 function showConfig() {
     const el = document.getElementById('config-form');
-    console.log('showConfig called, element:', el, 'current display:', el?.style.display);
     if (el) {
         el.style.display = 'block';
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    } else {
-        console.error('config-form element not found!');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.getElementById('config-brand').focus();
     }
 }
 function hideConfig() { document.getElementById('config-form').style.display = 'none'; }
