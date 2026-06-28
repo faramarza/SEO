@@ -527,11 +527,19 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
             })
 
     if content_signals:
-        actions = [_SIGNAL_ACTIONS.get(s, s) for s in content_signals[:3]]
-        recs.append({
-            "priority": "gap",
-            "action": f"What AI engines want for \"{prompt_text}\": {'; '.join(actions)}.",
-        })
+        signal_checklist = ", ".join(content_signals[:4])
+        if has_page:
+            recs.append({
+                "priority": "gap",
+                "action": f"AI engines focus on: {signal_checklist}. "
+                          f"Verify your page covers these — if it already does, the gap is authority not content.",
+            })
+        else:
+            actions = [_SIGNAL_ACTIONS.get(s, s) for s in content_signals[:3]]
+            recs.append({
+                "priority": "gap",
+                "action": f"What AI engines want for \"{prompt_text}\": {'; '.join(actions)}.",
+            })
 
     if tier == "invisible":
         if has_page:
@@ -541,19 +549,14 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
                 recs.append({
                     "priority": "high",
                     "action": f'Study {comp_urls[0]} and compare against your page {pg["url"]}. '
-                              f'Note what {comp_domain} covers that you don\'t — then add those sections.',
-                })
-            elif content_signals:
-                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
-                recs.append({
-                    "priority": "high",
-                    "action": f'Your page {pg["url"]} isn\'t cited. Top fix: {top_action}.',
+                              f'Note what {comp_domain} covers differently — structure, depth, or angle.',
                 })
             else:
                 recs.append({
                     "priority": "high",
-                    "action": f'Your page {pg["url"]} exists but no AI engine cites it for "{prompt_text}". '
-                              f'Expand with in-depth content — guides, comparisons, or how-to sections.',
+                    "action": f'Your page {pg["url"]} has content but isn\'t cited. '
+                              f'The gap is likely domain authority — earn backlinks and mentions from '
+                              f'parenting blogs, toy review sites, or gift guides that link to you.',
                 })
         else:
             if content_signals:
@@ -574,19 +577,18 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
         engines_str = ", ".join(e.capitalize() for e in missing_engines) if missing_engines else "some engines"
         if has_page:
             pg = matching_pages[0]
-            if has_competitors and content_signals:
-                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
-                recs.append({
-                    "priority": "high",
-                    "action": f'Mentioned in {mentioned}/{total} engines but missing from {engines_str}. '
-                              f'On {pg["url"]}: {top_action}.',
-                })
-            elif has_competitors:
+            if has_competitors:
                 comp_domain = re.sub(r'https?://(www\.)?', '', comp_urls[0]).split('/')[0]
                 recs.append({
                     "priority": "high",
-                    "action": f'Mentioned in {mentioned}/{total} engines. '
-                              f'Compare {pg["url"]} against {comp_domain} to find coverage gaps.',
+                    "action": f'Mentioned in {mentioned}/{total} engines but missing from {engines_str}. '
+                              f'Compare {pg["url"]} against {comp_domain} — what do they cover differently?',
+                })
+            elif content_signals:
+                recs.append({
+                    "priority": "high",
+                    "action": f'Mentioned in {mentioned}/{total} engines, missing from {engines_str}. '
+                              f'Your page {pg["url"]} may need more authority — get cited by review sites.',
                 })
             else:
                 recs.append({
@@ -604,23 +606,16 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
     elif tier == "partial":
         if missing_engines:
             names = ", ".join(e.capitalize() for e in missing_engines)
-            if content_signals:
-                top_action = _SIGNAL_ACTIONS.get(content_signals[0], content_signals[0])
-                recs.append({
-                    "priority": "medium",
-                    "action": f"Missing from {names}. To reach them: {top_action}.",
-                })
-            else:
-                recs.append({
-                    "priority": "medium",
-                    "action": f"Missing from {names}. Review what those engines recommend for \"{prompt_text}\" "
-                              f"and address the gap.",
-                })
+            recs.append({
+                "priority": "medium",
+                "action": f"Missing from {names}. These engines may weight authority differently — "
+                          f"earn mentions from sites those engines trust (review blogs, directories).",
+            })
         if url_cited == 0:
             recs.append({
                 "priority": "medium",
-                "action": "Named but no URLs cited — engines know you but don't link to you. "
-                          "Add unique data, original research, or authoritative depth.",
+                "action": "Named but no URLs cited — engines recognize your brand but don't link to you. "
+                          "Build backlinks so engines have a URL to reference.",
             })
 
     elif tier in ("strong", "strong_cited"):
