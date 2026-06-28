@@ -167,7 +167,8 @@
         <div id="keyword-queue-section" style="display:none; margin-bottom: 16px; padding:12px; border:1px solid var(--border-color); border-radius:8px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <h4 style="margin:0;">Keyword Queue</h4>
-                <div style="display:flex; gap:6px; align-items:center;">
+                <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                    <label style="font-size:12px; cursor:pointer;"><input type="checkbox" id="queue-select-all-top" onchange="toggleAllQueueCheckboxes(this)"> Select All</label>
                     <button class="btn btn-sm btn-primary" id="activate-selected-btn" onclick="activateSelected()" style="display:none;">Activate Selected</button>
                     <button class="btn btn-sm btn-danger" id="delete-selected-btn" onclick="deleteSelected()" style="display:none;">Delete Selected</button>
                     <button class="btn btn-sm btn-primary" id="activate-batch-btn" onclick="activateNextBatch()">Activate Next Batch</button>
@@ -175,7 +176,7 @@
                 </div>
             </div>
             <div id="queue-stats" style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;"></div>
-            <div id="queue-keywords-table" style="max-height:300px; overflow-y:auto;"></div>
+            <div id="queue-keywords-table" style="max-height:500px; overflow-y:auto;"></div>
         </div>
 
         <!-- Config form (hidden by default) -->
@@ -858,7 +859,7 @@ function renderQueue(data) {
     };
 
     let html = `<table class="data-table" style="font-size:12px;">
-        <thead><tr><th style="width:28px;"><input type="checkbox" id="queue-select-all" onchange="toggleAllQueueCheckboxes(this)"></th><th>#</th><th>Keyword</th><th>Vol</th><th>KD</th><th>CPC</th><th>Signals</th><th>Comp</th><th>Status</th><th>Mentioned</th><th style="width:28px;"></th></tr></thead><tbody>`;
+        <thead><tr style="position:sticky; top:0; background:var(--bg-primary, #fff); z-index:1;"><th style="width:28px;"><input type="checkbox" id="queue-select-all" onchange="toggleAllQueueCheckboxes(this)"></th><th>#</th><th>Keyword</th><th>Vol</th><th>KD</th><th>CPC</th><th>Signals</th><th>Comp</th><th>Status</th><th>Mentioned</th><th style="width:28px;"></th></tr></thead><tbody>`;
 
     for (const kw of keywords.slice(0, 100)) {
         const signals = [];
@@ -890,6 +891,10 @@ function renderQueue(data) {
 
 function toggleAllQueueCheckboxes(master) {
     document.querySelectorAll('.queue-kw-cb:not(:disabled)').forEach(cb => cb.checked = master.checked);
+    const topCb = document.getElementById('queue-select-all-top');
+    const tableCb = document.getElementById('queue-select-all');
+    if (topCb && topCb !== master) topCb.checked = master.checked;
+    if (tableCb && tableCb !== master) tableCb.checked = master.checked;
     updateQueueSelection();
 }
 
