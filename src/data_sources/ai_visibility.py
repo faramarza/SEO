@@ -278,10 +278,18 @@ def get_visibility_summary():
             if r.get("urls_cited"):
                 by_prompt[p]["url_cited_count"] += 1
 
+    inventory_pages = {}
+    if INVENTORY_PATH.exists():
+        try:
+            with open(INVENTORY_PATH) as f:
+                inventory_pages = json.load(f).get("pages", {})
+        except (json.JSONDecodeError, OSError):
+            pass
+
     for p in by_prompt:
         bp = by_prompt[p]
         bp["tier"] = _compute_tier(bp)
-        bp["recommendation"] = _get_recommendation(bp)
+        bp["recommendation"] = _get_recommendation(bp, prompt_text=p, pages=inventory_pages)
 
     from collections import defaultdict
     daily = defaultdict(lambda: {"mentioned": 0, "total": 0})
@@ -332,7 +340,45 @@ def _compute_tier(bp: dict) -> dict:
     return {"level": "strong", "label": "Strong", "color": "green"}
 
 
-def _get_recommendation(bp: dict) -> list:
+def _find_matching_pages(prompt_text: str, pages: dict) -> list:
+    """Find pages from the inventory that match a keyword prompt."""
+    kw_words = set(re.findall(r'[a-z]+', prompt_text.lower()))
+    kw_words -= {"the", "and", "for", "with", "from", "best", "top", "a", "of", "in", "to"}
+    if not kw_words:
+        return []
+
+    matches = []
+    for url, page_data in pages.items():
+        if not isinstance(page_data, dict):
+            continue
+        title = (page_data.get("title") or "").lower()
+        h1 = (page_data.get("h1") or "").lower()
+        path = re.sub(r'https?://[^/]+', '', url).lower()
+        page_text = f"{title} {h1} {path}"
+        page_words = set(re.findall(r'[a-z]+', page_text))
+        overlap = kw_words & page_words
+        if len(overlap) >= max(2, len(kw_words) * 0.5):
+            matches.append({"url": url, "title": page_data.get("title", ""), "overlap": len(overlap)})
+
+    matches.sort(key=lambda m: m["overlap"], reverse=True)
+    return matches[:3]
+
+
+def _classify_keyword(prompt_text: str) -> str:
+    """Classify keyword intent to suggest the right content type."""
+    kw = prompt_text.lower()
+    if re.search(r'\bbest\b|\btop\b|\bvs\b|\bcompare\b|\breview', kw):
+        return "comparison"
+    if re.search(r'\bhow to\b|\bguide\b|\btips\b|\bideas\b', kw):
+        return "guide"
+    if re.search(r'\bfor (\d+|toddler|baby|kid|infant|preschool)', kw):
+        return "age_specific"
+    if re.search(r'\bpersonalized\b|\bcustom\b', kw):
+        return "personalized"
+    return "product"
+
+
+def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> list:
     tier = bp.get("tier", {}).get("level", "unknown")
     mentioned = bp["mentioned_count"]
     total = bp["total"]
@@ -347,70 +393,110 @@ def _get_recommendation(bp: dict) -> list:
         if d.get("url_cited")
     ]
 
+    matching_pages = _find_matching_pages(prompt_text, pages or {})
+    kw_type = _classify_keyword(prompt_text)
+    has_page = len(matching_pages) > 0
+
+    content_suggestion = {
+        "comparison": f'a buying guide like "Best {prompt_text.title()}: A Parent\'s Guide"',
+        "guide": f'a how-to article or resource guide for "{prompt_text}"',
+        "age_specific": f'an age-specific buying guide for "{prompt_text}" with product picks',
+        "personalized": f'a landing page showcasing your personalization options for "{prompt_text}"',
+        "product": f'a category page or buying guide for "{prompt_text}" featuring your products',
+    }.get(kw_type, f'content about "{prompt_text}"')
+
     recs = []
 
     if tier == "invisible":
-        recs.append({
-            "priority": "high",
-            "action": "Create dedicated content targeting this query — a blog post, buying guide, or landing page optimized for this topic.",
-        })
-        recs.append({
-            "priority": "high",
-            "action": "Add comprehensive FAQ schema markup covering this topic on your most relevant existing page.",
-        })
-        recs.append({
-            "priority": "medium",
-            "action": "Build topical authority: publish 3-5 related articles that interlink and establish expertise.",
-        })
-
-    elif tier == "weak":
-        recs.append({
-            "priority": "high",
-            "action": f"Strengthen existing content — you're only visible in {mentioned}/{total} engines. Expand depth, add data, improve structure.",
-        })
-        recs.append({
-            "priority": "medium",
-            "action": "Add JSON-LD structured data (Product, FAQ, HowTo) to help AI engines parse your content as a source.",
-        })
+        if has_page:
+            pg = matching_pages[0]
+            recs.append({
+                "priority": "high",
+                "action": f'You have a page that covers this: {pg["url"]} — but AI engines aren\'t citing it. '
+                          f'Expand it with more detail, add FAQ schema, and ensure "{prompt_text}" appears in headings.',
+            })
+            if len(matching_pages) > 1:
+                urls = ", ".join(m["url"] for m in matching_pages[1:])
+                recs.append({
+                    "priority": "medium",
+                    "action": f"Related pages that could interlink: {urls}. Cross-link these to build topical depth.",
+                })
+        else:
+            recs.append({
+                "priority": "high",
+                "action": f"No page on your site targets this query. Create {content_suggestion} with your actual products.",
+            })
         if missing_engines:
             names = ", ".join(e.capitalize() for e in missing_engines)
             recs.append({
                 "priority": "medium",
-                "action": f"Missing from: {names}. Research what sources these engines cite instead and match that content depth.",
+                "action": f"Not picked up by: {names}. Add Product and FAQ structured data (JSON-LD) so these engines can parse your content.",
+            })
+
+    elif tier == "weak":
+        if has_page:
+            pg = matching_pages[0]
+            recs.append({
+                "priority": "high",
+                "action": f'Mentioned in {mentioned}/{total} engines. Your page {pg["url"]} needs more depth — '
+                          f'add product comparisons, age recommendations, and safety info to stand out.',
+            })
+        else:
+            recs.append({
+                "priority": "high",
+                "action": f"Mentioned in {mentioned}/{total} engines but you have no dedicated page. "
+                          f"Create {content_suggestion} to strengthen your position.",
+            })
+        if missing_engines:
+            names = ", ".join(e.capitalize() for e in missing_engines)
+            recs.append({
+                "priority": "medium",
+                "action": f"Missing from: {names}. Add JSON-LD structured data (Product, FAQ) to help these engines discover your content.",
             })
 
     elif tier == "partial":
         if missing_engines:
             names = ", ".join(e.capitalize() for e in missing_engines)
-            recs.append({
-                "priority": "medium",
-                "action": f"Not mentioned in: {names}. Analyze competitor content these engines cite and differentiate.",
-            })
+            if has_page:
+                pg = matching_pages[0]
+                recs.append({
+                    "priority": "medium",
+                    "action": f"Not mentioned in: {names}. Your page {pg['url']} is being picked up by some engines — "
+                              f"expand it with more detailed content and structured data to reach the rest.",
+                })
+            else:
+                recs.append({
+                    "priority": "medium",
+                    "action": f"Not mentioned in: {names}. Create {content_suggestion} to capture these engines too.",
+                })
         if url_cited == 0:
             recs.append({
                 "priority": "medium",
-                "action": "Mentioned by name but no URLs cited. Add authoritative, linkable content (guides, data, tools) that AI engines can reference directly.",
+                "action": "Named but no URLs cited. Add linkable content (buying guides, comparison tables, "
+                          "downloadable resources) that engines can reference directly.",
             })
-        recs.append({
-            "priority": "low",
-            "action": "Earn backlinks and citations from authoritative sources — AI engines weight domain authority in source selection.",
-        })
 
     elif tier in ("strong", "strong_cited"):
-        recs.append({
-            "priority": "low",
-            "action": "Maintain position — keep content fresh and updated. Monitor for drops.",
-        })
+        if has_page:
+            recs.append({
+                "priority": "low",
+                "action": f'Strong position. Keep {matching_pages[0]["url"]} updated with current products and pricing.',
+            })
+        else:
+            recs.append({
+                "priority": "low",
+                "action": "Strong position. Keep content fresh and monitor for drops.",
+            })
         if url_cited < mentioned:
             recs.append({
                 "priority": "low",
-                "action": f"URL cited in {url_cited}/{mentioned} mentions. Add more linkable assets (tools, calculators, downloadable guides) to increase citation rate.",
+                "action": f"URL cited in {url_cited}/{mentioned} mentions. Add comparison tables or downloadable guides to increase citation rate.",
             })
         if cited_engines:
             names = ", ".join(e.capitalize() for e in cited_engines)
             recs.append({
                 "priority": "low",
-                "action": f"URLs cited by: {names}. Double down on what works — analyze cited pages and replicate the pattern.",
+                "action": f"URLs cited by: {names}. Replicate this page's structure and depth for related keywords.",
             })
 
     return recs
