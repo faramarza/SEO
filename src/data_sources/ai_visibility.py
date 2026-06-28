@@ -984,13 +984,17 @@ def get_queue_summary() -> dict:
 
 
 def sync_queue_prompts() -> int:
-    """Ensure active queue keywords have matching prompts. Re-adds missing ones."""
+    """Ensure active queue keywords have matching prompts. Fix broken ones."""
     queue = _load_queue()
     data = _load_data()
     existing_prompts = {p["text"].lower(): p["id"] for p in data.get("prompts", [])}
 
     repaired = 0
     for kw in queue["keywords"]:
+        if kw["status"] in ("active", "archived", "retained") and not kw.get("prompt_id"):
+            kw["status"] = "queued"
+            repaired += 1
+            continue
         if kw["status"] != "active":
             continue
         if kw["keyword"].lower() in existing_prompts:
@@ -1018,14 +1022,22 @@ def activate_next_batch() -> dict:
     batch_num = queued_batches[0]
     batch_keywords = [kw for kw in keywords if kw["batch"] == batch_num and kw["status"] == "queued"]
 
+    data = _load_data()
     activated = []
     for kw in batch_keywords:
-        prompt = add_prompt(kw["keyword"])
+        prompt_id = f"p{len(data['prompts']) + 1}_{int(time.time())}_{len(activated)}"
+        prompt = {
+            "id": prompt_id, "text": kw["keyword"],
+            "engines": list(_QUERY_FNS.keys()),
+            "created_at": datetime.now().isoformat(),
+        }
+        data["prompts"].append(prompt)
         kw["status"] = "active"
-        kw["prompt_id"] = prompt["id"]
+        kw["prompt_id"] = prompt_id
         kw["activated_at"] = datetime.now().isoformat()
         activated.append(kw["keyword"])
 
+    _save_data(data)
     _save_queue(queue)
 
     remaining_queued = sum(1 for kw in keywords if kw["status"] == "queued")
@@ -1149,15 +1161,23 @@ def delete_keywords(keywords_to_delete: list[str]) -> dict:
 def activate_selected(keywords_to_activate: list[str]) -> dict:
     """Activate specific keywords by adding them as prompts."""
     queue = _load_queue()
+    data = _load_data()
     to_activate = {k.lower() for k in keywords_to_activate}
     activated = []
     for kw in queue["keywords"]:
         if kw["keyword"].lower() in to_activate and kw["status"] == "queued":
-            prompt = add_prompt(kw["keyword"])
+            prompt_id = f"p{len(data['prompts']) + 1}_{int(time.time())}_{len(activated)}"
+            prompt = {
+                "id": prompt_id, "text": kw["keyword"],
+                "engines": list(_QUERY_FNS.keys()),
+                "created_at": datetime.now().isoformat(),
+            }
+            data["prompts"].append(prompt)
             kw["status"] = "active"
-            kw["prompt_id"] = prompt["id"]
+            kw["prompt_id"] = prompt_id
             kw["activated_at"] = datetime.now().isoformat()
             activated.append(kw["keyword"])
+    _save_data(data)
     _save_queue(queue)
     remaining_queued = sum(1 for kw in queue["keywords"] if kw["status"] == "queued")
     return {
