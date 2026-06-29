@@ -882,6 +882,21 @@ _AGE_GROUPS = [
 ]
 
 
+_PRODUCT_CLUSTER_MAP = {
+    "name trains": ["Personalized Gifts & Toys", "Early Literacy & Alphabet Learning", "Wooden Toys"],
+    "personalized name puzzles": ["Personalized Gifts & Toys", "Early Literacy & Alphabet Learning"],
+    "personalized step stools": ["Personalized Gifts & Toys", "Child Development"],
+    "personalized baby books": ["Personalized Gifts & Toys", "Early Literacy & Alphabet Learning", "Gift Buying Guides"],
+    "personalized baby gifts": ["Personalized Gifts & Toys", "Gift Buying Guides", "Seasonal & Holiday Gifts"],
+    "personalized toys": ["Personalized Gifts & Toys", "Educational Toys"],
+    "montessori toys": ["Montessori Education", "Educational Toys", "Child Development"],
+    "classroom rugs": ["Classroom Rugs", "Play-Based Learning"],
+    "kids furniture": ["Montessori Education", "Classroom Rugs"],
+}
+
+_CLUSTER_MATCH_NOISE = {"for", "the", "and", "toys", "by", "a", "an", "in", "of", "to"}
+
+
 def get_content_suggestions(cluster_id=None):
     """Generate specific article topic suggestions based on gaps."""
     data = _load_data()
@@ -892,6 +907,7 @@ def get_content_suggestions(cluster_id=None):
     year = datetime.now().year
 
     existing_titles = {a["title"].lower() for a in articles}
+    seen_titles = set()
 
     target_clusters = clusters
     if cluster_id:
@@ -909,13 +925,18 @@ def get_content_suggestions(cluster_id=None):
         templates = _CONTENT_TEMPLATES.get(cl_name, [])
         cl_suggestions = []
 
-        # Product-focused suggestions
+        # Product-focused suggestions — only for clusters the product maps to
         for prod in products:
+            relevant_clusters = _PRODUCT_CLUSTER_MAP.get(prod["name"].lower(), [])
+            if cl_name not in relevant_clusters:
+                continue
             prod_articles = [a for a in articles
                             if prod["name"].lower() in [s.lower() for s in a.get("products_supported", [])]]
             if len(prod_articles) < 3:
                 idea = f"Complete Guide to {prod['name']}: Benefits, Reviews & Best Picks"
-                if idea.lower() not in existing_titles:
+                idea_key = idea.lower()
+                if idea_key not in existing_titles and idea_key not in seen_titles:
+                    seen_titles.add(idea_key)
                     cl_suggestions.append({
                         "title": idea,
                         "type": "product_support",
@@ -923,7 +944,9 @@ def get_content_suggestions(cluster_id=None):
                         "priority": "high",
                     })
 
-        # Money page support suggestions
+        # Money page support suggestions — require meaningful word overlap
+        cl_match_words = {w for w in cl_name.lower().split()
+                         if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
         for mp in money_pages:
             if mp.get("type") != "category":
                 continue
@@ -932,11 +955,14 @@ def get_content_suggestions(cluster_id=None):
                 continue
             mp_title = mp.get("title", "")
             mp_path = re.sub(r'https?://[^/]+', '', mp.get("url", ""))
-            mp_words = set(mp_path.replace("-", " ").replace(".html", "").lower().split())
-            cl_words = set(cl_name.lower().split())
-            if mp_words & cl_words:
-                idea = f"Everything You Need to Know About {mp_title.split('–')[0].split(':')[0].split('|')[0].strip()}"
-                if idea.lower() not in existing_titles:
+            mp_text = f"{mp_title} {mp_path.replace('-', ' ')}".lower()
+            overlap = sum(1 for w in cl_match_words if w in mp_text)
+            if overlap >= 1 and cl_match_words:
+                short_title = mp_title.split('–')[0].split(':')[0].split('|')[0].strip()
+                idea = f"Everything You Need to Know About {short_title}"
+                idea_key = idea.lower()
+                if idea_key not in existing_titles and idea_key not in seen_titles:
+                    seen_titles.add(idea_key)
                     cl_suggestions.append({
                         "title": idea,
                         "type": "money_page_support",
@@ -950,7 +976,9 @@ def get_content_suggestions(cluster_id=None):
             if "{age}" in tmpl:
                 for age in _AGE_GROUPS[:4]:
                     idea = tmpl.replace("{age}", age).replace("{year}", str(year))
-                    if idea.lower() not in existing_titles:
+                    idea_key = idea.lower()
+                    if idea_key not in existing_titles and idea_key not in seen_titles:
+                        seen_titles.add(idea_key)
                         cl_suggestions.append({
                             "title": idea,
                             "type": "topic_gap",
@@ -960,7 +988,9 @@ def get_content_suggestions(cluster_id=None):
                         break
             else:
                 idea = tmpl.replace("{year}", str(year))
-                if idea.lower() not in existing_titles:
+                idea_key = idea.lower()
+                if idea_key not in existing_titles and idea_key not in seen_titles:
+                    seen_titles.add(idea_key)
                     cl_suggestions.append({
                         "title": idea,
                         "type": "topic_gap",
@@ -974,8 +1004,7 @@ def get_content_suggestions(cluster_id=None):
             if mp.get("type") != "category":
                 continue
             mp_text = f"{mp.get('title', '')} {mp.get('url', '')}".lower()
-            cl_words = {w for w in cl_name.lower().split() if len(w) > 2}
-            if cl_words and any(w in mp_text for w in cl_words):
+            if cl_match_words and any(w in mp_text for w in cl_match_words):
                 related_money_pages.append({
                     "url": mp.get("url", ""),
                     "title": mp.get("title", ""),
@@ -983,12 +1012,9 @@ def get_content_suggestions(cluster_id=None):
                 })
         related_products = []
         for prod in products:
-            prod_text = f"{prod['name']} {prod.get('url', '')}".lower()
-            cl_words = {w for w in cl_name.lower().split() if len(w) > 2}
-            if cl_words and any(w in prod_text for w in cl_words):
+            relevant_clusters = _PRODUCT_CLUSTER_MAP.get(prod["name"].lower(), [])
+            if cl_name in relevant_clusters:
                 related_products.append({"name": prod["name"], "url": prod.get("url", "")})
-
-        existing_article_urls = [a.get("url", "") for a in cl_articles if a.get("url")]
 
         # Enrich each suggestion with internal links and writing prompt
         for s in cl_suggestions:
@@ -1003,10 +1029,10 @@ def get_content_suggestions(cluster_id=None):
                 related_products[:3], [a["title"] for a in cl_articles[:5]],
             )
 
-        # Limit per cluster
+        # Limit per cluster: prioritize high, cap at 5
         high = [s for s in cl_suggestions if s["priority"] == "high"]
         medium = [s for s in cl_suggestions if s["priority"] == "medium"]
-        cl_suggestions = (high + medium)[:10]
+        cl_suggestions = (high[:3] + medium)[:5]
 
         if cl_suggestions:
             suggestions.append({
