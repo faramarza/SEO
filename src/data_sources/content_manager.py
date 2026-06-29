@@ -75,9 +75,10 @@ _DOMAIN_NOISE = {"alphabet", "trains", "train", "com", "www", "blog", "post", "h
 
 
 def _match_cluster(title, h1, url, clusters):
-    """Match an article to the best cluster based on title/h1 content."""
+    """Match an article to the best cluster based on title/h1/URL content."""
     path = re.sub(r'https?://[^/]+', '', url)
-    text = f"{title} {h1} {path}".lower()
+    path_words = path.replace('-', ' ').replace('_', ' ')
+    text = f"{title} {h1} {path_words}".lower()
 
     matches = []
     for cluster in clusters:
@@ -110,36 +111,32 @@ _SKIP_PATHS = {
 
 
 _TOPIC_PATTERNS = [
-    (r'\bmontessori\b', "Montessori"),
-    (r'\bwaldorf\b', "Waldorf"),
-    (r'\bstem\b', "STEM"),
-    (r'\bfine\s*motor\b', "Fine Motor Skills"),
-    (r'\bgross\s*motor\b', "Gross Motor Skills"),
-    (r'\bsensory\b', "Sensory Play"),
-    (r'\bpersonaliz', "Personalized Gifts"),
-    (r'\beducational\s+toy', "Educational Toys"),
-    (r'\btoddler\b', "Toddler Activities"),
-    (r'\bpreschool', "Preschool Activities"),
-    (r'\bbaby\s+gift|gift\s+guide|gifts?\s+for', "Gift Guides"),
-    (r'\bcircle\s*time\b', "Circle Time"),
-    (r'\balphabet\b|\bletter', "Alphabet & Letters"),
-    (r'\blearn.*read|reading\b', "Reading & Literacy"),
-    (r'\bmath\b|\bcounting\b|\bnumber', "Math & Numbers"),
-    (r'\bart\b.*\bcraft|\bcraft', "Arts & Crafts"),
-    (r'\boutdoor\b', "Outdoor Play"),
-    (r'\bmusic\b|\brhythm\b', "Music & Rhythm"),
+    (r'\bpersonaliz', "Personalized Gifts & Toys"),
+    (r'\bmontessori\b|\bwaldorf\b', "Montessori Education"),
+    (r'\balphabet\b|\bletter|\bliteracy|\bphonics|\bname.recogni', "Early Literacy & Alphabet Learning"),
+    (r'\bchild\s*develop|\bdevelopment.milestone|\bfine.motor|\bgross.motor|\bsensory', "Child Development"),
+    (r'\bwooden.toy|\bwood.toy', "Wooden Toys"),
+    (r'\beducational.toy|\blearning.toy|\bstem\b', "Educational Toys"),
+    (r'\bclassroom.rug|\bcarpet|\brug', "Classroom Rugs"),
+    (r'\bgift.guide|\bgifts?\s+for|\bbest.gift|\bbuying.guide', "Gift Buying Guides"),
+    (r'\bautis|\bspecial.need|\blearning.dis(order|abilit)|\banxiety|\bsensory.process', "Autism & Special Needs"),
+    (r'\bplay.based|\blearn.*through.play|\bimagina|\bpretend.play|\bcircle.time', "Play-Based Learning"),
+    (r'\bfor\s+\d+.year.old|\bby\s+age|\bmonth.old|\btoddler|\bpreschool|\bbaby\b|\bnewborn', "Learning by Age"),
+    (r'\btoy.safe|\bsustainab|\bnon.toxic|\bbpa.free|\beco.friend|\bmade.in.usa', "Toy Safety & Sustainability"),
+    (r'\bchristmas|\bholiday|\bbirthday|\bvalentine|\bhalloween|\bseason|\bback.to.school|\bmother|father.s.day', "Seasonal & Holiday Gifts"),
 ]
 
 
 def _discover_topic_clusters(inventory):
-    """Extract topic themes from blog titles/h1s."""
+    """Extract topic themes from blog titles/h1s/URLs."""
     topic_counts = {}
     for url, page_data in inventory.items():
         if not isinstance(page_data, dict):
             continue
         if "/blog/" not in url and "/post/" not in url:
             continue
-        text = f"{page_data.get('title', '')} {page_data.get('h1', '')}".lower()
+        path = re.sub(r'https?://[^/]+', '', url).replace('-', ' ').replace('_', ' ')
+        text = f"{page_data.get('title', '')} {page_data.get('h1', '')} {path}".lower()
         for pattern, topic_name in _TOPIC_PATTERNS:
             if re.search(pattern, text):
                 topic_counts[topic_name] = topic_counts.get(topic_name, 0) + 1
@@ -157,24 +154,7 @@ def auto_discover():
 
     existing_cluster_names = {c["name"].lower() for c in data["clusters"]}
 
-    # Create clusters from product families
-    for i, pf in enumerate(product_families):
-        if pf.lower() not in existing_cluster_names:
-            data["clusters"].append({
-                "id": f"cl_{int(time.time())}_{i}",
-                "name": pf.title(),
-                "description": f"Content cluster for {pf}",
-                "priority": "medium",
-                "status": "active",
-                "target_articles": 20,
-                "pillar_page": None,
-                "money_pages": [],
-                "sub_clusters": [],
-                "created_at": datetime.now().isoformat(),
-            })
-            existing_cluster_names.add(pf.lower())
-
-    # Discover topic clusters from blog content
+    # Discover topic clusters from blog content (not product families — those stay as products)
     topic_counts = _discover_topic_clusters(inventory)
     for j, (topic_name, count) in enumerate(sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)):
         if topic_name.lower() not in existing_cluster_names:
