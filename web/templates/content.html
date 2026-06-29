@@ -1256,9 +1256,17 @@ async function loadGapsTab() {
                         <div style="font-size:11px;color:var(--text-muted);">Clusters Covered</div>
                     </div>
                     <div style="text-align:center;">
-                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">${qs.avg_score || 0}</div>
-                        <div style="font-size:11px;color:var(--text-muted);">Avg Impact Score</div>
+                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">${qs.products_mentioned || 0}</div>
+                        <div style="font-size:11px;color:var(--text-muted);">Products Covered</div>
                     </div>
+                </div>
+
+                <div style="padding:12px 14px;margin-bottom:16px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;font-size:13px;line-height:1.6;color:var(--text-secondary);">
+                    ${qs.high_impact > 0
+                        ? `<strong style="color:var(--text-primary);">Start with the ${qs.high_impact} high-impact article${qs.high_impact === 1 ? '' : 's'}</strong> — they directly support your products and category pages. That's <strong>${qs.high_hours}h</strong> of writing that covers <strong>${qs.products_mentioned} product${qs.products_mentioned === 1 ? '' : 's'}</strong> and <strong>${qs.category_pages_supported} category page${qs.category_pages_supported === 1 ? '' : 's'}</strong>.`
+                        : `No high-impact articles identified — your product and category pages already have decent content support.`}
+                    ${qs.med_impact > 0 ? ` The ${qs.med_impact} medium-impact articles build authority across your topic clusters.` : ''}
+                    ${qs.low_impact > 0 ? ` The remaining ${qs.low_impact} fill long-tail gaps for broader organic reach.` : ''}
                 </div>
 
                 <div style="display:flex;gap:16px;margin-bottom:16px;padding:12px 14px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;font-size:12px;">

@@ -1072,24 +1072,33 @@ def get_content_suggestions(cluster_id=None):
     for s in all_suggestions:
         by_type[s["type"]] = by_type.get(s["type"], 0) + 1
     clusters_covered = len({s["cluster_name"] for s in all_suggestions})
-    products_supported = len({s["title"] for s in all_suggestions if s["type"] == "product_support"})
+    products_mentioned = len({s["title"] for s in all_suggestions if s["type"] == "product_support"})
+    category_pages_supported = len({s.get("money_page_url") for s in all_suggestions
+                                    if s["type"] == "money_page_support" and s.get("money_page_url")})
 
     hours_per_article = 4
     total_hours = total * hours_per_article
-    avg_score = round(sum(s["score"] for s in all_suggestions) / total, 1) if total else 0
     high_impact = sum(1 for s in all_suggestions if s["score"] >= 70)
     med_impact = sum(1 for s in all_suggestions if 45 <= s["score"] < 70)
     low_impact = sum(1 for s in all_suggestions if s["score"] < 45)
+    high_hours = high_impact * hours_per_article
+
+    # Quick-win: top 10 articles
+    top10_types = {}
+    for s in all_suggestions[:10]:
+        top10_types[s["type"]] = top10_types.get(s["type"], 0) + 1
 
     summary = {
         "total_articles": total,
         "total_hours": total_hours,
-        "avg_score": avg_score,
         "high_impact": high_impact,
+        "high_hours": high_hours,
         "med_impact": med_impact,
         "low_impact": low_impact,
         "clusters_covered": clusters_covered,
-        "products_supported": products_supported,
+        "products_mentioned": products_mentioned,
+        "category_pages_supported": category_pages_supported,
+        "top10_types": top10_types,
         "by_type": {
             "product_support": by_type.get("product_support", 0),
             "money_page_support": by_type.get("money_page_support", 0),
