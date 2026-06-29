@@ -379,3 +379,142 @@ def get_money_pages():
 
 def get_products():
     return _load_data().get("products", [])
+
+
+def get_money_page_detail(mp_id):
+    data = _load_data()
+    mp = next((m for m in data["money_pages"] if m["id"] == mp_id), None)
+    if not mp:
+        return None
+    linked_ids = set(mp.get("supporting_articles", []))
+    linked = [a for a in data["articles"] if a["id"] in linked_ids]
+    return {**mp, "linked_articles": linked}
+
+
+def update_money_page(mp_id, updates):
+    data = _load_data()
+    for mp in data["money_pages"]:
+        if mp["id"] == mp_id:
+            for k, v in updates.items():
+                if k != "id":
+                    mp[k] = v
+            _save_data(data)
+            return mp
+    return None
+
+
+def link_article_to_money_page(mp_id, article_id):
+    data = _load_data()
+    for mp in data["money_pages"]:
+        if mp["id"] == mp_id:
+            linked = mp.get("supporting_articles", [])
+            if article_id not in linked:
+                linked.append(article_id)
+                mp["supporting_articles"] = linked
+            _save_data(data)
+            return mp
+    return None
+
+
+def unlink_article_from_money_page(mp_id, article_id):
+    data = _load_data()
+    for mp in data["money_pages"]:
+        if mp["id"] == mp_id:
+            linked = mp.get("supporting_articles", [])
+            mp["supporting_articles"] = [a for a in linked if a != article_id]
+            _save_data(data)
+            return mp
+    return None
+
+
+def get_content_gaps():
+    data = _load_data()
+    keywords = _load_keywords()
+    clusters = data.get("clusters", [])
+    articles = data.get("articles", [])
+    money_pages = data.get("money_pages", [])
+    products = data.get("products", [])
+
+    gaps = {
+        "underserved_clusters": [],
+        "unsupported_products": [],
+        "thin_money_pages": [],
+        "unassigned_keywords": [],
+        "orphan_articles": [],
+    }
+
+    for c in clusters:
+        cluster_arts = [a for a in articles if a.get("cluster_id") == c["id"]]
+        published = sum(1 for a in cluster_arts if a.get("status") == "published")
+        target = c.get("target_articles", 20)
+        if published < target * 0.5:
+            gaps["underserved_clusters"].append({
+                "id": c["id"],
+                "name": c["name"],
+                "published": published,
+                "target": target,
+                "gap": target - published,
+                "priority": c.get("priority", "medium"),
+            })
+    gaps["underserved_clusters"].sort(key=lambda x: x["gap"], reverse=True)
+
+    for p in products:
+        supporting = [a for a in articles
+                      if p["name"].lower() in [s.lower() for s in a.get("products_supported", [])]]
+        if len(supporting) < 3:
+            gaps["unsupported_products"].append({
+                "id": p["id"],
+                "name": p["name"],
+                "url": p.get("url", ""),
+                "supporting_count": len(supporting),
+            })
+    gaps["unsupported_products"].sort(key=lambda x: x["supporting_count"])
+
+    for mp in money_pages:
+        linked = mp.get("supporting_articles", [])
+        target = mp.get("target_articles", 10)
+        if len(linked) < target * 0.3:
+            gaps["thin_money_pages"].append({
+                "id": mp["id"],
+                "url": mp.get("url", ""),
+                "title": mp.get("title", ""),
+                "linked_count": len(linked),
+                "target": target,
+            })
+    gaps["thin_money_pages"].sort(key=lambda x: x["linked_count"])
+
+    article_keywords = set()
+    for a in articles:
+        if a.get("primary_keyword"):
+            article_keywords.add(a["primary_keyword"].lower())
+
+    active_keywords = [kw for kw in keywords if kw.get("status") in ("active", "retained")]
+    for kw in active_keywords:
+        kw_text = kw.get("keyword", "").lower()
+        if kw_text and kw_text not in article_keywords:
+            gaps["unassigned_keywords"].append({
+                "keyword": kw["keyword"],
+                "volume": kw.get("volume", 0),
+                "kd": kw.get("kd", 0),
+            })
+    gaps["unassigned_keywords"].sort(key=lambda x: x["volume"], reverse=True)
+    gaps["unassigned_keywords"] = gaps["unassigned_keywords"][:50]
+
+    gaps["orphan_articles"] = [
+        {"id": a["id"], "title": a["title"], "url": a.get("url", ""), "status": a.get("status", "idea")}
+        for a in articles
+        if not a.get("cluster_id")
+    ]
+
+    gaps["summary"] = {
+        "underserved_clusters": len(gaps["underserved_clusters"]),
+        "unsupported_products": len(gaps["unsupported_products"]),
+        "thin_money_pages": len(gaps["thin_money_pages"]),
+        "unassigned_keywords": len(gaps["unassigned_keywords"]),
+        "orphan_articles": len(gaps["orphan_articles"]),
+        "total_gaps": (len(gaps["underserved_clusters"]) + len(gaps["unsupported_products"])
+                       + len(gaps["thin_money_pages"]) + len(gaps["unassigned_keywords"])
+                       + len(gaps["orphan_articles"])),
+    }
+
+    return gaps

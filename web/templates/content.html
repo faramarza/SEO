@@ -55,6 +55,16 @@
             cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
             Articles
         </button>
+        <button class="tab-btn" onclick="switchTab('money')" id="tab-money"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
+            Money Pages
+        </button>
+        <button class="tab-btn" onclick="switchTab('gaps')" id="tab-gaps"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
+            Gaps
+        </button>
     </div>
 
     <!-- ============ OVERVIEW TAB ============ -->
@@ -156,6 +166,48 @@
             </button>
         </div>
         <div id="articles-list"></div>
+    </div>
+
+    <!-- ============ MONEY PAGES TAB ============ -->
+    <div id="panel-money" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <h3>Money Pages</h3>
+        </div>
+        <div id="money-pages-list"></div>
+    </div>
+
+    <!-- ============ GAPS TAB ============ -->
+    <div id="panel-gaps" style="display:none;">
+        <div style="margin-bottom:16px;">
+            <h3>Content Gap Analysis</h3>
+            <p style="color:var(--text-secondary); font-size:13px; margin-top:4px;">Identifies where your content strategy has holes — clusters that need more articles, products without enough supporting content, keywords not assigned to any article, and money pages with few linked articles.</p>
+        </div>
+
+        <!-- Gap Summary Cards -->
+        <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:24px;">
+            <div class="count-card" id="gap-card-clusters" style="border-left:3px solid var(--accent-red); cursor:pointer;" onclick="scrollToGap('gap-underserved')">
+                <span class="count-value" id="gap-cnt-clusters">0</span>
+                <span class="count-label">Underserved Clusters</span>
+            </div>
+            <div class="count-card" id="gap-card-products" style="border-left:3px solid var(--accent-orange); cursor:pointer;" onclick="scrollToGap('gap-products')">
+                <span class="count-value" id="gap-cnt-products">0</span>
+                <span class="count-label">Unsupported Products</span>
+            </div>
+            <div class="count-card" id="gap-card-money" style="border-left:3px solid var(--accent-purple); cursor:pointer;" onclick="scrollToGap('gap-money')">
+                <span class="count-value" id="gap-cnt-money">0</span>
+                <span class="count-label">Thin Money Pages</span>
+            </div>
+            <div class="count-card" id="gap-card-keywords" style="border-left:3px solid var(--accent-blue); cursor:pointer;" onclick="scrollToGap('gap-keywords')">
+                <span class="count-value" id="gap-cnt-keywords">0</span>
+                <span class="count-label">Unassigned Keywords</span>
+            </div>
+            <div class="count-card" id="gap-card-orphans" style="border-left:3px solid var(--text-muted); cursor:pointer;" onclick="scrollToGap('gap-orphans')">
+                <span class="count-value" id="gap-cnt-orphans">0</span>
+                <span class="count-label">Orphan Articles</span>
+            </div>
+        </div>
+
+        <div id="gaps-body"></div>
     </div>
 </div>
 
@@ -296,6 +348,29 @@
         <div id="cluster-detail-body"></div>
     </div>
 </div>
+
+<!-- ============ MONEY PAGE DETAIL MODAL ============ -->
+<div id="mp-detail-modal" class="modal hidden">
+    <div class="modal-content" style="max-width:800px;">
+        <span class="modal-close" onclick="closeMpDetail()">&times;</span>
+        <h2 id="mp-detail-title">Money Page</h2>
+        <div id="mp-detail-body"></div>
+    </div>
+</div>
+
+<!-- ============ LINK ARTICLE MODAL ============ -->
+<div id="link-article-modal" class="modal hidden">
+    <div class="modal-content" style="max-width:500px;">
+        <span class="modal-close" onclick="closeLinkModal()">&times;</span>
+        <h2>Link Article to Money Page</h2>
+        <div class="form-group">
+            <label>Search articles</label>
+            <input type="text" id="link-search" placeholder="Type to filter articles..." oninput="filterLinkArticles()"
+                style="width:100%;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;font-size:13px;">
+        </div>
+        <div id="link-article-list" style="max-height:300px; overflow-y:auto; margin-top:12px;"></div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -334,7 +409,7 @@ function actionBtn(label, onclick, color) {
 
 // ── Tab switching ──
 function switchTab(tab) {
-    ['overview','clusters','articles'].forEach(t => {
+    ['overview','clusters','articles','money','gaps'].forEach(t => {
         document.getElementById('panel-' + t).style.display = t === tab ? 'block' : 'none';
         const btn = document.getElementById('tab-' + t);
         if (t === tab) {
@@ -347,6 +422,8 @@ function switchTab(tab) {
     });
     if (tab === 'clusters') loadClustersTab();
     if (tab === 'articles') loadArticlesTab();
+    if (tab === 'money') loadMoneyPagesTab();
+    if (tab === 'gaps') loadGapsTab();
 }
 
 // ── Overview (dashboard) ──
@@ -799,6 +876,295 @@ async function deleteArticle(id, title) {
         if (document.getElementById('panel-articles').style.display !== 'none') loadArticlesTab();
     } catch (err) {
         alert('Error deleting article: ' + err.message);
+    }
+}
+
+// ── Money Pages Tab ──
+async function loadMoneyPagesTab() {
+    const container = document.getElementById('money-pages-list');
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Loading money pages...</div>';
+    try {
+        const res = await fetch('/api/content/money-pages');
+        const d = await res.json();
+        const pages = d.money_pages || [];
+        if (pages.length === 0) {
+            container.innerHTML = '<div class="card" style="padding:32px;text-align:center;color:var(--text-muted);">No money pages found. Run Auto-Discover on the Overview tab.</div>';
+            return;
+        }
+        container.innerHTML = `<div class="card"><table class="data-table" style="width:100%;">
+            <thead><tr>
+                <th>Page</th>
+                <th>Type</th>
+                <th>Linked Articles</th>
+                <th>Target</th>
+                <th>Coverage</th>
+                <th>Actions</th>
+            </tr></thead>
+            <tbody>${pages.map(mp => {
+                const linked = (mp.supporting_articles || []).length;
+                const target = mp.target_articles || 10;
+                const pct = Math.round(linked / Math.max(target, 1) * 100);
+                return `<tr>
+                    <td>
+                        <div style="font-weight:500;">${escHtml(mp.title || mp.url)}</div>
+                        <div style="font-size:11px;color:var(--text-muted);max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(mp.url)}</div>
+                    </td>
+                    <td style="font-size:12px;text-transform:capitalize;">${escHtml(mp.type || 'category')}</td>
+                    <td style="font-weight:600;color:${linked > 0 ? 'var(--accent-green)' : 'var(--accent-red)'};">${linked}</td>
+                    <td>${target}</td>
+                    <td style="min-width:100px;">${completionBar(pct)}</td>
+                    <td style="white-space:nowrap;">
+                        ${actionBtn('View', "showMpDetail('" + mp.id + "')", 'var(--accent-blue)')}
+                    </td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table></div>`;
+    } catch (err) {
+        container.innerHTML = `<div class="card" style="padding:24px;color:var(--accent-red);">Error: ${escHtml(err.message)}</div>`;
+    }
+}
+
+let _linkMpId = null;
+let _linkAllArticles = [];
+
+async function showMpDetail(id) {
+    const modal = document.getElementById('mp-detail-modal');
+    const titleEl = document.getElementById('mp-detail-title');
+    const body = document.getElementById('mp-detail-body');
+    titleEl.textContent = 'Loading...';
+    body.innerHTML = '';
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch('/api/content/money-pages/' + id);
+        const mp = await res.json();
+        if (mp.error) { titleEl.textContent = mp.error; return; }
+
+        titleEl.textContent = mp.title || mp.url;
+        const linked = mp.linked_articles || [];
+
+        body.innerHTML = `
+            <div class="detail-grid">
+                <div class="detail-item"><label>URL</label><p style="font-size:12px;word-break:break-all;">${escHtml(mp.url)}</p></div>
+                <div class="detail-item"><label>Type</label><p style="text-transform:capitalize;">${escHtml(mp.type || 'category')}</p></div>
+                <div class="detail-item"><label>Linked Articles</label><p>${linked.length} / ${mp.target_articles || 10} target</p></div>
+                <div class="detail-item"><label>Authority Score</label><p>${mp.authority_score || 0}</p></div>
+            </div>
+            <div class="detail-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <h4>Supporting Articles</h4>
+                    <button onclick="showLinkModal('${id}')" style="padding:4px 12px;font-size:12px;font-weight:600;border:none;border-radius:4px;background:var(--accent-blue);color:#fff;cursor:pointer;">+ Link Article</button>
+                </div>
+                ${linked.length === 0
+                    ? '<div style="padding:16px;text-align:center;color:var(--text-muted);">No articles linked yet. Click "+ Link Article" to connect supporting content.</div>'
+                    : `<table class="data-table" style="width:100%;">
+                        <thead><tr><th>Title</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>${linked.map(a => `
+                            <tr>
+                                <td>
+                                    <div style="font-weight:500;">${escHtml(a.title)}</div>
+                                    ${a.url ? `<div style="font-size:11px;color:var(--text-muted);">${escHtml(a.url)}</div>` : ''}
+                                </td>
+                                <td>${statusBadge(a.status || 'idea')}</td>
+                                <td>${actionBtn('Unlink', "unlinkArticle('" + id + "','" + a.id + "')", 'var(--accent-red)')}</td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table>`
+                }
+            </div>
+        `;
+    } catch (err) {
+        titleEl.textContent = 'Error';
+        body.innerHTML = `<p style="color:var(--accent-red);">${escHtml(err.message)}</p>`;
+    }
+}
+
+function closeMpDetail() {
+    document.getElementById('mp-detail-modal').classList.add('hidden');
+}
+
+async function showLinkModal(mpId) {
+    _linkMpId = mpId;
+    document.getElementById('link-search').value = '';
+    document.getElementById('link-article-modal').classList.remove('hidden');
+    try {
+        const res = await fetch('/api/content/articles');
+        _linkAllArticles = (await res.json()).articles || [];
+        filterLinkArticles();
+    } catch {}
+}
+
+function closeLinkModal() {
+    document.getElementById('link-article-modal').classList.add('hidden');
+}
+
+function filterLinkArticles() {
+    const q = document.getElementById('link-search').value.toLowerCase();
+    const filtered = q
+        ? _linkAllArticles.filter(a => (a.title || '').toLowerCase().includes(q) || (a.url || '').toLowerCase().includes(q))
+        : _linkAllArticles;
+    const list = document.getElementById('link-article-list');
+    list.innerHTML = filtered.slice(0, 30).map(a =>
+        `<div style="padding:8px;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.title)}</div>
+                <div style="font-size:11px;color:var(--text-muted);">${escHtml(a.url || '')}</div>
+            </div>
+            <button onclick="linkArticle('${a.id}')" style="padding:3px 10px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;white-space:nowrap;margin-left:8px;">Link</button>
+        </div>`
+    ).join('') || '<div style="padding:16px;text-align:center;color:var(--text-muted);">No articles found.</div>';
+}
+
+async function linkArticle(articleId) {
+    if (!_linkMpId) return;
+    try {
+        await fetch('/api/content/money-pages/' + _linkMpId + '/link', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({article_id: articleId})
+        });
+        closeLinkModal();
+        showMpDetail(_linkMpId);
+    } catch (err) {
+        alert('Error linking article: ' + err.message);
+    }
+}
+
+async function unlinkArticle(mpId, articleId) {
+    if (!confirm('Unlink this article from the money page?')) return;
+    try {
+        await fetch('/api/content/money-pages/' + mpId + '/unlink', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({article_id: articleId})
+        });
+        showMpDetail(mpId);
+    } catch (err) {
+        alert('Error unlinking article: ' + err.message);
+    }
+}
+
+// ── Gaps Tab ──
+function scrollToGap(id) {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function loadGapsTab() {
+    const body = document.getElementById('gaps-body');
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Analyzing content gaps...</div>';
+
+    try {
+        const res = await fetch('/api/content/gaps');
+        const g = await res.json();
+        if (g.error) { body.innerHTML = `<div class="card" style="padding:24px;color:var(--accent-red);">${escHtml(g.error)}</div>`; return; }
+
+        const s = g.summary || {};
+        document.getElementById('gap-cnt-clusters').textContent = s.underserved_clusters || 0;
+        document.getElementById('gap-cnt-products').textContent = s.unsupported_products || 0;
+        document.getElementById('gap-cnt-money').textContent = s.thin_money_pages || 0;
+        document.getElementById('gap-cnt-keywords').textContent = s.unassigned_keywords || 0;
+        document.getElementById('gap-cnt-orphans').textContent = s.orphan_articles || 0;
+
+        let html = '';
+
+        // Underserved Clusters
+        const uc = g.underserved_clusters || [];
+        html += `<div class="card" style="margin-bottom:20px;" id="gap-underserved">
+            <h3 style="margin-bottom:12px;">Underserved Clusters <span style="font-size:13px;font-weight:400;color:var(--text-muted);">(below 50% of target)</span></h3>
+            ${uc.length === 0
+                ? '<div style="padding:16px;text-align:center;color:var(--accent-green);font-weight:600;">All clusters are well-served!</div>'
+                : `<table class="data-table" style="width:100%;">
+                    <thead><tr><th>Cluster</th><th>Priority</th><th>Published</th><th>Target</th><th>Gap</th><th>Actions</th></tr></thead>
+                    <tbody>${uc.map(c => `<tr>
+                        <td style="font-weight:500;">${escHtml(c.name)}</td>
+                        <td>${priorityBadge(c.priority)}</td>
+                        <td>${c.published}</td>
+                        <td>${c.target}</td>
+                        <td><span style="font-weight:700;color:var(--accent-red);">${c.gap} needed</span></td>
+                        <td>${actionBtn('View Cluster', "switchTab('overview');setTimeout(()=>showClusterDetail('" + c.id + "'),200)", 'var(--accent-blue)')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>`
+            }
+        </div>`;
+
+        // Unsupported Products
+        const up = g.unsupported_products || [];
+        html += `<div class="card" style="margin-bottom:20px;" id="gap-products">
+            <h3 style="margin-bottom:12px;">Unsupported Products <span style="font-size:13px;font-weight:400;color:var(--text-muted);">(fewer than 3 supporting articles)</span></h3>
+            ${up.length === 0
+                ? '<div style="padding:16px;text-align:center;color:var(--accent-green);font-weight:600;">All products have good article support!</div>'
+                : `<table class="data-table" style="width:100%;">
+                    <thead><tr><th>Product</th><th>Supporting Articles</th><th>Actions</th></tr></thead>
+                    <tbody>${up.map(p => `<tr>
+                        <td style="font-weight:500;">${escHtml(p.name)}</td>
+                        <td><span style="font-weight:700;color:var(--accent-red);">${p.supporting_count}</span></td>
+                        <td>${actionBtn('Add Article', "switchTab('articles');setTimeout(()=>showArticleModal(),200)", 'var(--accent-blue)')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>`
+            }
+        </div>`;
+
+        // Thin Money Pages
+        const tm = g.thin_money_pages || [];
+        html += `<div class="card" style="margin-bottom:20px;" id="gap-money">
+            <h3 style="margin-bottom:12px;">Thin Money Pages <span style="font-size:13px;font-weight:400;color:var(--text-muted);">(below 30% of target linked articles)</span></h3>
+            ${tm.length === 0
+                ? '<div style="padding:16px;text-align:center;color:var(--accent-green);font-weight:600;">All money pages have good article support!</div>'
+                : `<table class="data-table" style="width:100%;">
+                    <thead><tr><th>Page</th><th>Linked</th><th>Target</th><th>Actions</th></tr></thead>
+                    <tbody>${tm.map(mp => `<tr>
+                        <td>
+                            <div style="font-weight:500;">${escHtml(mp.title || mp.url)}</div>
+                            <div style="font-size:11px;color:var(--text-muted);">${escHtml(mp.url)}</div>
+                        </td>
+                        <td><span style="font-weight:700;color:var(--accent-red);">${mp.linked_count}</span></td>
+                        <td>${mp.target}</td>
+                        <td>${actionBtn('Link Articles', "switchTab('money');setTimeout(()=>showMpDetail('" + mp.id + "'),200)", 'var(--accent-blue)')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>`
+            }
+        </div>`;
+
+        // Unassigned Keywords
+        const uk = g.unassigned_keywords || [];
+        html += `<div class="card" style="margin-bottom:20px;" id="gap-keywords">
+            <h3 style="margin-bottom:12px;">Unassigned Keywords <span style="font-size:13px;font-weight:400;color:var(--text-muted);">(active keywords not matched to any article)</span></h3>
+            ${uk.length === 0
+                ? '<div style="padding:16px;text-align:center;color:var(--accent-green);font-weight:600;">All active keywords are assigned to articles!</div>'
+                : `<table class="data-table" style="width:100%;">
+                    <thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Actions</th></tr></thead>
+                    <tbody>${uk.map(kw => `<tr>
+                        <td style="font-weight:500;">${escHtml(kw.keyword)}</td>
+                        <td>${kw.volume.toLocaleString()}</td>
+                        <td>${kw.kd}</td>
+                        <td>${actionBtn('Create Article', "switchTab('articles');setTimeout(()=>{showArticleModal();document.getElementById('article-keyword').value='" + escHtml(kw.keyword).replace(/'/g,"\\'") + "';document.getElementById('article-title').value='" + escHtml(kw.keyword).replace(/'/g,"\\'") + "';},200)", 'var(--accent-blue)')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>`
+            }
+        </div>`;
+
+        // Orphan Articles
+        const oa = g.orphan_articles || [];
+        html += `<div class="card" style="margin-bottom:20px;" id="gap-orphans">
+            <h3 style="margin-bottom:12px;">Orphan Articles <span style="font-size:13px;font-weight:400;color:var(--text-muted);">(not assigned to any cluster)</span></h3>
+            ${oa.length === 0
+                ? '<div style="padding:16px;text-align:center;color:var(--accent-green);font-weight:600;">All articles are assigned to clusters!</div>'
+                : `<table class="data-table" style="width:100%;">
+                    <thead><tr><th>Title</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>${oa.map(a => `<tr>
+                        <td>
+                            <div style="font-weight:500;">${escHtml(a.title)}</div>
+                            ${a.url ? `<div style="font-size:11px;color:var(--text-muted);">${escHtml(a.url)}</div>` : ''}
+                        </td>
+                        <td>${statusBadge(a.status || 'idea')}</td>
+                        <td>${actionBtn('Assign', "editArticleById('" + a.id + "')", 'var(--accent-blue)')}</td>
+                    </tr>`).join('')}</tbody>
+                </table>`
+            }
+        </div>`;
+
+        body.innerHTML = html;
+    } catch (err) {
+        body.innerHTML = `<div class="card" style="padding:24px;color:var(--accent-red);">Error loading gap analysis: ${escHtml(err.message)}</div>`;
     }
 }
 

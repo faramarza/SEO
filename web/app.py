@@ -5112,6 +5112,60 @@ def api_content_products():
     return jsonify({"products": content_manager.get_products()})
 
 
+@app.route("/api/content/gaps")
+def api_content_gaps():
+    """Get content gap analysis."""
+    try:
+        return jsonify(content_manager.get_content_gaps())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/content/money-pages/<mp_id>")
+def api_content_money_page_detail(mp_id):
+    """Get money page with linked articles."""
+    result = content_manager.get_money_page_detail(mp_id)
+    if result is None:
+        return jsonify({"error": "Money page not found"}), 404
+    return jsonify(result)
+
+
+@app.route("/api/content/money-pages/<mp_id>", methods=["PUT"])
+def api_content_update_money_page(mp_id):
+    """Update a money page."""
+    updates = request.get_json(force=True)
+    result = content_manager.update_money_page(mp_id, updates)
+    if result is None:
+        return jsonify({"error": "Money page not found"}), 404
+    return jsonify(result)
+
+
+@app.route("/api/content/money-pages/<mp_id>/link", methods=["POST"])
+def api_content_link_article(mp_id):
+    """Link an article to a money page."""
+    data = request.get_json(force=True)
+    article_id = data.get("article_id")
+    if not article_id:
+        return jsonify({"error": "article_id is required"}), 400
+    result = content_manager.link_article_to_money_page(mp_id, article_id)
+    if result is None:
+        return jsonify({"error": "Money page not found"}), 404
+    return jsonify(result)
+
+
+@app.route("/api/content/money-pages/<mp_id>/unlink", methods=["POST"])
+def api_content_unlink_article(mp_id):
+    """Unlink an article from a money page."""
+    data = request.get_json(force=True)
+    article_id = data.get("article_id")
+    if not article_id:
+        return jsonify({"error": "article_id is required"}), 400
+    result = content_manager.unlink_article_from_money_page(mp_id, article_id)
+    if result is None:
+        return jsonify({"error": "Money page not found"}), 404
+    return jsonify(result)
+
+
 @app.route("/api/job-status")
 def api_job_status():
     """Get current job status — reads from shared file for cross-worker visibility."""
