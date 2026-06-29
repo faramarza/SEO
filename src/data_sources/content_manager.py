@@ -741,3 +741,344 @@ def get_content_gaps():
     }
 
     return gaps
+
+
+_CONTENT_TEMPLATES = {
+    "Montessori Education": [
+        "Montessori at Home: A Beginner's Guide for Parents",
+        "Montessori vs Traditional Preschool: Which Is Right for Your Child?",
+        "How to Set Up a Montessori Playroom on a Budget",
+        "Montessori Activities for {age}: Skills They'll Actually Use",
+        "Why Montessori Toys Are Worth the Investment",
+        "Montessori Discipline: Positive Guidance Without Punishment",
+        "The Science Behind Montessori: What Research Says",
+        "Montessori Gift Guide: Toys That Actually Follow the Method",
+    ],
+    "Personalized Gifts & Toys": [
+        "Best Personalized Gifts for {age} ({year} Guide)",
+        "Why Kids Love Seeing Their Name on Toys (The Psychology Behind It)",
+        "Personalized vs Generic Toys: Which Builds More Confidence?",
+        "Unique Personalized Baby Shower Gift Ideas",
+        "How Personalized Books Help Kids Learn to Read Their Name",
+        "Custom Name Puzzles: How They Boost Letter Recognition",
+        "Personalized Birthday Gift Ideas by Age",
+        "The Best Engraved & Customized Wooden Toys for Kids",
+    ],
+    "Early Literacy & Alphabet Learning": [
+        "When Should Kids Learn the Alphabet? A Developmental Timeline",
+        "Fun Ways to Teach Letter Recognition Without Flashcards",
+        "How Wooden Letter Toys Build Pre-Reading Skills",
+        "Name Writing Activities for Preschoolers",
+        "Alphabet Toys That Actually Work: Expert Recommendations",
+        "How to Help a Late Reader: Activities That Build Confidence",
+        "Phonics vs Whole Language: What Parents Need to Know",
+        "Bilingual Literacy: Teaching Kids Two Languages at Once",
+    ],
+    "Child Development": [
+        "Fine Motor Milestones: What to Expect by Age",
+        "Best Toys for Developing Hand-Eye Coordination",
+        "How Sensory Play Builds Neural Pathways in Toddlers",
+        "Gross Motor Activities That Need Zero Equipment",
+        "Screen Time Alternatives That Kids Actually Prefer",
+        "How Open-Ended Toys Foster Creativity and Problem Solving",
+        "The Role of Pretend Play in Emotional Development",
+        "Why Boredom Is Good for Kids (And How to Handle It)",
+    ],
+    "Classroom Rugs": [
+        "How to Choose the Right Classroom Rug Size for Your Space",
+        "Circle Time Rugs: Best Options for Preschool Classrooms",
+        "Sensory Carpets: How Texture Helps Neurodiverse Learners",
+        "Classroom Rug Safety: What Certifications to Look For",
+        "Best Classroom Rugs for Reading Corners and Quiet Zones",
+        "How Alphabet Rugs Support Literacy in Early Childhood",
+        "Bilingual Classroom Rugs: Teaching Two Languages Through Play",
+        "Montessori Classroom Setup: Choosing the Right Floor Coverings",
+    ],
+    "Gift Buying Guides": [
+        "Best Educational Toys for {age} ({year} Gift Guide)",
+        "Holiday Gift Guide: Wooden Toys Kids Will Actually Play With",
+        "Birthday Gift Ideas for Kids Who Have Everything",
+        "Best Big Brother & Big Sister Gifts for New Siblings",
+        "Teacher Gift Guide: Classroom Supplies They'll Love",
+        "Eco-Friendly Gift Ideas for Environmentally Conscious Parents",
+        "Last-Minute Personalized Gifts That Ship Fast",
+        "Best Gifts for Grandparents to Give Grandkids",
+    ],
+    "Autism & Special Needs": [
+        "Best Sensory Toys for Children on the Autism Spectrum",
+        "How to Adapt Circle Time for Special Needs Students",
+        "Calming Toys and Tools for Anxious Children",
+        "How Educational Toys Help Children with Learning Disabilities",
+        "Inclusive Classroom Design: Creating Spaces for Every Learner",
+        "Fidget Toys That Actually Help Focus (Not Just Distract)",
+        "Speech Development Toys for Late Talkers",
+        "How Personalized Items Help Special Needs Kids Feel Included",
+    ],
+    "Play-Based Learning": [
+        "Why Play-Based Learning Outperforms Worksheets in Early Ed",
+        "Circle Time Activities That Keep Preschoolers Engaged",
+        "How to Turn Any Toy Into a Learning Opportunity",
+        "Imaginative Play: Why Pretend Kitchens and Dollhouses Matter",
+        "Outdoor Learning Activities for Every Season",
+        "STEM Activities for Preschoolers Using Everyday Objects",
+        "How Block Play Teaches Math Concepts to Toddlers",
+        "The Power of Unstructured Play in Early Childhood",
+    ],
+    "Toy Safety & Sustainability": [
+        "How to Check If a Toy Is Actually Non-Toxic",
+        "Why Wooden Toys Are More Sustainable Than Plastic",
+        "Made in USA vs Imported Toys: Safety Standards Compared",
+        "BPA, Lead, and Phthalates: A Parent's Guide to Toy Safety",
+        "How to Build an Eco-Friendly Toy Collection for Kids",
+        "The Real Cost of Cheap Toys: Safety, Durability, and Waste",
+        "Sustainable Gift Wrapping Ideas for Kids' Birthdays",
+        "How to Declutter Toys Responsibly: Donate, Recycle, Repurpose",
+    ],
+    "Educational Toys": [
+        "STEM Toys That Actually Teach Science and Engineering",
+        "Best Learning Toys by Age: From Baby to Kindergarten",
+        "How Building Blocks Teach Math and Spatial Reasoning",
+        "Coding Toys for Kids: Are They Worth It?",
+        "Musical Toys That Build Rhythm and Coordination",
+        "How Puzzles Develop Problem-Solving Skills in Toddlers",
+        "Best Educational Toys for Kids with Short Attention Spans",
+        "Magnetic Tiles vs Building Blocks: Which Is Better?",
+    ],
+    "Learning by Age": [
+        "Best Toys and Activities for {age}",
+        "Developmental Milestones for {age}: What to Expect",
+        "How to Choose Age-Appropriate Toys (Complete Guide)",
+        "Montessori Activities for Newborns: 0-3 Month Ideas",
+        "What Should a 2-Year-Old Be Learning? A Parent's Checklist",
+        "Preschool Readiness: Skills Your 4-Year-Old Should Practice",
+        "Kindergarten Prep Activities You Can Do at Home",
+        "Toddler vs Preschooler Toys: When to Level Up",
+    ],
+    "Wooden Toys": [
+        "Why Wooden Toys Are Better for Development Than Plastic",
+        "Best Wooden Toys for Babies and Toddlers ({year})",
+        "How to Care for and Clean Wooden Toys",
+        "Heirloom Wooden Toys That Last Generations",
+        "Wooden Train Sets: A Complete Buying Guide",
+        "Wooden Blocks: The Most Underrated Educational Toy",
+        "Are Wooden Toys Worth the Price? A Honest Parent Review",
+        "Sustainable Wooden Toy Brands Made in the USA",
+    ],
+    "Seasonal & Holiday Gifts": [
+        "Best Christmas Gifts for Toddlers ({year})",
+        "Valentine's Day Gifts Kids Will Actually Use",
+        "Easter Basket Ideas: Educational Toys Instead of Candy",
+        "Back-to-School Gifts for Preschoolers and Kindergartners",
+        "Halloween Treats for Kids: Non-Candy Gift Ideas",
+        "Best Birthday Party Favors That Aren't Junk",
+        "Teacher Appreciation Gifts from the Classroom",
+        "New Baby Sibling Gift Ideas for the Older Child",
+    ],
+}
+
+_AGE_GROUPS = [
+    "newborns (0-3 months)", "babies (3-12 months)", "1-year-olds",
+    "2-year-olds", "3-year-olds", "4-year-olds", "5-year-olds", "6-year-olds",
+]
+
+
+def get_content_suggestions(cluster_id=None):
+    """Generate specific article topic suggestions based on gaps."""
+    data = _load_data()
+    clusters = data.get("clusters", [])
+    articles = data.get("articles", [])
+    products = data.get("products", [])
+    money_pages = data.get("money_pages", [])
+    year = datetime.now().year
+
+    existing_titles = {a["title"].lower() for a in articles}
+
+    target_clusters = clusters
+    if cluster_id:
+        target_clusters = [c for c in clusters if c["id"] == cluster_id]
+
+    suggestions = []
+    for cluster in target_clusters:
+        cl_articles = [a for a in articles if a.get("cluster_id") == cluster["id"]]
+        published = sum(1 for a in cl_articles if a.get("status") == "published")
+        target = cluster.get("target_articles", 20)
+        if published >= target:
+            continue
+
+        cl_name = cluster["name"]
+        templates = _CONTENT_TEMPLATES.get(cl_name, [])
+        cl_suggestions = []
+
+        # Product-focused suggestions
+        for prod in products:
+            prod_articles = [a for a in articles
+                            if prod["name"].lower() in [s.lower() for s in a.get("products_supported", [])]]
+            if len(prod_articles) < 3:
+                idea = f"Complete Guide to {prod['name']}: Benefits, Reviews & Best Picks"
+                if idea.lower() not in existing_titles:
+                    cl_suggestions.append({
+                        "title": idea,
+                        "type": "product_support",
+                        "reason": f"Product '{prod['name']}' has only {len(prod_articles)} supporting articles",
+                        "priority": "high",
+                    })
+
+        # Money page support suggestions
+        for mp in money_pages:
+            if mp.get("type") != "category":
+                continue
+            linked = len(mp.get("supporting_articles", []))
+            if linked >= mp.get("target_articles", 5):
+                continue
+            mp_title = mp.get("title", "")
+            mp_path = re.sub(r'https?://[^/]+', '', mp.get("url", ""))
+            mp_words = set(mp_path.replace("-", " ").replace(".html", "").lower().split())
+            cl_words = set(cl_name.lower().split())
+            if mp_words & cl_words:
+                idea = f"Everything You Need to Know About {mp_title.split('–')[0].split(':')[0].split('|')[0].strip()}"
+                if idea.lower() not in existing_titles:
+                    cl_suggestions.append({
+                        "title": idea,
+                        "type": "money_page_support",
+                        "reason": f"Category page '{mp_title[:50]}' has {linked} linked articles",
+                        "priority": "high",
+                        "money_page_url": mp.get("url", ""),
+                    })
+
+        # Template-based suggestions with age group variations
+        for tmpl in templates:
+            if "{age}" in tmpl:
+                for age in _AGE_GROUPS[:4]:
+                    idea = tmpl.replace("{age}", age).replace("{year}", str(year))
+                    if idea.lower() not in existing_titles:
+                        cl_suggestions.append({
+                            "title": idea,
+                            "type": "topic_gap",
+                            "reason": f"Fills content gap in '{cl_name}' cluster",
+                            "priority": "medium",
+                        })
+                        break
+            else:
+                idea = tmpl.replace("{year}", str(year))
+                if idea.lower() not in existing_titles:
+                    cl_suggestions.append({
+                        "title": idea,
+                        "type": "topic_gap",
+                        "reason": f"Fills content gap in '{cl_name}' cluster",
+                        "priority": "medium",
+                    })
+
+        # Find related money pages and products for this cluster
+        related_money_pages = []
+        for mp in money_pages:
+            if mp.get("type") != "category":
+                continue
+            mp_text = f"{mp.get('title', '')} {mp.get('url', '')}".lower()
+            cl_words = {w for w in cl_name.lower().split() if len(w) > 2}
+            if cl_words and any(w in mp_text for w in cl_words):
+                related_money_pages.append({
+                    "url": mp.get("url", ""),
+                    "title": mp.get("title", ""),
+                    "anchor_text": mp.get("title", "").split("–")[0].split(":")[0].split("|")[0].strip(),
+                })
+        related_products = []
+        for prod in products:
+            prod_text = f"{prod['name']} {prod.get('url', '')}".lower()
+            cl_words = {w for w in cl_name.lower().split() if len(w) > 2}
+            if cl_words and any(w in prod_text for w in cl_words):
+                related_products.append({"name": prod["name"], "url": prod.get("url", "")})
+
+        existing_article_urls = [a.get("url", "") for a in cl_articles if a.get("url")]
+
+        # Enrich each suggestion with internal links and writing prompt
+        for s in cl_suggestions:
+            s["internal_links"] = related_money_pages[:5]
+            s["related_products"] = related_products[:5]
+            s["related_articles"] = [
+                {"title": a["title"], "url": a.get("url", "")}
+                for a in cl_articles[:5]
+            ]
+            s["writing_prompt"] = _build_writing_prompt(
+                s["title"], cl_name, related_money_pages[:3],
+                related_products[:3], [a["title"] for a in cl_articles[:5]],
+            )
+
+        # Limit per cluster
+        high = [s for s in cl_suggestions if s["priority"] == "high"]
+        medium = [s for s in cl_suggestions if s["priority"] == "medium"]
+        cl_suggestions = (high + medium)[:10]
+
+        if cl_suggestions:
+            suggestions.append({
+                "cluster_id": cluster["id"],
+                "cluster_name": cl_name,
+                "published": published,
+                "target": target,
+                "gap": target - published,
+                "suggestions": cl_suggestions,
+            })
+
+    suggestions.sort(key=lambda x: x["gap"], reverse=True)
+    return suggestions
+
+
+def _build_writing_prompt(title, cluster_name, money_pages, products, existing_titles):
+    """Build a full writing prompt/content brief for an article."""
+    mp_links = ""
+    if money_pages:
+        mp_links = "\n".join(
+            f"  - [{mp['anchor_text']}]({mp['url']})" for mp in money_pages
+        )
+    prod_mentions = ""
+    if products:
+        prod_mentions = ", ".join(p["name"] for p in products)
+
+    existing = ""
+    if existing_titles:
+        existing = "\n".join(f"  - {t}" for t in existing_titles[:5])
+
+    prompt = f"""Write a comprehensive, SEO-optimized blog post titled: "{title}"
+
+Topic Cluster: {cluster_name}
+Target Length: 1,500-2,000 words
+Search Intent: Informational / Commercial Investigation
+Target Audience: Parents, teachers, and gift-givers looking for educational products for children
+
+STRUCTURE:
+- Hook opening that addresses the reader's pain point or question
+- 5-7 subheadings (H2s) covering different aspects of the topic
+- Practical tips, comparisons, or actionable advice in each section
+- Conclusion with a clear call-to-action"""
+
+    if mp_links:
+        prompt += f"""
+
+INTERNAL LINKS TO INCLUDE (link naturally within the content):
+{mp_links}"""
+
+    if prod_mentions:
+        prompt += f"""
+
+PRODUCTS TO MENTION/RECOMMEND:
+  {prod_mentions}
+  Mention these products naturally where relevant — don't force them."""
+
+    if existing:
+        prompt += f"""
+
+RELATED ARTICLES TO CROSS-LINK:
+{existing}
+  Reference or link to these existing articles where it adds value."""
+
+    prompt += """
+
+SEO GUIDELINES:
+- Include the primary keyword in the title, first paragraph, and 2-3 subheadings
+- Use related long-tail keywords naturally throughout
+- Add alt text suggestions for any recommended images
+- End with a FAQ section (3-5 questions) using "People Also Ask" style questions
+
+TONE: Warm, knowledgeable, parent-to-parent. Not salesy — genuinely helpful.
+Write for parents who want the best for their kids but are overwhelmed by choices."""
+
+    return prompt
