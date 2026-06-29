@@ -427,6 +427,85 @@ def unlink_article_from_money_page(mp_id, article_id):
     return None
 
 
+def get_pipeline():
+    """Get articles grouped by status for the pipeline/kanban view."""
+    data = _load_data()
+    articles = data.get("articles", [])
+    clusters = data.get("clusters", [])
+    cluster_map = {c["id"]: c["name"] for c in clusters}
+
+    columns = ["idea", "draft", "writing", "review", "published"]
+    pipeline = {s: [] for s in columns}
+
+    for a in articles:
+        status = a.get("status", "idea")
+        if status not in pipeline:
+            pipeline[status] = []
+        pipeline[status].append({
+            "id": a["id"],
+            "title": a["title"],
+            "url": a.get("url", ""),
+            "cluster_id": a.get("cluster_id"),
+            "cluster_name": cluster_map.get(a.get("cluster_id"), ""),
+            "primary_keyword": a.get("primary_keyword", ""),
+            "business_value": a.get("business_value", "medium"),
+            "created_at": a.get("created_at", ""),
+        })
+
+    for col in pipeline:
+        pipeline[col].sort(key=lambda a: a.get("created_at", ""), reverse=True)
+
+    return {"columns": columns, "pipeline": pipeline}
+
+
+def bulk_update_articles(article_ids, updates):
+    """Apply the same updates to multiple articles at once."""
+    data = _load_data()
+    updated = 0
+    for a in data["articles"]:
+        if a["id"] in article_ids:
+            for k, v in updates.items():
+                if k != "id":
+                    a[k] = v
+            updated += 1
+    if updated:
+        _save_data(data)
+    return {"updated": updated}
+
+
+def add_sub_cluster(cluster_id, name):
+    data = _load_data()
+    for c in data["clusters"]:
+        if c["id"] == cluster_id:
+            subs = c.get("sub_clusters", [])
+            sc = {
+                "id": f"sc_{int(time.time())}_{len(subs)}",
+                "name": name,
+                "created_at": datetime.now().isoformat(),
+            }
+            subs.append(sc)
+            c["sub_clusters"] = subs
+            _save_data(data)
+            return sc
+    return None
+
+
+def delete_sub_cluster(cluster_id, sub_cluster_id):
+    data = _load_data()
+    for c in data["clusters"]:
+        if c["id"] == cluster_id:
+            c["sub_clusters"] = [
+                sc for sc in c.get("sub_clusters", [])
+                if sc["id"] != sub_cluster_id
+            ]
+            for a in data["articles"]:
+                if a.get("sub_cluster_id") == sub_cluster_id:
+                    a["sub_cluster_id"] = None
+            _save_data(data)
+            return True
+    return False
+
+
 def get_content_gaps():
     data = _load_data()
     keywords = _load_keywords()

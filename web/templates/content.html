@@ -55,6 +55,11 @@
             cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
             Articles
         </button>
+        <button class="tab-btn" onclick="switchTab('pipeline')" id="tab-pipeline"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
+            Pipeline
+        </button>
         <button class="tab-btn" onclick="switchTab('money')" id="tab-money"
             style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
             cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
@@ -159,13 +164,38 @@
                     <option value="published">Published</option>
                 </select>
             </div>
-            <button onclick="showArticleModal()" class="btn-primary"
-                style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
-                background:var(--accent-blue); color:#fff; cursor:pointer;">
-                + Add Article
-            </button>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <div id="bulk-actions" style="display:none; gap:8px; align-items:center;">
+                    <span id="bulk-count" style="font-size:12px; font-weight:600; color:var(--accent-blue);"></span>
+                    <select id="bulk-status"
+                        style="padding:4px 8px; border:1px solid var(--border-color); border-radius:4px; font-size:12px;">
+                        <option value="">Set Status...</option>
+                        <option value="idea">Idea</option>
+                        <option value="draft">Draft</option>
+                        <option value="writing">Writing</option>
+                        <option value="review">Review</option>
+                        <option value="published">Published</option>
+                    </select>
+                    <select id="bulk-cluster"
+                        style="padding:4px 8px; border:1px solid var(--border-color); border-radius:4px; font-size:12px;">
+                        <option value="">Set Cluster...</option>
+                    </select>
+                    <button onclick="applyBulk()" style="padding:4px 12px; font-size:12px; font-weight:600; border:none; border-radius:4px; background:var(--accent-blue); color:#fff; cursor:pointer;">Apply</button>
+                    <button onclick="clearBulk()" style="padding:4px 12px; font-size:12px; border:1px solid var(--border-color); border-radius:4px; background:transparent; color:var(--text-secondary); cursor:pointer;">Cancel</button>
+                </div>
+                <button onclick="showArticleModal()" class="btn-primary"
+                    style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+                    background:var(--accent-blue); color:#fff; cursor:pointer;">
+                    + Add Article
+                </button>
+            </div>
         </div>
         <div id="articles-list"></div>
+    </div>
+
+    <!-- ============ PIPELINE TAB ============ -->
+    <div id="panel-pipeline" style="display:none;">
+        <div id="pipeline-board" style="display:grid; grid-template-columns:repeat(5,1fr); gap:12px; min-height:400px;"></div>
     </div>
 
     <!-- ============ MONEY PAGES TAB ============ -->
@@ -409,7 +439,7 @@ function actionBtn(label, onclick, color) {
 
 // ── Tab switching ──
 function switchTab(tab) {
-    ['overview','clusters','articles','money','gaps'].forEach(t => {
+    ['overview','clusters','articles','pipeline','money','gaps'].forEach(t => {
         document.getElementById('panel-' + t).style.display = t === tab ? 'block' : 'none';
         const btn = document.getElementById('tab-' + t);
         if (t === tab) {
@@ -422,6 +452,7 @@ function switchTab(tab) {
     });
     if (tab === 'clusters') loadClustersTab();
     if (tab === 'articles') loadArticlesTab();
+    if (tab === 'pipeline') loadPipelineTab();
     if (tab === 'money') loadMoneyPagesTab();
     if (tab === 'gaps') loadGapsTab();
 }
@@ -692,6 +723,7 @@ async function showClusterDetail(id) {
         nameEl.textContent = cluster.name;
         const published = articles.filter(a => a.status === 'published').length;
         const pct = Math.round(published / Math.max(cluster.target_articles || 20, 1) * 100);
+        const subs = cluster.sub_clusters || [];
 
         body.innerHTML = `
             <div class="detail-grid">
@@ -701,6 +733,27 @@ async function showClusterDetail(id) {
                 <div class="detail-item"><label>Completion</label><p>${completionBar(pct)}</p></div>
             </div>
             ${cluster.description ? `<p style="color:var(--text-secondary);margin-bottom:16px;">${escHtml(cluster.description)}</p>` : ''}
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                <div style="padding:12px;background:var(--bg-hover);border-radius:8px;">
+                    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px;">Pillar Page</div>
+                    <div style="font-size:13px;">${cluster.pillar_page ? `<a href="${escHtml(cluster.pillar_page)}" target="_blank" style="color:var(--accent-blue);word-break:break-all;">${escHtml(cluster.pillar_page)}</a>` : '<span style="color:var(--text-muted);">Not set</span>'}</div>
+                    <div style="margin-top:6px;">
+                        <button onclick="setPillarPage('${id}')" style="padding:2px 8px;font-size:11px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">${cluster.pillar_page ? 'Change' : 'Set Pillar Page'}</button>
+                    </div>
+                </div>
+                <div style="padding:12px;background:var(--bg-hover);border-radius:8px;">
+                    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:4px;">Sub-Clusters (${subs.length})</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                        ${subs.map(sc => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:11px;background:var(--accent-purple)15;color:var(--accent-purple);">${escHtml(sc.name)}<button onclick="deleteSubCluster('${id}','${sc.id}')" style="border:none;background:none;color:var(--accent-red);cursor:pointer;font-size:13px;line-height:1;padding:0 2px;">&times;</button></span>`).join('')}
+                        ${subs.length === 0 ? '<span style="font-size:12px;color:var(--text-muted);">None</span>' : ''}
+                    </div>
+                    <div style="margin-top:6px;">
+                        <button onclick="addSubCluster('${id}')" style="padding:2px 8px;font-size:11px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;">+ Add Sub-Cluster</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="detail-section">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
                     <h4>Articles in this cluster</h4>
@@ -709,21 +762,23 @@ async function showClusterDetail(id) {
                 ${articles.length === 0
                     ? '<div style="padding:16px;text-align:center;color:var(--text-muted);">No articles in this cluster yet.</div>'
                     : `<table class="data-table" style="width:100%;">
-                        <thead><tr><th>Title</th><th>Status</th><th>Keyword</th><th>Actions</th></tr></thead>
-                        <tbody>${articles.map(a => `
-                            <tr>
+                        <thead><tr><th>Title</th><th>Status</th><th>Sub-Cluster</th><th>Keyword</th><th>Actions</th></tr></thead>
+                        <tbody>${articles.map(a => {
+                            const scName = subs.find(sc => sc.id === a.sub_cluster_id);
+                            return `<tr>
                                 <td>
                                     <div style="font-weight:500;">${escHtml(a.title)}</div>
-                                    ${a.url ? `<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px;">${escHtml(a.url)}</div>` : ''}
+                                    ${a.url ? `<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px;">${escHtml(a.url)}</div>` : ''}
                                 </td>
                                 <td>${statusBadge(a.status || 'idea')}</td>
+                                <td style="font-size:11px;color:var(--accent-purple);">${scName ? escHtml(scName.name) : '—'}</td>
                                 <td style="font-size:12px;color:var(--text-secondary);">${escHtml(a.primary_keyword || '—')}</td>
                                 <td style="white-space:nowrap;">
                                     ${actionBtn('Edit', "closeClusterDetail();editArticleById('" + a.id + "')", 'var(--accent-blue)')}
                                     ${actionBtn('Delete', "deleteArticle('" + a.id + "','" + escHtml(a.title).replace(/'/g,"\\'") + "');closeClusterDetail()", 'var(--accent-red)')}
                                 </td>
-                            </tr>
-                        `).join('')}</tbody>
+                            </tr>`;
+                        }).join('')}</tbody>
                     </table>`
                 }
             </div>
@@ -739,9 +794,71 @@ function closeClusterDetail() {
 }
 
 // ── Articles Tab ──
+let _selectedArticles = new Set();
+
+function toggleArticleSelect(id) {
+    if (_selectedArticles.has(id)) _selectedArticles.delete(id); else _selectedArticles.add(id);
+    updateBulkUI();
+}
+
+function toggleSelectAll(checked) {
+    document.querySelectorAll('.art-checkbox').forEach(cb => {
+        cb.checked = checked;
+        if (checked) _selectedArticles.add(cb.value); else _selectedArticles.delete(cb.value);
+    });
+    updateBulkUI();
+}
+
+function updateBulkUI() {
+    const bar = document.getElementById('bulk-actions');
+    const cnt = document.getElementById('bulk-count');
+    if (_selectedArticles.size > 0) {
+        bar.style.display = 'flex';
+        cnt.textContent = _selectedArticles.size + ' selected';
+        const bulkCluster = document.getElementById('bulk-cluster');
+        if (bulkCluster.options.length <= 1) {
+            bulkCluster.innerHTML = '<option value="">Set Cluster...</option>' +
+                _allClusters.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+        }
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function clearBulk() {
+    _selectedArticles.clear();
+    document.querySelectorAll('.art-checkbox').forEach(cb => cb.checked = false);
+    const sa = document.getElementById('select-all');
+    if (sa) sa.checked = false;
+    document.getElementById('bulk-status').value = '';
+    document.getElementById('bulk-cluster').value = '';
+    updateBulkUI();
+}
+
+async function applyBulk() {
+    const updates = {};
+    const status = document.getElementById('bulk-status').value;
+    const cluster = document.getElementById('bulk-cluster').value;
+    if (status) updates.status = status;
+    if (cluster) updates.cluster_id = cluster;
+    if (Object.keys(updates).length === 0) { alert('Select a status or cluster to apply.'); return; }
+    if (!confirm(`Apply changes to ${_selectedArticles.size} articles?`)) return;
+    try {
+        await fetch('/api/content/articles/bulk', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({article_ids: [..._selectedArticles], updates})
+        });
+        _selectedArticles.clear();
+        loadArticlesTab();
+        loadDashboard();
+    } catch (err) { alert('Bulk update failed: ' + err.message); }
+}
+
 async function loadArticlesTab() {
     const container = document.getElementById('articles-list');
     container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Loading articles...</div>';
+    _selectedArticles.clear();
+    updateBulkUI();
 
     if (_allClusters.length === 0) {
         try {
@@ -771,6 +888,7 @@ async function loadArticlesTab() {
 
         container.innerHTML = `<div class="card"><table class="data-table" style="width:100%;">
             <thead><tr>
+                <th style="width:30px;"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)"></th>
                 <th>Title</th>
                 <th>Cluster</th>
                 <th>Status</th>
@@ -780,6 +898,7 @@ async function loadArticlesTab() {
             </tr></thead>
             <tbody>${articles.map(a => `
                 <tr>
+                    <td><input type="checkbox" class="art-checkbox" value="${a.id}" onchange="toggleArticleSelect('${a.id}')"></td>
                     <td>
                         <div style="font-weight:500;">${escHtml(a.title)}</div>
                         ${a.url ? `<div style="font-size:11px;color:var(--text-muted);max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.url)}</div>` : ''}
@@ -1166,6 +1285,94 @@ async function loadGapsTab() {
     } catch (err) {
         body.innerHTML = `<div class="card" style="padding:24px;color:var(--accent-red);">Error loading gap analysis: ${escHtml(err.message)}</div>`;
     }
+}
+
+// ── Pipeline Tab ──
+const PIPELINE_LABELS = {idea:'Idea',draft:'Draft',writing:'Writing',review:'Review',published:'Published'};
+const PIPELINE_COLORS = {idea:'var(--text-muted)',draft:'var(--accent-yellow)',writing:'var(--accent-blue)',review:'var(--accent-purple)',published:'var(--accent-green)'};
+const STATUS_ORDER = ['idea','draft','writing','review','published'];
+
+async function loadPipelineTab() {
+    const board = document.getElementById('pipeline-board');
+    board.innerHTML = STATUS_ORDER.map(s =>
+        `<div style="background:var(--bg-hover);border-radius:8px;padding:12px;min-height:300px;">
+            <div style="font-weight:700;font-size:13px;color:${PIPELINE_COLORS[s]};margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">${PIPELINE_LABELS[s]} <span style="font-weight:400;color:var(--text-muted);">...</span></div>
+        </div>`
+    ).join('');
+
+    try {
+        const res = await fetch('/api/content/pipeline');
+        const d = await res.json();
+        if (d.error) { board.innerHTML = `<div style="grid-column:1/-1;padding:24px;color:var(--accent-red);">${escHtml(d.error)}</div>`; return; }
+
+        const pipeline = d.pipeline || {};
+        board.innerHTML = STATUS_ORDER.map(s => {
+            const items = pipeline[s] || [];
+            const col = PIPELINE_COLORS[s];
+            return `<div style="background:var(--bg-hover);border-radius:8px;padding:12px;min-height:300px;">
+                <div style="font-weight:700;font-size:13px;color:${col};margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px;">${PIPELINE_LABELS[s]} <span style="font-weight:400;color:var(--text-muted);">(${items.length})</span></div>
+                ${items.map(a => {
+                    const idx = STATUS_ORDER.indexOf(s);
+                    const prev = idx > 0 ? STATUS_ORDER[idx-1] : null;
+                    const next = idx < STATUS_ORDER.length-1 ? STATUS_ORDER[idx+1] : null;
+                    return `<div style="background:var(--bg-card);border-radius:6px;padding:10px;margin-bottom:8px;border:1px solid var(--border-light);box-shadow:var(--shadow-sm);">
+                        <div style="font-size:13px;font-weight:500;margin-bottom:4px;cursor:pointer;" onclick="editArticleById('${a.id}')">${escHtml(a.title)}</div>
+                        ${a.cluster_name ? `<div style="font-size:11px;color:var(--accent-purple);margin-bottom:4px;">${escHtml(a.cluster_name)}</div>` : ''}
+                        ${a.primary_keyword ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${escHtml(a.primary_keyword)}</div>` : ''}
+                        <div style="display:flex;gap:4px;">
+                            ${prev ? `<button onclick="moveArticle('${a.id}','${prev}')" style="flex:1;padding:2px;font-size:10px;border:1px solid var(--border-color);border-radius:3px;background:transparent;color:var(--text-muted);cursor:pointer;" title="Move to ${PIPELINE_LABELS[prev]}">&larr;</button>` : ''}
+                            ${next ? `<button onclick="moveArticle('${a.id}','${next}')" style="flex:1;padding:2px;font-size:10px;border:1px solid ${PIPELINE_COLORS[next]};border-radius:3px;background:transparent;color:${PIPELINE_COLORS[next]};cursor:pointer;" title="Move to ${PIPELINE_LABELS[next]}">&rarr;</button>` : ''}
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        }).join('');
+    } catch (err) {
+        board.innerHTML = `<div style="grid-column:1/-1;padding:24px;color:var(--accent-red);">Error: ${escHtml(err.message)}</div>`;
+    }
+}
+
+async function moveArticle(id, newStatus) {
+    try {
+        await fetch('/api/content/articles/' + id, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({status: newStatus})
+        });
+        loadPipelineTab();
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+// ── Sub-clusters & Pillar Page ──
+async function addSubCluster(clusterId) {
+    const name = prompt('Sub-cluster name:');
+    if (!name || !name.trim()) return;
+    try {
+        await fetch('/api/content/clusters/' + clusterId + '/sub-clusters', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({name: name.trim()})
+        });
+        showClusterDetail(clusterId);
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function deleteSubCluster(clusterId, scId) {
+    if (!confirm('Delete this sub-cluster?')) return;
+    try {
+        await fetch('/api/content/clusters/' + clusterId + '/sub-clusters/' + scId, {method:'DELETE'});
+        showClusterDetail(clusterId);
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function setPillarPage(clusterId) {
+    const url = prompt('Pillar page URL (or leave empty to clear):');
+    if (url === null) return;
+    try {
+        await fetch('/api/content/clusters/' + clusterId, {
+            method:'PUT', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({pillar_page: url.trim() || null})
+        });
+        showClusterDetail(clusterId);
+    } catch (err) { alert('Error: ' + err.message); }
 }
 
 // Init

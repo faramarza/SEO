@@ -5112,6 +5112,48 @@ def api_content_products():
     return jsonify({"products": content_manager.get_products()})
 
 
+@app.route("/api/content/pipeline")
+def api_content_pipeline():
+    """Get articles grouped by status for kanban view."""
+    try:
+        return jsonify(content_manager.get_pipeline())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/content/articles/bulk", methods=["POST"])
+def api_content_bulk_update():
+    """Bulk update multiple articles."""
+    data = request.get_json(force=True)
+    article_ids = data.get("article_ids", [])
+    updates = data.get("updates", {})
+    if not article_ids or not updates:
+        return jsonify({"error": "article_ids and updates are required"}), 400
+    result = content_manager.bulk_update_articles(set(article_ids), updates)
+    return jsonify(result)
+
+
+@app.route("/api/content/clusters/<cluster_id>/sub-clusters", methods=["POST"])
+def api_content_add_sub_cluster(cluster_id):
+    """Add a sub-cluster to a cluster."""
+    data = request.get_json(force=True)
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+    result = content_manager.add_sub_cluster(cluster_id, name)
+    if result is None:
+        return jsonify({"error": "Cluster not found"}), 404
+    return jsonify(result)
+
+
+@app.route("/api/content/clusters/<cluster_id>/sub-clusters/<sc_id>", methods=["DELETE"])
+def api_content_delete_sub_cluster(cluster_id, sc_id):
+    """Delete a sub-cluster."""
+    if content_manager.delete_sub_cluster(cluster_id, sc_id):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Cluster not found"}), 404
+
+
 @app.route("/api/content/gaps")
 def api_content_gaps():
     """Get content gap analysis."""
