@@ -38,75 +38,271 @@
         </div>
     </div>
 
-    <!-- Action Buttons -->
-    <div style="display:flex; gap:12px; margin-bottom:24px;">
-        <button id="btn-discover" onclick="runDiscovery()" class="btn-primary"
-            style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
-            background:var(--accent-blue); color:#fff; cursor:pointer;">
-            Auto-Discover Content
+    <!-- Tab Navigation -->
+    <div class="tab-bar" style="display:flex; gap:0; margin-bottom:24px; border-bottom:2px solid var(--border-color);">
+        <button class="tab-btn active" onclick="switchTab('overview')" id="tab-overview"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid var(--accent-blue); margin-bottom:-2px; color:var(--accent-blue);">
+            Overview
+        </button>
+        <button class="tab-btn" onclick="switchTab('clusters')" id="tab-clusters"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
+            Clusters
+        </button>
+        <button class="tab-btn" onclick="switchTab('articles')" id="tab-articles"
+            style="padding:10px 24px; font-size:14px; font-weight:600; border:none; background:none;
+            cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; color:var(--text-secondary);">
+            Articles
         </button>
     </div>
 
-    <!-- Cluster Overview Table -->
-    <div class="card full-width" style="margin-bottom:24px;">
-        <h3 style="margin-bottom:16px;">Topic Clusters</h3>
-        <div id="cm-clusters-empty" style="display:none; padding:32px; text-align:center; color:var(--text-muted);">
-            No clusters yet. Click "Auto-Discover Content" to populate from your site data and product families.
+    <!-- ============ OVERVIEW TAB ============ -->
+    <div id="panel-overview">
+        <!-- Action Buttons -->
+        <div style="display:flex; gap:12px; margin-bottom:24px;">
+            <button id="btn-discover" onclick="runDiscovery()" class="btn-primary"
+                style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+                background:var(--accent-blue); color:#fff; cursor:pointer;">
+                Auto-Discover Content
+            </button>
         </div>
-        <table class="data-table" id="cm-clusters-table" style="display:none;">
-            <thead>
-                <tr>
-                    <th>Cluster</th>
-                    <th>Priority</th>
-                    <th>Articles</th>
-                    <th>Published</th>
-                    <th>Target</th>
-                    <th>Completion</th>
-                </tr>
-            </thead>
-            <tbody id="cm-clusters-body"></tbody>
-        </table>
-    </div>
 
-    <!-- Two-Column Layout: Products + Recent Articles -->
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px;">
-        <!-- Product Coverage -->
-        <div class="card">
-            <h3 style="margin-bottom:16px;">Product Coverage</h3>
-            <div id="cm-products-empty" style="display:none; padding:24px; text-align:center; color:var(--text-muted);">
-                No products found.
+        <!-- Cluster Overview Table -->
+        <div class="card full-width" style="margin-bottom:24px;">
+            <h3 style="margin-bottom:16px;">Topic Clusters</h3>
+            <div id="cm-clusters-empty" style="display:none; padding:32px; text-align:center; color:var(--text-muted);">
+                No clusters yet. Click "Auto-Discover Content" to populate from your site data and product families.
             </div>
-            <table class="data-table" id="cm-products-table" style="display:none;">
+            <table class="data-table" id="cm-clusters-table" style="display:none;">
                 <thead>
                     <tr>
-                        <th>Product</th>
-                        <th>Supporting Articles</th>
+                        <th>Cluster</th>
+                        <th>Priority</th>
+                        <th>Articles</th>
+                        <th>Published</th>
+                        <th>Target</th>
+                        <th>Completion</th>
                     </tr>
                 </thead>
-                <tbody id="cm-products-body"></tbody>
+                <tbody id="cm-clusters-body"></tbody>
             </table>
         </div>
 
-        <!-- Recent Articles -->
-        <div class="card">
-            <h3 style="margin-bottom:16px;">Recent Articles</h3>
-            <div id="cm-recent-empty" style="display:none; padding:24px; text-align:center; color:var(--text-muted);">
-                No articles found.
+        <!-- Two-Column Layout: Products + Recent Articles -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px;">
+            <div class="card">
+                <h3 style="margin-bottom:16px;">Product Coverage</h3>
+                <div id="cm-products-empty" style="display:none; padding:24px; text-align:center; color:var(--text-muted);">
+                    No products found.
+                </div>
+                <table class="data-table" id="cm-products-table" style="display:none;">
+                    <thead><tr><th>Product</th><th>Supporting Articles</th></tr></thead>
+                    <tbody id="cm-products-body"></tbody>
+                </table>
             </div>
-            <div id="cm-recent-list"></div>
+            <div class="card">
+                <h3 style="margin-bottom:16px;">Recent Articles</h3>
+                <div id="cm-recent-empty" style="display:none; padding:24px; text-align:center; color:var(--text-muted);">
+                    No articles found.
+                </div>
+                <div id="cm-recent-list"></div>
+            </div>
+        </div>
+
+        <!-- Article Status Breakdown -->
+        <div class="card full-width" style="margin-bottom:24px;">
+            <h3 style="margin-bottom:16px;">Article Status Breakdown</h3>
+            <div id="cm-status-bars" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
         </div>
     </div>
 
-    <!-- Article Status Breakdown -->
-    <div class="card full-width" style="margin-bottom:24px;">
-        <h3 style="margin-bottom:16px;">Article Status Breakdown</h3>
-        <div id="cm-status-bars" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
+    <!-- ============ CLUSTERS TAB ============ -->
+    <div id="panel-clusters" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <h3>Manage Clusters</h3>
+            <button onclick="showClusterModal()" class="btn-primary"
+                style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+                background:var(--accent-blue); color:#fff; cursor:pointer;">
+                + Add Cluster
+            </button>
+        </div>
+        <div id="clusters-list"></div>
+    </div>
+
+    <!-- ============ ARTICLES TAB ============ -->
+    <div id="panel-articles" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <div style="display:flex; gap:12px; align-items:center;">
+                <h3>Articles</h3>
+                <select id="art-filter-cluster" onchange="loadArticlesTab()"
+                    style="padding:6px 12px; border:1px solid var(--border-color); border-radius:6px; font-size:13px; background:var(--bg-card);">
+                    <option value="">All Clusters</option>
+                </select>
+                <select id="art-filter-status" onchange="loadArticlesTab()"
+                    style="padding:6px 12px; border:1px solid var(--border-color); border-radius:6px; font-size:13px; background:var(--bg-card);">
+                    <option value="">All Statuses</option>
+                    <option value="idea">Idea</option>
+                    <option value="draft">Draft</option>
+                    <option value="writing">Writing</option>
+                    <option value="review">Review</option>
+                    <option value="published">Published</option>
+                </select>
+            </div>
+            <button onclick="showArticleModal()" class="btn-primary"
+                style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+                background:var(--accent-blue); color:#fff; cursor:pointer;">
+                + Add Article
+            </button>
+        </div>
+        <div id="articles-list"></div>
+    </div>
+</div>
+
+<!-- ============ CLUSTER MODAL ============ -->
+<div id="cluster-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeClusterModal()">&times;</span>
+        <h2 id="cluster-modal-title">Add Cluster</h2>
+        <form id="cluster-form" onsubmit="saveCluster(event)">
+            <input type="hidden" id="cluster-edit-id">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="cluster-name" required placeholder="e.g. Name Trains">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="cluster-desc" rows="2" placeholder="What this cluster covers..."></textarea>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                <div class="form-group">
+                    <label>Priority</label>
+                    <select id="cluster-priority">
+                        <option value="high">High</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Target Articles</label>
+                    <input type="number" id="cluster-target" value="20" min="1">
+                </div>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+                <button type="button" onclick="closeClusterModal()"
+                    style="padding:8px 20px; font-size:13px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-card); cursor:pointer; color:var(--text-secondary);">
+                    Cancel
+                </button>
+                <button type="submit" class="btn-primary"
+                    style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+                    background:var(--accent-blue); color:#fff; cursor:pointer;">
+                    Save Cluster
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ============ ARTICLE MODAL ============ -->
+<div id="article-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeArticleModal()">&times;</span>
+        <h2 id="article-modal-title">Add Article</h2>
+        <form id="article-form" onsubmit="saveArticle(event)">
+            <input type="hidden" id="article-edit-id">
+            <div class="form-group">
+                <label>Title</label>
+                <input type="text" id="article-title" required placeholder="e.g. Best Montessori Toys for 2 Year Olds">
+            </div>
+            <div class="form-group">
+                <label>URL</label>
+                <input type="text" id="article-url" placeholder="https://alphabet-trains.com/blog/...">
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                <div class="form-group">
+                    <label>Cluster</label>
+                    <select id="article-cluster">
+                        <option value="">No Cluster</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="article-status">
+                        <option value="idea">Idea</option>
+                        <option value="draft">Draft</option>
+                        <option value="writing">Writing</option>
+                        <option value="review">Review</option>
+                        <option value="published">Published</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                <div class="form-group">
+                    <label>Primary Keyword</label>
+                    <input type="text" id="article-keyword" placeholder="main target keyword">
+                </div>
+                <div class="form-group">
+                    <label>Search Intent</label>
+                    <select id="article-intent">
+                        <option value="informational">Informational</option>
+                        <option value="commercial">Commercial</option>
+                        <option value="transactional">Transactional</option>
+                        <option value="navigational">Navigational</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px;">
+                <div class="form-group">
+                    <label>Business Value</label>
+                    <select id="article-bvalue">
+                        <option value="high">High</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Search Volume</label>
+                    <input type="number" id="article-volume" value="0" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Target Word Count</label>
+                    <input type="number" id="article-wordcount" value="1500" min="100">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <textarea id="article-notes" rows="2" placeholder="Any notes about this article..."></textarea>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+                <button type="button" onclick="closeArticleModal()"
+                    style="padding:8px 20px; font-size:13px; border:1px solid var(--border-color); border-radius:6px; background:var(--bg-card); cursor:pointer; color:var(--text-secondary);">
+                    Cancel
+                </button>
+                <button type="submit" class="btn-primary"
+                    style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+                    background:var(--accent-blue); color:#fff; cursor:pointer;">
+                    Save Article
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ============ CLUSTER DETAIL MODAL ============ -->
+<div id="cluster-detail-modal" class="modal hidden">
+    <div class="modal-content" style="max-width:800px;">
+        <span class="modal-close" onclick="closeClusterDetail()">&times;</span>
+        <h2 id="cluster-detail-name">Cluster</h2>
+        <div id="cluster-detail-body"></div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+let _allClusters = [];
+const STATUS_COLORS = {published:'var(--accent-green)',draft:'var(--accent-yellow)',idea:'var(--text-muted)',writing:'var(--accent-blue)',review:'var(--accent-purple)'};
+
 function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -115,6 +311,11 @@ function priorityBadge(p) {
     const colors = {high:'var(--accent-red)',medium:'var(--accent-yellow)',low:'var(--accent-green)'};
     const c = colors[p] || 'var(--text-muted)';
     return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${c}15;color:${c};">${escHtml(p)}</span>`;
+}
+
+function statusBadge(s) {
+    const c = STATUS_COLORS[s] || 'var(--text-muted)';
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${c}15;color:${c};text-transform:capitalize;">${escHtml(s)}</span>`;
 }
 
 function completionBar(pct) {
@@ -127,6 +328,28 @@ function completionBar(pct) {
     </div>`;
 }
 
+function actionBtn(label, onclick, color) {
+    return `<button onclick="${onclick}" style="padding:3px 10px;font-size:11px;font-weight:600;border:1px solid ${color || 'var(--border-color)'};border-radius:4px;background:transparent;color:${color || 'var(--text-secondary)'};cursor:pointer;white-space:nowrap;">${label}</button>`;
+}
+
+// ── Tab switching ──
+function switchTab(tab) {
+    ['overview','clusters','articles'].forEach(t => {
+        document.getElementById('panel-' + t).style.display = t === tab ? 'block' : 'none';
+        const btn = document.getElementById('tab-' + t);
+        if (t === tab) {
+            btn.style.borderBottomColor = 'var(--accent-blue)';
+            btn.style.color = 'var(--accent-blue)';
+        } else {
+            btn.style.borderBottomColor = 'transparent';
+            btn.style.color = 'var(--text-secondary)';
+        }
+    });
+    if (tab === 'clusters') loadClustersTab();
+    if (tab === 'articles') loadArticlesTab();
+}
+
+// ── Overview (dashboard) ──
 async function loadDashboard() {
     const banner = document.getElementById('cm-status-banner');
     const icon = document.getElementById('cm-status-icon');
@@ -137,7 +360,6 @@ async function loadDashboard() {
         const res = await fetch('/api/content/dashboard');
         const d = await res.json();
 
-        // KPI Cards
         document.getElementById('cm-clusters').textContent = d.total_clusters || 0;
         document.getElementById('cm-articles').textContent = d.total_articles || 0;
         document.getElementById('cm-money-pages').textContent = d.total_money_pages || 0;
@@ -153,40 +375,23 @@ async function loadDashboard() {
         document.getElementById('cm-products-desc').textContent =
             d.unlinked_articles ? d.unlinked_articles + ' unlinked articles' : 'All articles linked';
 
-        // Status Banner
         if (d.total_clusters === 0 && d.total_articles === 0) {
             banner.style.borderLeft = '4px solid var(--accent-yellow)';
             icon.textContent = '!';
-            icon.style.background = 'var(--accent-yellow)';
-            icon.style.color = '#fff';
-            icon.style.borderRadius = '50%';
-            icon.style.width = '28px';
-            icon.style.height = '28px';
-            icon.style.display = 'flex';
-            icon.style.alignItems = 'center';
-            icon.style.justifyContent = 'center';
-            icon.style.fontWeight = '700';
+            icon.style.cssText = 'background:var(--accent-yellow);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;';
             title.textContent = 'No content data yet';
             msg.textContent = 'Click "Auto-Discover Content" to scan your site pages and product families.';
         } else {
             banner.style.borderLeft = '4px solid var(--accent-green)';
             icon.textContent = '';
-            icon.style.background = 'var(--accent-green)';
-            icon.style.color = '#fff';
-            icon.style.borderRadius = '50%';
-            icon.style.width = '28px';
-            icon.style.height = '28px';
-            icon.style.display = 'flex';
-            icon.style.alignItems = 'center';
-            icon.style.justifyContent = 'center';
-            icon.style.fontWeight = '700';
+            icon.style.cssText = 'background:var(--accent-green);color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;';
             title.textContent = 'Content strategy loaded';
             msg.textContent = d.last_analysis
                 ? 'Last analysis: ' + new Date(d.last_analysis).toLocaleDateString()
                 : '';
         }
 
-        // Cluster Table
+        // Cluster overview table
         const clusters = d.cluster_stats || [];
         const clTable = document.getElementById('cm-clusters-table');
         const clEmpty = document.getElementById('cm-clusters-empty');
@@ -197,7 +402,7 @@ async function loadDashboard() {
             clTable.style.display = 'table';
             clEmpty.style.display = 'none';
             document.getElementById('cm-clusters-body').innerHTML = clusters.map(c =>
-                `<tr>
+                `<tr style="cursor:pointer;" onclick="showClusterDetail('${c.id}')">
                     <td><strong>${escHtml(c.name)}</strong></td>
                     <td>${priorityBadge(c.priority)}</td>
                     <td>${c.total_articles}</td>
@@ -208,7 +413,7 @@ async function loadDashboard() {
             ).join('');
         }
 
-        // Products Table
+        // Products table
         const products = d.product_stats || [];
         const prTable = document.getElementById('cm-products-table');
         const prEmpty = document.getElementById('cm-products-empty');
@@ -226,7 +431,7 @@ async function loadDashboard() {
             ).join('');
         }
 
-        // Recent Articles
+        // Recent articles
         const recent = d.recent_articles || [];
         const recentList = document.getElementById('cm-recent-list');
         const recentEmpty = document.getElementById('cm-recent-empty');
@@ -236,9 +441,8 @@ async function loadDashboard() {
         } else {
             recentEmpty.style.display = 'none';
             recentList.innerHTML = recent.map(a => {
-                const statusColors = {published:'var(--accent-green)',draft:'var(--accent-yellow)',idea:'var(--text-muted)',writing:'var(--accent-blue)'};
-                const sc = statusColors[a.status] || 'var(--text-muted)';
-                return `<div style="padding:8px 0; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center;">
+                const sc = STATUS_COLORS[a.status] || 'var(--text-muted)';
+                return `<div style="padding:8px 0; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="editArticleById('${a.id}')">
                     <div style="flex:1; min-width:0;">
                         <div style="font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(a.title || 'Untitled')}</div>
                         <div style="font-size:11px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(a.url || '')}</div>
@@ -248,14 +452,13 @@ async function loadDashboard() {
             }).join('');
         }
 
-        // Status Breakdown
+        // Status breakdown
         const statusCounts = d.status_counts || {};
         const statusBars = document.getElementById('cm-status-bars');
         const total = d.total_articles || 1;
-        const statusColors = {published:'var(--accent-green)',draft:'var(--accent-yellow)',idea:'var(--text-muted)',writing:'var(--accent-blue)',review:'var(--accent-purple)'};
         statusBars.innerHTML = Object.entries(statusCounts).map(([status, count]) => {
             const pct = Math.round(count / total * 100);
-            const c = statusColors[status] || 'var(--text-muted)';
+            const c = STATUS_COLORS[status] || 'var(--text-muted)';
             return `<div style="flex:1; min-width:120px; padding:12px; background:${c}08; border-radius:8px; border:1px solid ${c}20;">
                 <div style="font-size:20px; font-weight:700; color:${c};">${count}</div>
                 <div style="font-size:12px; color:var(--text-secondary); text-transform:capitalize;">${escHtml(status)}</div>
@@ -276,7 +479,6 @@ async function runDiscovery() {
     btn.disabled = true;
     btn.textContent = 'Discovering...';
     btn.style.opacity = '0.6';
-
     try {
         const res = await fetch('/api/content/discover', {method:'POST'});
         const d = await res.json();
@@ -285,20 +487,322 @@ async function runDiscovery() {
         } else {
             btn.textContent = `Found ${d.clusters} clusters, ${d.articles} articles, ${d.money_pages} money pages`;
             await loadDashboard();
-            setTimeout(() => {
-                btn.textContent = 'Auto-Discover Content';
-                btn.disabled = false;
-                btn.style.opacity = '1';
-            }, 3000);
+            setTimeout(() => { btn.textContent = 'Auto-Discover Content'; btn.disabled = false; btn.style.opacity = '1'; }, 3000);
         }
     } catch (err) {
         alert('Discovery failed: ' + err.message);
-        btn.textContent = 'Auto-Discover Content';
-        btn.disabled = false;
-        btn.style.opacity = '1';
+        btn.textContent = 'Auto-Discover Content'; btn.disabled = false; btn.style.opacity = '1';
     }
 }
 
+// ── Clusters Tab ──
+async function loadClustersTab() {
+    const container = document.getElementById('clusters-list');
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Loading clusters...</div>';
+    try {
+        const res = await fetch('/api/content/clusters');
+        const d = await res.json();
+        _allClusters = d.clusters || [];
+        populateClusterDropdowns();
+        if (_allClusters.length === 0) {
+            container.innerHTML = '<div class="card" style="padding:32px;text-align:center;color:var(--text-muted);">No clusters yet. Add one or run Auto-Discover on the Overview tab.</div>';
+            return;
+        }
+        container.innerHTML = _allClusters.map(c => `
+            <div class="card" style="margin-bottom:12px; padding:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="flex:1; cursor:pointer;" onclick="showClusterDetail('${c.id}')">
+                        <div style="font-size:15px; font-weight:600;">${escHtml(c.name)}</div>
+                        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">${escHtml(c.description || '')}</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        ${priorityBadge(c.priority)}
+                        <span style="font-size:12px; color:var(--text-secondary);">Target: ${c.target_articles}</span>
+                        ${actionBtn('Edit', "editCluster('" + c.id + "')", 'var(--accent-blue)')}
+                        ${actionBtn('Delete', "deleteCluster('" + c.id + "','" + escHtml(c.name).replace(/'/g,"\\'") + "')", 'var(--accent-red)')}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } catch (err) {
+        container.innerHTML = `<div class="card" style="padding:24px;color:var(--accent-red);">Error: ${escHtml(err.message)}</div>`;
+    }
+}
+
+function populateClusterDropdowns() {
+    const selectors = [document.getElementById('article-cluster'), document.getElementById('art-filter-cluster')];
+    selectors.forEach(sel => {
+        if (!sel) return;
+        const val = sel.value;
+        const isFilter = sel.id === 'art-filter-cluster';
+        sel.innerHTML = `<option value="">${isFilter ? 'All Clusters' : 'No Cluster'}</option>` +
+            _allClusters.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+        sel.value = val;
+    });
+}
+
+function showClusterModal(cluster) {
+    document.getElementById('cluster-modal-title').textContent = cluster ? 'Edit Cluster' : 'Add Cluster';
+    document.getElementById('cluster-edit-id').value = cluster ? cluster.id : '';
+    document.getElementById('cluster-name').value = cluster ? cluster.name : '';
+    document.getElementById('cluster-desc').value = cluster ? (cluster.description || '') : '';
+    document.getElementById('cluster-priority').value = cluster ? (cluster.priority || 'medium') : 'medium';
+    document.getElementById('cluster-target').value = cluster ? (cluster.target_articles || 20) : 20;
+    document.getElementById('cluster-modal').classList.remove('hidden');
+}
+
+function closeClusterModal() {
+    document.getElementById('cluster-modal').classList.add('hidden');
+}
+
+async function editCluster(id) {
+    const c = _allClusters.find(c => c.id === id);
+    if (c) showClusterModal(c);
+}
+
+async function saveCluster(e) {
+    e.preventDefault();
+    const id = document.getElementById('cluster-edit-id').value;
+    const payload = {
+        name: document.getElementById('cluster-name').value.trim(),
+        description: document.getElementById('cluster-desc').value.trim(),
+        priority: document.getElementById('cluster-priority').value,
+        target_articles: parseInt(document.getElementById('cluster-target').value) || 20,
+    };
+    try {
+        if (id) {
+            await fetch('/api/content/clusters/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        } else {
+            await fetch('/api/content/clusters', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        }
+        closeClusterModal();
+        loadClustersTab();
+        loadDashboard();
+    } catch (err) {
+        alert('Error saving cluster: ' + err.message);
+    }
+}
+
+async function deleteCluster(id, name) {
+    if (!confirm('Delete cluster "' + name + '"? Articles in this cluster will become unassigned.')) return;
+    try {
+        await fetch('/api/content/clusters/' + id, {method:'DELETE'});
+        loadClustersTab();
+        loadDashboard();
+    } catch (err) {
+        alert('Error deleting cluster: ' + err.message);
+    }
+}
+
+async function showClusterDetail(id) {
+    const modal = document.getElementById('cluster-detail-modal');
+    const nameEl = document.getElementById('cluster-detail-name');
+    const body = document.getElementById('cluster-detail-body');
+    nameEl.textContent = 'Loading...';
+    body.innerHTML = '';
+    modal.classList.remove('hidden');
+
+    try {
+        const [clRes, artRes] = await Promise.all([
+            fetch('/api/content/clusters'),
+            fetch('/api/content/articles?cluster_id=' + id)
+        ]);
+        const clusters = (await clRes.json()).clusters || [];
+        const articles = (await artRes.json()).articles || [];
+        const cluster = clusters.find(c => c.id === id);
+        if (!cluster) { nameEl.textContent = 'Cluster not found'; return; }
+
+        nameEl.textContent = cluster.name;
+        const published = articles.filter(a => a.status === 'published').length;
+        const pct = Math.round(published / Math.max(cluster.target_articles || 20, 1) * 100);
+
+        body.innerHTML = `
+            <div class="detail-grid">
+                <div class="detail-item"><label>Priority</label><p>${priorityBadge(cluster.priority)}</p></div>
+                <div class="detail-item"><label>Status</label><p>${escHtml(cluster.status || 'active')}</p></div>
+                <div class="detail-item"><label>Articles</label><p>${articles.length} total, ${published} published</p></div>
+                <div class="detail-item"><label>Completion</label><p>${completionBar(pct)}</p></div>
+            </div>
+            ${cluster.description ? `<p style="color:var(--text-secondary);margin-bottom:16px;">${escHtml(cluster.description)}</p>` : ''}
+            <div class="detail-section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <h4>Articles in this cluster</h4>
+                    <button onclick="closeClusterDetail();showArticleModal(null,'${id}')" style="padding:4px 12px;font-size:12px;font-weight:600;border:none;border-radius:4px;background:var(--accent-blue);color:#fff;cursor:pointer;">+ Add Article</button>
+                </div>
+                ${articles.length === 0
+                    ? '<div style="padding:16px;text-align:center;color:var(--text-muted);">No articles in this cluster yet.</div>'
+                    : `<table class="data-table" style="width:100%;">
+                        <thead><tr><th>Title</th><th>Status</th><th>Keyword</th><th>Actions</th></tr></thead>
+                        <tbody>${articles.map(a => `
+                            <tr>
+                                <td>
+                                    <div style="font-weight:500;">${escHtml(a.title)}</div>
+                                    ${a.url ? `<div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px;">${escHtml(a.url)}</div>` : ''}
+                                </td>
+                                <td>${statusBadge(a.status || 'idea')}</td>
+                                <td style="font-size:12px;color:var(--text-secondary);">${escHtml(a.primary_keyword || '—')}</td>
+                                <td style="white-space:nowrap;">
+                                    ${actionBtn('Edit', "closeClusterDetail();editArticleById('" + a.id + "')", 'var(--accent-blue)')}
+                                    ${actionBtn('Delete', "deleteArticle('" + a.id + "','" + escHtml(a.title).replace(/'/g,"\\'") + "');closeClusterDetail()", 'var(--accent-red)')}
+                                </td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table>`
+                }
+            </div>
+        `;
+    } catch (err) {
+        nameEl.textContent = 'Error';
+        body.innerHTML = `<p style="color:var(--accent-red);">${escHtml(err.message)}</p>`;
+    }
+}
+
+function closeClusterDetail() {
+    document.getElementById('cluster-detail-modal').classList.add('hidden');
+}
+
+// ── Articles Tab ──
+async function loadArticlesTab() {
+    const container = document.getElementById('articles-list');
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Loading articles...</div>';
+
+    if (_allClusters.length === 0) {
+        try {
+            const r = await fetch('/api/content/clusters');
+            _allClusters = (await r.json()).clusters || [];
+            populateClusterDropdowns();
+        } catch {}
+    }
+
+    const clusterId = document.getElementById('art-filter-cluster').value;
+    const status = document.getElementById('art-filter-status').value;
+    let url = '/api/content/articles?';
+    if (clusterId) url += 'cluster_id=' + clusterId + '&';
+    if (status) url += 'status=' + status + '&';
+
+    try {
+        const res = await fetch(url);
+        const d = await res.json();
+        const articles = d.articles || [];
+        if (articles.length === 0) {
+            container.innerHTML = '<div class="card" style="padding:32px;text-align:center;color:var(--text-muted);">No articles match your filters.</div>';
+            return;
+        }
+
+        const clusterMap = {};
+        _allClusters.forEach(c => clusterMap[c.id] = c.name);
+
+        container.innerHTML = `<div class="card"><table class="data-table" style="width:100%;">
+            <thead><tr>
+                <th>Title</th>
+                <th>Cluster</th>
+                <th>Status</th>
+                <th>Keyword</th>
+                <th>Value</th>
+                <th>Actions</th>
+            </tr></thead>
+            <tbody>${articles.map(a => `
+                <tr>
+                    <td>
+                        <div style="font-weight:500;">${escHtml(a.title)}</div>
+                        ${a.url ? `<div style="font-size:11px;color:var(--text-muted);max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.url)}</div>` : ''}
+                    </td>
+                    <td style="font-size:12px;">${clusterMap[a.cluster_id] ? escHtml(clusterMap[a.cluster_id]) : '<span style="color:var(--text-muted);">—</span>'}</td>
+                    <td>${statusBadge(a.status || 'idea')}</td>
+                    <td style="font-size:12px;color:var(--text-secondary);">${escHtml(a.primary_keyword || '—')}</td>
+                    <td>${priorityBadge(a.business_value || 'medium')}</td>
+                    <td style="white-space:nowrap;">
+                        ${actionBtn('Edit', "editArticleById('" + a.id + "')", 'var(--accent-blue)')}
+                        ${actionBtn('Delete', "deleteArticle('" + a.id + "','" + escHtml(a.title).replace(/'/g,"\\'") + "')", 'var(--accent-red)')}
+                    </td>
+                </tr>
+            `).join('')}</tbody>
+        </table></div>`;
+    } catch (err) {
+        container.innerHTML = `<div class="card" style="padding:24px;color:var(--accent-red);">Error: ${escHtml(err.message)}</div>`;
+    }
+}
+
+// ── Article CRUD ──
+function showArticleModal(article, presetCluster) {
+    document.getElementById('article-modal-title').textContent = article ? 'Edit Article' : 'Add Article';
+    document.getElementById('article-edit-id').value = article ? article.id : '';
+    document.getElementById('article-title').value = article ? article.title : '';
+    document.getElementById('article-url').value = article ? (article.url || '') : '';
+    document.getElementById('article-cluster').value = article ? (article.cluster_id || '') : (presetCluster || '');
+    document.getElementById('article-status').value = article ? (article.status || 'idea') : 'idea';
+    document.getElementById('article-keyword').value = article ? (article.primary_keyword || '') : '';
+    document.getElementById('article-intent').value = article ? (article.search_intent || 'informational') : 'informational';
+    document.getElementById('article-bvalue').value = article ? (article.business_value || 'medium') : 'medium';
+    document.getElementById('article-volume').value = article ? (article.search_volume || 0) : 0;
+    document.getElementById('article-wordcount').value = article ? (article.target_word_count || 1500) : 1500;
+    document.getElementById('article-notes').value = article ? (article.notes || '') : '';
+    document.getElementById('article-modal').classList.remove('hidden');
+}
+
+function closeArticleModal() {
+    document.getElementById('article-modal').classList.add('hidden');
+}
+
+async function editArticleById(id) {
+    try {
+        const res = await fetch('/api/content/articles');
+        const d = await res.json();
+        const art = (d.articles || []).find(a => a.id === id);
+        if (art) {
+            if (_allClusters.length === 0) {
+                const cr = await fetch('/api/content/clusters');
+                _allClusters = (await cr.json()).clusters || [];
+                populateClusterDropdowns();
+            }
+            showArticleModal(art);
+        }
+    } catch (err) {
+        alert('Error loading article: ' + err.message);
+    }
+}
+
+async function saveArticle(e) {
+    e.preventDefault();
+    const id = document.getElementById('article-edit-id').value;
+    const payload = {
+        title: document.getElementById('article-title').value.trim(),
+        url: document.getElementById('article-url').value.trim(),
+        cluster_id: document.getElementById('article-cluster').value || null,
+        status: document.getElementById('article-status').value,
+        primary_keyword: document.getElementById('article-keyword').value.trim() || null,
+        search_intent: document.getElementById('article-intent').value,
+        business_value: document.getElementById('article-bvalue').value,
+        search_volume: parseInt(document.getElementById('article-volume').value) || 0,
+        target_word_count: parseInt(document.getElementById('article-wordcount').value) || 1500,
+        notes: document.getElementById('article-notes').value.trim(),
+    };
+    try {
+        if (id) {
+            await fetch('/api/content/articles/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        } else {
+            await fetch('/api/content/articles', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        }
+        closeArticleModal();
+        loadDashboard();
+        if (document.getElementById('panel-articles').style.display !== 'none') loadArticlesTab();
+    } catch (err) {
+        alert('Error saving article: ' + err.message);
+    }
+}
+
+async function deleteArticle(id, title) {
+    if (!confirm('Delete article "' + title + '"?')) return;
+    try {
+        await fetch('/api/content/articles/' + id, {method:'DELETE'});
+        loadDashboard();
+        if (document.getElementById('panel-articles').style.display !== 'none') loadArticlesTab();
+    } catch (err) {
+        alert('Error deleting article: ' + err.message);
+    }
+}
+
+// Init
 loadDashboard();
 </script>
 {% endblock %}
