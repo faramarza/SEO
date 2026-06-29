@@ -5179,7 +5179,7 @@ def api_content_suggestions():
     """Get content topic suggestions for underserved clusters."""
     cluster_id = request.args.get("cluster_id")
     try:
-        return jsonify({"suggestions": content_manager.get_content_suggestions(cluster_id)})
+        return jsonify(content_manager.get_content_suggestions(cluster_id))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

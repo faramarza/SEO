@@ -219,7 +219,11 @@
         </div>
 
         <!-- Gap Summary Cards -->
-        <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:24px;">
+        <div style="display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:24px;">
+            <div class="count-card" style="border-left:3px solid var(--accent-green); cursor:pointer;" onclick="scrollToGap('gap-priority-queue')">
+                <span class="count-value" id="gap-cnt-queue">0</span>
+                <span class="count-label">Articles to Write</span>
+            </div>
             <div class="count-card" id="gap-card-clusters" style="border-left:3px solid var(--accent-red); cursor:pointer;" onclick="scrollToGap('gap-underserved')">
                 <span class="count-value" id="gap-cnt-clusters">0</span>
                 <span class="count-label">Underserved Clusters</span>
@@ -1227,12 +1231,42 @@ async function loadGapsTab() {
 
         let html = '';
 
-        // Content Suggestions — flat ranked list
+        // Content Suggestions — flat ranked list with impact summary
         const allSugs = sugData.suggestions || [];
+        const qs = sugData.summary || {};
+        document.getElementById('gap-cnt-queue').textContent = qs.total_articles || 0;
+
         if (allSugs.length > 0) {
-            html += `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--accent-blue);">
+            const bt = qs.by_type || {};
+            html += `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--accent-blue);" id="gap-priority-queue">
                 <h3 style="margin-bottom:4px;">Content Priority Queue</h3>
-                <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Articles ranked by business impact — product support, category page coverage, and cluster gaps. Write these in order. Click any row to expand the full content brief.</p>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Articles ranked by business impact. Write these in order. Click any row to expand the full content brief.</p>
+
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;padding:14px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;">
+                    <div style="text-align:center;">
+                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">${qs.total_articles || 0}</div>
+                        <div style="font-size:11px;color:var(--text-muted);">Articles to Write</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">${qs.total_hours || 0}h</div>
+                        <div style="font-size:11px;color:var(--text-muted);">Est. Writing Time</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">${qs.clusters_covered || 0}</div>
+                        <div style="font-size:11px;color:var(--text-muted);">Clusters Covered</div>
+                    </div>
+                    <div style="text-align:center;">
+                        <div style="font-size:24px;font-weight:800;color:var(--text-primary);">${qs.avg_score || 0}</div>
+                        <div style="font-size:11px;color:var(--text-muted);">Avg Impact Score</div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:16px;margin-bottom:16px;padding:12px 14px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;font-size:12px;">
+                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-red);margin-right:4px;"></span><strong>${qs.high_impact || 0}</strong> high impact <span style="color:var(--text-muted);">(70+)</span></div>
+                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-orange);margin-right:4px;"></span><strong>${qs.med_impact || 0}</strong> medium <span style="color:var(--text-muted);">(45-69)</span></div>
+                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-blue);margin-right:4px;"></span><strong>${qs.low_impact || 0}</strong> lower <span style="color:var(--text-muted);">(&lt;45)</span></div>
+                    <div style="margin-left:auto;color:var(--text-muted);">${bt.product_support || 0} product &middot; ${bt.money_page_support || 0} category &middot; ${bt.topic_gap || 0} topic</div>
+                </div>
                 <div style="display:flex;flex-direction:column;gap:6px;">
                 ${allSugs.map(s => {
                     const uid = 'sug_' + s.rank;

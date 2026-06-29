@@ -1066,7 +1066,38 @@ def get_content_suggestions(cluster_id=None):
     for i, s in enumerate(all_suggestions, 1):
         s["rank"] = i
 
-    return all_suggestions
+    # Build impact summary
+    total = len(all_suggestions)
+    by_type = {}
+    for s in all_suggestions:
+        by_type[s["type"]] = by_type.get(s["type"], 0) + 1
+    clusters_covered = len({s["cluster_name"] for s in all_suggestions})
+    products_supported = len({s["title"] for s in all_suggestions if s["type"] == "product_support"})
+
+    hours_per_article = 4
+    total_hours = total * hours_per_article
+    avg_score = round(sum(s["score"] for s in all_suggestions) / total, 1) if total else 0
+    high_impact = sum(1 for s in all_suggestions if s["score"] >= 70)
+    med_impact = sum(1 for s in all_suggestions if 45 <= s["score"] < 70)
+    low_impact = sum(1 for s in all_suggestions if s["score"] < 45)
+
+    summary = {
+        "total_articles": total,
+        "total_hours": total_hours,
+        "avg_score": avg_score,
+        "high_impact": high_impact,
+        "med_impact": med_impact,
+        "low_impact": low_impact,
+        "clusters_covered": clusters_covered,
+        "products_supported": products_supported,
+        "by_type": {
+            "product_support": by_type.get("product_support", 0),
+            "money_page_support": by_type.get("money_page_support", 0),
+            "topic_gap": by_type.get("topic_gap", 0),
+        },
+    }
+
+    return {"suggestions": all_suggestions, "summary": summary}
 
 
 def _build_writing_prompt(title, cluster_name, money_pages, products, existing_titles):
