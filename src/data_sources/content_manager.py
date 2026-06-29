@@ -897,6 +897,27 @@ _PRODUCT_CLUSTER_MAP = {
 _CLUSTER_MATCH_NOISE = {"for", "the", "and", "toys", "by", "a", "an", "in", "of", "to"}
 
 
+_REVENUE_CLUSTERS = {
+    "Personalized Gifts & Toys", "Gift Buying Guides",
+    "Seasonal & Holiday Gifts", "Educational Toys", "Wooden Toys",
+}
+
+
+def _score_suggestion(sug, gap_ratio, cl_name):
+    """Score a suggestion 0-100 based on business impact."""
+    type_base = {"product_support": 45, "money_page_support": 30, "topic_gap": 12}
+    score = type_base.get(sug["type"], 10)
+    score += min(30, gap_ratio * 30)
+    if sug["type"] == "product_support":
+        existing = int(re.search(r'(\d+) supporting', sug.get("reason", "0")).group(1)) if re.search(r'(\d+) supporting', sug.get("reason", "")) else 0
+        score += (3 - existing) * 5
+    elif sug["type"] == "money_page_support":
+        score += 10
+    if cl_name in _REVENUE_CLUSTERS:
+        score += 10
+    return min(100, round(score))
+
+
 def get_content_suggestions(cluster_id=None):
     """Generate specific article topic suggestions based on gaps."""
     data = _load_data()
@@ -913,7 +934,7 @@ def get_content_suggestions(cluster_id=None):
     if cluster_id:
         target_clusters = [c for c in clusters if c["id"] == cluster_id]
 
-    suggestions = []
+    all_suggestions = []
     for cluster in target_clusters:
         cl_articles = [a for a in articles if a.get("cluster_id") == cluster["id"]]
         published = sum(1 for a in cl_articles if a.get("status") == "published")
@@ -922,6 +943,7 @@ def get_content_suggestions(cluster_id=None):
             continue
 
         cl_name = cluster["name"]
+        gap_ratio = (target - published) / max(target, 1)
         templates = _CONTENT_TEMPLATES.get(cl_name, [])
         cl_suggestions = []
 
@@ -998,6 +1020,10 @@ def get_content_suggestions(cluster_id=None):
                         "priority": "medium",
                     })
 
+        # Score each suggestion
+        for s in cl_suggestions:
+            s["score"] = _score_suggestion(s, gap_ratio, cl_name)
+
         # Find related money pages and products for this cluster
         related_money_pages = []
         for mp in money_pages:
@@ -1018,6 +1044,8 @@ def get_content_suggestions(cluster_id=None):
 
         # Enrich each suggestion with internal links and writing prompt
         for s in cl_suggestions:
+            s["cluster_name"] = cl_name
+            s["cluster_id"] = cluster["id"]
             s["internal_links"] = related_money_pages[:5]
             s["related_products"] = related_products[:5]
             s["related_articles"] = [
@@ -1029,23 +1057,16 @@ def get_content_suggestions(cluster_id=None):
                 related_products[:3], [a["title"] for a in cl_articles[:5]],
             )
 
-        # Limit per cluster: prioritize high, cap at 5
-        high = [s for s in cl_suggestions if s["priority"] == "high"]
-        medium = [s for s in cl_suggestions if s["priority"] == "medium"]
-        cl_suggestions = (high[:3] + medium)[:5]
+        # Limit per cluster: cap at 5
+        cl_suggestions.sort(key=lambda x: x["score"], reverse=True)
+        all_suggestions.extend(cl_suggestions[:5])
 
-        if cl_suggestions:
-            suggestions.append({
-                "cluster_id": cluster["id"],
-                "cluster_name": cl_name,
-                "published": published,
-                "target": target,
-                "gap": target - published,
-                "suggestions": cl_suggestions,
-            })
+    # Sort globally by score, assign rank
+    all_suggestions.sort(key=lambda x: x["score"], reverse=True)
+    for i, s in enumerate(all_suggestions, 1):
+        s["rank"] = i
 
-    suggestions.sort(key=lambda x: x["gap"], reverse=True)
-    return suggestions
+    return all_suggestions
 
 
 def _build_writing_prompt(title, cluster_name, money_pages, products, existing_titles):

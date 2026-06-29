@@ -1227,43 +1227,40 @@ async function loadGapsTab() {
 
         let html = '';
 
-        // Content Suggestions
+        // Content Suggestions — flat ranked list
         const allSugs = sugData.suggestions || [];
         if (allSugs.length > 0) {
             html += `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--accent-blue);">
-                <h3 style="margin-bottom:4px;">Suggested Articles to Write</h3>
-                <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Specific topic ideas with writing prompts, internal links, and product mentions. Click any topic to see the full content brief.</p>
-                ${allSugs.map(cluster => `
-                    <div style="margin-bottom:16px;">
-                        <h4 style="font-size:14px;margin-bottom:8px;color:var(--text-primary);">${escHtml(cluster.cluster_name)} <span style="font-size:12px;font-weight:400;color:var(--text-muted);">(${cluster.published}/${cluster.target} articles — ${cluster.gap} needed)</span></h4>
-                        <div style="display:flex;flex-direction:column;gap:6px;">
-                        ${cluster.suggestions.map((s, i) => {
-                            const uid = 'sug_' + cluster.cluster_id + '_' + i;
-                            const priColor = s.priority === 'high' ? 'var(--accent-red)' : 'var(--accent-orange)';
-                            const priLabel = s.priority === 'high' ? 'HIGH' : 'MED';
-                            const typeLabel = s.type === 'product_support' ? 'Product' : s.type === 'money_page_support' ? 'Category' : 'Topic';
-                            return `<div style="border:1px solid var(--border-color);border-radius:6px;overflow:hidden;">
-                                <div onclick="document.getElementById('${uid}').classList.toggle('hidden')" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;background:var(--bg-secondary);">
-                                    <span style="font-size:10px;font-weight:700;color:${priColor};background:${priColor}18;padding:2px 6px;border-radius:3px;">${priLabel}</span>
-                                    <span style="font-size:10px;font-weight:600;color:var(--accent-blue);background:var(--accent-blue)18;padding:2px 6px;border-radius:3px;">${typeLabel}</span>
-                                    <span style="font-weight:500;font-size:13px;flex:1;">${escHtml(s.title)}</span>
-                                    <span style="font-size:11px;color:var(--text-muted);">▼</span>
-                                </div>
-                                <div id="${uid}" class="hidden" style="padding:14px;border-top:1px solid var(--border-color);font-size:12px;">
-                                    <div style="margin-bottom:8px;color:var(--text-muted);font-style:italic;">${escHtml(s.reason)}</div>
-                                    ${(s.internal_links || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Link to these category pages:</strong><ul style="margin:4px 0 0 16px;">${s.internal_links.map(l => `<li><a href="${escHtml(l.url)}" target="_blank" style="color:var(--accent-blue);">${escHtml(l.anchor_text || l.url)}</a></li>`).join('')}</ul></div>` : ''}
-                                    ${(s.related_products || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Mention these products:</strong> ${s.related_products.map(p => escHtml(p.name)).join(', ')}</div>` : ''}
-                                    ${(s.related_articles || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Cross-link existing articles:</strong><ul style="margin:4px 0 0 16px;">${s.related_articles.map(a => `<li><a href="${escHtml(a.url)}" target="_blank" style="color:var(--accent-blue);">${escHtml(a.title)}</a></li>`).join('')}</ul></div>` : ''}
-                                    ${s.writing_prompt ? `<div style="margin-top:10px;"><strong>Full Writing Prompt:</strong>
-                                        <pre style="margin-top:6px;padding:12px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;white-space:pre-wrap;font-size:11px;line-height:1.5;max-height:400px;overflow-y:auto;">${escHtml(s.writing_prompt)}</pre>
-                                        <button onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Prompt',1500)" style="margin-top:6px;padding:5px 12px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);background:transparent;color:var(--accent-blue);border-radius:4px;cursor:pointer;">Copy Prompt</button>
-                                    </div>` : ''}
-                                </div>
-                            </div>`;
-                        }).join('')}
+                <h3 style="margin-bottom:4px;">Content Priority Queue</h3>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Articles ranked by business impact — product support, category page coverage, and cluster gaps. Write these in order. Click any row to expand the full content brief.</p>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                ${allSugs.map(s => {
+                    const uid = 'sug_' + s.rank;
+                    const scoreColor = s.score >= 70 ? 'var(--accent-red)' : s.score >= 45 ? 'var(--accent-orange)' : 'var(--accent-blue)';
+                    const typeLabel = s.type === 'product_support' ? 'Product' : s.type === 'money_page_support' ? 'Category' : 'Topic';
+                    const typeColor = s.type === 'product_support' ? '#8b5cf6' : s.type === 'money_page_support' ? 'var(--accent-green)' : 'var(--accent-blue)';
+                    return `<div style="border:1px solid var(--border-color);border-radius:6px;overflow:hidden;">
+                        <div onclick="document.getElementById('${uid}').classList.toggle('hidden')" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;background:var(--bg-secondary);">
+                            <span style="min-width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:${scoreColor};background:${scoreColor}12;border:2px solid ${scoreColor};border-radius:50%;">${s.rank}</span>
+                            <span style="font-size:10px;font-weight:700;color:${scoreColor};background:${scoreColor}18;padding:2px 6px;border-radius:3px;">${s.score}</span>
+                            <span style="font-size:10px;font-weight:600;color:${typeColor};background:${typeColor}18;padding:2px 6px;border-radius:3px;">${typeLabel}</span>
+                            <span style="font-weight:500;font-size:13px;flex:1;">${escHtml(s.title)}</span>
+                            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;">${escHtml(s.cluster_name)}</span>
+                            <span style="font-size:11px;color:var(--text-muted);">&#9660;</span>
                         </div>
-                    </div>
-                `).join('')}
+                        <div id="${uid}" class="hidden" style="padding:14px;border-top:1px solid var(--border-color);font-size:12px;">
+                            <div style="margin-bottom:8px;color:var(--text-muted);font-style:italic;">${escHtml(s.reason)}</div>
+                            ${(s.internal_links || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Link to these category pages:</strong><ul style="margin:4px 0 0 16px;">${s.internal_links.map(l => `<li><a href="${escHtml(l.url)}" target="_blank" style="color:var(--accent-blue);">${escHtml(l.anchor_text || l.url)}</a></li>`).join('')}</ul></div>` : ''}
+                            ${(s.related_products || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Mention these products:</strong> ${s.related_products.map(p => escHtml(p.name)).join(', ')}</div>` : ''}
+                            ${(s.related_articles || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Cross-link existing articles:</strong><ul style="margin:4px 0 0 16px;">${s.related_articles.map(a => `<li><a href="${escHtml(a.url)}" target="_blank" style="color:var(--accent-blue);">${escHtml(a.title)}</a></li>`).join('')}</ul></div>` : ''}
+                            ${s.writing_prompt ? `<div style="margin-top:10px;"><strong>Full Writing Prompt:</strong>
+                                <pre style="margin-top:6px;padding:12px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;white-space:pre-wrap;font-size:11px;line-height:1.5;max-height:400px;overflow-y:auto;">${escHtml(s.writing_prompt)}</pre>
+                                <button onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Prompt',1500)" style="margin-top:6px;padding:5px 12px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);background:transparent;color:var(--accent-blue);border-radius:4px;cursor:pointer;">Copy Prompt</button>
+                            </div>` : ''}
+                        </div>
+                    </div>`;
+                }).join('')}
+                </div>
             </div>`;
         }
 
