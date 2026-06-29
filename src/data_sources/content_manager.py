@@ -73,6 +73,22 @@ def _load_keywords():
 
 _DOMAIN_NOISE = {"alphabet", "trains", "train", "com", "www", "blog", "post", "https", "http"}
 
+_NOT_CRAWLED = re.compile(r'^\[?NOT[_ ]?CRAWLED\]?$', re.IGNORECASE)
+
+
+def _clean_title(title):
+    """Return empty string for placeholder titles like [NOT_CRAWLED]."""
+    if not title or _NOT_CRAWLED.match(title.strip()):
+        return ""
+    return title.strip()
+
+
+def _title_from_slug(slug):
+    """Generate a human-readable title from a URL slug."""
+    name = slug.rsplit("/", 1)[-1]
+    name = re.sub(r'\.html?$', '', name)
+    return name.replace("-", " ").replace("_", " ").strip().title()
+
 
 def _match_cluster(title, h1, url, clusters):
     """Match an article to the best cluster based on title/h1/URL content."""
@@ -230,12 +246,12 @@ def auto_discover():
         seen_slugs.add(slug)
         if url in existing_urls:
             continue
-        title = page_data.get("title", "")
-        h1 = page_data.get("h1", "")
+        title = _clean_title(page_data.get("title", ""))
+        h1 = _clean_title(page_data.get("h1", ""))
         cluster_id = _match_cluster(title, h1, url, data["clusters"])
         data["articles"].append({
             "id": f"art_{int(time.time())}_{len(data['articles'])}",
-            "title": title or h1 or slug.replace("-", " ").title(),
+            "title": title or h1 or _title_from_slug(slug),
             "url": url,
             "cluster_id": cluster_id,
             "sub_cluster_id": None,
@@ -259,14 +275,14 @@ def auto_discover():
     for url, page_data in non_blog_pages:
         if url in existing_mp_urls:
             continue
-        title = page_data.get("title", "")
-        h1 = page_data.get("h1", "")
+        title = _clean_title(page_data.get("title", ""))
+        h1 = _clean_title(page_data.get("h1", ""))
         path = re.sub(r'https?://[^/]+', '', url).rstrip("/")
         is_category = bool(_CATEGORY_PATTERNS.search(path))
         data["money_pages"].append({
             "id": f"mp_{int(time.time())}_{len(data['money_pages'])}",
             "url": url,
-            "title": title or h1 or "",
+            "title": title or h1 or _title_from_slug(path),
             "type": "category" if is_category else "product",
             "supporting_articles": [],
             "target_articles": 5 if is_category else 0,
