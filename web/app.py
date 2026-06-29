@@ -30,6 +30,7 @@ from src.data_sources.moz_client import MozClient
 from src.data_sources import serp_client
 from src.data_sources.crux_client import CrUXClient
 from src.data_sources import ai_visibility
+from src.data_sources import content_manager
 from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
 
 
@@ -378,6 +379,12 @@ def link_map():
 def growth():
     """Growth & AI Visibility view."""
     return render_template("growth.html")
+
+
+@app.route("/content")
+def content_page():
+    """Content Strategy view."""
+    return render_template("content.html")
 
 
 # ============================================================
@@ -4989,6 +4996,120 @@ def api_internal_link_map():
         "total": len(pages_out),
         "timestamp": eval_data.get("timestamp", ""),
     })
+
+
+# ============================================================
+# CONTENT MANAGEMENT API
+# ============================================================
+
+@app.route("/api/content/dashboard")
+def api_content_dashboard():
+    """Get content strategy dashboard data."""
+    try:
+        return jsonify(content_manager.get_dashboard())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/content/discover", methods=["POST"])
+def api_content_discover():
+    """Auto-discover content from site data."""
+    try:
+        result = content_manager.auto_discover()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/content/clusters")
+def api_content_clusters():
+    """Get all clusters."""
+    return jsonify({"clusters": content_manager.get_clusters()})
+
+
+@app.route("/api/content/clusters", methods=["POST"])
+def api_content_create_cluster():
+    """Create a new cluster."""
+    data = request.get_json(force=True)
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Name is required"}), 400
+    cluster = content_manager.create_cluster(
+        name=name,
+        description=data.get("description", ""),
+        priority=data.get("priority", "medium"),
+        target_articles=data.get("target_articles", 20),
+    )
+    return jsonify(cluster)
+
+
+@app.route("/api/content/clusters/<cluster_id>", methods=["PUT"])
+def api_content_update_cluster(cluster_id):
+    """Update a cluster."""
+    updates = request.get_json(force=True)
+    result = content_manager.update_cluster(cluster_id, updates)
+    if result is None:
+        return jsonify({"error": "Cluster not found"}), 404
+    return jsonify(result)
+
+
+@app.route("/api/content/clusters/<cluster_id>", methods=["DELETE"])
+def api_content_delete_cluster(cluster_id):
+    """Delete a cluster."""
+    content_manager.delete_cluster(cluster_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/content/articles")
+def api_content_articles():
+    """Get articles, optionally filtered by cluster or status."""
+    cluster_id = request.args.get("cluster_id")
+    status = request.args.get("status")
+    return jsonify({"articles": content_manager.get_articles(cluster_id=cluster_id, status=status)})
+
+
+@app.route("/api/content/articles", methods=["POST"])
+def api_content_create_article():
+    """Create a new article."""
+    data = request.get_json(force=True)
+    title = data.get("title", "").strip()
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    article = content_manager.create_article(
+        title=title,
+        cluster_id=data.get("cluster_id"),
+        **{k: v for k, v in data.items() if k not in ("title", "cluster_id")},
+    )
+    return jsonify(article)
+
+
+@app.route("/api/content/articles/<article_id>", methods=["PUT"])
+def api_content_update_article(article_id):
+    """Update an article."""
+    updates = request.get_json(force=True)
+    result = content_manager.update_article(article_id, updates)
+    if result is None:
+        return jsonify({"error": "Article not found"}), 404
+    return jsonify(result)
+
+
+@app.route("/api/content/articles/<article_id>", methods=["DELETE"])
+def api_content_delete_article(article_id):
+    """Delete an article."""
+    content_manager.delete_article(article_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/content/money-pages")
+def api_content_money_pages():
+    """Get all money pages."""
+    return jsonify({"money_pages": content_manager.get_money_pages()})
+
+
+@app.route("/api/content/products")
+def api_content_products():
+    """Get all products."""
+    return jsonify({"products": content_manager.get_products()})
 
 
 @app.route("/api/job-status")

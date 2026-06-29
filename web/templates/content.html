@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block title %}Content{% endblock %}
+{% block header %}Content Strategy{% endblock %}
+
+{% block content %}
+<div class="content-page">
+    <!-- Status Banner -->
+    <div class="status-banner" id="cm-status-banner" style="margin-bottom:20px;">
+        <div class="status-icon" id="cm-status-icon">...</div>
+        <div class="status-text">
+            <h2 id="cm-status-title">Loading...</h2>
+            <p id="cm-status-message">Loading content data...</p>
+        </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="count-row" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:16px; margin-bottom:20px;">
+        <div class="count-card" style="border-left:3px solid var(--accent-blue);">
+            <span class="count-value" id="cm-clusters">0</span>
+            <span class="count-label">Topic Clusters</span>
+            <p class="count-desc" id="cm-clusters-desc">—</p>
+        </div>
+        <div class="count-card" style="border-left:3px solid var(--accent-green);">
+            <span class="count-value" id="cm-articles">0</span>
+            <span class="count-label">Articles</span>
+            <p class="count-desc" id="cm-articles-desc">—</p>
+        </div>
+        <div class="count-card" style="border-left:3px solid var(--accent-purple);">
+            <span class="count-value" id="cm-money-pages">0</span>
+            <span class="count-label">Money Pages</span>
+            <p class="count-desc" id="cm-money-desc">—</p>
+        </div>
+        <div class="count-card" style="border-left:3px solid var(--accent-orange);">
+            <span class="count-value" id="cm-products">0</span>
+            <span class="count-label">Products</span>
+            <p class="count-desc" id="cm-products-desc">—</p>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div style="display:flex; gap:12px; margin-bottom:24px;">
+        <button id="btn-discover" onclick="runDiscovery()" class="btn-primary"
+            style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+            background:var(--accent-blue); color:#fff; cursor:pointer;">
+            Auto-Discover Content
+        </button>
+    </div>
+
+    <!-- Cluster Overview Table -->
+    <div class="card full-width" style="margin-bottom:24px;">
+        <h3 style="margin-bottom:16px;">Topic Clusters</h3>
+        <div id="cm-clusters-empty" style="display:none; padding:32px; text-align:center; color:var(--text-muted);">
+            No clusters yet. Click "Auto-Discover Content" to populate from your site data and product families.
+        </div>
+        <table class="data-table" id="cm-clusters-table" style="display:none;">
+            <thead>
+                <tr>
+                    <th>Cluster</th>
+                    <th>Priority</th>
+                    <th>Articles</th>
+                    <th>Published</th>
+                    <th>Target</th>
+                    <th>Completion</th>
+                </tr>
+            </thead>
+            <tbody id="cm-clusters-body"></tbody>
+        </table>
+    </div>
+
+    <!-- Two-Column Layout: Products + Recent Articles -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:24px;">
+        <!-- Product Coverage -->
+        <div class="card">
+            <h3 style="margin-bottom:16px;">Product Coverage</h3>
+            <div id="cm-products-empty" style="display:none; padding:24px; text-align:center; color:var(--text-muted);">
+                No products found.
+            </div>
+            <table class="data-table" id="cm-products-table" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Supporting Articles</th>
+                    </tr>
+                </thead>
+                <tbody id="cm-products-body"></tbody>
+            </table>
+        </div>
+
+        <!-- Recent Articles -->
+        <div class="card">
+            <h3 style="margin-bottom:16px;">Recent Articles</h3>
+            <div id="cm-recent-empty" style="display:none; padding:24px; text-align:center; color:var(--text-muted);">
+                No articles found.
+            </div>
+            <div id="cm-recent-list"></div>
+        </div>
+    </div>
+
+    <!-- Article Status Breakdown -->
+    <div class="card full-width" style="margin-bottom:24px;">
+        <h3 style="margin-bottom:16px;">Article Status Breakdown</h3>
+        <div id="cm-status-bars" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function priorityBadge(p) {
+    const colors = {high:'var(--accent-red)',medium:'var(--accent-yellow)',low:'var(--accent-green)'};
+    const c = colors[p] || 'var(--text-muted)';
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${c}15;color:${c};">${escHtml(p)}</span>`;
+}
+
+function completionBar(pct) {
+    const c = pct >= 75 ? 'var(--accent-green)' : pct >= 40 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+    return `<div style="display:flex;align-items:center;gap:8px;">
+        <div style="flex:1;height:8px;background:var(--border-color);border-radius:4px;overflow:hidden;min-width:60px;">
+            <div style="width:${Math.min(pct,100)}%;height:100%;background:${c};border-radius:4px;"></div>
+        </div>
+        <span style="font-size:12px;font-weight:600;color:${c};min-width:36px;">${pct}%</span>
+    </div>`;
+}
+
+async function loadDashboard() {
+    const banner = document.getElementById('cm-status-banner');
+    const icon = document.getElementById('cm-status-icon');
+    const title = document.getElementById('cm-status-title');
+    const msg = document.getElementById('cm-status-message');
+
+    try {
+        const res = await fetch('/api/content/dashboard');
+        const d = await res.json();
+
+        // KPI Cards
+        document.getElementById('cm-clusters').textContent = d.total_clusters || 0;
+        document.getElementById('cm-articles').textContent = d.total_articles || 0;
+        document.getElementById('cm-money-pages').textContent = d.total_money_pages || 0;
+        document.getElementById('cm-products').textContent = d.total_products || 0;
+
+        const published = (d.status_counts || {}).published || 0;
+        document.getElementById('cm-clusters-desc').textContent =
+            d.total_clusters ? d.total_clusters + ' active clusters' : 'No clusters yet';
+        document.getElementById('cm-articles-desc').textContent =
+            d.total_articles ? published + ' published' : 'No articles yet';
+        document.getElementById('cm-money-desc').textContent =
+            d.total_money_pages ? d.total_money_pages + ' category/product pages' : 'None found';
+        document.getElementById('cm-products-desc').textContent =
+            d.unlinked_articles ? d.unlinked_articles + ' unlinked articles' : 'All articles linked';
+
+        // Status Banner
+        if (d.total_clusters === 0 && d.total_articles === 0) {
+            banner.style.borderLeft = '4px solid var(--accent-yellow)';
+            icon.textContent = '!';
+            icon.style.background = 'var(--accent-yellow)';
+            icon.style.color = '#fff';
+            icon.style.borderRadius = '50%';
+            icon.style.width = '28px';
+            icon.style.height = '28px';
+            icon.style.display = 'flex';
+            icon.style.alignItems = 'center';
+            icon.style.justifyContent = 'center';
+            icon.style.fontWeight = '700';
+            title.textContent = 'No content data yet';
+            msg.textContent = 'Click "Auto-Discover Content" to scan your site pages and product families.';
+        } else {
+            banner.style.borderLeft = '4px solid var(--accent-green)';
+            icon.textContent = '';
+            icon.style.background = 'var(--accent-green)';
+            icon.style.color = '#fff';
+            icon.style.borderRadius = '50%';
+            icon.style.width = '28px';
+            icon.style.height = '28px';
+            icon.style.display = 'flex';
+            icon.style.alignItems = 'center';
+            icon.style.justifyContent = 'center';
+            icon.style.fontWeight = '700';
+            title.textContent = 'Content strategy loaded';
+            msg.textContent = d.last_analysis
+                ? 'Last analysis: ' + new Date(d.last_analysis).toLocaleDateString()
+                : '';
+        }
+
+        // Cluster Table
+        const clusters = d.cluster_stats || [];
+        const clTable = document.getElementById('cm-clusters-table');
+        const clEmpty = document.getElementById('cm-clusters-empty');
+        if (clusters.length === 0) {
+            clTable.style.display = 'none';
+            clEmpty.style.display = 'block';
+        } else {
+            clTable.style.display = 'table';
+            clEmpty.style.display = 'none';
+            document.getElementById('cm-clusters-body').innerHTML = clusters.map(c =>
+                `<tr>
+                    <td><strong>${escHtml(c.name)}</strong></td>
+                    <td>${priorityBadge(c.priority)}</td>
+                    <td>${c.total_articles}</td>
+                    <td>${c.published}</td>
+                    <td>${c.target}</td>
+                    <td style="min-width:120px;">${completionBar(c.completion)}</td>
+                </tr>`
+            ).join('');
+        }
+
+        // Products Table
+        const products = d.product_stats || [];
+        const prTable = document.getElementById('cm-products-table');
+        const prEmpty = document.getElementById('cm-products-empty');
+        if (products.length === 0) {
+            prTable.style.display = 'none';
+            prEmpty.style.display = 'block';
+        } else {
+            prTable.style.display = 'table';
+            prEmpty.style.display = 'none';
+            document.getElementById('cm-products-body').innerHTML = products.map(p =>
+                `<tr>
+                    <td>${escHtml(p.name)}</td>
+                    <td><span style="font-weight:600;color:${p.supporting_count > 0 ? 'var(--accent-green)' : 'var(--accent-red)'};">${p.supporting_count}</span></td>
+                </tr>`
+            ).join('');
+        }
+
+        // Recent Articles
+        const recent = d.recent_articles || [];
+        const recentList = document.getElementById('cm-recent-list');
+        const recentEmpty = document.getElementById('cm-recent-empty');
+        if (recent.length === 0) {
+            recentEmpty.style.display = 'block';
+            recentList.innerHTML = '';
+        } else {
+            recentEmpty.style.display = 'none';
+            recentList.innerHTML = recent.map(a => {
+                const statusColors = {published:'var(--accent-green)',draft:'var(--accent-yellow)',idea:'var(--text-muted)',writing:'var(--accent-blue)'};
+                const sc = statusColors[a.status] || 'var(--text-muted)';
+                return `<div style="padding:8px 0; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center;">
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(a.title || 'Untitled')}</div>
+                        <div style="font-size:11px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(a.url || '')}</div>
+                    </div>
+                    <span style="font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; background:${sc}15; color:${sc}; margin-left:8px; white-space:nowrap;">${escHtml(a.status || 'idea')}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // Status Breakdown
+        const statusCounts = d.status_counts || {};
+        const statusBars = document.getElementById('cm-status-bars');
+        const total = d.total_articles || 1;
+        const statusColors = {published:'var(--accent-green)',draft:'var(--accent-yellow)',idea:'var(--text-muted)',writing:'var(--accent-blue)',review:'var(--accent-purple)'};
+        statusBars.innerHTML = Object.entries(statusCounts).map(([status, count]) => {
+            const pct = Math.round(count / total * 100);
+            const c = statusColors[status] || 'var(--text-muted)';
+            return `<div style="flex:1; min-width:120px; padding:12px; background:${c}08; border-radius:8px; border:1px solid ${c}20;">
+                <div style="font-size:20px; font-weight:700; color:${c};">${count}</div>
+                <div style="font-size:12px; color:var(--text-secondary); text-transform:capitalize;">${escHtml(status)}</div>
+                <div style="font-size:11px; color:var(--text-muted);">${pct}% of total</div>
+            </div>`;
+        }).join('');
+
+    } catch (err) {
+        banner.style.borderLeft = '4px solid var(--accent-red)';
+        icon.textContent = '!';
+        title.textContent = 'Error loading content data';
+        msg.textContent = err.message;
+    }
+}
+
+async function runDiscovery() {
+    const btn = document.getElementById('btn-discover');
+    btn.disabled = true;
+    btn.textContent = 'Discovering...';
+    btn.style.opacity = '0.6';
+
+    try {
+        const res = await fetch('/api/content/discover', {method:'POST'});
+        const d = await res.json();
+        if (d.error) {
+            alert('Discovery failed: ' + d.error);
+        } else {
+            btn.textContent = `Found ${d.clusters} clusters, ${d.articles} articles, ${d.money_pages} money pages`;
+            await loadDashboard();
+            setTimeout(() => {
+                btn.textContent = 'Auto-Discover Content';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }, 3000);
+        }
+    } catch (err) {
+        alert('Discovery failed: ' + err.message);
+        btn.textContent = 'Auto-Discover Content';
+        btn.disabled = false;
+        btn.style.opacity = '1';
+    }
+}
+
+loadDashboard();
+</script>
+{% endblock %}
