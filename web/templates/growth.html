@@ -483,6 +483,9 @@ function moverRow(m, isGain) {
 }
 
 // ── AI Visibility Grid ──
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+}
 function renderVisibilityGrid(vis) {
     const grid = document.getElementById('visibility-grid');
     const empty = document.getElementById('visibility-empty');
@@ -566,7 +569,7 @@ function renderVisibilityGrid(vis) {
                 <div class="rec-list">
                     ${recs.map(r => `<div class="rec-item rec-${r.priority}">
                         <span class="rec-priority">${r.priority.toUpperCase()}</span>
-                        ${r.action}
+                        ${escHtml(r.action)}
                     </div>`).join('')}
                 </div>
             </td></tr>`;
