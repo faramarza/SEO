@@ -5021,6 +5021,16 @@ def api_content_discover():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/content/rediscover", methods=["POST"])
+def api_content_rediscover():
+    """Clear all content data and re-discover from scratch."""
+    try:
+        result = content_manager.rediscover()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/content/clusters")
 def api_content_clusters():
     """Get all clusters."""

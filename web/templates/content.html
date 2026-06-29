@@ -81,6 +81,11 @@
                 background:var(--accent-blue); color:#fff; cursor:pointer;">
                 Auto-Discover Content
             </button>
+            <button id="btn-rediscover" onclick="runRediscovery()"
+                style="padding:8px 20px; font-size:13px; font-weight:600; border:none; border-radius:6px;
+                background:transparent; border:1px solid var(--accent-orange); color:var(--accent-orange); cursor:pointer;">
+                Reset &amp; Re-Discover
+            </button>
         </div>
 
         <!-- Cluster Overview Table -->
@@ -600,6 +605,28 @@ async function runDiscovery() {
     } catch (err) {
         alert('Discovery failed: ' + err.message);
         btn.textContent = 'Auto-Discover Content'; btn.disabled = false; btn.style.opacity = '1';
+    }
+}
+
+async function runRediscovery() {
+    if (!confirm('This will clear ALL content data (clusters, articles, money pages, products) and re-discover everything from scratch. Continue?')) return;
+    const btn = document.getElementById('btn-rediscover');
+    btn.disabled = true;
+    btn.textContent = 'Re-discovering...';
+    btn.style.opacity = '0.6';
+    try {
+        const res = await fetch('/api/content/rediscover', {method:'POST'});
+        const d = await res.json();
+        if (d.error) {
+            alert('Re-discovery failed: ' + d.error);
+        } else {
+            btn.textContent = `Found ${d.clusters} clusters, ${d.articles} articles, ${d.money_pages} money pages`;
+            await loadDashboard();
+            setTimeout(() => { btn.innerHTML = 'Reset &amp; Re-Discover'; btn.disabled = false; btn.style.opacity = '1'; }, 3000);
+        }
+    } catch (err) {
+        alert('Re-discovery failed: ' + err.message);
+        btn.innerHTML = 'Reset &amp; Re-Discover'; btn.disabled = false; btn.style.opacity = '1';
     }
 }
 

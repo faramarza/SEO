@@ -50,7 +50,7 @@
   "business_context": {
     "aov": 53.19,
     "break_even_roas": 4.0,
-    "product_families": ["name trains", "puzzles", "step stools", "books", "blocks", "rugs", "wooden toys", "play kitchens", "art supplies"]
+    "product_families": ["name trains", "personalized name puzzles", "personalized step stools", "personalized baby books", "personalized baby gifts", "personalized toys", "montessori toys", "classroom rugs", "kids furniture"]
   },
   "available_target_pages": {
     "category_urls": [],

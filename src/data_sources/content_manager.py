@@ -71,18 +71,35 @@ def _load_keywords():
     return []
 
 
+_DOMAIN_NOISE = {"alphabet", "trains", "train", "com", "www", "blog", "post", "https", "http"}
+
+
 def _match_cluster(title, h1, url, clusters):
-    """Match an article to a cluster based on its title/h1/URL."""
-    text = f"{title} {h1} {url}".lower()
-    best_match = None
-    best_score = 0
+    """Match an article to the best cluster based on title/h1 content."""
+    path = re.sub(r'https?://[^/]+', '', url)
+    text = f"{title} {h1} {path}".lower()
+
+    matches = []
     for cluster in clusters:
-        name_words = [w for w in cluster["name"].lower().split() if len(w) > 2]
-        score = sum(1 for w in name_words if w in text)
-        if score > best_score:
-            best_score = score
-            best_match = cluster["id"]
-    return best_match
+        # Use the regex pattern from _TOPIC_PATTERNS if this cluster was auto-discovered
+        cl_name = cluster["name"]
+        for pattern, topic_name in _TOPIC_PATTERNS:
+            if topic_name == cl_name and re.search(pattern, text):
+                matches.append((cluster["id"], len(cl_name)))
+                break
+        else:
+            # Fallback: word matching for product family clusters
+            name_words = [w for w in cl_name.lower().split() if len(w) > 2 and w not in _DOMAIN_NOISE]
+            if not name_words:
+                continue
+            score = sum(1 for w in name_words if w in text)
+            if score >= len(name_words):
+                matches.append((cluster["id"], score))
+
+    if not matches:
+        return None
+    matches.sort(key=lambda x: x[1], reverse=True)
+    return matches[0][0]
 
 
 _SKIP_PATHS = {
@@ -90,6 +107,43 @@ _SKIP_PATHS = {
     "/terms", "/contact", "/about-us", "/shipping", "/return",
     "/sitemap", "/wishlist", "/customer", "/catalogsearch", "/review",
 }
+
+
+_TOPIC_PATTERNS = [
+    (r'\bmontessori\b', "Montessori"),
+    (r'\bwaldorf\b', "Waldorf"),
+    (r'\bstem\b', "STEM"),
+    (r'\bfine\s*motor\b', "Fine Motor Skills"),
+    (r'\bgross\s*motor\b', "Gross Motor Skills"),
+    (r'\bsensory\b', "Sensory Play"),
+    (r'\bpersonaliz', "Personalized Gifts"),
+    (r'\beducational\s+toy', "Educational Toys"),
+    (r'\btoddler\b', "Toddler Activities"),
+    (r'\bpreschool', "Preschool Activities"),
+    (r'\bbaby\s+gift|gift\s+guide|gifts?\s+for', "Gift Guides"),
+    (r'\bcircle\s*time\b', "Circle Time"),
+    (r'\balphabet\b|\bletter', "Alphabet & Letters"),
+    (r'\blearn.*read|reading\b', "Reading & Literacy"),
+    (r'\bmath\b|\bcounting\b|\bnumber', "Math & Numbers"),
+    (r'\bart\b.*\bcraft|\bcraft', "Arts & Crafts"),
+    (r'\boutdoor\b', "Outdoor Play"),
+    (r'\bmusic\b|\brhythm\b', "Music & Rhythm"),
+]
+
+
+def _discover_topic_clusters(inventory):
+    """Extract topic themes from blog titles/h1s."""
+    topic_counts = {}
+    for url, page_data in inventory.items():
+        if not isinstance(page_data, dict):
+            continue
+        if "/blog/" not in url and "/post/" not in url:
+            continue
+        text = f"{page_data.get('title', '')} {page_data.get('h1', '')}".lower()
+        for pattern, topic_name in _TOPIC_PATTERNS:
+            if re.search(pattern, text):
+                topic_counts[topic_name] = topic_counts.get(topic_name, 0) + 1
+    return {name: count for name, count in topic_counts.items() if count >= 2}
 
 
 def auto_discover():
@@ -102,6 +156,8 @@ def auto_discover():
     product_families = config.get("business_context", {}).get("product_families", [])
 
     existing_cluster_names = {c["name"].lower() for c in data["clusters"]}
+
+    # Create clusters from product families
     for i, pf in enumerate(product_families):
         if pf.lower() not in existing_cluster_names:
             data["clusters"].append({
@@ -116,6 +172,25 @@ def auto_discover():
                 "sub_clusters": [],
                 "created_at": datetime.now().isoformat(),
             })
+            existing_cluster_names.add(pf.lower())
+
+    # Discover topic clusters from blog content
+    topic_counts = _discover_topic_clusters(inventory)
+    for j, (topic_name, count) in enumerate(sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)):
+        if topic_name.lower() not in existing_cluster_names:
+            data["clusters"].append({
+                "id": f"cl_{int(time.time())}_t{j}",
+                "name": topic_name,
+                "description": f"Auto-discovered from {count} blog articles",
+                "priority": "high" if count >= 10 else "medium",
+                "status": "active",
+                "target_articles": max(count * 2, 10),
+                "pillar_page": None,
+                "money_pages": [],
+                "sub_clusters": [],
+                "created_at": datetime.now().isoformat(),
+            })
+            existing_cluster_names.add(topic_name.lower())
 
     existing_urls = {a["url"] for a in data["articles"]}
     existing_mp_urls = {mp["url"] for mp in data["money_pages"]}
@@ -199,6 +274,14 @@ def auto_discover():
                 if prod_words and all(w in art_text for w in prod_words):
                     article["products_supported"].append(prod["name"])
 
+    # Re-assign clusters for articles that have no cluster or were mis-assigned
+    for article in data["articles"]:
+        new_cluster = _match_cluster(
+            article.get("title", ""), "", article.get("url", ""), data["clusters"]
+        )
+        if new_cluster:
+            article["cluster_id"] = new_cluster
+
     data["last_analysis"] = datetime.now().isoformat()
     _save_data(data)
 
@@ -208,6 +291,18 @@ def auto_discover():
         "money_pages": len(data["money_pages"]),
         "products": len(data["products"]),
     }
+
+
+def rediscover():
+    """Clear all content data and re-run discovery from scratch."""
+    _save_data({
+        "clusters": [],
+        "articles": [],
+        "money_pages": [],
+        "products": [],
+        "last_analysis": None,
+    })
+    return auto_discover()
 
 
 def get_dashboard():
