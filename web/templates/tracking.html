@@ -120,10 +120,23 @@
         <!-- Per-Page Table -->
         <div class="card">
             <div style="overflow-x:auto;">
-                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                <table id="dq-table" style="width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed;">
+                    <colgroup>
+                        <col id="col-url" style="width:350px;">
+                        <col style="width:60px;">
+                        <col style="width:80px;">
+                        <col style="width:80px;">
+                        <col style="width:70px;">
+                        <col style="width:70px;">
+                        <col style="width:70px;">
+                        <col style="width:70px;">
+                        <col style="width:70px;">
+                        <col style="width:65px;">
+                        <col style="width:60px;">
+                    </colgroup>
                     <thead>
                         <tr style="border-bottom:2px solid var(--border-color); text-align:left;">
-                            <th style="padding:8px 12px; font-weight:600; color:var(--text-secondary);">URL</th>
+                            <th style="padding:8px 12px; font-weight:600; color:var(--text-secondary); position:relative;">URL<div class="col-resize-handle" data-col="col-url"></div></th>
                             <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary);">Type</th>
                             <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GSC Impr.</th>
                             <th style="padding:8px 8px; font-weight:600; color:var(--text-secondary); text-align:right;">GSC Clicks</th>
@@ -335,7 +348,6 @@ function renderDQTable(pages) {
 
     tbody.innerHTML = display.map(p => {
         const shortUrl = p.url.replace(/^https?:\/\/[^/]+/, '');
-        const truncUrl = shortUrl.length > 50 ? shortUrl.slice(0, 47) + '...' : shortUrl;
 
         // Ratio badge color
         let ratioBg, ratioColor, ratioText;
@@ -373,7 +385,7 @@ function renderDQTable(pages) {
         const typeColors = { product: 'var(--accent-blue)', category: 'var(--accent-teal)', blog: 'var(--accent-purple)', other: 'var(--text-muted)' };
 
         return `<tr style="border-bottom:1px solid var(--border-light);">
-            <td style="padding:6px 12px; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${shortUrl}">${truncUrl}</td>
+            <td style="padding:6px 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:default; user-select:text;" title="${shortUrl}">${shortUrl}</td>
             <td style="padding:6px 8px;"><span style="color:${typeColors[p.asset_type] || 'inherit'}; font-size:11px; text-transform:uppercase; font-weight:600;">${p.asset_type}</span></td>
             <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums;">${p.gsc_impressions.toLocaleString()}</td>
             <td style="padding:6px 8px; text-align:right; font-variant-numeric:tabular-nums; font-weight:600;">${p.gsc_clicks.toLocaleString()}</td>
@@ -477,6 +489,53 @@ function renderIssue(issue, tier) {
 async function runDiagnostics() {
     alert('Run diagnostics from CLI:\npython scripts/run_diagnostics.py');
 }
+
+// ── Column resize ──
+(function() {
+    const style = document.createElement('style');
+    style.textContent = `
+        .col-resize-handle {
+            position:absolute; right:0; top:0; bottom:0; width:6px;
+            cursor:col-resize; background:transparent; z-index:2;
+        }
+        .col-resize-handle:hover, .col-resize-handle.active {
+            background:var(--accent-blue);
+            opacity:0.4;
+        }
+    `;
+    document.head.appendChild(style);
+
+    let dragging = null, startX = 0, startW = 0;
+
+    document.addEventListener('mousedown', e => {
+        const handle = e.target.closest('.col-resize-handle');
+        if (!handle) return;
+        e.preventDefault();
+        const colId = handle.dataset.col;
+        const col = document.getElementById(colId);
+        if (!col) return;
+        dragging = col;
+        startX = e.clientX;
+        startW = col.offsetWidth || parseInt(col.style.width) || 350;
+        handle.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const w = Math.max(100, startW + (e.clientX - startX));
+        dragging.style.width = w + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        document.querySelectorAll('.col-resize-handle.active').forEach(h => h.classList.remove('active'));
+        dragging = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    });
+})();
 
 // Load both tabs
 loadDataQuality();
