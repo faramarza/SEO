@@ -109,6 +109,27 @@ _SKIP_PATHS = {
     "/sitemap", "/wishlist", "/customer", "/catalogsearch", "/review",
 }
 
+_BLOG_SKIP_PATTERNS = re.compile(r'/blog/(author|archive|tag|category|page)/')
+
+_CATEGORY_PATTERNS = re.compile(
+    r'^/('
+    r'name-trains|wooden-name-puzzles|personalized-step-stools|'
+    r'personalized-baby-books|personalized-books-for-kids|'
+    r'personalized-baby-gifts|personalized-toys|personalized-coloring-books|'
+    r'personalized-growth-charts|personalized-baby-blankets|'
+    r'montessori-toys[^/]*|made-in-usa-montessori-toys|'
+    r'classroom-rugs[^/]*|playroom-carpets|sensory-carpets|bilingual-rugs-for-kids|'
+    r'kids-furniture|kids-chairs|kids-tables|classroom-furniture|playroom-furniture|'
+    r'kids-puzzles|kids-educational-toys|kids-step-stools|'
+    r'wooden-blocks|wooden-train-sets|sorting-toys|stacking-toys|sensory-toys|'
+    r'magnetic-toys|pretend-play-toys|stem-toys|toy-boxes|dollhouse-furniture|'
+    r'number-trains|nursery-decor|'
+    r'shop-by-brands[^/]*|'
+    r'specials|featured-products|free-montessori-printables'
+    r')\.html$',
+    re.IGNORECASE,
+)
+
 
 _TOPIC_PATTERNS = [
     (r'\bpersonaliz', "Personalized Gifts & Toys"),
@@ -175,56 +196,83 @@ def auto_discover():
     existing_urls = {a["url"] for a in data["articles"]}
     existing_mp_urls = {mp["url"] for mp in data["money_pages"]}
 
+    # Deduplicate blog URLs: many posts appear at both /blog/post/slug and /blog/slug
+    # Keep only the canonical (non-/post/) version; track seen slugs
+    seen_slugs = set()
+    for a in data["articles"]:
+        slug = re.sub(r'.*/blog(/post)?/', '', a.get("url", "")).rstrip("/").lower()
+        seen_slugs.add(slug)
+
+    blog_candidates = []
+    non_blog_pages = []
     for url, page_data in inventory.items():
         if not isinstance(page_data, dict):
             continue
-
-        title = page_data.get("title", "")
-        h1 = page_data.get("h1", "")
         path = re.sub(r'https?://[^/]+', '', url).lower()
-
         if any(s in path for s in _SKIP_PATHS):
             continue
         if path in ("/", "") or path.rstrip("/") in ("/blog", "/faqs"):
             continue
-
         is_blog = "/blog/" in url or "/post/" in url
         is_faq = "/faq" in path
+        if is_blog:
+            blog_candidates.append((url, page_data))
+        elif not is_faq:
+            non_blog_pages.append((url, page_data))
 
-        if is_blog and url not in existing_urls:
-            cluster_id = _match_cluster(title, h1, url, data["clusters"])
-            data["articles"].append({
-                "id": f"art_{int(time.time())}_{len(data['articles'])}",
-                "title": title or h1 or path.split("/")[-1],
-                "url": url,
-                "cluster_id": cluster_id,
-                "sub_cluster_id": None,
-                "status": "published",
-                "primary_keyword": None,
-                "secondary_keywords": [],
-                "search_intent": "informational",
-                "search_volume": 0,
-                "keyword_difficulty": 0,
-                "business_value": "medium",
-                "revenue_potential": "medium",
-                "evergreen": True,
-                "target_word_count": 1500,
-                "products_supported": [],
-                "money_pages": [],
-                "notes": "",
-                "created_at": datetime.now().isoformat(),
-            })
-        elif not is_blog and not is_faq and url not in existing_mp_urls:
-            data["money_pages"].append({
-                "id": f"mp_{int(time.time())}_{len(data['money_pages'])}",
-                "url": url,
-                "title": title or h1 or "",
-                "type": "category",
-                "supporting_articles": [],
-                "target_articles": 10,
-                "authority_score": 0,
-                "created_at": datetime.now().isoformat(),
-            })
+    # Process blog articles — deduplicate and skip non-article pages
+    for url, page_data in blog_candidates:
+        if _BLOG_SKIP_PATTERNS.search(url):
+            continue
+        slug = re.sub(r'.*/blog(/post)?/', '', url).rstrip("/").lower()
+        if slug in seen_slugs:
+            continue
+        seen_slugs.add(slug)
+        if url in existing_urls:
+            continue
+        title = page_data.get("title", "")
+        h1 = page_data.get("h1", "")
+        cluster_id = _match_cluster(title, h1, url, data["clusters"])
+        data["articles"].append({
+            "id": f"art_{int(time.time())}_{len(data['articles'])}",
+            "title": title or h1 or slug.replace("-", " ").title(),
+            "url": url,
+            "cluster_id": cluster_id,
+            "sub_cluster_id": None,
+            "status": "published",
+            "primary_keyword": None,
+            "secondary_keywords": [],
+            "search_intent": "informational",
+            "search_volume": 0,
+            "keyword_difficulty": 0,
+            "business_value": "medium",
+            "revenue_potential": "medium",
+            "evergreen": True,
+            "target_word_count": 1500,
+            "products_supported": [],
+            "money_pages": [],
+            "notes": "",
+            "created_at": datetime.now().isoformat(),
+        })
+
+    # Process non-blog pages — classify as category or product
+    for url, page_data in non_blog_pages:
+        if url in existing_mp_urls:
+            continue
+        title = page_data.get("title", "")
+        h1 = page_data.get("h1", "")
+        path = re.sub(r'https?://[^/]+', '', url).rstrip("/")
+        is_category = bool(_CATEGORY_PATTERNS.search(path))
+        data["money_pages"].append({
+            "id": f"mp_{int(time.time())}_{len(data['money_pages'])}",
+            "url": url,
+            "title": title or h1 or "",
+            "type": "category" if is_category else "product",
+            "supporting_articles": [],
+            "target_articles": 5 if is_category else 0,
+            "authority_score": 0,
+            "created_at": datetime.now().isoformat(),
+        })
 
     existing_product_names = {p["name"].lower() for p in data["products"]}
     for i, pf in enumerate(product_families):
@@ -448,8 +496,11 @@ def get_articles(cluster_id=None, status=None):
     return articles
 
 
-def get_money_pages():
-    return _load_data().get("money_pages", [])
+def get_money_pages(page_type=None):
+    pages = _load_data().get("money_pages", [])
+    if page_type:
+        pages = [mp for mp in pages if mp.get("type") == page_type]
+    return pages
 
 
 def get_products():
@@ -625,8 +676,10 @@ def get_content_gaps():
     gaps["unsupported_products"].sort(key=lambda x: x["supporting_count"])
 
     for mp in money_pages:
+        if mp.get("type") == "product":
+            continue
         linked = mp.get("supporting_articles", [])
-        target = mp.get("target_articles", 10)
+        target = mp.get("target_articles", 5)
         if len(linked) < target * 0.3:
             gaps["thin_money_pages"].append({
                 "id": mp["id"],

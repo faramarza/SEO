@@ -5112,8 +5112,9 @@ def api_content_delete_article(article_id):
 
 @app.route("/api/content/money-pages")
 def api_content_money_pages():
-    """Get all money pages."""
-    return jsonify({"money_pages": content_manager.get_money_pages()})
+    """Get money pages, optionally filtered by type (category/product)."""
+    page_type = request.args.get("type")
+    return jsonify({"money_pages": content_manager.get_money_pages(page_type)})
 
 
 @app.route("/api/content/products")

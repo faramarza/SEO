@@ -1026,18 +1026,29 @@ async function deleteArticle(id, title) {
 }
 
 // ── Money Pages Tab ──
+let _mpTypeFilter = 'category';
+
 async function loadMoneyPagesTab() {
     const container = document.getElementById('money-pages-list');
     container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Loading money pages...</div>';
     try {
-        const res = await fetch('/api/content/money-pages');
+        const typeParam = _mpTypeFilter ? `?type=${_mpTypeFilter}` : '';
+        const res = await fetch('/api/content/money-pages' + typeParam);
         const d = await res.json();
         const pages = d.money_pages || [];
+
+        const filterBar = `<div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button onclick="_mpTypeFilter='category';loadMoneyPagesTab()" style="padding:6px 14px;font-size:12px;font-weight:600;border:1px solid ${_mpTypeFilter==='category'?'var(--accent-blue)':'var(--border-color)'};background:${_mpTypeFilter==='category'?'var(--accent-blue)':'transparent'};color:${_mpTypeFilter==='category'?'#fff':'var(--text-primary)'};border-radius:4px;cursor:pointer;">Category Pages</button>
+            <button onclick="_mpTypeFilter='product';loadMoneyPagesTab()" style="padding:6px 14px;font-size:12px;font-weight:600;border:1px solid ${_mpTypeFilter==='product'?'var(--accent-blue)':'var(--border-color)'};background:${_mpTypeFilter==='product'?'var(--accent-blue)':'transparent'};color:${_mpTypeFilter==='product'?'#fff':'var(--text-primary)'};border-radius:4px;cursor:pointer;">Product Pages</button>
+            <button onclick="_mpTypeFilter='';loadMoneyPagesTab()" style="padding:6px 14px;font-size:12px;font-weight:600;border:1px solid ${_mpTypeFilter===''?'var(--accent-blue)':'var(--border-color)'};background:${_mpTypeFilter===''?'var(--accent-blue)':'transparent'};color:${_mpTypeFilter===''?'#fff':'var(--text-primary)'};border-radius:4px;cursor:pointer;">All</button>
+            <span style="margin-left:auto;font-size:12px;color:var(--text-muted);align-self:center;">${pages.length} pages</span>
+        </div>`;
+
         if (pages.length === 0) {
-            container.innerHTML = '<div class="card" style="padding:32px;text-align:center;color:var(--text-muted);">No money pages found. Run Auto-Discover on the Overview tab.</div>';
+            container.innerHTML = filterBar + '<div class="card" style="padding:32px;text-align:center;color:var(--text-muted);">No money pages found. Run Auto-Discover on the Overview tab.</div>';
             return;
         }
-        container.innerHTML = `<div class="card"><table class="data-table" style="width:100%;">
+        container.innerHTML = filterBar + `<div class="card"><table class="data-table" style="width:100%;">
             <thead><tr>
                 <th>Page</th>
                 <th>Type</th>
@@ -1048,8 +1059,8 @@ async function loadMoneyPagesTab() {
             </tr></thead>
             <tbody>${pages.map(mp => {
                 const linked = (mp.supporting_articles || []).length;
-                const target = mp.target_articles || 10;
-                const pct = Math.round(linked / Math.max(target, 1) * 100);
+                const target = mp.target_articles || 0;
+                const pct = target > 0 ? Math.round(linked / target * 100) : 0;
                 return `<tr>
                     <td>
                         <div style="font-weight:500;">${escHtml(mp.title || mp.url)}</div>
@@ -1058,7 +1069,7 @@ async function loadMoneyPagesTab() {
                     <td style="font-size:12px;text-transform:capitalize;">${escHtml(mp.type || 'category')}</td>
                     <td style="font-weight:600;color:${linked > 0 ? 'var(--accent-green)' : 'var(--accent-red)'};">${linked}</td>
                     <td>${target}</td>
-                    <td style="min-width:100px;">${completionBar(pct)}</td>
+                    <td style="min-width:100px;">${target > 0 ? completionBar(pct) : '<span style="font-size:11px;color:var(--text-muted);">—</span>'}</td>
                     <td style="white-space:nowrap;">
                         ${actionBtn('View', "showMpDetail('" + mp.id + "')", 'var(--accent-blue)')}
                     </td>
