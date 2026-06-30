@@ -15,6 +15,7 @@ CONTENT_PATH = DATA_PATH / "content_manager.json"
 INVENTORY_PATH = DATA_PATH / "page_inventory.json"
 QUEUE_PATH = DATA_PATH / "keyword_queue.json"
 CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "defaults.json"
+SITEMAP_PATH = DATA_PATH / "sitemap_types.json"
 
 
 def _load_data():
@@ -69,6 +70,17 @@ def _load_keywords():
         except (json.JSONDecodeError, OSError):
             pass
     return []
+
+
+def _load_sitemap_urls():
+    """Load the set of URLs from the imported sitemap."""
+    if SITEMAP_PATH.exists():
+        try:
+            with open(SITEMAP_PATH) as f:
+                return set(json.load(f).keys())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return set()
 
 
 _DOMAIN_NOISE = {"alphabet", "trains", "train", "com", "www", "blog", "post", "https", "http"}
@@ -326,6 +338,17 @@ def auto_discover():
         )
         if new_cluster:
             article["cluster_id"] = new_cluster
+
+    # Validate money pages against sitemap — pages not in the sitemap
+    # are likely discontinued and should not appear in suggestions
+    sitemap_urls = _load_sitemap_urls()
+    if sitemap_urls:
+        for mp in data["money_pages"]:
+            if mp.get("status") == "inactive":
+                continue
+            url = mp["url"].lower().rstrip("/")
+            if url not in sitemap_urls and not any(url == s.rstrip("/") for s in sitemap_urls):
+                mp["status"] = "inactive"
 
     data["last_analysis"] = datetime.now().isoformat()
     _save_data(data)
