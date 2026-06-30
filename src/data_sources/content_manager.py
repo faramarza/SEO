@@ -284,6 +284,7 @@ def auto_discover():
             "url": url,
             "title": title or h1 or _title_from_slug(path),
             "type": "category" if is_category else "product",
+            "status": "active",
             "supporting_articles": [],
             "target_articles": 5 if is_category else 0,
             "authority_score": 0,
@@ -339,6 +340,9 @@ def auto_discover():
 
 def rediscover():
     """Clear all content data and re-run discovery from scratch."""
+    old_data = _load_data()
+    inactive_urls = {mp["url"] for mp in old_data.get("money_pages", [])
+                     if mp.get("status") == "inactive"}
     _save_data({
         "clusters": [],
         "articles": [],
@@ -346,7 +350,14 @@ def rediscover():
         "products": [],
         "last_analysis": None,
     })
-    return auto_discover()
+    result = auto_discover()
+    if inactive_urls:
+        data = _load_data()
+        for mp in data["money_pages"]:
+            if mp["url"] in inactive_urls:
+                mp["status"] = "inactive"
+        _save_data(data)
+    return result
 
 
 def get_dashboard():
@@ -927,6 +938,8 @@ def get_content_suggestions(cluster_id=None):
     money_pages = data.get("money_pages", [])
     year = datetime.now().year
 
+    active_money_pages = [mp for mp in money_pages if mp.get("status", "active") != "inactive"]
+
     existing_titles = {a["title"].lower() for a in articles}
     seen_titles = set()
 
@@ -969,7 +982,7 @@ def get_content_suggestions(cluster_id=None):
         # Money page support suggestions — require meaningful word overlap
         cl_match_words = {w for w in cl_name.lower().split()
                          if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
-        for mp in money_pages:
+        for mp in active_money_pages:
             if mp.get("type") != "category":
                 continue
             linked = len(mp.get("supporting_articles", []))
@@ -1026,7 +1039,7 @@ def get_content_suggestions(cluster_id=None):
 
         # Find related money pages and products for this cluster
         related_money_pages = []
-        for mp in money_pages:
+        for mp in active_money_pages:
             if mp.get("type") != "category":
                 continue
             mp_text = f"{mp.get('title', '')} {mp.get('url', '')}".lower()

@@ -1065,9 +1065,10 @@ async function loadMoneyPagesTab() {
                 const linked = (mp.supporting_articles || []).length;
                 const target = mp.target_articles || 0;
                 const pct = target > 0 ? Math.round(linked / target * 100) : 0;
-                return `<tr>
+                const inactive = mp.status === 'inactive';
+                return `<tr style="${inactive ? 'opacity:0.45;' : ''}">
                     <td>
-                        <div style="font-weight:500;">${escHtml(mp.title || mp.url)}</div>
+                        <div style="font-weight:500;">${escHtml(mp.title || mp.url)}${inactive ? ' <span style="font-size:10px;color:var(--accent-red);font-weight:600;">INACTIVE</span>' : ''}</div>
                         <div style="font-size:11px;color:var(--text-muted);max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(mp.url)}</div>
                     </td>
                     <td style="font-size:12px;text-transform:capitalize;">${escHtml(mp.type || 'category')}</td>
@@ -1076,6 +1077,7 @@ async function loadMoneyPagesTab() {
                     <td style="min-width:100px;">${target > 0 ? completionBar(pct) : '<span style="font-size:11px;color:var(--text-muted);">—</span>'}</td>
                     <td style="white-space:nowrap;">
                         ${actionBtn('View', "showMpDetail('" + mp.id + "')", 'var(--accent-blue)')}
+                        ${actionBtn(inactive ? 'Activate' : 'Deactivate', "toggleMpStatus('" + mp.id + "','" + (inactive ? 'active' : 'inactive') + "')", inactive ? 'var(--accent-green)' : 'var(--accent-red)')}
                     </td>
                 </tr>`;
             }).join('')}</tbody>
@@ -1142,6 +1144,16 @@ async function showMpDetail(id) {
 
 function closeMpDetail() {
     document.getElementById('mp-detail-modal').classList.add('hidden');
+}
+
+async function toggleMpStatus(mpId, newStatus) {
+    try {
+        await fetch('/api/content/money-pages/' + mpId, {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({status: newStatus})
+        });
+        loadMoneyPagesTab();
+    } catch (err) { alert('Error: ' + err.message); }
 }
 
 async function showLinkModal(mpId) {
