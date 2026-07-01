@@ -1550,9 +1550,7 @@ async function showBrief(articleId) {
         document.getElementById('brief-title').textContent = art.title;
         const body = document.getElementById('brief-body');
         let html = `<pre style="white-space:pre-wrap;font-size:12px;line-height:1.6;padding:16px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:6px;max-height:500px;overflow-y:auto;">${escHtml(art.notes)}</pre>
-            <div style="margin-top:10px;display:flex;gap:8px;">
-                <button onclick="copyPrompt(this.previousElementSibling.previousElementSibling)" style="padding:6px 14px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Copy Prompt</button>
-            </div>`;
+            <button onclick="copyPrompt(this)" style="margin-top:10px;padding:6px 14px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Copy Prompt</button>`;
         if (art.products_supported && art.products_supported.length > 0) {
             html = `<div style="margin-bottom:10px;font-size:12px;"><strong>Products:</strong> ${art.products_supported.map(p => escHtml(p)).join(', ')}</div>` + html;
         }
