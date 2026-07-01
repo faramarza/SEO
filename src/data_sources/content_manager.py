@@ -625,6 +625,9 @@ def get_pipeline():
             "cluster_name": cluster_map.get(a.get("cluster_id"), ""),
             "primary_keyword": a.get("primary_keyword", ""),
             "business_value": a.get("business_value", "medium"),
+            "notes": a.get("notes", ""),
+            "products_supported": a.get("products_supported", []),
+            "money_pages": a.get("money_pages", []),
             "created_at": a.get("created_at", ""),
         })
 

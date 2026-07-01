@@ -388,6 +388,15 @@
     </div>
 </div>
 
+<!-- ============ WRITING BRIEF MODAL ============ -->
+<div id="brief-modal" class="modal hidden">
+    <div class="modal-content" style="max-width:800px;">
+        <span class="modal-close" onclick="closeBrief()">&times;</span>
+        <h2 id="brief-title">Writing Brief</h2>
+        <div id="brief-body"></div>
+    </div>
+</div>
+
 <!-- ============ MONEY PAGE DETAIL MODAL ============ -->
 <div id="mp-detail-modal" class="modal hidden">
     <div class="modal-content" style="max-width:800px;">
@@ -1245,6 +1254,7 @@ async function loadGapsTab() {
 
         // Content Suggestions — flat ranked list with impact summary
         const allSugs = sugData.suggestions || [];
+        window._gapSuggestions = allSugs;
         const qs = sugData.summary || {};
         document.getElementById('gap-cnt-queue').textContent = qs.total_articles || 0;
 
@@ -1312,8 +1322,8 @@ async function loadGapsTab() {
                                 <button onclick="copyPrompt(this)" style="margin-top:6px;padding:5px 12px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);background:transparent;color:var(--accent-blue);border-radius:4px;cursor:pointer;">Copy Prompt</button>
                             </div>` : ''}
                             <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-light);display:flex;gap:8px;">
-                                <button onclick="markSuggestionWritten('${escHtml(s.title).replace(/'/g,"\\'")}','${escHtml(s.cluster_id)}')" style="padding:6px 14px;font-size:11px;font-weight:600;border:none;border-radius:4px;background:var(--accent-green);color:#fff;cursor:pointer;">Mark as Written</button>
-                                <button onclick="addSuggestionToPipeline('${escHtml(s.title).replace(/'/g,"\\'")}','${escHtml(s.cluster_id)}')" style="padding:6px 14px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Add to Pipeline</button>
+                                <button onclick="markSuggestionWritten(${s.rank})" style="padding:6px 14px;font-size:11px;font-weight:600;border:none;border-radius:4px;background:var(--accent-green);color:#fff;cursor:pointer;">Mark as Written</button>
+                                <button onclick="addSuggestionToPipeline(${s.rank})" style="padding:6px 14px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Add to Pipeline</button>
                             </div>
                         </div>
                     </div>`;
@@ -1441,24 +1451,44 @@ function copyPrompt(btn) {
     setTimeout(() => btn.textContent = 'Copy Prompt', 1500);
 }
 
-async function markSuggestionWritten(title, clusterId) {
-    if (!confirm('Mark "' + title + '" as written and published?')) return;
+function _getSuggestion(rank) {
+    return (window._gapSuggestions || []).find(s => s.rank === rank);
+}
+
+function _suggestionToArticle(sug, status) {
+    return {
+        title: sug.title,
+        cluster_id: sug.cluster_id,
+        status: status,
+        notes: sug.writing_prompt || '',
+        products_supported: (sug.related_products || []).map(p => p.name),
+        money_pages: (sug.internal_links || []).map(l => l.url),
+        business_value: sug.score >= 70 ? 'high' : sug.score >= 45 ? 'medium' : 'low',
+    };
+}
+
+async function markSuggestionWritten(rank) {
+    const sug = _getSuggestion(rank);
+    if (!sug) return;
+    if (!confirm('Mark "' + sug.title + '" as written and published?')) return;
     try {
         await fetch('/api/content/articles', {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({title, cluster_id: clusterId, status: 'published'})
+            body: JSON.stringify(_suggestionToArticle(sug, 'published'))
         });
         loadGapsTab();
     } catch (err) { alert('Error: ' + err.message); }
 }
 
-async function addSuggestionToPipeline(title, clusterId) {
+async function addSuggestionToPipeline(rank) {
+    const sug = _getSuggestion(rank);
+    if (!sug) return;
     try {
         await fetch('/api/content/articles', {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({title, cluster_id: clusterId, status: 'idea'})
+            body: JSON.stringify(_suggestionToArticle(sug, 'idea'))
         });
-        alert('Added to pipeline as "Idea". Go to the Pipeline tab to move it through stages.');
+        alert('Added to pipeline with full writing brief. Go to the Pipeline tab to start writing.');
         loadGapsTab();
     } catch (err) { alert('Error: ' + err.message); }
 }
@@ -1491,10 +1521,12 @@ async function loadPipelineTab() {
                     const idx = STATUS_ORDER.indexOf(s);
                     const prev = idx > 0 ? STATUS_ORDER[idx-1] : null;
                     const next = idx < STATUS_ORDER.length-1 ? STATUS_ORDER[idx+1] : null;
+                    const hasNotes = a.notes && a.notes.length > 0;
                     return `<div style="background:var(--bg-card);border-radius:6px;padding:10px;margin-bottom:8px;border:1px solid var(--border-light);box-shadow:var(--shadow-sm);">
                         <div style="font-size:13px;font-weight:500;margin-bottom:4px;cursor:pointer;" onclick="editArticleById('${a.id}')">${escHtml(a.title)}</div>
                         ${a.cluster_name ? `<div style="font-size:11px;color:var(--accent-purple);margin-bottom:4px;">${escHtml(a.cluster_name)}</div>` : ''}
-                        ${a.primary_keyword ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${escHtml(a.primary_keyword)}</div>` : ''}
+                        ${a.primary_keyword ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${escHtml(a.primary_keyword)}</div>` : ''}
+                        ${hasNotes ? `<button onclick="showBrief('${a.id}')" style="display:block;width:100%;padding:4px;margin-bottom:6px;font-size:10px;font-weight:600;border:1px solid var(--accent-blue);border-radius:3px;background:transparent;color:var(--accent-blue);cursor:pointer;">View Writing Brief</button>` : ''}
                         <div style="display:flex;gap:4px;">
                             ${prev ? `<button onclick="moveArticle('${a.id}','${prev}')" style="flex:1;padding:2px;font-size:10px;border:1px solid var(--border-color);border-radius:3px;background:transparent;color:var(--text-muted);cursor:pointer;" title="Move to ${PIPELINE_LABELS[prev]}">&larr;</button>` : ''}
                             ${next ? `<button onclick="moveArticle('${a.id}','${next}')" style="flex:1;padding:2px;font-size:10px;border:1px solid ${PIPELINE_COLORS[next]};border-radius:3px;background:transparent;color:${PIPELINE_COLORS[next]};cursor:pointer;" title="Move to ${PIPELINE_LABELS[next]}">&rarr;</button>` : ''}
@@ -1506,6 +1538,34 @@ async function loadPipelineTab() {
     } catch (err) {
         board.innerHTML = `<div style="grid-column:1/-1;padding:24px;color:var(--accent-red);">Error: ${escHtml(err.message)}</div>`;
     }
+}
+
+async function showBrief(articleId) {
+    try {
+        const res = await fetch('/api/content/articles');
+        const d = await res.json();
+        const art = (d.articles || []).find(a => a.id === articleId);
+        if (!art || !art.notes) return;
+        const modal = document.getElementById('brief-modal');
+        document.getElementById('brief-title').textContent = art.title;
+        const body = document.getElementById('brief-body');
+        let html = `<pre style="white-space:pre-wrap;font-size:12px;line-height:1.6;padding:16px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:6px;max-height:500px;overflow-y:auto;">${escHtml(art.notes)}</pre>
+            <div style="margin-top:10px;display:flex;gap:8px;">
+                <button onclick="copyPrompt(this.previousElementSibling.previousElementSibling)" style="padding:6px 14px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Copy Prompt</button>
+            </div>`;
+        if (art.products_supported && art.products_supported.length > 0) {
+            html = `<div style="margin-bottom:10px;font-size:12px;"><strong>Products:</strong> ${art.products_supported.map(p => escHtml(p)).join(', ')}</div>` + html;
+        }
+        if (art.money_pages && art.money_pages.length > 0) {
+            html = `<div style="margin-bottom:10px;font-size:12px;"><strong>Link to:</strong><ul style="margin:4px 0 0 16px;">${art.money_pages.map(u => `<li><a href="${escHtml(u)}" target="_blank" style="color:var(--accent-blue);">${escHtml(u)}</a></li>`).join('')}</ul></div>` + html;
+        }
+        body.innerHTML = html;
+        modal.classList.remove('hidden');
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+function closeBrief() {
+    document.getElementById('brief-modal').classList.add('hidden');
 }
 
 async function moveArticle(id, newStatus) {
