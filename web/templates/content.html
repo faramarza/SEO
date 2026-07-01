@@ -1311,6 +1311,10 @@ async function loadGapsTab() {
                                 <pre style="margin-top:6px;padding:12px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;white-space:pre-wrap;font-size:11px;line-height:1.5;max-height:400px;overflow-y:auto;">${escHtml(s.writing_prompt)}</pre>
                                 <button onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Prompt',1500)" style="margin-top:6px;padding:5px 12px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);background:transparent;color:var(--accent-blue);border-radius:4px;cursor:pointer;">Copy Prompt</button>
                             </div>` : ''}
+                            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-light);display:flex;gap:8px;">
+                                <button onclick="markSuggestionWritten('${escHtml(s.title).replace(/'/g,"\\'")}','${escHtml(s.cluster_id)}')" style="padding:6px 14px;font-size:11px;font-weight:600;border:none;border-radius:4px;background:var(--accent-green);color:#fff;cursor:pointer;">Mark as Written</button>
+                                <button onclick="addSuggestionToPipeline('${escHtml(s.title).replace(/'/g,"\\'")}','${escHtml(s.cluster_id)}')" style="padding:6px 14px;font-size:11px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Add to Pipeline</button>
+                            </div>
                         </div>
                     </div>`;
                 }).join('')}
@@ -1418,6 +1422,28 @@ async function loadGapsTab() {
     } catch (err) {
         body.innerHTML = `<div class="card" style="padding:24px;color:var(--accent-red);">Error loading gap analysis: ${escHtml(err.message)}</div>`;
     }
+}
+
+async function markSuggestionWritten(title, clusterId) {
+    if (!confirm('Mark "' + title + '" as written and published?')) return;
+    try {
+        await fetch('/api/content/articles', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({title, cluster_id: clusterId, status: 'published'})
+        });
+        loadGapsTab();
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function addSuggestionToPipeline(title, clusterId) {
+    try {
+        await fetch('/api/content/articles', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({title, cluster_id: clusterId, status: 'idea'})
+        });
+        alert('Added to pipeline as "Idea". Go to the Pipeline tab to move it through stages.');
+        loadGapsTab();
+    } catch (err) { alert('Error: ' + err.message); }
 }
 
 // ── Pipeline Tab ──
