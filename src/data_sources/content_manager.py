@@ -1142,8 +1142,9 @@ def get_content_suggestions(cluster_id=None):
                 for a in cl_articles[:5]
             ]
             s["writing_prompt"] = _build_writing_prompt(
-                s["title"], cl_name, related_money_pages[:3],
-                related_products[:3], [a["title"] for a in cl_articles[:5]],
+                s["title"], cl_name, related_money_pages[:5],
+                related_products[:5],
+                [{"title": a["title"], "url": a.get("url", "")} for a in cl_articles[:5]],
             )
 
         # Limit per cluster: cap at 5
@@ -1198,7 +1199,7 @@ def get_content_suggestions(cluster_id=None):
     return {"suggestions": all_suggestions, "summary": summary}
 
 
-def _build_writing_prompt(title, cluster_name, money_pages, products, existing_titles):
+def _build_writing_prompt(title, cluster_name, money_pages, products, existing_articles):
     """Build a full writing prompt/content brief for an article."""
     mp_links = ""
     if money_pages:
@@ -1210,8 +1211,11 @@ def _build_writing_prompt(title, cluster_name, money_pages, products, existing_t
         prod_mentions = ", ".join(p["name"] for p in products)
 
     existing = ""
-    if existing_titles:
-        existing = "\n".join(f"  - {t}" for t in existing_titles[:5])
+    if existing_articles:
+        existing = "\n".join(
+            f"  - [{a['title']}]({a['url']})" if a.get("url") else f"  - {a['title']}"
+            for a in existing_articles[:5]
+        )
 
     prompt = f"""Write a comprehensive, SEO-optimized blog post titled: "{title}"
 
