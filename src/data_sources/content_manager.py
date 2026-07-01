@@ -931,6 +931,54 @@ _PRODUCT_CLUSTER_MAP = {
 _CLUSTER_MATCH_NOISE = {"for", "the", "and", "toys", "by", "a", "an", "in", "of", "to"}
 
 
+_PRODUCT_ARTICLE_IDEAS = {
+    "name trains": [
+        "How Wooden Name Trains Teach Kids Letter Recognition",
+        "Best Personalized Train Gifts for Toddlers ({year})",
+        "Name Trains vs Name Puzzles: Which Helps Kids Learn Letters Faster?",
+    ],
+    "personalized name puzzles": [
+        "How Name Puzzles Build Fine Motor Skills and Spelling",
+        "Best First Birthday Gifts: Why Name Puzzles Are a Parent Favorite",
+        "Wooden Name Puzzles by Age: What to Expect at Each Stage",
+    ],
+    "personalized step stools": [
+        "Personalized Step Stools: A Gift Kids Use Every Day",
+        "How a Step Stool Builds Independence in Toddlers",
+        "Best Personalized Step Stool Ideas for Bathrooms and Kitchens",
+    ],
+    "personalized baby books": [
+        "Why Personalized Baby Books Make the Best Keepsake Gifts",
+        "How Personalized Books Help Toddlers Learn Their Name",
+        "Best Personalized Books for Babies and Toddlers ({year})",
+    ],
+    "personalized baby gifts": [
+        "Personalized Baby Gift Ideas That Parents Actually Want",
+        "Best Personalized Gifts for Baby Showers ({year})",
+        "Unique Personalized Newborn Gifts That Stand Out",
+    ],
+    "personalized toys": [
+        "Why Kids Love Toys With Their Name on Them",
+        "Best Personalized Toys by Age: A Parent's Guide ({year})",
+        "Personalized Toys vs Generic: Which Builds More Confidence?",
+    ],
+    "montessori toys": [
+        "Montessori Toys That Actually Follow the Method ({year})",
+        "How to Choose Montessori Toys by Age",
+        "Best Montessori Gifts for Toddlers and Preschoolers",
+    ],
+    "classroom rugs": [
+        "How to Choose the Right Classroom Rug for Your Space",
+        "Best Alphabet Rugs for Preschool Classrooms ({year})",
+        "Circle Time Rugs That Keep Kids Engaged and Learning",
+    ],
+    "kids furniture": [
+        "Best Kids Furniture for Montessori Classrooms ({year})",
+        "How to Choose Kid-Sized Tables and Chairs for Your Classroom",
+        "Kids Furniture That Grows With Your Child: A Buying Guide",
+    ],
+}
+
 _REVENUE_CLUSTERS = {
     "Personalized Gifts & Toys", "Gift Buying Guides",
     "Seasonal & Holiday Gifts", "Educational Toys", "Wooden Toys",
@@ -991,16 +1039,21 @@ def get_content_suggestions(cluster_id=None):
             prod_articles = [a for a in articles
                             if prod["name"].lower() in [s.lower() for s in a.get("products_supported", [])]]
             if len(prod_articles) < 3:
-                idea = f"Complete Guide to {prod['name']}: Benefits, Reviews & Best Picks"
-                idea_key = idea.lower()
-                if idea_key not in existing_titles and idea_key not in seen_titles:
-                    seen_titles.add(idea_key)
-                    cl_suggestions.append({
-                        "title": idea,
-                        "type": "product_support",
-                        "reason": f"Product '{prod['name']}' has only {len(prod_articles)} supporting articles",
-                        "priority": "high",
-                    })
+                ideas = _PRODUCT_ARTICLE_IDEAS.get(prod["name"].lower(), [
+                    f"Why Parents Love {prod['name']}: Reviews and Benefits",
+                ])
+                for idea_tmpl in ideas:
+                    idea = idea_tmpl.replace("{year}", str(year))
+                    idea_key = idea.lower()
+                    if idea_key not in existing_titles and idea_key not in seen_titles:
+                        seen_titles.add(idea_key)
+                        cl_suggestions.append({
+                            "title": idea,
+                            "type": "product_support",
+                            "reason": f"Product '{prod['name']}' has only {len(prod_articles)} supporting articles",
+                            "priority": "high",
+                        })
+                        break
 
         # Money page support suggestions — require meaningful word overlap
         cl_match_words = {w for w in cl_name.lower().split()
