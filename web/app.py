@@ -3240,7 +3240,10 @@ def api_data_quality():
     if ratio_checked == 0:
         overall_status = "no_data"
         status_color = "gray"
-    elif zero_sessions > 5 or (ratio_checked > 0 and problem_pages / ratio_checked > 0.3):
+    elif zero_sessions > 5:
+        overall_status = "critical"
+        status_color = "red"
+    elif zero_sessions > 0 and (ratio_checked > 0 and problem_pages / ratio_checked > 0.3):
         overall_status = "critical"
         status_color = "red"
     elif problem_pages > 3 or (ratio_checked > 0 and problem_pages / ratio_checked > 0.15):

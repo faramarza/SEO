@@ -249,10 +249,17 @@ async function loadDataQuality() {
 
         // Status banner
         const banner = document.getElementById('dq-status-banner');
+        let critMsg = 'Significant tracking gaps detected.';
+        if (s.zero_sessions > 0) critMsg += ` ${s.zero_sessions} pages with clicks but no GA4 sessions.`;
+        if (s.ratio_low + s.ratio_high > 0) critMsg += ` ${s.ratio_low + s.ratio_high} pages with ratio mismatches.`;
+        let warnMsg = '';
+        if (s.ratio_low + s.ratio_high > 0) warnMsg += `${s.ratio_low + s.ratio_high} pages with ratio mismatches`;
+        if (s.zero_sessions > 0) warnMsg += `${warnMsg ? ', ' : ''}${s.zero_sessions} with zero sessions`;
+        warnMsg += '.';
         const statusMap = {
             healthy: { icon: '\u2713', title: 'HEALTHY', msg: 'GSC and GA4 data are well-aligned. Tracking appears reliable.', css: 'status-green' },
-            warning: { icon: '\u26A0', title: 'WARNING', msg: `${s.ratio_low + s.ratio_high} pages with ratio mismatches, ${s.zero_sessions} with zero sessions.`, css: 'status-orange' },
-            critical: { icon: '\u26D4', title: 'CRITICAL', msg: `Significant tracking gaps detected. ${s.zero_sessions} pages with clicks but no GA4 sessions.`, css: 'status-red' },
+            warning: { icon: '\u26A0', title: 'WARNING', msg: warnMsg, css: 'status-orange' },
+            critical: { icon: '\u26D4', title: 'CRITICAL', msg: critMsg, css: 'status-red' },
             no_data: { icon: '?', title: 'NO DATA', msg: 'Evaluation data has no GSC/GA4 metrics. Re-run the workflow.', css: 'status-gray' },
         };
         const st = statusMap[s.status] || statusMap.no_data;
