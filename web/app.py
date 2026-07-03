@@ -3115,6 +3115,29 @@ def api_data_quality():
 
     results = eval_data.get("results", [])
 
+    # Normalize /blog/post/ URLs to canonical /blog/ and merge duplicates
+    merged = {}
+    for r in results:
+        url = r.get("url", "")
+        if "/blog/post/" in url:
+            url = url.replace("/blog/post/", "/blog/")
+            r["url"] = url
+        if url in merged:
+            existing = merged[url]
+            for k in ("gsc_clicks", "gsc_impressions", "ga4_sessions", "ga4_users",
+                       "ga4_engaged_sessions", "ga4_revenue", "ga4_purchases"):
+                existing[k] = existing.get(k, 0) + r.get(k, 0)
+            if r.get("gsc_position") and existing.get("gsc_position"):
+                existing["gsc_position"] = min(existing["gsc_position"], r.get("gsc_position", 0))
+            if existing.get("gsc_impressions", 0) > 0:
+                existing["gsc_ctr"] = existing.get("gsc_clicks", 0) / existing["gsc_impressions"]
+            if existing.get("ga4_sessions", 0) > 0:
+                existing["ga4_engagement_rate"] = existing.get("ga4_engaged_sessions", 0) / existing["ga4_sessions"]
+                existing["ga4_bounce_rate"] = r.get("ga4_bounce_rate", existing.get("ga4_bounce_rate", 0))
+        else:
+            merged[url] = r
+    results = list(merged.values())
+
     # ── Per-page data quality analysis ──
     pages = []
     # Aggregate counters
@@ -3889,6 +3912,9 @@ def api_admin_ai_log():
 
 def _normalize_url(url):
     """Strip tracking, pagination, and filter params from a URL."""
+    # Canonical blog URL: /blog/slug, not /blog/post/slug
+    if "/blog/post/" in url:
+        url = url.replace("/blog/post/", "/blog/")
     from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
     _STRIP = {
         "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
