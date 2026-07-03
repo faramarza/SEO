@@ -248,7 +248,9 @@ def auto_discover():
         elif not is_faq:
             non_blog_pages.append((url, page_data))
 
-    # Process blog articles — deduplicate and skip non-article pages
+    # Process blog articles — deduplicate and always use canonical /blog/slug URL
+    # Sort so /blog/slug comes before /blog/post/slug — canonical URL wins
+    blog_candidates.sort(key=lambda x: (1 if '/blog/post/' in x[0] else 0))
     for url, page_data in blog_candidates:
         if _BLOG_SKIP_PATTERNS.search(url):
             continue
@@ -256,6 +258,8 @@ def auto_discover():
         if slug in seen_slugs:
             continue
         seen_slugs.add(slug)
+        # Always use canonical URL without /post/
+        url = re.sub(r'/blog/post/', '/blog/', url)
         if url in existing_urls:
             continue
         title = _clean_title(page_data.get("title", ""))
@@ -330,6 +334,11 @@ def auto_discover():
                 prod_words = {w for w in prod["name"].lower().split() if len(w) > 2}
                 if prod_words and all(w in art_text for w in prod_words):
                     article["products_supported"].append(prod["name"])
+
+    # Fix any /blog/post/ URLs to canonical /blog/ form
+    for article in data["articles"]:
+        if "/blog/post/" in article.get("url", ""):
+            article["url"] = article["url"].replace("/blog/post/", "/blog/")
 
     # Re-assign clusters for articles that have no cluster or were mis-assigned
     for article in data["articles"]:
