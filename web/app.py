@@ -5658,11 +5658,7 @@ def api_content_generate_article():
         try:
             with open(images_path) as f:
                 image_data = json.load(f)
-            # Only include images for product pages (most useful for articles)
-            product_images = {url: img for url, img in image_data.items()
-                             if sitemap_path.exists() and url in product_urls}
-            if not product_images:
-                product_images = dict(list(image_data.items())[:50])
+            product_images = dict(list(image_data.items())[:50])
             if product_images:
                 user_prompt_parts.append(
                     "PRODUCT IMAGE URLS (use these in <img> tags when mentioning products):\n"
