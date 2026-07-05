@@ -5527,9 +5527,9 @@ CRITICAL URL RULES
 ═══════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════
-Output the article HTML FIRST, then the Magento fields LAST.
+Output ONLY the article HTML. Nothing else — no metadata, no title suggestions, no comments, no notes.
 
-START your response IMMEDIATELY with the article HTML — the very first character must be < (an HTML tag). Do NOT start with metadata, comments, notes, or any non-HTML text.
+START your response IMMEDIATELY with the first HTML tag. The very first character must be <.
 
 The article HTML must include:
 1. Hero banner with gradient at the top
@@ -5541,22 +5541,15 @@ The article HTML must include:
 7. FAQ section (visible Q&A in HTML)
 8. Final CTA banner near the bottom
 9. Implementation tips or actionable checklist section
-10. FAQ schema JSON-LD <script type="application/ld+json"> tag at the very end of the HTML
+10. FAQ schema JSON-LD <script type="application/ld+json"> tag at the very end
 
 ALL styling must be inline (style="...") — Magento strips CSS classes.
 Use &#NNN; decimal HTML entities for all special characters and emoji.
 No <h1> tag — Magento adds it separately.
 No <style> blocks — all styles inline.
-No HTML comments.
+No HTML comments — zero, none, not even responsive grid notes.
 Every internal link must use full absolute URLs starting with https://alphabet-trains.com/.
-
-AFTER the article HTML is complete, output this exact line on its own:
----MAGENTO-FIELDS---
-Then output these fields, one per line:
-Meta Title: [50-60 characters]
-Meta Description: [150-160 characters]
-URL Slug: [suggested-url-slug]
-H1: [the page H1 heading]
+NEVER use /blog/post/ in any URL — the correct format is /blog/slug (e.g., https://alphabet-trains.com/blog/my-article, NEVER https://alphabet-trains.com/blog/post/my-article). This is a hard rule with zero exceptions.
 """
 
 

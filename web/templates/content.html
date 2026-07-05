@@ -403,7 +403,6 @@
         <span class="modal-close" onclick="closeGenModal()">&times;</span>
         <h2 id="gen-title" style="margin-bottom:8px;">Generate Article</h2>
         <div id="gen-status" style="margin-bottom:8px;font-size:12px;color:var(--text-muted);"></div>
-        <div id="gen-magento-fields" class="hidden" style="margin-bottom:12px;border:1px solid var(--border-color);border-radius:6px;overflow:hidden;"></div>
         <div id="gen-view-tabs" class="hidden" style="display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border-color);">
             <button onclick="switchGenView('html')" id="gen-view-html" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid var(--accent-blue);background:transparent;color:var(--accent-blue);cursor:pointer;margin-bottom:-2px;">HTML Code</button>
             <button onclick="switchGenView('preview')" id="gen-view-preview" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;">Preview</button>
@@ -411,7 +410,7 @@
         <div id="gen-output" style="flex:1;overflow-y:auto;padding:16px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:0 0 6px 6px;font-size:13px;line-height:1.7;white-space:pre-wrap;font-family:monospace;"></div>
         <div id="gen-preview" class="hidden" style="flex:1;overflow-y:auto;padding:16px;background:#fff;border:1px solid var(--border-color);border-radius:0 0 6px 6px;font-size:14px;line-height:1.7;"></div>
         <div id="gen-actions" class="hidden" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button onclick="copyArticleHtml()" style="padding:8px 16px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Copy Article HTML</button>
+            <button onclick="copyArticleHtml()" style="padding:8px 16px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Copy HTML</button>
             <button onclick="saveGenerated()" style="padding:8px 16px;font-size:12px;font-weight:600;border:none;border-radius:4px;background:var(--accent-green);color:#fff;cursor:pointer;">Save to Article</button>
             <span id="gen-cost" style="margin-left:auto;font-size:11px;color:var(--text-muted);align-self:center;"></span>
         </div>
@@ -1645,8 +1644,6 @@ async function viewGenerated(articleId) {
         if (!art || !art.generated_content) return;
         _genArticleId = articleId;
         _genContent = art.generated_content;
-        _genParsed = _parseGenOutput(_genContent);
-        _renderMagentoFields(_genParsed.fields);
         const modal = document.getElementById('gen-modal');
         document.getElementById('gen-title').textContent = art.title;
         document.getElementById('gen-status').textContent = 'Previously generated article.';
@@ -1663,66 +1660,13 @@ async function viewGenerated(articleId) {
 let _genArticleId = null;
 let _genContent = '';
 let _genAbort = null;
-let _genParsed = { fields: {}, article: '' };
 
-function _parseGenOutput(raw) {
-    const result = { fields: {}, article: '' };
-
-    // Try splitting on ---MAGENTO-FIELDS--- delimiter (new format: article first, fields last)
-    const delimIdx = raw.indexOf('---MAGENTO-FIELDS---');
-    if (delimIdx !== -1) {
-        result.article = raw.substring(0, delimIdx).trim();
-        const fieldBlock = raw.substring(delimIdx + 20).trim();
-        fieldBlock.split('\n').forEach(line => {
-            const m = line.match(/^(Meta Title|Meta Description|URL Slug|H1|Title|Primary Keyword|Secondary Keywords):\s*(.+)$/i);
-            if (m) result.fields[m[1].trim()] = m[2].trim();
-        });
-        return result;
-    }
-
-    // Fallback: detect metadata lines at the top before first HTML tag
-    const lines = raw.split('\n');
-    const metaFields = {};
-    let articleStart = 0;
-    for (let i = 0; i < Math.min(lines.length, 20); i++) {
-        const line = lines[i].trim();
-        if (!line || line.match(/^[=-]+\s*(SEO|MAGENTO|ARTICLE|FAQ)/i) || line.match(/^<!--/)) {
-            articleStart = i + 1;
-            continue;
-        }
-        const m = line.match(/^(Meta Title|Meta Description|URL Slug|H1|Title|Primary Keyword|Secondary Keywords):\s*(.+)$/i);
-        if (m) {
-            metaFields[m[1].trim()] = m[2].trim();
-            articleStart = i + 1;
-            continue;
-        }
-        if (line.startsWith('<')) break;
-        if (Object.keys(metaFields).length > 0) break;
-    }
-    result.fields = metaFields;
-    // Find the first HTML tag for article start
-    const remaining = lines.slice(articleStart).join('\n');
-    const htmlStart = remaining.indexOf('<');
-    result.article = htmlStart >= 0 ? remaining.substring(htmlStart).trim() : remaining.trim();
-    if (!result.article) result.article = raw;
-    return result;
-}
-
-function _renderMagentoFields(fields) {
-    const container = document.getElementById('gen-magento-fields');
-    if (!Object.keys(fields).length) { container.classList.add('hidden'); return; }
-    container.classList.remove('hidden');
-    container.innerHTML = Object.entries(fields).map(([label, value]) =>
-        `<div style="display:flex;align-items:center;border-bottom:1px solid var(--border-light);padding:0;">
-            <span style="min-width:120px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-hover);">${escHtml(label)}</span>
-            <span style="flex:1;padding:8px 12px;font-size:12px;font-family:monospace;user-select:all;">${escHtml(value)}</span>
-            <button onclick="_copyField(this,'${escHtml(value).replace(/'/g,"\\&#39;")}')" style="padding:4px 10px;margin-right:8px;font-size:10px;font-weight:600;border:1px solid var(--accent-blue);border-radius:3px;background:transparent;color:var(--accent-blue);cursor:pointer;white-space:nowrap;">Copy</button>
-        </div>`
-    ).join('');
-}
-
-function _copyField(btn, value) {
-    _copyText(value, btn);
+function _cleanArticleHtml(raw) {
+    let html = raw.trim();
+    // Strip any metadata lines the model might prepend before the first HTML tag
+    const firstTag = html.indexOf('<');
+    if (firstTag > 0) html = html.substring(firstTag);
+    return html;
 }
 
 function switchGenView(view) {
@@ -1730,10 +1674,11 @@ function switchGenView(view) {
     const preview = document.getElementById('gen-preview');
     const htmlBtn = document.getElementById('gen-view-html');
     const prevBtn = document.getElementById('gen-view-preview');
+    const clean = _cleanArticleHtml(_genContent);
     if (view === 'preview') {
         output.classList.add('hidden');
         preview.classList.remove('hidden');
-        preview.innerHTML = _genParsed.article || _genContent;
+        preview.innerHTML = clean;
         htmlBtn.style.borderBottomColor = 'transparent';
         htmlBtn.style.color = 'var(--text-muted)';
         prevBtn.style.borderBottomColor = 'var(--accent-blue)';
@@ -1741,7 +1686,7 @@ function switchGenView(view) {
     } else {
         preview.classList.add('hidden');
         output.classList.remove('hidden');
-        output.textContent = _genParsed.article || _genContent;
+        output.textContent = clean;
         htmlBtn.style.borderBottomColor = 'var(--accent-blue)';
         htmlBtn.style.color = 'var(--accent-blue)';
         prevBtn.style.borderBottomColor = 'transparent';
@@ -1786,14 +1731,11 @@ async function generateArticleFromPipeline(articleId) {
 function _startGeneration(params) {
     _genArticleId = params.article_id;
     _genContent = '';
-    _genParsed = { fields: {}, article: '' };
     const modal = document.getElementById('gen-modal');
     document.getElementById('gen-title').textContent = params.title;
     document.getElementById('gen-output').textContent = '';
     document.getElementById('gen-output').classList.remove('hidden');
     document.getElementById('gen-preview').classList.add('hidden');
-    document.getElementById('gen-magento-fields').classList.add('hidden');
-    document.getElementById('gen-magento-fields').innerHTML = '';
     document.getElementById('gen-status').textContent = 'Generating article — this takes 2–4 minutes...';
     document.getElementById('gen-status').style.color = 'var(--text-muted)';
     document.getElementById('gen-actions').classList.add('hidden');
@@ -1860,8 +1802,6 @@ function _startGeneration(params) {
 }
 
 function _onGenComplete(usage) {
-    _genParsed = _parseGenOutput(_genContent);
-    _renderMagentoFields(_genParsed.fields);
     document.getElementById('gen-status').textContent = 'Generation complete.';
     document.getElementById('gen-actions').classList.remove('hidden');
     document.getElementById('gen-view-tabs').classList.remove('hidden');
@@ -1899,7 +1839,7 @@ function _copyText(text, btn) {
 
 function copyArticleHtml() {
     const btn = event.target;
-    _copyText(_genParsed.article || _genContent, btn);
+    _copyText(_cleanArticleHtml(_genContent), btn);
 }
 
 async function saveGenerated() {
