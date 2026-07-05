@@ -5527,16 +5527,16 @@ CRITICAL URL RULES
 ═══════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════
-Return the article in this exact structure:
+You MUST output THREE clearly separated sections using these EXACT delimiters. Each section can be copied independently.
 
-<!-- SEO METADATA -->
+===== SEO METADATA =====
 Title: [title tag, 50-60 characters]
 Meta Description: [meta description, 150-160 characters]
 URL Slug: [suggested-url-slug]
 Primary Keyword: [keyword]
 Secondary Keywords: [comma-separated list]
 
-<!-- ARTICLE HTML -->
+===== ARTICLE HTML =====
 [Full article as rich, visually styled HTML using the design patterns from Phase 8.
 REQUIRED elements:
 1. Hero banner with gradient at the top
@@ -5553,10 +5553,11 @@ ALL styling must be inline (style="...") — Magento strips CSS classes.
 Use &#NNN; decimal HTML entities for all special characters and emoji.
 No <h1> tag — Magento adds it automatically.
 No <style> blocks — all styles inline.
+No HTML comments — they add clutter and are not needed.
 Every internal link must use full absolute URLs starting with https://alphabet-trains.com/.]
 
-<!-- FAQ SCHEMA (JSON-LD) -->
-[FAQ structured data as a <script type="application/ld+json"> tag. Include 5-8 relevant questions and answers.]
+===== FAQ SCHEMA =====
+[FAQ structured data as a <script type="application/ld+json"> tag. Include 5-8 relevant questions and answers. This goes in a separate CMS block or the page head in Magento.]
 """
 
 
@@ -5657,10 +5658,11 @@ def api_content_generate_article():
                 headers={
                     "x-api-key": anthropic_key,
                     "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "output-128k-2025-02-19",
                     "Content-Type": "application/json",
                 },
                 json=body,
-                timeout=_httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
+                timeout=_httpx.Timeout(connect=15.0, read=600.0, write=15.0, pool=15.0),
             ) as response:
                 if response.status_code != 200:
                     error_text = response.read().decode()
