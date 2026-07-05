@@ -5445,6 +5445,13 @@ Before outputting the article, confirm:
 ✓ No additional improvements found.
 
 ═══════════════════════════════════════
+CRITICAL URL RULES
+═══════════════════════════════════════
+- NEVER use /blog/post/ in any URL. The correct blog URL format is /blog/slug (e.g., /blog/best-montessori-toys-by-age, NOT /blog/post/best-montessori-toys-by-age).
+- All internal links must use full absolute URLs starting with https://alphabet-trains.com/.
+- Double-check every link before including it.
+
+═══════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════
 Return the article in this exact structure:
@@ -5548,7 +5555,7 @@ def api_content_generate_article():
         try:
             body = {
                 "model": model,
-                "max_tokens": 16000,
+                "max_tokens": 32000,
                 "temperature": 0.6,
                 "stream": True,
                 "system": _ARTICLE_SYSTEM_PROMPT,
