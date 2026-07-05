@@ -5378,15 +5378,88 @@ Even informational articles should naturally answer:
 Do this through helpful comparisons, honest recommendations, and practical advice — never through aggressive selling.
 
 ═══════════════════════════════════════
-PHASE 8: USER EXPERIENCE
+PHASE 8: USER EXPERIENCE & VISUAL DESIGN
 ═══════════════════════════════════════
-Enhance readability with:
-- Tables for comparisons and specifications.
-- Bullet lists for scannable information.
-- Callout boxes for tips, warnings, and key takeaways.
-- Decision trees when appropriate.
-- Checklists where useful.
-- Image placement suggestions (with descriptive ALT text).
+This is a Magento blog. ALL styling must use INLINE STYLES because Magento strips external CSS classes.
+Every article must be visually rich and magazine-quality. Use these exact design patterns:
+
+HERO BANNER (required at top):
+<div style="background:linear-gradient(135deg,#COLOR1 0%,#COLOR2 100%);padding:50px 30px;border-radius:15px;color:white;text-align:center;margin-bottom:40px;">
+  <h2 style="color:white;margin-bottom:20px;text-shadow:2px 2px 4px rgba(0,0,0,0.2);">Article Title</h2>
+  <p style="margin:20px 0;">Subtitle / hook</p>
+</div>
+Choose gradient colors that match the article topic (warm tones for family/gifts, cool tones for education, nature tones for outdoor topics).
+
+TL;DR BOX (required near top):
+<div style="background:#f5f9f0;border-left:4px solid #4a7c3f;padding:16px 20px;margin-bottom:28px;border-radius:4px;">
+  <strong>TL;DR &#8212; Quick Summary</strong>
+  <ul>...</ul>
+</div>
+
+TIP BOX (green):
+<div style="background:#e8f5e9;padding:20px;border-radius:10px;margin:20px 0;border-left:4px solid #4caf50;">
+  <strong>&#128161; Tip Title:</strong> Content
+</div>
+
+WARNING BOX (orange):
+<div style="background:#fff3e0;padding:20px;border-radius:10px;margin:20px 0;border-left:4px solid #ff9800;">
+  <strong>&#128680; Warning:</strong> Content
+</div>
+
+INFO/RESEARCH BOX (yellow):
+<div style="background:#fff3cd;padding:25px;border-radius:10px;border-left:5px solid #ffc107;margin:30px 0;">
+  <h3 style="margin-top:0;color:#856404;">&#9889; Title</h3>
+  <p style="margin-bottom:0;">Content with external reference links</p>
+</div>
+
+PRODUCT CALLOUT BOX (gradient, with CTA button):
+<div style="background:linear-gradient(135deg,#a8edea 0%,#fed6e3 100%);padding:25px;border-radius:10px;margin:30px 0;text-align:center;">
+  <h4>&#127775; Callout Title</h4>
+  <p>Why this product matters for the reader right now.</p>
+  <a href="https://alphabet-trains.com/CATEGORY.html" style="display:inline-block;background:#4a7c3f;color:white;padding:12px 30px;border-radius:25px;text-decoration:none;font-weight:bold;margin-top:10px;">Shop CTA Text</a>
+</div>
+
+BENEFIT GRID (3-column, responsive):
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin:40px 0;">
+  <div style="background:#f8f9ff;padding:25px;border-radius:15px;text-align:center;">
+    <div style="margin-bottom:15px;">&#EMOJI;</div>
+    <h4>Title</h4>
+    <p>Description</p>
+  </div>
+  <!-- repeat -->
+</div>
+
+COMPARISON TABLE:
+<table style="width:100%;border-collapse:collapse;margin:30px 0;">
+  <thead><tr style="background:#f8f9ff;"><th style="padding:12px;text-align:left;border-bottom:2px solid #667eea;">Header</th>...</tr></thead>
+  <tbody><tr style="border-bottom:1px solid #eee;"><td style="padding:12px;">Data</td>...</tr></tbody>
+</table>
+
+FINAL CTA BANNER (required near bottom):
+<div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;border-radius:15px;color:white;margin:50px 0;text-align:center;">
+  <h2 style="color:white;margin-bottom:20px;">CTA Heading</h2>
+  <p style="margin-bottom:25px;">Supporting text</p>
+  <a href="URL" style="display:inline-block;background:white;color:#667eea;padding:15px 40px;border-radius:25px;text-decoration:none;font-weight:bold;">Button Text</a>
+</div>
+
+FEATURE HIGHLIGHT BOX (dark header):
+<div style="border:2px solid #3a2f21;border-radius:14px;overflow:hidden;margin:32px 0;line-height:1.5;color:#3a2f21;">
+  <div style="background-color:#3a2f21;color:#ffffff;font-weight:600;padding:12px 20px;">Box Title</div>
+  <div style="background-color:#fdfbf5;padding:20px;">Content with links</div>
+</div>
+
+KEY QUOTE / PULLOUT:
+<p style="margin:40px 0;padding:30px;background:#f0f4ff;border-radius:15px;border-left:5px solid #667eea;">
+  Important statement or key takeaway.
+</p>
+
+ADDITIONAL RULES:
+- Use emoji via decimal HTML entities (&#127775; &#128161; &#128230; &#128680; &#127919; etc.).
+- Include image suggestions as HTML comments: <!-- Image: description. ALT: alt text -->
+- Scatter 3-5 product callout boxes throughout the article (not just at the end).
+- Every CTA button must use the rounded pill style shown above.
+- Add responsive media query note as HTML comment at top if using grid layouts.
+- Make the article visually engaging — a wall of text with no styled elements is unacceptable.
 
 ═══════════════════════════════════════
 PHASE 9: SEO REVIEW
@@ -5457,17 +5530,33 @@ OUTPUT FORMAT
 Return the article in this exact structure:
 
 <!-- SEO METADATA -->
-Title: [title tag]
-Meta Description: [meta description]
+Title: [title tag, 50-60 characters]
+Meta Description: [meta description, 150-160 characters]
 URL Slug: [suggested-url-slug]
 Primary Keyword: [keyword]
 Secondary Keywords: [comma-separated list]
 
 <!-- ARTICLE HTML -->
-[Full article as clean, valid HTML using h2, h3, p, ul, ol, table, blockquote, strong, em tags. Use &#NNN; decimal codes for any special characters or emoji. No inline styles. No <h1> tag — Magento adds it automatically. Every internal link must use full absolute URLs.]
+[Full article as rich, visually styled HTML using the design patterns from Phase 8.
+REQUIRED elements:
+1. Hero banner with gradient at the top
+2. TL;DR summary box
+3. At least one comparison or decision table
+4. 3-5 product callout boxes with CTA buttons scattered throughout
+5. Tip boxes and/or warning boxes where relevant
+6. A benefit grid (3-column) where appropriate
+7. FAQ section
+8. Final CTA banner near the bottom
+9. Implementation tips or actionable checklist section
+
+ALL styling must be inline (style="...") — Magento strips CSS classes.
+Use &#NNN; decimal HTML entities for all special characters and emoji.
+No <h1> tag — Magento adds it automatically.
+No <style> blocks — all styles inline.
+Every internal link must use full absolute URLs starting with https://alphabet-trains.com/.]
 
 <!-- FAQ SCHEMA (JSON-LD) -->
-[FAQ structured data as a script tag with type="application/ld+json"]
+[FAQ structured data as a <script type="application/ld+json"> tag. Include 5-8 relevant questions and answers.]
 """
 
 
