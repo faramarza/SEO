@@ -3984,10 +3984,13 @@ def api_admin_import_sitemap():
             return "other"
         return None  # Unknown — will fall back to URL classifier
 
+    image_map = {}  # URL → first image URL found in sitemap
+
     def fetch_sitemap_urls(url, depth=0, parent_type=None):
         """Recursively fetch URLs from sitemap (handles sitemap index).
 
         Returns list of (url, asset_type) tuples.
+        Also populates image_map with {page_url: image_url} for product images.
         """
         if depth > 3:
             return []
@@ -3998,6 +4001,7 @@ def api_admin_import_sitemap():
             root = ET.fromstring(resp.text)
             # Strip namespace for easier tag matching
             ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
+            img_ns = "{http://www.google.com/schemas/sitemap-image/1.1}"
             results = []
             # Check for sitemap index
             for sitemap in root.findall(f"{ns}sitemap"):
@@ -4010,7 +4014,14 @@ def api_admin_import_sitemap():
             for url_tag in root.findall(f"{ns}url"):
                 loc = url_tag.find(f"{ns}loc")
                 if loc is not None and loc.text:
-                    results.append((_normalize_url(loc.text.strip()), parent_type))
+                    page_url = _normalize_url(loc.text.strip())
+                    results.append((page_url, parent_type))
+                    # Capture first image URL if present
+                    img_tag = url_tag.find(f"{img_ns}image")
+                    if img_tag is not None:
+                        img_loc = img_tag.find(f"{img_ns}loc")
+                        if img_loc is not None and img_loc.text:
+                            image_map[page_url] = img_loc.text.strip()
             return results
         except Exception as e:
             if depth == 0:
@@ -4049,6 +4060,18 @@ def api_admin_import_sitemap():
         existing_map.update(sitemap_type_map)
         with open(type_map_path, "w") as f:
             json.dump(existing_map, f, indent=2)
+            f.write("\n")
+
+    # Save product image URLs from sitemap
+    if image_map:
+        img_map_path = DATA_PATH / "sitemap_images.json"
+        existing_imgs = {}
+        if img_map_path.exists():
+            with open(img_map_path) as f:
+                existing_imgs = json.load(f)
+        existing_imgs.update(image_map)
+        with open(img_map_path, "w") as f:
+            json.dump(existing_imgs, f, indent=2)
             f.write("\n")
 
     # Fall back to URL-pattern classifier for URLs without a sitemap-derived type
@@ -5466,6 +5489,9 @@ ADDITIONAL RULES:
 - Every CTA button must use the rounded pill style shown above.
 - Make the article visually engaging — a wall of text with no styled elements is unacceptable.
 - Target a MINIMUM of 3,000 words of readable text (not counting HTML tags). Longer is fine — aim for comprehensive coverage.
+- Include product images using <img> tags when product image URLs are provided. Use this exact style:
+  <img src="IMAGE_URL" alt="Descriptive alt text for SEO" style="max-width:100%;height:auto;border-radius:10px;margin:15px 0;display:block;" />
+  Place product images inside or near their product callout boxes. Use the EXACT image URLs provided — do NOT invent image URLs.
 
 ═══════════════════════════════════════
 PHASE 9: SEO REVIEW
@@ -5622,6 +5648,25 @@ def api_content_generate_article():
                 user_prompt_parts.append(
                     "AVAILABLE PRODUCT PAGES ON OUR SITE (link to relevant ones):\n"
                     + "\n".join(f"- {url}" for url in product_urls[:50])
+                )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Load product image URLs from sitemap for use in <img> tags
+    images_path = Path(__file__).parent.parent / "data" / "sitemap_images.json"
+    if images_path.exists():
+        try:
+            with open(images_path) as f:
+                image_data = json.load(f)
+            # Only include images for product pages (most useful for articles)
+            product_images = {url: img for url, img in image_data.items()
+                             if sitemap_path.exists() and url in product_urls}
+            if not product_images:
+                product_images = dict(list(image_data.items())[:50])
+            if product_images:
+                user_prompt_parts.append(
+                    "PRODUCT IMAGE URLS (use these in <img> tags when mentioning products):\n"
+                    + "\n".join(f"- {url} → {img}" for url, img in list(product_images.items())[:50])
                 )
         except (json.JSONDecodeError, OSError):
             pass
