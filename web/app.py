@@ -5527,17 +5527,11 @@ CRITICAL URL RULES
 ═══════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════
-Output TWO sections using these EXACT delimiters:
+Output the article HTML FIRST, then the Magento fields LAST.
 
-===== MAGENTO FIELDS =====
-Meta Title: [50-60 characters]
-Meta Description: [150-160 characters]
-URL Slug: [suggested-url-slug]
-H1: [the page H1 heading]
+START your response IMMEDIATELY with the article HTML — the very first character must be < (an HTML tag). Do NOT start with metadata, comments, notes, or any non-HTML text.
 
-===== ARTICLE HTML =====
-[Full article as rich, visually styled HTML using the design patterns from Phase 8, PLUS the FAQ schema JSON-LD script tag at the very end.
-REQUIRED elements:
+The article HTML must include:
 1. Hero banner with gradient at the top
 2. TL;DR summary box
 3. At least one comparison or decision table
@@ -5547,14 +5541,22 @@ REQUIRED elements:
 7. FAQ section (visible Q&A in HTML)
 8. Final CTA banner near the bottom
 9. Implementation tips or actionable checklist section
-10. FAQ schema JSON-LD <script type="application/ld+json"> tag at the very end
+10. FAQ schema JSON-LD <script type="application/ld+json"> tag at the very end of the HTML
 
 ALL styling must be inline (style="...") — Magento strips CSS classes.
 Use &#NNN; decimal HTML entities for all special characters and emoji.
-No <h1> tag — Magento adds it from the H1 field above.
+No <h1> tag — Magento adds it separately.
 No <style> blocks — all styles inline.
 No HTML comments.
-Every internal link must use full absolute URLs starting with https://alphabet-trains.com/.]
+Every internal link must use full absolute URLs starting with https://alphabet-trains.com/.
+
+AFTER the article HTML is complete, output this exact line on its own:
+---MAGENTO-FIELDS---
+Then output these fields, one per line:
+Meta Title: [50-60 characters]
+Meta Description: [150-160 characters]
+URL Slug: [suggested-url-slug]
+H1: [the page H1 heading]
 """
 
 

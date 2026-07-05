@@ -1667,16 +1667,44 @@ let _genParsed = { fields: {}, article: '' };
 
 function _parseGenOutput(raw) {
     const result = { fields: {}, article: '' };
-    const fieldsMatch = raw.match(/={3,}\s*MAGENTO FIELDS\s*={3,}\s*\n([\s\S]*?)(?=={3,}\s*ARTICLE HTML|$)/i);
-    const articleMatch = raw.match(/={3,}\s*ARTICLE HTML\s*={3,}\s*\n([\s\S]*?)$/i);
-    if (fieldsMatch) {
-        fieldsMatch[1].trim().split('\n').forEach(line => {
-            const m = line.match(/^(.+?):\s*(.+)$/);
+
+    // Try splitting on ---MAGENTO-FIELDS--- delimiter (new format: article first, fields last)
+    const delimIdx = raw.indexOf('---MAGENTO-FIELDS---');
+    if (delimIdx !== -1) {
+        result.article = raw.substring(0, delimIdx).trim();
+        const fieldBlock = raw.substring(delimIdx + 20).trim();
+        fieldBlock.split('\n').forEach(line => {
+            const m = line.match(/^(Meta Title|Meta Description|URL Slug|H1|Title|Primary Keyword|Secondary Keywords):\s*(.+)$/i);
             if (m) result.fields[m[1].trim()] = m[2].trim();
         });
+        return result;
     }
-    if (articleMatch) result.article = articleMatch[1].trim();
-    if (!result.article && !fieldsMatch) result.article = raw;
+
+    // Fallback: detect metadata lines at the top before first HTML tag
+    const lines = raw.split('\n');
+    const metaFields = {};
+    let articleStart = 0;
+    for (let i = 0; i < Math.min(lines.length, 20); i++) {
+        const line = lines[i].trim();
+        if (!line || line.match(/^[=-]+\s*(SEO|MAGENTO|ARTICLE|FAQ)/i) || line.match(/^<!--/)) {
+            articleStart = i + 1;
+            continue;
+        }
+        const m = line.match(/^(Meta Title|Meta Description|URL Slug|H1|Title|Primary Keyword|Secondary Keywords):\s*(.+)$/i);
+        if (m) {
+            metaFields[m[1].trim()] = m[2].trim();
+            articleStart = i + 1;
+            continue;
+        }
+        if (line.startsWith('<')) break;
+        if (Object.keys(metaFields).length > 0) break;
+    }
+    result.fields = metaFields;
+    // Find the first HTML tag for article start
+    const remaining = lines.slice(articleStart).join('\n');
+    const htmlStart = remaining.indexOf('<');
+    result.article = htmlStart >= 0 ? remaining.substring(htmlStart).trim() : remaining.trim();
+    if (!result.article) result.article = raw;
     return result;
 }
 
