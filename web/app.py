@@ -5527,9 +5527,7 @@ CRITICAL URL RULES
 ═══════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════
-Output ONLY the article HTML. Nothing else — no metadata, no title suggestions, no comments, no notes.
-
-START your response IMMEDIATELY with the first HTML tag. The very first character must be <.
+START your response IMMEDIATELY with the article HTML — the very first character must be < (an HTML tag).
 
 The article HTML must include:
 1. Hero banner with gradient at the top
@@ -5550,6 +5548,14 @@ No <style> blocks — all styles inline.
 No HTML comments — zero, none, not even responsive grid notes.
 Every internal link must use full absolute URLs starting with https://alphabet-trains.com/.
 NEVER use /blog/post/ in any URL — the correct format is /blog/slug (e.g., https://alphabet-trains.com/blog/my-article, NEVER https://alphabet-trains.com/blog/post/my-article). This is a hard rule with zero exceptions.
+
+AFTER the article HTML is complete, output this exact delimiter on its own line:
+---MAGENTO-FIELDS---
+Then output exactly these four fields, one per line:
+Meta Title: [50-60 characters, optimized for SEO]
+Meta Description: [150-160 characters, compelling with call to action]
+URL Slug: [lowercase-hyphenated-slug]
+H1: [the page H1 heading]
 """
 
 
