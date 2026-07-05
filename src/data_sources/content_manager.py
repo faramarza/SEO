@@ -517,6 +517,7 @@ def create_article(title, cluster_id=None, **kwargs):
         "products_supported": kwargs.get("products_supported", []),
         "money_pages": kwargs.get("money_pages", []),
         "notes": kwargs.get("notes", ""),
+        "generated_content": kwargs.get("generated_content", ""),
         "created_at": datetime.now().isoformat(),
     }
     data["articles"].append(article)
@@ -637,6 +638,7 @@ def get_pipeline():
             "notes": a.get("notes", ""),
             "products_supported": a.get("products_supported", []),
             "money_pages": a.get("money_pages", []),
+            "generated_content": a.get("generated_content", ""),
             "created_at": a.get("created_at", ""),
         })
 

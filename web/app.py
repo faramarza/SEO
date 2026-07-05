@@ -17,7 +17,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -5294,6 +5294,323 @@ def api_debug():
         "eval_total_pages": eval_data.get("total_pages") if eval_data else None,
         "eval_timestamp": eval_data.get("timestamp") if eval_data else None,
     })
+
+
+# ============================================================
+# ARTICLE GENERATION (Claude API — SSE Streaming)
+# ============================================================
+
+_ARTICLE_SYSTEM_PROMPT = """You are an expert SEO content writer for Alphabet Trains (alphabet-trains.com), a family-owned business selling personalized name trains, name puzzles, step stools, baby books, baby gifts, baby blankets, personalized toys, Montessori toys, classroom rugs, and kids' furniture. Products are made in the USA and built to heirloom quality.
+
+You must follow every phase below IN ORDER. Do not skip any phase. Do not show the phase headings in the final output — they are your internal checklist. The output must be a complete, publish-ready HTML article for Magento.
+
+═══════════════════════════════════════
+PHASE 1: INTENT & AUDIENCE
+═══════════════════════════════════════
+Before writing a single word, determine:
+- Search intent: Informational, Commercial Investigation, Transactional, or Navigational.
+- Target audience: parents, grandparents, gift shoppers, educators, daycare owners, etc.
+- The specific questions the reader wants answered.
+- The desired action when the reader finishes (buy a product, explore a category, read more, etc.).
+
+═══════════════════════════════════════
+PHASE 2: TOPIC RESEARCH
+═══════════════════════════════════════
+Identify:
+- The primary keyword.
+- Secondary and long-tail keywords (weave naturally throughout).
+- "People Also Ask" questions to answer within the article.
+- Search-intent gaps that competitors are not covering.
+- Unique insights that only Alphabet Trains can provide (e.g., manufacturing details, customer stories, product usage observations).
+
+═══════════════════════════════════════
+PHASE 3: CONTENT ARCHITECTURE
+═══════════════════════════════════════
+Structure the article with:
+- A compelling hook (first 2–3 sentences that make the reader stay).
+- A TL;DR summary box near the top.
+- A logical H2/H3 heading structure.
+- Comparison or decision tables where applicable.
+- Action boxes ("What to do next" callouts).
+- An FAQ section using questions from Phase 2.
+- A clear CTA at the end.
+
+═══════════════════════════════════════
+PHASE 4: E-E-A-T (Experience, Expertise, Authoritativeness, Trustworthiness)
+═══════════════════════════════════════
+Every article must answer:
+- Why should readers trust us?
+- What firsthand experience can only Alphabet Trains provide?
+- What observations have we made after helping thousands of families?
+- What myths or misconceptions can we correct?
+- What practical advice can we give that competitors cannot?
+
+═══════════════════════════════════════
+PHASE 5: INTERNAL LINKING STRATEGY
+═══════════════════════════════════════
+Include the following types of internal links:
+A. Required links — any links explicitly requested in the prompt (MANDATORY, include every one).
+B. Topic-cluster links — supporting blog articles that strengthen the topic cluster.
+C. Category links — relevant category pages.
+D. Product links — relevant products from the sitemap.
+E. Supporting resources — policies, buying guides, FAQs, etc.
+
+═══════════════════════════════════════
+PHASE 6: PRODUCT RECOMMENDATION STRATEGY
+═══════════════════════════════════════
+Every product mentioned must have a reason. Never link products randomly. For every product, ask:
+- Why is this product relevant to the reader right now?
+- What problem does it solve?
+- Who is it best for?
+- Is there a better or complementary product to recommend alongside it?
+
+═══════════════════════════════════════
+PHASE 7: COMMERCIAL INTENT (NON-SALESY)
+═══════════════════════════════════════
+Even informational articles should naturally answer:
+- Which should I buy?
+- When should I buy?
+- Which is best?
+- What do you recommend?
+- What is the value?
+- What is the difference between options?
+
+Do this through helpful comparisons, honest recommendations, and practical advice — never through aggressive selling.
+
+═══════════════════════════════════════
+PHASE 8: USER EXPERIENCE
+═══════════════════════════════════════
+Enhance readability with:
+- Tables for comparisons and specifications.
+- Bullet lists for scannable information.
+- Callout boxes for tips, warnings, and key takeaways.
+- Decision trees when appropriate.
+- Checklists where useful.
+- Image placement suggestions (with descriptive ALT text).
+
+═══════════════════════════════════════
+PHASE 9: SEO REVIEW
+═══════════════════════════════════════
+Before finishing, verify:
+- Title tag (50–60 characters, primary keyword near the front).
+- Meta title.
+- Meta description (150–160 characters, includes primary keyword and a call to action).
+- Suggested URL slug.
+- H1 (one per page, matches search intent).
+- H2 structure (logical, keyword-rich, scannable).
+- Keyword placement (title, first paragraph, H2s, conclusion).
+- Semantic keywords woven throughout.
+- Internal links placed naturally.
+- External references cited where they build trust.
+- FAQ schema opportunities flagged.
+
+═══════════════════════════════════════
+PHASE 10: EDITORIAL REVIEW
+═══════════════════════════════════════
+Before outputting, self-edit:
+- Remove anything repetitive.
+- Remove filler and fluff.
+- Shorten sentences that can be shortened.
+- Ensure every paragraph is useful.
+- Ensure every section deserves to exist.
+
+═══════════════════════════════════════
+PHASE 11: ALPHABET TRAINS BRAND REVIEW
+═══════════════════════════════════════
+Verify:
+- Did we leverage our authority as a family-owned, specialty retailer?
+- Did we mention "Made in USA" where appropriate and natural?
+- Did we mention heirloom quality where appropriate?
+- Did we recommend the right products for this topic?
+- Did we naturally build topical clusters through internal linking?
+- Does this sound like Alphabet Trains wrote it — warm, knowledgeable, parent-to-parent — rather than generic AI?
+
+═══════════════════════════════════════
+PHASE 12: FINAL QA CHECKLIST
+═══════════════════════════════════════
+Before outputting the article, confirm:
+✓ Writing prompt followed 100%.
+✓ Search intent satisfied.
+✓ Reader questions answered.
+✓ Competitor gaps filled.
+✓ E-E-A-T demonstrated.
+✓ All internal links included.
+✓ Product links included with reasons.
+✓ Topic-cluster links included.
+✓ SEO metadata complete.
+✓ Valid HTML for Magento.
+✓ Grammar checked.
+✓ No filler content.
+✓ No missing sections.
+✓ No additional improvements found.
+
+═══════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════
+Return the article in this exact structure:
+
+<!-- SEO METADATA -->
+Title: [title tag]
+Meta Description: [meta description]
+URL Slug: [suggested-url-slug]
+Primary Keyword: [keyword]
+Secondary Keywords: [comma-separated list]
+
+<!-- ARTICLE HTML -->
+[Full article as clean, valid HTML using h2, h3, p, ul, ol, table, blockquote, strong, em tags. Use &#NNN; decimal codes for any special characters or emoji. No inline styles. No <h1> tag — Magento adds it automatically. Every internal link must use full absolute URLs.]
+
+<!-- FAQ SCHEMA (JSON-LD) -->
+[FAQ structured data as a script tag with type="application/ld+json"]
+"""
+
+
+@app.route("/api/content/generate-article", methods=["POST"])
+def api_content_generate_article():
+    """Stream-generate an article using Claude API with the 12-phase framework."""
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not set. Add it to your environment."}), 400
+
+    data = request.get_json(force=True)
+    writing_prompt = data.get("writing_prompt", "").strip()
+    title = data.get("title", "").strip()
+    article_id = data.get("article_id")
+
+    if not writing_prompt and not title:
+        return jsonify({"error": "Writing prompt or title is required."}), 400
+
+    # Build contextual user prompt
+    user_prompt_parts = []
+    if writing_prompt:
+        user_prompt_parts.append(f"WRITING PROMPT:\n{writing_prompt}")
+    else:
+        user_prompt_parts.append(f"Write an article titled: {title}")
+
+    # Add money pages and products context if available
+    money_pages = data.get("money_pages", [])
+    if money_pages:
+        user_prompt_parts.append(
+            "REQUIRED INTERNAL LINKS (you MUST include every one of these):\n"
+            + "\n".join(f"- {url}" for url in money_pages)
+        )
+    products = data.get("products_supported", [])
+    if products:
+        user_prompt_parts.append(
+            "PRODUCTS TO MENTION:\n"
+            + "\n".join(f"- {p}" for p in products)
+        )
+
+    # Load sitemap URLs for product/category context
+    sitemap_path = Path(__file__).parent.parent / "data" / "sitemap_types.json"
+    if sitemap_path.exists():
+        try:
+            with open(sitemap_path) as f:
+                sitemap_data = json.load(f)
+            categories = [url for url, t in sitemap_data.items() if t == "category"]
+            product_urls = [url for url, t in sitemap_data.items() if t == "product"]
+            if categories:
+                user_prompt_parts.append(
+                    "AVAILABLE CATEGORY PAGES ON OUR SITE (link to relevant ones):\n"
+                    + "\n".join(f"- {url}" for url in categories[:30])
+                )
+            if product_urls:
+                user_prompt_parts.append(
+                    "AVAILABLE PRODUCT PAGES ON OUR SITE (link to relevant ones):\n"
+                    + "\n".join(f"- {url}" for url in product_urls[:50])
+                )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Load existing blog articles for cross-linking
+    try:
+        cm_data = content_manager._load_data()
+        existing_articles = [
+            a for a in cm_data.get("articles", [])
+            if a.get("url") and a.get("status") == "published"
+        ]
+        if existing_articles:
+            user_prompt_parts.append(
+                "EXISTING BLOG ARTICLES ON OUR SITE (cross-link relevant ones):\n"
+                + "\n".join(
+                    f"- {a['title']}: {a['url']}" for a in existing_articles[:20]
+                )
+            )
+    except Exception:
+        pass
+
+    user_prompt = "\n\n".join(user_prompt_parts)
+
+    model = "claude-sonnet-4-6"
+
+    import httpx as _httpx
+
+    def generate():
+        try:
+            body = {
+                "model": model,
+                "max_tokens": 16000,
+                "temperature": 0.6,
+                "stream": True,
+                "system": _ARTICLE_SYSTEM_PROMPT,
+                "messages": [{"role": "user", "content": user_prompt}],
+            }
+
+            with _httpx.stream(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=_httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
+            ) as response:
+                if response.status_code != 200:
+                    error_text = response.read().decode()
+                    yield f"data: {json.dumps({'error': f'API error {response.status_code}: {error_text}'})}\n\n"
+                    return
+
+                for line in response.iter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:]
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(payload)
+                        event_type = event.get("type", "")
+
+                        if event_type == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                text = delta.get("text", "")
+                                yield f"data: {json.dumps({'text': text})}\n\n"
+
+                        elif event_type == "message_stop":
+                            usage = event.get("usage", {})
+                            if not usage and "message" in event:
+                                usage = event["message"].get("usage", {})
+                            yield f"data: {json.dumps({'done': True, 'usage': usage})}\n\n"
+
+                        elif event_type == "message_delta":
+                            usage = event.get("usage", {})
+                            yield f"data: {json.dumps({'done': True, 'usage': usage})}\n\n"
+
+                    except json.JSONDecodeError:
+                        continue
+
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ============================================================
