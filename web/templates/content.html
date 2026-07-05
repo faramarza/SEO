@@ -403,16 +403,15 @@
         <span class="modal-close" onclick="closeGenModal()">&times;</span>
         <h2 id="gen-title" style="margin-bottom:8px;">Generate Article</h2>
         <div id="gen-status" style="margin-bottom:8px;font-size:12px;color:var(--text-muted);"></div>
-        <div id="gen-tabs" class="hidden" style="display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border-color);">
-            <button onclick="switchGenTab('article')" id="gen-tab-article" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid var(--accent-blue);background:transparent;color:var(--accent-blue);cursor:pointer;margin-bottom:-2px;">Article HTML</button>
-            <button onclick="switchGenTab('meta')" id="gen-tab-meta" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;">SEO Metadata</button>
-            <button onclick="switchGenTab('schema')" id="gen-tab-schema" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;">FAQ Schema</button>
-            <button onclick="switchGenTab('preview')" id="gen-tab-preview" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;">Preview</button>
+        <div id="gen-magento-fields" class="hidden" style="margin-bottom:12px;border:1px solid var(--border-color);border-radius:6px;overflow:hidden;"></div>
+        <div id="gen-view-tabs" class="hidden" style="display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border-color);">
+            <button onclick="switchGenView('html')" id="gen-view-html" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid var(--accent-blue);background:transparent;color:var(--accent-blue);cursor:pointer;margin-bottom:-2px;">HTML Code</button>
+            <button onclick="switchGenView('preview')" id="gen-view-preview" style="padding:8px 20px;font-size:12px;font-weight:600;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted);cursor:pointer;margin-bottom:-2px;">Preview</button>
         </div>
         <div id="gen-output" style="flex:1;overflow-y:auto;padding:16px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:0 0 6px 6px;font-size:13px;line-height:1.7;white-space:pre-wrap;font-family:monospace;"></div>
         <div id="gen-preview" class="hidden" style="flex:1;overflow-y:auto;padding:16px;background:#fff;border:1px solid var(--border-color);border-radius:0 0 6px 6px;font-size:14px;line-height:1.7;"></div>
         <div id="gen-actions" class="hidden" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button onclick="copyCurrentTab()" id="gen-copy-btn" style="padding:8px 16px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Copy Article HTML</button>
+            <button onclick="copyArticleHtml()" style="padding:8px 16px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);border-radius:4px;background:transparent;color:var(--accent-blue);cursor:pointer;">Copy Article HTML</button>
             <button onclick="saveGenerated()" style="padding:8px 16px;font-size:12px;font-weight:600;border:none;border-radius:4px;background:var(--accent-green);color:#fff;cursor:pointer;">Save to Article</button>
             <span id="gen-cost" style="margin-left:auto;font-size:11px;color:var(--text-muted);align-self:center;"></span>
         </div>
@@ -1646,15 +1645,16 @@ async function viewGenerated(articleId) {
         if (!art || !art.generated_content) return;
         _genArticleId = articleId;
         _genContent = art.generated_content;
-        _genSections = _parseGenSections(_genContent);
+        _genParsed = _parseGenOutput(_genContent);
+        _renderMagentoFields(_genParsed.fields);
         const modal = document.getElementById('gen-modal');
         document.getElementById('gen-title').textContent = art.title;
         document.getElementById('gen-status').textContent = 'Previously generated article.';
         document.getElementById('gen-actions').classList.remove('hidden');
-        document.getElementById('gen-tabs').classList.remove('hidden');
-        document.getElementById('gen-tabs').style.display = 'flex';
+        document.getElementById('gen-view-tabs').classList.remove('hidden');
+        document.getElementById('gen-view-tabs').style.display = 'flex';
         document.getElementById('gen-cost').textContent = '';
-        switchGenTab('article');
+        switchGenView('html');
         modal.classList.remove('hidden');
     } catch (err) { alert('Error: ' + err.message); }
 }
@@ -1663,49 +1663,61 @@ async function viewGenerated(articleId) {
 let _genArticleId = null;
 let _genContent = '';
 let _genAbort = null;
-let _genSections = { meta: '', article: '', schema: '' };
-let _genCurrentTab = 'article';
+let _genParsed = { fields: {}, article: '' };
 
-function _parseGenSections(raw) {
-    const sections = { meta: '', article: '', schema: '' };
-    const metaMatch = raw.match(/={3,}\s*SEO METADATA\s*={3,}\s*\n([\s\S]*?)(?=={3,}\s*ARTICLE HTML|$)/i);
-    const articleMatch = raw.match(/={3,}\s*ARTICLE HTML\s*={3,}\s*\n([\s\S]*?)(?=={3,}\s*FAQ SCHEMA|$)/i);
-    const schemaMatch = raw.match(/={3,}\s*FAQ SCHEMA\s*={3,}\s*\n([\s\S]*?)$/i);
-    if (metaMatch) sections.meta = metaMatch[1].trim();
-    if (articleMatch) sections.article = articleMatch[1].trim();
-    if (schemaMatch) sections.schema = schemaMatch[1].trim();
-    if (!sections.article && !sections.meta) sections.article = raw;
-    return sections;
+function _parseGenOutput(raw) {
+    const result = { fields: {}, article: '' };
+    const fieldsMatch = raw.match(/={3,}\s*MAGENTO FIELDS\s*={3,}\s*\n([\s\S]*?)(?=={3,}\s*ARTICLE HTML|$)/i);
+    const articleMatch = raw.match(/={3,}\s*ARTICLE HTML\s*={3,}\s*\n([\s\S]*?)$/i);
+    if (fieldsMatch) {
+        fieldsMatch[1].trim().split('\n').forEach(line => {
+            const m = line.match(/^(.+?):\s*(.+)$/);
+            if (m) result.fields[m[1].trim()] = m[2].trim();
+        });
+    }
+    if (articleMatch) result.article = articleMatch[1].trim();
+    if (!result.article && !fieldsMatch) result.article = raw;
+    return result;
 }
 
-function switchGenTab(tab) {
-    _genCurrentTab = tab;
-    ['article','meta','schema','preview'].forEach(t => {
-        const btn = document.getElementById('gen-tab-' + t);
-        btn.style.borderBottomColor = t === tab ? 'var(--accent-blue)' : 'transparent';
-        btn.style.color = t === tab ? 'var(--accent-blue)' : 'var(--text-muted)';
-    });
+function _renderMagentoFields(fields) {
+    const container = document.getElementById('gen-magento-fields');
+    if (!Object.keys(fields).length) { container.classList.add('hidden'); return; }
+    container.classList.remove('hidden');
+    container.innerHTML = Object.entries(fields).map(([label, value]) =>
+        `<div style="display:flex;align-items:center;border-bottom:1px solid var(--border-light);padding:0;">
+            <span style="min-width:120px;padding:8px 12px;font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-hover);">${escHtml(label)}</span>
+            <span style="flex:1;padding:8px 12px;font-size:12px;font-family:monospace;user-select:all;">${escHtml(value)}</span>
+            <button onclick="_copyField(this,'${escHtml(value).replace(/'/g,"\\&#39;")}')" style="padding:4px 10px;margin-right:8px;font-size:10px;font-weight:600;border:1px solid var(--accent-blue);border-radius:3px;background:transparent;color:var(--accent-blue);cursor:pointer;white-space:nowrap;">Copy</button>
+        </div>`
+    ).join('');
+}
+
+function _copyField(btn, value) {
+    _copyText(value, btn);
+}
+
+function switchGenView(view) {
     const output = document.getElementById('gen-output');
     const preview = document.getElementById('gen-preview');
-    const copyBtn = document.getElementById('gen-copy-btn');
-    if (tab === 'preview') {
+    const htmlBtn = document.getElementById('gen-view-html');
+    const prevBtn = document.getElementById('gen-view-preview');
+    if (view === 'preview') {
         output.classList.add('hidden');
         preview.classList.remove('hidden');
-        preview.innerHTML = _genSections.article || _genContent;
-        copyBtn.textContent = 'Copy Article HTML';
+        preview.innerHTML = _genParsed.article || _genContent;
+        htmlBtn.style.borderBottomColor = 'transparent';
+        htmlBtn.style.color = 'var(--text-muted)';
+        prevBtn.style.borderBottomColor = 'var(--accent-blue)';
+        prevBtn.style.color = 'var(--accent-blue)';
     } else {
         preview.classList.add('hidden');
         output.classList.remove('hidden');
-        if (tab === 'meta') {
-            output.textContent = _genSections.meta || '(Generating...)';
-            copyBtn.textContent = 'Copy Metadata';
-        } else if (tab === 'schema') {
-            output.textContent = _genSections.schema || '(Generating...)';
-            copyBtn.textContent = 'Copy Schema';
-        } else {
-            output.textContent = _genSections.article || _genContent;
-            copyBtn.textContent = 'Copy Article HTML';
-        }
+        output.textContent = _genParsed.article || _genContent;
+        htmlBtn.style.borderBottomColor = 'var(--accent-blue)';
+        htmlBtn.style.color = 'var(--accent-blue)';
+        prevBtn.style.borderBottomColor = 'transparent';
+        prevBtn.style.color = 'var(--text-muted)';
     }
 }
 
@@ -1746,17 +1758,18 @@ async function generateArticleFromPipeline(articleId) {
 function _startGeneration(params) {
     _genArticleId = params.article_id;
     _genContent = '';
-    _genSections = { meta: '', article: '', schema: '' };
-    _genCurrentTab = 'article';
+    _genParsed = { fields: {}, article: '' };
     const modal = document.getElementById('gen-modal');
     document.getElementById('gen-title').textContent = params.title;
     document.getElementById('gen-output').textContent = '';
     document.getElementById('gen-output').classList.remove('hidden');
     document.getElementById('gen-preview').classList.add('hidden');
+    document.getElementById('gen-magento-fields').classList.add('hidden');
+    document.getElementById('gen-magento-fields').innerHTML = '';
     document.getElementById('gen-status').textContent = 'Generating article — this takes 2–4 minutes...';
     document.getElementById('gen-status').style.color = 'var(--text-muted)';
     document.getElementById('gen-actions').classList.add('hidden');
-    document.getElementById('gen-tabs').classList.add('hidden');
+    document.getElementById('gen-view-tabs').classList.add('hidden');
     document.getElementById('gen-cost').textContent = '';
     modal.classList.remove('hidden');
 
@@ -1819,12 +1832,13 @@ function _startGeneration(params) {
 }
 
 function _onGenComplete(usage) {
-    _genSections = _parseGenSections(_genContent);
+    _genParsed = _parseGenOutput(_genContent);
+    _renderMagentoFields(_genParsed.fields);
     document.getElementById('gen-status').textContent = 'Generation complete.';
     document.getElementById('gen-actions').classList.remove('hidden');
-    document.getElementById('gen-tabs').classList.remove('hidden');
-    document.getElementById('gen-tabs').style.display = 'flex';
-    switchGenTab('article');
+    document.getElementById('gen-view-tabs').classList.remove('hidden');
+    document.getElementById('gen-view-tabs').style.display = 'flex';
+    switchGenView('html');
     if (usage) {
         const inp = usage.input_tokens || 0;
         const out = usage.output_tokens || 0;
@@ -1855,13 +1869,9 @@ function _copyText(text, btn) {
     setTimeout(() => btn.textContent = orig, 1500);
 }
 
-function copyCurrentTab() {
-    const btn = document.getElementById('gen-copy-btn');
-    let text = '';
-    if (_genCurrentTab === 'meta') text = _genSections.meta;
-    else if (_genCurrentTab === 'schema') text = _genSections.schema;
-    else text = _genSections.article || _genContent;
-    _copyText(text, btn);
+function copyArticleHtml() {
+    const btn = event.target;
+    _copyText(_genParsed.article || _genContent, btn);
 }
 
 async function saveGenerated() {

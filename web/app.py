@@ -5527,17 +5527,16 @@ CRITICAL URL RULES
 ═══════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════
-You MUST output THREE clearly separated sections using these EXACT delimiters. Each section can be copied independently.
+Output TWO sections using these EXACT delimiters:
 
-===== SEO METADATA =====
-Title: [title tag, 50-60 characters]
-Meta Description: [meta description, 150-160 characters]
+===== MAGENTO FIELDS =====
+Meta Title: [50-60 characters]
+Meta Description: [150-160 characters]
 URL Slug: [suggested-url-slug]
-Primary Keyword: [keyword]
-Secondary Keywords: [comma-separated list]
+H1: [the page H1 heading]
 
 ===== ARTICLE HTML =====
-[Full article as rich, visually styled HTML using the design patterns from Phase 8.
+[Full article as rich, visually styled HTML using the design patterns from Phase 8, PLUS the FAQ schema JSON-LD script tag at the very end.
 REQUIRED elements:
 1. Hero banner with gradient at the top
 2. TL;DR summary box
@@ -5545,19 +5544,17 @@ REQUIRED elements:
 4. 3-5 product callout boxes with CTA buttons scattered throughout
 5. Tip boxes and/or warning boxes where relevant
 6. A benefit grid (3-column) where appropriate
-7. FAQ section
+7. FAQ section (visible Q&A in HTML)
 8. Final CTA banner near the bottom
 9. Implementation tips or actionable checklist section
+10. FAQ schema JSON-LD <script type="application/ld+json"> tag at the very end
 
 ALL styling must be inline (style="...") — Magento strips CSS classes.
 Use &#NNN; decimal HTML entities for all special characters and emoji.
-No <h1> tag — Magento adds it automatically.
+No <h1> tag — Magento adds it from the H1 field above.
 No <style> blocks — all styles inline.
-No HTML comments — they add clutter and are not needed.
+No HTML comments.
 Every internal link must use full absolute URLs starting with https://alphabet-trains.com/.]
-
-===== FAQ SCHEMA =====
-[FAQ structured data as a <script type="application/ld+json"> tag. Include 5-8 relevant questions and answers. This goes in a separate CMS block or the page head in Magento.]
 """
 
 
