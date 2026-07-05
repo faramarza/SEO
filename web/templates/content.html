@@ -1682,6 +1682,10 @@ function _parseGenOutput(raw) {
     }
     const firstTag = article.indexOf('<');
     if (firstTag > 0) article = article.substring(firstTag);
+    // Auto-fix /blog/post/ URLs to /blog/
+    article = article.replace(/\/blog\/post\//g, '/blog/');
+    // Strip HTML comments the model might sneak in
+    article = article.replace(/<!--[\s\S]*?-->/g, '');
     return { article: article.trim(), fields };
 }
 

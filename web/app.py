@@ -5355,6 +5355,13 @@ C. Category links — relevant category pages.
 D. Product links — relevant products from the sitemap.
 E. Supporting resources — policies, buying guides, FAQs, etc.
 
+EXTERNAL REFERENCES (REQUIRED — minimum 2, ideally 3-4):
+Include outbound links to authoritative external sources that build E-E-A-T trust:
+- Research studies, university publications, or government resources (e.g., child development research, NAEYC, AAP, CDC milestones)
+- Educational methodology references (e.g., Montessori.org, NAMTA, peer-reviewed journals)
+- Industry standards or safety organizations (e.g., ASTM, CPSC)
+All external links must use target="_blank" rel="noopener" and must be REAL, verifiable URLs to actual organizations. Do NOT invent URLs.
+
 ═══════════════════════════════════════
 PHASE 6: PRODUCT RECOMMENDATION STRATEGY
 ═══════════════════════════════════════
@@ -5455,11 +5462,10 @@ KEY QUOTE / PULLOUT:
 
 ADDITIONAL RULES:
 - Use emoji via decimal HTML entities (&#127775; &#128161; &#128230; &#128680; &#127919; etc.).
-- Include image suggestions as HTML comments: <!-- Image: description. ALT: alt text -->
 - Scatter 3-5 product callout boxes throughout the article (not just at the end).
 - Every CTA button must use the rounded pill style shown above.
-- Add responsive media query note as HTML comment at top if using grid layouts.
 - Make the article visually engaging — a wall of text with no styled elements is unacceptable.
+- Target a MINIMUM of 3,000 words of readable text (not counting HTML tags). Longer is fine — aim for comprehensive coverage.
 
 ═══════════════════════════════════════
 PHASE 9: SEO REVIEW
@@ -5510,11 +5516,15 @@ Before outputting the article, confirm:
 ✓ All internal links included.
 ✓ Product links included with reasons.
 ✓ Topic-cluster links included.
+✓ Minimum 2 external reference links to authoritative sources.
 ✓ SEO metadata complete.
 ✓ Valid HTML for Magento.
 ✓ Grammar checked.
 ✓ No filler content.
 ✓ No missing sections.
+✓ Minimum 3,000 words of readable text.
+✓ ZERO instances of /blog/post/ in any URL (correct: /blog/slug).
+✓ ZERO HTML comments anywhere in the output.
 ✓ No additional improvements found.
 
 ═══════════════════════════════════════
