@@ -4493,10 +4493,11 @@ def api_run_evaluation():
 
             # Save snapshot for growth tracking
             try:
+                from datetime import datetime as _dt
                 eval_file = DATA_PATH / "latest_evaluation.json"
                 if eval_file.exists():
                     EVAL_HISTORY_PATH.mkdir(parents=True, exist_ok=True)
-                    snapshot_name = datetime.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
+                    snapshot_name = _dt.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
                     import shutil
                     shutil.copy2(eval_file, EVAL_HISTORY_PATH / snapshot_name)
             except OSError:
@@ -4511,8 +4512,8 @@ def api_run_evaluation():
             job_state["message"] = f"Error: {e}"
             print(f"Evaluation error: {e}\n{tb}")  # Also log to Flask console
         finally:
-            from datetime import datetime
-            job_state["finished_at"] = datetime.now().strftime("%b %d, %Y %I:%M %p")
+            from datetime import datetime as _dt
+            job_state["finished_at"] = _dt.now().strftime("%b %d, %Y %I:%M %p")
             job_state["running"] = False
 
     # Run in background thread
