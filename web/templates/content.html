@@ -1284,7 +1284,7 @@ async function loadGapsTab() {
             const bt = qs.by_type || {};
             html += `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--accent-blue);" id="gap-priority-queue">
                 <h3 style="margin-bottom:4px;">Content Priority Queue</h3>
-                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Articles ranked by business impact. Write these in order. Click any row to expand the full content brief.</p>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">${qs.data_driven ? `Data-driven suggestions from ${(qs.queries_analyzed || 0).toLocaleString()} search queries. ` : 'Template-based suggestions — run an evaluation for data-driven recommendations. '}Ranked by search volume, commercial intent, and product fit. Click any row to expand.</p>
 
                 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;padding:14px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;">
                     <div style="text-align:center;">
@@ -1314,24 +1314,28 @@ async function loadGapsTab() {
                 </div>
 
                 <div style="display:flex;gap:16px;margin-bottom:16px;padding:12px 14px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;font-size:12px;">
-                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-red);margin-right:4px;"></span><strong>${qs.high_impact || 0}</strong> high impact <span style="color:var(--text-muted);">(70+)</span></div>
-                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-orange);margin-right:4px;"></span><strong>${qs.med_impact || 0}</strong> medium <span style="color:var(--text-muted);">(45-69)</span></div>
-                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-blue);margin-right:4px;"></span><strong>${qs.low_impact || 0}</strong> lower <span style="color:var(--text-muted);">(&lt;45)</span></div>
-                    <div style="margin-left:auto;color:var(--text-muted);">${bt.product_support || 0} product &middot; ${bt.money_page_support || 0} category &middot; ${bt.topic_gap || 0} topic</div>
+                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-red);margin-right:4px;"></span><strong>${qs.high_impact || 0}</strong> high impact <span style="color:var(--text-muted);">(60+)</span></div>
+                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-orange);margin-right:4px;"></span><strong>${qs.med_impact || 0}</strong> medium <span style="color:var(--text-muted);">(35-59)</span></div>
+                    <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--accent-blue);margin-right:4px;"></span><strong>${qs.low_impact || 0}</strong> lower <span style="color:var(--text-muted);">(&lt;35)</span></div>
+                    <div style="margin-left:auto;color:var(--text-muted);">${bt.search_opportunity || 0} search &middot; ${bt.ranking_opportunity || 0} ranking &middot; ${bt.product_support || 0} product &middot; ${bt.topic_gap || 0} topic</div>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;">
                 ${allSugs.map(s => {
                     const uid = 'sug_' + s.rank;
                     const scoreColor = s.score >= 70 ? 'var(--accent-red)' : s.score >= 45 ? 'var(--accent-orange)' : 'var(--accent-blue)';
-                    const typeLabel = s.type === 'product_support' ? 'Product' : s.type === 'money_page_support' ? 'Category' : 'Topic';
-                    const typeColor = s.type === 'product_support' ? '#8b5cf6' : s.type === 'money_page_support' ? 'var(--accent-green)' : 'var(--accent-blue)';
+                    const typeLabels = {search_opportunity:'Search',ranking_opportunity:'Ranking',product_support:'Product',money_page_support:'Category',topic_gap:'Topic'};
+                    const typeColors = {search_opportunity:'var(--accent-orange)',ranking_opportunity:'#8b5cf6',product_support:'var(--accent-green)',money_page_support:'var(--accent-blue)',topic_gap:'var(--text-muted)'};
+                    const typeLabel = typeLabels[s.type] || s.type;
+                    const typeColor = typeColors[s.type] || 'var(--text-muted)';
                     return `<div style="border:1px solid var(--border-color);border-radius:6px;overflow:hidden;">
                         <div onclick="document.getElementById('${uid}').classList.toggle('hidden')" style="padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;background:var(--bg-secondary);">
                             <span style="min-width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:${scoreColor};background:${scoreColor}12;border:2px solid ${scoreColor};border-radius:50%;">${s.rank}</span>
                             <span style="font-size:10px;font-weight:700;color:${scoreColor};background:${scoreColor}18;padding:2px 6px;border-radius:3px;">${s.score}</span>
                             <span style="font-size:10px;font-weight:600;color:${typeColor};background:${typeColor}18;padding:2px 6px;border-radius:3px;">${typeLabel}</span>
                             <span style="font-weight:500;font-size:13px;flex:1;">${escHtml(s.title)}</span>
-                            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;">${escHtml(s.cluster_name)}</span>
+                            ${s.impressions ? `<span style="font-size:10px;color:var(--text-muted);white-space:nowrap;" title="GSC impressions">${s.impressions.toLocaleString()} imp</span>` : ''}
+                            ${s.commercial_intent > 0.3 ? `<span style="font-size:9px;font-weight:700;color:#d97706;background:#fef3c7;padding:1px 5px;border-radius:3px;" title="Commercial intent ${Math.round(s.commercial_intent*100)}%">$$</span>` : ''}
+                            <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;">${escHtml(s.cluster_name || '')}</span>
                             <span style="font-size:11px;color:var(--text-muted);">&#9660;</span>
                         </div>
                         <div id="${uid}" class="hidden" style="padding:14px;border-top:1px solid var(--border-color);font-size:12px;">
@@ -1486,7 +1490,7 @@ function _suggestionToArticle(sug, status) {
         notes: sug.writing_prompt || '',
         products_supported: (sug.related_products || []).map(p => p.name),
         money_pages: (sug.internal_links || []).map(l => l.url),
-        business_value: sug.score >= 70 ? 'high' : sug.score >= 45 ? 'medium' : 'low',
+        business_value: sug.score >= 60 ? 'high' : sug.score >= 35 ? 'medium' : 'low',
     };
 }
 

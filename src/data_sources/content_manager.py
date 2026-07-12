@@ -999,23 +999,175 @@ _REVENUE_CLUSTERS = {
 }
 
 
-def _score_suggestion(sug, gap_ratio, cl_name):
-    """Score a suggestion 0-100 based on business impact."""
-    type_base = {"product_support": 45, "money_page_support": 30, "topic_gap": 12}
-    score = type_base.get(sug["type"], 10)
-    score += min(30, gap_ratio * 30)
-    if sug["type"] == "product_support":
-        existing = int(re.search(r'(\d+) supporting', sug.get("reason", "0")).group(1)) if re.search(r'(\d+) supporting', sug.get("reason", "")) else 0
-        score += (3 - existing) * 5
-    elif sug["type"] == "money_page_support":
+EVAL_PATH = DATA_PATH / "latest_evaluation.json"
+
+_COMMERCIAL_KEYWORDS = {
+    "buy", "best", "review", "reviews", "vs", "versus", "compare", "comparison",
+    "price", "cost", "cheap", "deal", "gift", "gifts", "worth", "recommend",
+    "top", "which", "guide", "ideas",
+}
+_TRANSACTIONAL_KEYWORDS = {
+    "buy", "order", "shop", "purchase", "price", "cost", "cheap", "deal",
+    "coupon", "discount", "sale", "free shipping",
+}
+
+
+def _commercial_intent_score(query):
+    """Score 0-1 how commercially oriented a search query is."""
+    words = set(query.lower().split())
+    commercial = len(words & _COMMERCIAL_KEYWORDS)
+    transactional = len(words & _TRANSACTIONAL_KEYWORDS)
+    score = min(1.0, commercial * 0.25 + transactional * 0.35)
+    if "for" in words:
+        score = min(1.0, score + 0.1)
+    return score
+
+
+def _load_eval_queries():
+    """Load all GSC queries from the latest evaluation, grouped by topic."""
+    if not EVAL_PATH.exists():
+        return [], {}
+    try:
+        with open(EVAL_PATH) as f:
+            eval_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return [], {}
+
+    all_queries = {}
+    page_queries = {}
+    for result in eval_data.get("results", []):
+        url = result.get("url", "")
+        asset_type = result.get("asset_type", "")
+        revenue = result.get("ga4_revenue", 0) or 0
+        for q in result.get("top_queries", []):
+            query = q.get("query", "").strip().lower()
+            if not query or len(query) < 3:
+                continue
+            if query not in all_queries:
+                all_queries[query] = {
+                    "query": query,
+                    "impressions": 0,
+                    "clicks": 0,
+                    "best_position": 100,
+                    "pages": [],
+                    "revenue_pages": 0,
+                    "asset_types": set(),
+                }
+            entry = all_queries[query]
+            entry["impressions"] += q.get("impressions", 0)
+            entry["clicks"] += q.get("clicks", 0)
+            entry["best_position"] = min(entry["best_position"], q.get("position", 100))
+            entry["pages"].append(url)
+            entry["asset_types"].add(asset_type)
+            if revenue > 0:
+                entry["revenue_pages"] += 1
+            # Track which queries belong to which page
+            if url not in page_queries:
+                page_queries[url] = []
+            page_queries[url].append(q)
+
+    # Convert sets to lists for JSON compatibility
+    for q in all_queries.values():
+        q["asset_types"] = list(q["asset_types"])
+    return list(all_queries.values()), page_queries
+
+
+def _find_content_gaps(queries, existing_articles):
+    """Find queries that have search volume but no dedicated blog content."""
+    existing_urls = {a.get("url", "").lower() for a in existing_articles if a.get("url")}
+    existing_titles_words = set()
+    for a in existing_articles:
+        existing_titles_words.update(a.get("title", "").lower().split())
+
+    gaps = []
+    for q in queries:
+        if q["impressions"] < 5:
+            continue
+        has_blog = any("blog" in p.lower() or "article" in p.lower() for p in q["pages"])
+        if has_blog:
+            continue
+        gaps.append(q)
+    return gaps
+
+
+def _query_to_title(query):
+    """Convert a search query into a readable article title."""
+    title = query.strip().title()
+    title = re.sub(r'\bVs\b', 'vs', title)
+    title = re.sub(r'\bAnd\b', 'and', title)
+    title = re.sub(r'\bFor\b', 'for', title)
+    title = re.sub(r'\bOf\b', 'of', title)
+    title = re.sub(r'\bThe\b', 'the', title)
+    title = re.sub(r'\bIn\b', 'in', title)
+    title = re.sub(r'\bA\b', 'a', title)
+    title = re.sub(r'\bTo\b', 'to', title)
+    title = re.sub(r'\bWith\b', 'with', title)
+    title = re.sub(r'\bBy\b', 'by', title)
+    title = re.sub(r'\bOn\b', 'on', title)
+    if title:
+        title = title[0].upper() + title[1:]
+    return title
+
+
+def _match_products_to_query(query, products, sitemap_types=None):
+    """Find products relevant to a search query."""
+    query_words = set(query.lower().split())
+    matched = []
+    for prod in products:
+        prod_words = set(prod.get("name", "").lower().split())
+        if query_words & prod_words:
+            matched.append(prod)
+    return matched
+
+
+def _score_suggestion_v2(sug):
+    """Score a content suggestion 0-100 using data-driven factors.
+
+    Factors:
+      Search volume  (0-30): Based on GSC impressions
+      Commercial     (0-20): Commercial/transactional keyword signals
+      Product fit    (0-15): How many products this content supports
+      Content gap    (0-15): No existing content covers this topic
+      Rank opportunity(0-10): Already ranking page 2-3 (positions 11-30)
+      Revenue signal (0-10): Query associated with revenue-generating pages
+    """
+    score = 0
+
+    # Search volume: log-scale, impressions from GSC
+    impressions = sug.get("impressions", 0)
+    if impressions > 0:
+        import math
+        score += min(30, round(math.log(impressions + 1, 10) * 10))
+
+    # Commercial intent
+    commercial = sug.get("commercial_intent", 0)
+    score += round(commercial * 20)
+
+    # Product fit: how many products this supports
+    product_count = sug.get("product_count", 0)
+    score += min(15, product_count * 5)
+
+    # Content gap: no existing blog content for this query
+    if sug.get("is_content_gap", False):
+        score += 15
+
+    # Ranking opportunity: position 11-30 means we're close to page 1
+    position = sug.get("best_position", 100)
+    if 11 <= position <= 30:
+        score += round(10 * (1 - (position - 11) / 19))
+    elif position <= 10:
+        score += 3
+
+    # Revenue signal
+    if sug.get("revenue_pages", 0) > 0:
         score += 10
-    if cl_name in _REVENUE_CLUSTERS:
-        score += 10
-    return min(100, round(score))
+
+    return min(100, score)
 
 
 def get_content_suggestions(cluster_id=None):
-    """Generate specific article topic suggestions based on gaps."""
+    """Generate data-driven content suggestions using GSC queries,
+    product catalog, commercial intent, and content gap analysis."""
     data = _load_data()
     clusters = data.get("clusters", [])
     articles = data.get("articles", [])
@@ -1024,110 +1176,216 @@ def get_content_suggestions(cluster_id=None):
     year = datetime.now().year
 
     active_money_pages = [mp for mp in money_pages if mp.get("status", "active") != "inactive"]
-
     existing_titles = {a["title"].lower() for a in articles}
     seen_titles = set()
 
-    target_clusters = clusters
-    if cluster_id:
-        target_clusters = [c for c in clusters if c["id"] == cluster_id]
+    # Load GSC query data from latest evaluation
+    all_queries, page_queries = _load_eval_queries()
+
+    # Load sitemap types for product URL matching
+    sitemap_types = {}
+    if SITEMAP_PATH.exists():
+        try:
+            with open(SITEMAP_PATH) as f:
+                sitemap_types = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Count product pages per product family
+    config = {}
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH) as f:
+                config = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    product_families = config.get("business_context", {}).get("product_families", [])
+    product_page_counts = {}
+    for url, stype in sitemap_types.items():
+        if stype == "product":
+            for fam in product_families:
+                if any(w in url.lower() for w in fam.lower().split() if len(w) > 3):
+                    product_page_counts[fam] = product_page_counts.get(fam, 0) + 1
 
     all_suggestions = []
-    for cluster in target_clusters:
-        cl_articles = [a for a in articles if a.get("cluster_id") == cluster["id"]]
-        published = sum(1 for a in cl_articles if a.get("status") == "published")
-        target = cluster.get("target_articles", 20)
-        if published >= target:
+
+    # ─── SOURCE 1: Query-driven suggestions (content gaps) ───
+    if all_queries:
+        content_gaps = _find_content_gaps(all_queries, articles)
+        content_gaps.sort(key=lambda q: q["impressions"], reverse=True)
+
+        for q in content_gaps[:40]:
+            query = q["query"]
+            title = _query_to_title(query)
+            title_key = title.lower()
+            if title_key in existing_titles or title_key in seen_titles:
+                continue
+            if len(title) < 15:
+                continue
+            seen_titles.add(title_key)
+
+            matched_products = _match_products_to_query(query, products, sitemap_types)
+            commercial = _commercial_intent_score(query)
+
+            sug = {
+                "title": title,
+                "type": "search_opportunity",
+                "reason": (f"{q['impressions']:,} impressions, position {q['best_position']:.0f}"
+                           f" — no dedicated blog content"),
+                "priority": "high" if q["impressions"] > 50 else "medium",
+                "impressions": q["impressions"],
+                "clicks": q["clicks"],
+                "best_position": q["best_position"],
+                "commercial_intent": commercial,
+                "product_count": len(matched_products),
+                "is_content_gap": True,
+                "revenue_pages": q.get("revenue_pages", 0),
+                "source_query": query,
+            }
+            sug["score"] = _score_suggestion_v2(sug)
+            all_suggestions.append(sug)
+
+    # ─── SOURCE 2: Page 2-3 ranking opportunities ───
+    if all_queries:
+        page2_queries = [q for q in all_queries
+                         if 11 <= q["best_position"] <= 30
+                         and q["impressions"] >= 10
+                         and any("blog" in p.lower() for p in q["pages"])]
+        page2_queries.sort(key=lambda q: q["impressions"], reverse=True)
+
+        for q in page2_queries[:15]:
+            query = q["query"]
+            title = f"The Complete Guide to {_query_to_title(query)}"
+            title_key = title.lower()
+            if title_key in existing_titles or title_key in seen_titles:
+                continue
+            seen_titles.add(title_key)
+
+            matched_products = _match_products_to_query(query, products, sitemap_types)
+            commercial = _commercial_intent_score(query)
+
+            sug = {
+                "title": title,
+                "type": "ranking_opportunity",
+                "reason": (f"Ranking #{q['best_position']:.0f} with {q['impressions']:,} impressions"
+                           f" — supporting content could push to page 1"),
+                "priority": "high",
+                "impressions": q["impressions"],
+                "clicks": q["clicks"],
+                "best_position": q["best_position"],
+                "commercial_intent": commercial,
+                "product_count": len(matched_products),
+                "is_content_gap": False,
+                "revenue_pages": q.get("revenue_pages", 0),
+                "source_query": query,
+            }
+            sug["score"] = _score_suggestion_v2(sug)
+            all_suggestions.append(sug)
+
+    # ─── SOURCE 3: Product support (data-aware) ───
+    for prod in products:
+        prod_articles = [a for a in articles
+                         if prod["name"].lower() in [s.lower() for s in a.get("products_supported", [])]]
+        page_count = product_page_counts.get(prod["name"].lower(), 1)
+        if len(prod_articles) >= 3:
             continue
+        ideas = _PRODUCT_ARTICLE_IDEAS.get(prod["name"].lower(), [
+            f"Why Parents Love {prod['name']}: Reviews and Benefits",
+        ])
+        # Find GSC impressions related to this product
+        prod_impressions = 0
+        for q in all_queries:
+            if any(w in q["query"] for w in prod["name"].lower().split() if len(w) > 3):
+                prod_impressions += q["impressions"]
 
-        cl_name = cluster["name"]
-        gap_ratio = (target - published) / max(target, 1)
-        templates = _CONTENT_TEMPLATES.get(cl_name, [])
-        cl_suggestions = []
-
-        # Product-focused suggestions — only for clusters the product maps to
-        for prod in products:
-            relevant_clusters = _PRODUCT_CLUSTER_MAP.get(prod["name"].lower(), [])
-            if cl_name not in relevant_clusters:
+        for idea_tmpl in ideas:
+            idea = idea_tmpl.replace("{year}", str(year))
+            idea_key = idea.lower()
+            if idea_key in existing_titles or idea_key in seen_titles:
                 continue
-            prod_articles = [a for a in articles
-                            if prod["name"].lower() in [s.lower() for s in a.get("products_supported", [])]]
-            if len(prod_articles) < 3:
-                ideas = _PRODUCT_ARTICLE_IDEAS.get(prod["name"].lower(), [
-                    f"Why Parents Love {prod['name']}: Reviews and Benefits",
-                ])
-                for idea_tmpl in ideas:
-                    idea = idea_tmpl.replace("{year}", str(year))
-                    idea_key = idea.lower()
-                    if idea_key not in existing_titles and idea_key not in seen_titles:
-                        seen_titles.add(idea_key)
-                        cl_suggestions.append({
-                            "title": idea,
-                            "type": "product_support",
-                            "reason": f"Product '{prod['name']}' has only {len(prod_articles)} supporting articles",
-                            "priority": "high",
-                        })
-                        break
+            seen_titles.add(idea_key)
+            commercial = _commercial_intent_score(idea.lower())
+            sug = {
+                "title": idea,
+                "type": "product_support",
+                "reason": (f"Product '{prod['name']}' has {len(prod_articles)} articles,"
+                           f" {page_count} product pages, {prod_impressions:,} search impressions"),
+                "priority": "high" if prod_impressions > 50 else "medium",
+                "impressions": prod_impressions,
+                "clicks": 0,
+                "best_position": 50,
+                "commercial_intent": commercial,
+                "product_count": page_count,
+                "is_content_gap": True,
+                "revenue_pages": 0,
+            }
+            sug["score"] = _score_suggestion_v2(sug)
+            all_suggestions.append(sug)
+            break
 
-        # Money page support suggestions — require meaningful word overlap
-        cl_match_words = {w for w in cl_name.lower().split()
-                         if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
-        for mp in active_money_pages:
-            if mp.get("type") != "category":
+    # ─── SOURCE 4: Template fallback (when no eval data) ───
+    if not all_queries:
+        for cluster in clusters:
+            if cluster_id and cluster["id"] != cluster_id:
                 continue
-            linked = len(mp.get("supporting_articles", []))
-            if linked >= mp.get("target_articles", 5):
+            cl_articles = [a for a in articles if a.get("cluster_id") == cluster["id"]]
+            published = sum(1 for a in cl_articles if a.get("status") == "published")
+            target = cluster.get("target_articles", 20)
+            if published >= target:
                 continue
-            mp_title = mp.get("title", "")
-            mp_path = re.sub(r'https?://[^/]+', '', mp.get("url", ""))
-            mp_text = f"{mp_title} {mp_path.replace('-', ' ')}".lower()
-            overlap = sum(1 for w in cl_match_words if w in mp_text)
-            if overlap >= 1 and cl_match_words:
-                short_title = mp_title.split('–')[0].split(':')[0].split('|')[0].strip()
-                idea = f"Everything You Need to Know About {short_title}"
-                idea_key = idea.lower()
-                if idea_key not in existing_titles and idea_key not in seen_titles:
-                    seen_titles.add(idea_key)
-                    cl_suggestions.append({
-                        "title": idea,
-                        "type": "money_page_support",
-                        "reason": f"Category page '{mp_title[:50]}' has {linked} linked articles",
-                        "priority": "high",
-                        "money_page_url": mp.get("url", ""),
-                    })
-
-        # Template-based suggestions with age group variations
-        for tmpl in templates:
-            if "{age}" in tmpl:
-                for age in _AGE_GROUPS[:4]:
-                    idea = tmpl.replace("{age}", age).replace("{year}", str(year))
-                    idea_key = idea.lower()
-                    if idea_key not in existing_titles and idea_key not in seen_titles:
-                        seen_titles.add(idea_key)
-                        cl_suggestions.append({
-                            "title": idea,
-                            "type": "topic_gap",
-                            "reason": f"Fills content gap in '{cl_name}' cluster",
-                            "priority": "medium",
-                        })
-                        break
-            else:
+            cl_name = cluster["name"]
+            templates = _CONTENT_TEMPLATES.get(cl_name, [])
+            for tmpl in templates[:3]:
                 idea = tmpl.replace("{year}", str(year))
+                if "{age}" in idea:
+                    idea = idea.replace("{age}", _AGE_GROUPS[0])
                 idea_key = idea.lower()
-                if idea_key not in existing_titles and idea_key not in seen_titles:
-                    seen_titles.add(idea_key)
-                    cl_suggestions.append({
-                        "title": idea,
-                        "type": "topic_gap",
-                        "reason": f"Fills content gap in '{cl_name}' cluster",
-                        "priority": "medium",
-                    })
+                if idea_key in existing_titles or idea_key in seen_titles:
+                    continue
+                seen_titles.add(idea_key)
+                all_suggestions.append({
+                    "title": idea,
+                    "type": "topic_gap",
+                    "reason": f"Template suggestion — run an evaluation for data-driven recommendations",
+                    "priority": "low",
+                    "impressions": 0,
+                    "commercial_intent": 0,
+                    "product_count": 0,
+                    "is_content_gap": True,
+                    "score": 15,
+                })
 
-        # Score each suggestion
-        for s in cl_suggestions:
-            s["score"] = _score_suggestion(s, gap_ratio, cl_name)
+    # ─── Deduplicate, enrich, rank ───
+    all_suggestions.sort(key=lambda x: x.get("score", 0), reverse=True)
+    all_suggestions = all_suggestions[:30]
 
-        # Find related money pages and products for this cluster
+    # Match each suggestion to a cluster
+    for sug in all_suggestions:
+        if "cluster_id" in sug:
+            continue
+        title_lower = sug["title"].lower()
+        best_cluster = None
+        best_overlap = 0
+        for cluster in clusters:
+            cl_words = {w for w in cluster["name"].lower().split()
+                        if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
+            overlap = sum(1 for w in cl_words if w in title_lower)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_cluster = cluster
+        if best_cluster:
+            sug["cluster_name"] = best_cluster["name"]
+            sug["cluster_id"] = best_cluster["id"]
+        else:
+            sug["cluster_name"] = "Uncategorized"
+            sug["cluster_id"] = None
+
+    # Enrich with related money pages, products, and writing prompt
+    for sug in all_suggestions:
+        cl_name = sug.get("cluster_name", "")
+        cl_match_words = {w for w in cl_name.lower().split()
+                          if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
+
         related_money_pages = []
         for mp in active_money_pages:
             if mp.get("type") != "category":
@@ -1139,76 +1397,75 @@ def get_content_suggestions(cluster_id=None):
                     "title": mp.get("title", ""),
                     "anchor_text": mp.get("title", "").split("–")[0].split(":")[0].split("|")[0].strip(),
                 })
-        related_products = []
-        for prod in products:
-            relevant_clusters = _PRODUCT_CLUSTER_MAP.get(prod["name"].lower(), [])
-            if cl_name in relevant_clusters:
-                related_products.append({"name": prod["name"], "url": prod.get("url", "")})
+        # Also match money pages by query words
+        query_words = set(sug.get("source_query", "").lower().split()) if sug.get("source_query") else set()
+        for mp in active_money_pages:
+            mp_text = f"{mp.get('title', '')} {mp.get('url', '')}".lower()
+            if query_words and any(w in mp_text for w in query_words if len(w) > 3):
+                entry = {
+                    "url": mp.get("url", ""),
+                    "title": mp.get("title", ""),
+                    "anchor_text": mp.get("title", "").split("–")[0].split(":")[0].split("|")[0].strip(),
+                }
+                if entry not in related_money_pages:
+                    related_money_pages.append(entry)
 
-        # Enrich each suggestion with internal links and writing prompt
-        for s in cl_suggestions:
-            s["cluster_name"] = cl_name
-            s["cluster_id"] = cluster["id"]
-            s["internal_links"] = related_money_pages[:5]
-            s["related_products"] = related_products[:5]
-            s["related_articles"] = [
-                {"title": a["title"], "url": a.get("url", "")}
-                for a in cl_articles[:5]
-            ]
-            s["writing_prompt"] = _build_writing_prompt(
-                s["title"], cl_name, related_money_pages[:5],
-                related_products[:5],
-                [{"title": a["title"], "url": a.get("url", "")} for a in cl_articles[:5]],
-            )
+        matched_products = _match_products_to_query(
+            sug.get("source_query", sug["title"]), products, sitemap_types)
+        related_products = [{"name": p["name"], "url": p.get("url", "")} for p in matched_products[:5]]
+        if not related_products:
+            for prod in products:
+                relevant_clusters = _PRODUCT_CLUSTER_MAP.get(prod["name"].lower(), [])
+                if cl_name in relevant_clusters:
+                    related_products.append({"name": prod["name"], "url": prod.get("url", "")})
 
-        # Limit per cluster: cap at 5
-        cl_suggestions.sort(key=lambda x: x["score"], reverse=True)
-        all_suggestions.extend(cl_suggestions[:5])
+        cl_articles = [a for a in articles if a.get("cluster_id") == sug.get("cluster_id")]
+        sug["internal_links"] = related_money_pages[:5]
+        sug["related_products"] = related_products[:5]
+        sug["related_articles"] = [
+            {"title": a["title"], "url": a.get("url", "")}
+            for a in cl_articles[:5]
+        ]
+        sug["writing_prompt"] = _build_writing_prompt(
+            sug["title"], cl_name, related_money_pages[:5],
+            related_products[:5],
+            [{"title": a["title"], "url": a.get("url", "")} for a in cl_articles[:5]],
+        )
 
-    # Sort globally by score, assign rank
-    all_suggestions.sort(key=lambda x: x["score"], reverse=True)
+    # Assign final ranks
     for i, s in enumerate(all_suggestions, 1):
         s["rank"] = i
+        s["priority"] = "high" if s.get("score", 0) >= 60 else "medium" if s.get("score", 0) >= 35 else "low"
 
-    # Build impact summary
+    # Build summary
     total = len(all_suggestions)
     by_type = {}
     for s in all_suggestions:
         by_type[s["type"]] = by_type.get(s["type"], 0) + 1
-    clusters_covered = len({s["cluster_name"] for s in all_suggestions})
-    products_mentioned = len({s["title"] for s in all_suggestions if s["type"] == "product_support"})
-    category_pages_supported = len({s.get("money_page_url") for s in all_suggestions
-                                    if s["type"] == "money_page_support" and s.get("money_page_url")})
 
+    high_impact = sum(1 for s in all_suggestions if s.get("score", 0) >= 60)
+    med_impact = sum(1 for s in all_suggestions if 35 <= s.get("score", 0) < 60)
+    low_impact = sum(1 for s in all_suggestions if s.get("score", 0) < 35)
     hours_per_article = 4
-    total_hours = total * hours_per_article
-    high_impact = sum(1 for s in all_suggestions if s["score"] >= 70)
-    med_impact = sum(1 for s in all_suggestions if 45 <= s["score"] < 70)
-    low_impact = sum(1 for s in all_suggestions if s["score"] < 45)
-    high_hours = high_impact * hours_per_article
-
-    # Quick-win: top 10 articles
-    top10_types = {}
-    for s in all_suggestions[:10]:
-        top10_types[s["type"]] = top10_types.get(s["type"], 0) + 1
 
     summary = {
         "total_articles": total,
-        "total_hours": total_hours,
+        "total_hours": total * hours_per_article,
         "high_impact": high_impact,
-        "high_hours": high_hours,
+        "high_hours": high_impact * hours_per_article,
         "med_impact": med_impact,
         "low_impact": low_impact,
-        "clusters_covered": clusters_covered,
-        "products_mentioned": products_mentioned,
-        "category_pages_supported": category_pages_supported,
-        "top10_types": top10_types,
-        "by_type": {
-            "product_support": by_type.get("product_support", 0),
-            "money_page_support": by_type.get("money_page_support", 0),
-            "topic_gap": by_type.get("topic_gap", 0),
-        },
+        "clusters_covered": len({s.get("cluster_name") for s in all_suggestions}),
+        "products_mentioned": len({s["title"] for s in all_suggestions if s["type"] == "product_support"}),
+        "category_pages_supported": len({s.get("money_page_url") for s in all_suggestions
+                                          if s.get("money_page_url")}),
+        "data_driven": bool(all_queries),
+        "queries_analyzed": len(all_queries),
+        "top10_types": {s["type"]: 0 for s in all_suggestions[:10]},
+        "by_type": by_type,
     }
+    for s in all_suggestions[:10]:
+        summary["top10_types"][s["type"]] = summary["top10_types"].get(s["type"], 0) + 1
 
     return {"suggestions": all_suggestions, "summary": summary}
 
