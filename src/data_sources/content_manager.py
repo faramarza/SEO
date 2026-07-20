@@ -335,6 +335,29 @@ def auto_discover():
                 if prod_words and all(w in art_text for w in prod_words):
                     article["products_supported"].append(prod["name"])
 
+    # Link articles to money pages by keyword overlap
+    _LINK_NOISE = {"com", "www", "html", "htm", "the", "and", "for", "with", "your"}
+    for mp in data["money_pages"]:
+        if mp.get("status") == "inactive":
+            continue
+        mp_slug = re.sub(r'https?://[^/]+', '', mp.get("url", "")).lower()
+        mp_slug_words = set(re.sub(r'[^a-z0-9]+', ' ', mp_slug).split())
+        mp_title_words = set(mp.get("title", "").lower().split())
+        mp_words = {w for w in (mp_slug_words | mp_title_words)
+                    if len(w) > 2 and w not in _LINK_NOISE}
+        if not mp_words:
+            continue
+        existing_linked = set(mp.get("supporting_articles", []))
+        for article in data["articles"]:
+            if article["id"] in existing_linked:
+                continue
+            art_text = f"{article.get('title', '')} {article.get('url', '')}".lower()
+            if all(w in art_text for w in mp_words):
+                existing_linked.add(article["id"])
+                if mp["id"] not in article.get("money_pages", []):
+                    article.setdefault("money_pages", []).append(mp["id"])
+        mp["supporting_articles"] = list(existing_linked)
+
     # Fix any /blog/post/ URLs to canonical /blog/ form
     for article in data["articles"]:
         if "/blog/post/" in article.get("url", ""):
