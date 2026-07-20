@@ -72,7 +72,10 @@
                     <th data-sort="primary_constraint" class="sortable-header">Constraint</th>
                     <th data-sort="recommended_action" class="sortable-header">Action</th>
                     <th data-sort="demand_score" class="sortable-header">Demand</th>
-                    <th data-sort="expected_value" class="sortable-header sorted-desc" title="Monthly recoverable value based on position-expected CTR, AOV, and margin">Est. Value <span class="sort-icon">▼</span></th>
+                    <th data-sort="gsc_position" class="sortable-header" title="Average GSC position (28d)">Pos <span class="sort-icon"></span></th>
+                    <th data-sort="gsc_impressions" class="sortable-header" title="GSC impressions (28d)">Impr <span class="sort-icon"></span></th>
+                    <th data-sort="ga4_revenue" class="sortable-header" title="GA4 revenue (28d)">Rev <span class="sort-icon"></span></th>
+                    <th data-sort="expected_value" class="sortable-header sorted-desc" title="Estimated monthly recoverable margin — unified across action types: incremental clicks × conversion rate × AOV × margin (routing actions use conversions × AOV × margin)">Est. Value <span class="sort-icon">▼</span></th>
                     <th data-sort="ai_revised_value" class="sortable-header" title="AI-revised estimate after analysis (base scenario)">AI Est. <span class="sort-icon"></span></th>
                     <th data-sort="confidence" class="sortable-header">Confidence <span class="sort-icon"></span></th>
                     <th data-sort="risk_level" class="sortable-header">Risk <span class="sort-icon"></span></th>
@@ -142,7 +145,7 @@ async function loadOpportunities() {
 function sortOpportunities() {
     const { field, direction } = currentSort;
     // Numeric fields should default to 0, not empty string
-    const numericFields = ['expected_value', 'ai_revised_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index', 'serp_coverage'];
+    const numericFields = ['expected_value', 'ai_revised_value', 'confidence', 'demand_score', 'intent_score', 'visibility_score', 'priority_score', 'index', 'serp_coverage', 'gsc_position', 'gsc_impressions', 'ga4_revenue'];
     const isNumeric = numericFields.includes(field);
 
     allOpportunities.sort((a, b) => {
@@ -207,7 +210,7 @@ function renderOpportunities(opportunities) {
         ? `${total} pages` : `${shown} of ${total} pages`;
 
     if (opportunities.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="13" class="empty">No opportunities match your filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="16" class="empty">No opportunities match your filters.</td></tr>';
         document.getElementById('pagination-controls').innerHTML = '';
         return;
     }
@@ -238,6 +241,9 @@ function renderOpportunities(opportunities) {
                     <div class="demand-fill" style="width: ${(opp.demand_score || 0) * 100}%"></div>
                 </div>
             </td>
+            <td class="number pos-cell" title="Avg position">${opp.gsc_position != null && opp.gsc_position > 0 ? opp.gsc_position.toFixed(1) : '<span class="muted">—</span>'}</td>
+            <td class="number impr-cell" title="Impressions (28d)">${opp.gsc_impressions ? opp.gsc_impressions.toLocaleString() : '<span class="muted">—</span>'}</td>
+            <td class="number rev-cell" title="Revenue (28d)">${opp.ga4_revenue ? '$' + opp.ga4_revenue.toLocaleString(undefined,{maximumFractionDigits:0}) : '<span class="muted">—</span>'}</td>
             <td class="number ev-cell">$${(opp.expected_value || 0).toFixed(2)}</td>
             <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) + '<br><span class="ai-done-tag" title="' + (opp.ai_timestamp || '') + '">' + formatAITime(opp.ai_timestamp) + '</span>' : '<span class="muted">—</span>'}</td>
             <td class="number conf-cell">${((opp.confidence || 0) * 100).toFixed(0)}%</td>
@@ -368,7 +374,14 @@ function filterOpportunities() {
         filtered = filtered.filter(o => o.risk_level === riskFilter);
     }
     if (searchFilter) {
-        filtered = filtered.filter(o => o.url?.toLowerCase().includes(searchFilter));
+        filtered = filtered.filter(o => {
+            if (o.url?.toLowerCase().includes(searchFilter)) return true;
+            if ((o.recommended_action || '').toLowerCase().includes(searchFilter)) return true;
+            if ((o.primary_constraint || '').toLowerCase().includes(searchFilter)) return true;
+            if ((o.asset_type || '').toLowerCase().includes(searchFilter)) return true;
+            // Match query text
+            return (o.top_queries || []).some(q => (q.query || '').toLowerCase().includes(searchFilter));
+        });
     }
 
     currentPage = 1;
@@ -461,6 +474,58 @@ function showDetail(idx) {
         </div>
     ` : '';
 
+    // Build raw metrics panel (GSC + GA4) — makes the scores verifiable
+    const fmtNum = (v) => (v == null ? '—' : Number(v).toLocaleString());
+    const fmtPct = (v) => (v == null ? '—' : (v * 100).toFixed(2) + '%');
+    const fmtMoney = (v) => (v == null ? '—' : '$' + Number(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+    const metric = (label, value, hint) => `
+        <div title="${hint || ''}" style="border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;background:#fafafa;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:#6b7280;margin-bottom:2px;">${label}</div>
+            <div style="font-size:15px;font-weight:700;color:#111827;">${value}</div>
+        </div>`;
+    const metricsHtml = (opp.gsc_impressions != null || opp.ga4_sessions != null) ? `
+        <div class="detail-section">
+            <h4>Page Metrics <span style="font-weight:normal;color:#9ca3af;font-size:12px;">(last 28 days — these drive the scores above)</span></h4>
+            <div class="metrics-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">
+                ${metric('Impressions', fmtNum(opp.gsc_impressions), 'GSC impressions')}
+                ${metric('Clicks', fmtNum(opp.gsc_clicks), 'GSC clicks')}
+                ${metric('CTR', fmtPct(opp.gsc_ctr), 'GSC click-through rate')}
+                ${metric('Avg Position', opp.gsc_position != null ? opp.gsc_position.toFixed(1) : '—', 'GSC average position')}
+                ${metric('Sessions', fmtNum(opp.ga4_sessions), 'GA4 sessions')}
+                ${metric('Engagement', fmtPct(opp.ga4_engagement_rate), 'GA4 engagement rate')}
+                ${metric('Revenue', fmtMoney(opp.ga4_revenue), 'GA4 revenue')}
+                ${metric('Purchases', fmtNum(opp.ga4_purchases), 'GA4 purchases')}
+                ${metric('Bounce', fmtPct(opp.ga4_bounce_rate), 'GA4 bounce rate')}
+            </div>
+        </div>
+    ` : '';
+
+    // Build "all applicable actions" panel — shows every candidate for this
+    // page, not just the winning one.
+    const allCands = opp.all_candidates || [];
+    const allActionsHtml = allCands.length > 1 ? `
+        <div class="detail-section">
+            <h4>All Applicable Actions <span style="font-weight:normal;color:#9ca3af;font-size:12px;">(${allCands.length} candidates — only the top one is recommended)</span></h4>
+            <table class="query-data-table">
+                <thead>
+                    <tr><th>Action</th><th>Est. Value</th><th>Confidence</th><th>Priority</th><th>Risk</th><th>Source</th></tr>
+                </thead>
+                <tbody>
+                    ${allCands.map((c, ci) => `
+                        <tr${ci === 0 ? ' style="font-weight:600;background:#f0f9ff;"' : ''}>
+                            <td>${ci === 0 ? '★ ' : ''}${(c.action || '').replace(/_/g, ' ')}</td>
+                            <td class="number">$${(c.expected_value || 0).toFixed(2)}</td>
+                            <td class="number">${((c.confidence || 0) * 100).toFixed(0)}%</td>
+                            <td class="number">${(c.priority_score || 0).toFixed(2)}</td>
+                            <td><span class="risk-badge risk-${c.risk_level || 'low'}">${c.risk_level || 'low'}</span></td>
+                            <td style="font-size:11px;color:#6b7280;">${(c.source || '').replace(/_/g, ' ')}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    ` : '';
+
     // Build GSC query data table
     const topQueries = opp.top_queries || [];
     const queriesHtml = `
@@ -510,7 +575,7 @@ function showDetail(idx) {
             </div>
             <div class="detail-item">
                 <label>Est. Value</label>
-                <p class="detail-value" title="Monthly recoverable value: missed_clicks × AOV × margin">$${(opp.expected_value || 0).toFixed(2)}</p>
+                <p class="detail-value" title="Estimated monthly recoverable margin — unified across action types: incremental clicks × conversion rate × AOV × margin (routing actions use conversions × AOV × margin)">$${(opp.expected_value || 0).toFixed(2)}</p>
             </div>
             <div class="detail-item">
                 <label>Confidence</label>
@@ -526,6 +591,8 @@ function showDetail(idx) {
             </div>
         </div>
         ${constraintScoresHtml}
+        ${metricsHtml}
+        ${allActionsHtml}
         ${constraintsHtml}
         ${queriesHtml}
         ${opp.issues && opp.issues.length > 0 ? `
@@ -541,7 +608,7 @@ function showDetail(idx) {
                     <div class="issue-fix-box">
                         <strong>Fix:</strong> <code>${issue.fix}</code>
                     </div>
-                    <p class="issue-impact"><em>Impact: ${issue.impact}</em></p>
+                    ${issue.impact ? `<p class="issue-impact"><em>Impact: ${issue.impact}</em></p>` : ''}
                 </div>
             `).join('')}
         </div>

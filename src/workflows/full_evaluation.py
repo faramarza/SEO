@@ -39,6 +39,7 @@ from src.evaluators.canonical_evaluator import CanonicalEvaluator
 from src.evaluators.internal_link_evaluator import InternalLinkEvaluator
 from src.evaluators.asset_creation_evaluator import AssetCreationEvaluator
 from src.evaluators.constraint_detector import ConstraintDetector, CaptureClass, ConstraintType
+from src.evaluators.html_issue_evaluator import HTMLIssueEvaluator
 from src.ledger.action_ledger import ActionLedger, ActionFingerprint, ActionRecord
 from src.output.decision_formatter import DecisionFormatter, OutputFormat
 from src.crawlers.page_inventory import PageInventory
@@ -59,6 +60,9 @@ class WorkflowConfig:
     # Business parameters
     aov: float = 53.19
     margin: float = 0.27
+    # Organic click → purchase conversion rate. Used to monetize incremental
+    # clicks consistently across all evaluators (was an inconsistent 0.1/0.5/2x).
+    conv_rate: float = 0.03
 
     # Governance — lane-aware confidence thresholds
     # EXPLORATION (additive, reversible): lower bar
@@ -107,6 +111,7 @@ class WorkflowConfig:
             credentials_path=data["data_sources"]["gsc"]["credentials_path"],
             aov=data.get("profit_model", {}).get("aov", 53.19),
             margin=data.get("profit_model", {}).get("gross_margin_low", 0.27),
+            conv_rate=data.get("profit_model", {}).get("site_avg_purchase_rate", 0.03),
             exploration_confidence_threshold=data.get("governance", {}).get("exploration_confidence_threshold", 0.55),
             preservation_confidence_threshold=data.get("governance", {}).get("preservation_confidence_threshold", 0.75),
             min_confidence_threshold=data.get("governance", {}).get("min_confidence_threshold", 0.55),
@@ -195,6 +200,7 @@ class FullEvaluationWorkflow:
             aov=config.aov,
             margin=config.margin,
         )
+        self.html_evaluator = HTMLIssueEvaluator()
 
         # Google Ads client (optional - absence is neutral, not negative)
         self.ads_client: Optional[GoogleAdsClient] = None
@@ -849,7 +855,7 @@ class FullEvaluationWorkflow:
             and constraint_result.demand_score >= 0.2):
             # Calculate expected value based on potential, not current revenue
             potential_clicks = asset.gsc.impressions_28d * 0.05  # ~5% CTR at good position
-            expected_value = potential_clicks * self.config.aov * self.config.margin * 0.1
+            expected_value = self._ev_from_clicks(potential_clicks)
             candidates.append({
                 "mode": "CONSTRAINT_RESOLUTION",
                 "action": "VISIBILITY_FIX",
@@ -868,7 +874,7 @@ class FullEvaluationWorkflow:
             )
             if ctr_constraint:
                 missed_clicks = ctr_constraint.evidence.get("missed_clicks", 0)
-                expected_value = missed_clicks * self.config.aov * self.config.margin * 0.1
+                expected_value = self._ev_from_clicks(missed_clicks)
                 candidates.append({
                     "mode": "CONSTRAINT_RESOLUTION",
                     "action": "TITLE_META_TEST",
@@ -887,7 +893,7 @@ class FullEvaluationWorkflow:
                     # Budget constraint - high value opportunity
                     is_lost = ads_constraint.evidence.get("avg_is_lost_to_budget", 0)
                     potential_impressions = asset.gsc.impressions_28d * is_lost
-                    expected_value = potential_impressions * 0.03 * self.config.aov * self.config.margin
+                    expected_value = self._ev_from_clicks(potential_impressions * 0.03)
                     candidates.append({
                         "mode": "CONSTRAINT_RESOLUTION",
                         "action": "PAID_BUDGET_INCREASE",
@@ -901,7 +907,7 @@ class FullEvaluationWorkflow:
                 elif ads_constraint.constraint_type == ConstraintType.PAID_COVERAGE_GAP:
                     # High demand queries without paid coverage
                     unmon_impressions = ads_constraint.evidence.get("total_impressions", 0)
-                    expected_value = unmon_impressions * 0.02 * self.config.aov * self.config.margin
+                    expected_value = self._ev_from_clicks(unmon_impressions * 0.02)
                     candidates.append({
                         "mode": "CONSTRAINT_RESOLUTION",
                         "action": "EXPAND_PAID_COVERAGE",
@@ -963,10 +969,13 @@ class FullEvaluationWorkflow:
             title_result = self.title_evaluator.evaluate(asset)
             # TitleTestResult uses should_test and expected_ctr_lift
             if title_result.should_test and title_result.recommended_variant:
+                # expected_ctr_lift is a CTR rate delta; × impressions = incremental
+                # clicks (was incorrectly multiplied by GA4 sessions before).
+                title_incr_clicks = title_result.expected_ctr_lift * asset.gsc.impressions_28d
                 candidates.append({
                     "mode": "OPPORTUNITY_DISCOVERY",
                     "action": "TITLE_META_TEST",
-                    "expected_value": title_result.expected_ctr_lift * asset.ga4.sessions_28d * 0.5,
+                    "expected_value": self._ev_from_clicks(title_incr_clicks),
                     "confidence": title_result.confidence,
                     "risk_level": title_result.risk_level,
                     "implementation_steps": [title_result.recommended_variant.title] if title_result.recommended_variant else [],
@@ -991,7 +1000,9 @@ class FullEvaluationWorkflow:
             candidates.append({
                 "mode": "PRESERVATION",
                 "action": canonical_result.recommended_action,
-                "expected_value": float(canonical_result.total_traffic_at_risk),
+                # traffic_at_risk is monthly clicks at risk — monetize the same
+                # way as click-acquisition actions for a comparable dollar value.
+                "expected_value": self._ev_from_clicks(float(canonical_result.total_traffic_at_risk)),
                 "confidence": canonical_result.confidence,
                 "risk_level": "low",  # Canonical fixes are generally low risk
                 "implementation_steps": canonical_result.implementation_steps,
@@ -1007,7 +1018,9 @@ class FullEvaluationWorkflow:
             link_candidate = {
                 "mode": "FUNNEL_ALIGNMENT",
                 "action": link_result.recommended_action,
-                "expected_value": link_result.expected_lift * asset.ga4.sessions_28d * 2,
+                # expected_lift is a conversion-rate lift on existing sessions →
+                # incremental conversions, monetized directly (was arbitrary ×2).
+                "expected_value": self._ev_from_conversions(link_result.expected_lift * asset.ga4.sessions_28d),
                 "confidence": link_result.confidence,
                 "risk_level": link_result.risk_level,
                 "implementation_steps": link_result.implementation_steps,
@@ -1026,6 +1039,32 @@ class FullEvaluationWorkflow:
                     link_candidate["routing_data"]["has_primary_destination"] = link_result.routing_assessment.has_primary_destination
             candidates.append(link_candidate)
 
+        # HTML structural evaluation — only meaningful with crawl data.
+        # Detects span/div CTAs, empty media-wrapping anchors, and missing
+        # above-fold links (link-equity + engagement leaks).
+        if asset.has_crawl_data:
+            html_result = self.html_evaluator.evaluate(asset)
+            if html_result.has_issues and html_result.recommended_action != "NO_ACTION":
+                html_incr_clicks = html_result.expected_ctr_lift * asset.gsc.impressions_28d
+                candidates.append({
+                    "mode": "FUNNEL_ALIGNMENT",
+                    "action": "HTML_STRUCTURAL_FIX",
+                    "expected_value": self._ev_from_clicks(html_incr_clicks),
+                    "confidence": html_result.confidence,
+                    "risk_level": html_result.risk_level,
+                    "implementation_steps": html_result.implementation_steps,
+                    "source": "html_evaluator",
+                    "issues": [
+                        {
+                            "type": i.issue_type,
+                            "severity": i.severity,
+                            "description": i.description,
+                            "fix": i.recommended_fix,
+                        }
+                        for i in html_result.issues
+                    ],
+                })
+
         # FALLBACK: Create opportunities for pages that no specific evaluator
         # caught. The system should surface ALL pages so operators can see the
         # full inventory, not just the high-traffic tail.
@@ -1034,7 +1073,7 @@ class FullEvaluationWorkflow:
                 # Any impressions = demand exists. Create a basic opportunity.
                 potential_ctr = 0.03 if asset.gsc.avg_position_28d > 20 else 0.05
                 potential_clicks = asset.gsc.impressions_28d * potential_ctr
-                expected_value = potential_clicks * self.config.aov * self.config.margin * 0.1
+                expected_value = self._ev_from_clicks(potential_clicks)
 
                 steps = constraint_result.recommended_actions if constraint_result.recommended_actions else [
                     "Review title tag, meta description, and on-page content",
@@ -1061,7 +1100,9 @@ class FullEvaluationWorkflow:
                 candidates.append({
                     "mode": "OPPORTUNITY_DISCOVERY",
                     "action": "VISIBILITY_FIX",
-                    "expected_value": self.config.aov * self.config.margin * 0.1,
+                    # Zero impressions: nominal value so it surfaces for review
+                    # but never outranks pages with real demand.
+                    "expected_value": self._ev_from_clicks(1),
                     "confidence": self.config.exploration_confidence_threshold,
                     "risk_level": "low",
                     "implementation_steps": [
@@ -1095,10 +1136,7 @@ class FullEvaluationWorkflow:
 
         # Calculate priority for each candidate
         for candidate in candidates:
-            try:
-                action_type = ActionType(candidate["action"])
-            except ValueError:
-                action_type = ActionType.OBSERVE_ONLY
+            action_type = self._resolve_action_type(candidate["action"])
 
             priority = calculate_priority(
                 expected_value=candidate["expected_value"],
@@ -1114,6 +1152,22 @@ class FullEvaluationWorkflow:
         if candidates:
             candidates.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
             best = candidates[0]
+
+            # Summarize ALL applicable actions for this page (not just the winner)
+            # so operators can see the full set of options in the detail view.
+            all_candidates = [
+                {
+                    "action": c["action"],
+                    "mode": c["mode"],
+                    "expected_value": round(c["expected_value"], 2),
+                    "confidence": round(c["confidence"], 2),
+                    "priority_score": round(c.get("priority_score", 0), 2),
+                    "risk_level": c.get("risk_level", "low"),
+                    "source": c.get("source", ""),
+                    "summary": c["implementation_steps"][0] if c.get("implementation_steps") else "",
+                }
+                for c in candidates
+            ]
 
             # Check confidence threshold — lane-aware
             # High-risk (irreversible) actions need PRESERVATION threshold (0.75)
@@ -1137,6 +1191,7 @@ class FullEvaluationWorkflow:
                     "risk_level": best.get("risk_level", "low"),
                     "implementation_steps": [],
                     "reason": f"Action confidence {best['confidence']:.2f} below {lane} threshold {confidence_threshold}",
+                    "all_candidates": all_candidates,
                     "page_metadata": {
                         "title": asset.title,
                         "h1": asset.h1,
@@ -1170,6 +1225,7 @@ class FullEvaluationWorkflow:
                 "implementation_summary": best["implementation_steps"][0] if best["implementation_steps"] else "",
                 "learning_reference": best.get("learning_reference"),
                 "source": best["source"],
+                "all_candidates": all_candidates,
                 # Page metadata from crawl (used by AI subsystem and modal display)
                 "page_metadata": {
                     "title": asset.title,
@@ -1228,6 +1284,62 @@ class FullEvaluationWorkflow:
             },
             **constraint_data,  # Include constraint detection data
         }
+
+    # Map action strings that have no direct ActionType member to their
+    # closest scoring equivalent (for effort/reversibility).
+    _ACTION_TYPE_ALIASES = {
+        "VISIBILITY_FIX": ActionType.INTERNAL_LINK_REALLOCATION,
+        "HTML_STRUCTURAL_FIX": ActionType.INTERNAL_LINK_REALLOCATION,
+        "CONTENT_CLARIFY": ActionType.PAGE_REINVESTMENT,
+        "CONSOLIDATION_REVIEW": ActionType.PAGE_REINVESTMENT,
+        "CONTENT_PRUNE": ActionType.PAGE_REINVESTMENT,
+        "PAID_BUDGET_INCREASE": ActionType.OBSERVE_ONLY,
+        "EXPAND_PAID_COVERAGE": ActionType.OBSERVE_ONLY,
+        "REVIEW_PMAX_COVERAGE": ActionType.OBSERVE_ONLY,
+    }
+
+    def _resolve_action_type(self, action_str: str) -> ActionType:
+        """Resolve a candidate action string to an ActionType.
+
+        Candidate actions are uppercase strings (e.g. "TITLE_META_TEST") but
+        the enum VALUES are lowercase ("title_meta_test"), so the old
+        ActionType(value) lookup always raised ValueError and every action
+        silently collapsed to OBSERVE_ONLY — nullifying the effort and
+        reversibility differentiation in priority scoring. Look up by member
+        NAME (case-insensitive), then fall back to the alias map.
+        """
+        if not action_str:
+            return ActionType.OBSERVE_ONLY
+        key = action_str.upper()
+        try:
+            return ActionType[key]  # by member name, not value
+        except KeyError:
+            pass
+        if key in self._ACTION_TYPE_ALIASES:
+            return self._ACTION_TYPE_ALIASES[key]
+        try:
+            return ActionType(action_str.lower())  # last resort: by value
+        except ValueError:
+            return ActionType.OBSERVE_ONLY
+
+    def _ev_from_clicks(self, incremental_clicks: float) -> float:
+        """Monetize incremental monthly organic clicks into recoverable margin.
+
+        Unified formula for all click-acquisition actions (visibility, CTR,
+        title, canonical-at-risk). EV = clicks × conv_rate × AOV × margin.
+        Every candidate that adds/protects clicks uses this so the Est. Value
+        column is comparable across action types.
+        """
+        return max(0.0, incremental_clicks) * self.config.conv_rate * self.config.aov * self.config.margin
+
+    def _ev_from_conversions(self, incremental_conversions: float) -> float:
+        """Monetize incremental monthly conversions (already click-independent).
+
+        Used for routing/internal-link actions where the lift is on the
+        conversion rate of existing sessions, not on click acquisition.
+        EV = conversions × AOV × margin.
+        """
+        return max(0.0, incremental_conversions) * self.config.aov * self.config.margin
 
     def _get_intent_cluster(self, asset: PageAsset) -> str:
         """Get dominant intent cluster for asset."""
