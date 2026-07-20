@@ -1284,7 +1284,7 @@ async function loadGapsTab() {
             const bt = qs.by_type || {};
             html += `<div class="card" style="margin-bottom:20px;border-left:3px solid var(--accent-blue);" id="gap-priority-queue">
                 <h3 style="margin-bottom:4px;">Content Priority Queue</h3>
-                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">${qs.data_driven ? `Data-driven suggestions from ${(qs.queries_analyzed || 0).toLocaleString()} search queries. ` : 'Template-based suggestions — run an evaluation for data-driven recommendations. '}Ranked by search volume, commercial intent, and product fit. Click any row to expand.</p>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">${qs.data_driven ? `Data-driven suggestions from ${(qs.queries_analyzed || 0).toLocaleString()} GSC queries${qs.ahrefs_keywords ? ` + ${qs.ahrefs_keywords.toLocaleString()} Ahrefs keywords` : ''}. ` : 'Template-based suggestions — run an evaluation or import Ahrefs keywords for data-driven recommendations. '}Ranked by volume, keyword difficulty, commercial intent, CPC, competitor gap, and product fit. Click any row to expand.</p>
 
                 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;padding:14px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;">
                     <div style="text-align:center;">
@@ -1333,13 +1333,26 @@ async function loadGapsTab() {
                             <span style="font-size:10px;font-weight:700;color:${scoreColor};background:${scoreColor}18;padding:2px 6px;border-radius:3px;">${s.score}</span>
                             <span style="font-size:10px;font-weight:600;color:${typeColor};background:${typeColor}18;padding:2px 6px;border-radius:3px;">${typeLabel}</span>
                             <span style="font-weight:500;font-size:13px;flex:1;">${escHtml(s.title)}</span>
+                            ${s.ahrefs_volume ? `<span style="font-size:10px;color:var(--text-muted);white-space:nowrap;" title="Ahrefs monthly volume">${s.ahrefs_volume.toLocaleString()} vol</span>` : ''}
                             ${s.impressions ? `<span style="font-size:10px;color:var(--text-muted);white-space:nowrap;" title="GSC impressions">${s.impressions.toLocaleString()} imp</span>` : ''}
+                            ${s.kd >= 0 ? `<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;${s.kd <= 20 ? 'color:#059669;background:#d1fae5;' : s.kd <= 50 ? 'color:#d97706;background:#fef3c7;' : 'color:#dc2626;background:#fee2e2;'}" title="Keyword Difficulty ${s.kd}">KD ${s.kd}</span>` : ''}
+                            ${s.cpc > 0 ? `<span style="font-size:9px;font-weight:700;color:#6d28d9;background:#ede9fe;padding:1px 5px;border-radius:3px;" title="CPC $${s.cpc.toFixed(2)}">$${s.cpc.toFixed(2)}</span>` : ''}
                             ${s.commercial_intent > 0.3 ? `<span style="font-size:9px;font-weight:700;color:#d97706;background:#fef3c7;padding:1px 5px;border-radius:3px;" title="Commercial intent ${Math.round(s.commercial_intent*100)}%">$$</span>` : ''}
+                            ${s.has_shopping ? `<span style="font-size:9px;font-weight:700;color:#059669;background:#d1fae5;padding:1px 5px;border-radius:3px;" title="Shopping SERP feature">Shop</span>` : ''}
+                            ${s.has_ai_overview ? `<span style="font-size:9px;font-weight:700;color:#2563eb;background:#dbeafe;padding:1px 5px;border-radius:3px;" title="AI Overview in SERP">AI</span>` : ''}
                             <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;">${escHtml(s.cluster_name || '')}</span>
                             <span style="font-size:11px;color:var(--text-muted);">&#9660;</span>
                         </div>
                         <div id="${uid}" class="hidden" style="padding:14px;border-top:1px solid var(--border-color);font-size:12px;">
                             <div style="margin-bottom:8px;color:var(--text-muted);font-style:italic;">${escHtml(s.reason)}</div>
+                            ${(s.kd >= 0 || s.ahrefs_volume || s.cpc > 0 || s.competitors_ranking >= 0) ? `<div style="display:flex;gap:16px;margin-bottom:10px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:6px;font-size:11px;">
+                                ${s.ahrefs_volume ? `<div><strong>Volume:</strong> ${s.ahrefs_volume.toLocaleString()}/mo</div>` : ''}
+                                ${s.kd >= 0 ? `<div><strong>KD:</strong> <span style="color:${s.kd <= 20 ? '#059669' : s.kd <= 50 ? '#d97706' : '#dc2626'};font-weight:700;">${s.kd}</span></div>` : ''}
+                                ${s.cpc > 0 ? `<div><strong>CPC:</strong> $${s.cpc.toFixed(2)}</div>` : ''}
+                                ${s.competitors_ranking >= 0 ? `<div><strong>Competitors:</strong> ${s.competitors_ranking} ranking</div>` : ''}
+                                ${s.has_shopping ? `<div><strong>SERP:</strong> Shopping</div>` : ''}
+                                ${s.has_ai_overview ? `<div><strong>SERP:</strong> AI Overview</div>` : ''}
+                            </div>` : ''}
                             ${(s.internal_links || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Link to these category pages:</strong><ul style="margin:4px 0 0 16px;">${s.internal_links.map(l => `<li><a href="${escHtml(l.url)}" target="_blank" style="color:var(--accent-blue);">${escHtml(l.anchor_text || l.url)}</a></li>`).join('')}</ul></div>` : ''}
                             ${(s.related_products || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Mention these products:</strong> ${s.related_products.map(p => escHtml(p.name)).join(', ')}</div>` : ''}
                             ${(s.related_articles || []).length > 0 ? `<div style="margin-bottom:8px;"><strong>Cross-link existing articles:</strong><ul style="margin:4px 0 0 16px;">${s.related_articles.map(a => `<li><a href="${escHtml(a.url)}" target="_blank" style="color:var(--accent-blue);">${escHtml(a.title)}</a></li>`).join('')}</ul></div>` : ''}

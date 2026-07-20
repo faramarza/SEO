@@ -213,7 +213,7 @@ def auto_discover():
                 "description": f"Auto-discovered from {count} blog articles",
                 "priority": "high" if count >= 10 else "medium",
                 "status": "active",
-                "target_articles": max(count * 2, 10),
+                "target_articles": max(count + 5, 10),
                 "pillar_page": None,
                 "money_pages": [],
                 "sub_clusters": [],
@@ -370,6 +370,25 @@ def auto_discover():
         )
         if new_cluster:
             article["cluster_id"] = new_cluster
+
+    # Recalculate cluster targets based on keyword data when available
+    keywords = _load_keywords()
+    if keywords:
+        for c in data["clusters"]:
+            cl_words = {w for w in c["name"].lower().split()
+                        if len(w) > 2 and w not in {"and", "the", "for"}}
+            cluster_articles = [a for a in data["articles"]
+                                if a.get("cluster_id") == c["id"]]
+            published = sum(1 for a in cluster_articles
+                            if a.get("status") == "published")
+            matching_kws = sum(1 for kw in keywords
+                               if cl_words and any(w in kw.get("keyword", "").lower()
+                                                    for w in cl_words))
+            # Target = published articles + keyword opportunities not yet covered
+            # but at least current published count (never shrink below what exists)
+            kw_target = published + max(matching_kws // 3, 2)
+            c["target_articles"] = max(c.get("target_articles", 10),
+                                       kw_target, published)
 
     # Validate money pages against sitemap — pages not in the sitemap
     # are likely discontinued and should not appear in suggestions
@@ -1084,7 +1103,6 @@ def _load_eval_queries():
             entry["asset_types"].add(asset_type)
             if revenue > 0:
                 entry["revenue_pages"] += 1
-            # Track which queries belong to which page
             if url not in page_queries:
                 page_queries[url] = []
             page_queries[url].append(q)
@@ -1093,6 +1111,17 @@ def _load_eval_queries():
     for q in all_queries.values():
         q["asset_types"] = list(q["asset_types"])
     return list(all_queries.values()), page_queries
+
+
+def _load_keyword_index():
+    """Build a lookup from keyword text → Ahrefs queue entry for enrichment."""
+    keywords = _load_keywords()
+    index = {}
+    for kw in keywords:
+        text = kw.get("keyword", "").strip().lower()
+        if text:
+            index[text] = kw
+    return index
 
 
 def _find_content_gaps(queries, existing_articles):
@@ -1146,35 +1175,60 @@ def _match_products_to_query(query, products, sitemap_types=None):
 def _score_suggestion_v2(sug):
     """Score a content suggestion 0-100 using data-driven factors.
 
-    Factors:
-      Search volume  (0-30): Based on GSC impressions
-      Commercial     (0-20): Commercial/transactional keyword signals
-      Product fit    (0-15): How many products this content supports
-      Content gap    (0-15): No existing content covers this topic
+    Factors (max 100 total):
+      Search volume   (0-20): GSC impressions + Ahrefs volume combined
+      Keyword ease    (0-15): Lower KD = easier to rank = higher score
+      Commercial      (0-15): Commercial/transactional keyword signals + CPC
+      Product fit     (0-12): How many products this content supports
+      Content gap     (0-10): No existing content covers this topic
       Rank opportunity(0-10): Already ranking page 2-3 (positions 11-30)
-      Revenue signal (0-10): Query associated with revenue-generating pages
+      Revenue signal  (0-8):  Query associated with revenue-generating pages
+      Competitor gap  (0-5):  Few competitors ranking = opportunity
+      SERP features   (0-5):  Shopping/AI overview presence
     """
+    import math
     score = 0
 
-    # Search volume: log-scale, impressions from GSC
+    # Search volume: combine GSC impressions and Ahrefs volume
     impressions = sug.get("impressions", 0)
-    if impressions > 0:
-        import math
-        score += min(30, round(math.log(impressions + 1, 10) * 10))
+    ahrefs_volume = sug.get("ahrefs_volume", 0)
+    combined_volume = max(impressions, ahrefs_volume)
+    if combined_volume > 0:
+        score += min(20, round(math.log(combined_volume + 1, 10) * 8))
 
-    # Commercial intent
+    # Keyword ease: lower KD = easier win (inverted scale)
+    kd = sug.get("kd", -1)
+    if kd >= 0:
+        if kd <= 15:
+            score += 15
+        elif kd <= 30:
+            score += 12
+        elif kd <= 50:
+            score += 8
+        elif kd <= 70:
+            score += 4
+    else:
+        score += 5
+
+    # Commercial intent: keyword signals + CPC boost
     commercial = sug.get("commercial_intent", 0)
-    score += round(commercial * 20)
+    cpc = sug.get("cpc", 0)
+    ci_score = commercial * 10
+    if cpc >= 2.0:
+        ci_score += 5
+    elif cpc >= 0.5:
+        ci_score += 3
+    score += min(15, round(ci_score))
 
-    # Product fit: how many products this supports
+    # Product fit
     product_count = sug.get("product_count", 0)
-    score += min(15, product_count * 5)
+    score += min(12, product_count * 4)
 
-    # Content gap: no existing blog content for this query
+    # Content gap
     if sug.get("is_content_gap", False):
-        score += 15
+        score += 10
 
-    # Ranking opportunity: position 11-30 means we're close to page 1
+    # Ranking opportunity: position 11-30 means close to page 1
     position = sug.get("best_position", 100)
     if 11 <= position <= 30:
         score += round(10 * (1 - (position - 11) / 19))
@@ -1183,14 +1237,31 @@ def _score_suggestion_v2(sug):
 
     # Revenue signal
     if sug.get("revenue_pages", 0) > 0:
-        score += 10
+        score += 8
+
+    # Competitor gap: fewer Ahrefs competitors ranking = easier win
+    competitors = sug.get("competitors_ranking", -1)
+    if competitors >= 0:
+        if competitors == 0:
+            score += 5
+        elif competitors <= 2:
+            score += 3
+        elif competitors <= 5:
+            score += 1
+
+    # SERP features: shopping = buying intent, AI overview = visibility risk
+    if sug.get("has_shopping", False):
+        score += 3
+    if sug.get("has_ai_overview", False):
+        score += 2
 
     return min(100, score)
 
 
 def get_content_suggestions(cluster_id=None):
     """Generate data-driven content suggestions using GSC queries,
-    product catalog, commercial intent, and content gap analysis."""
+    Ahrefs keyword data, product catalog, commercial intent, and
+    content gap analysis."""
     data = _load_data()
     clusters = data.get("clusters", [])
     articles = data.get("articles", [])
@@ -1204,6 +1275,9 @@ def get_content_suggestions(cluster_id=None):
 
     # Load GSC query data from latest evaluation
     all_queries, page_queries = _load_eval_queries()
+
+    # Load Ahrefs keyword queue for enrichment
+    kw_index = _load_keyword_index()
 
     # Load sitemap types for product URL matching
     sitemap_types = {}
@@ -1249,6 +1323,7 @@ def get_content_suggestions(cluster_id=None):
 
             matched_products = _match_products_to_query(query, products, sitemap_types)
             commercial = _commercial_intent_score(query)
+            ahrefs = kw_index.get(query, {})
 
             sug = {
                 "title": title,
@@ -1264,6 +1339,64 @@ def get_content_suggestions(cluster_id=None):
                 "is_content_gap": True,
                 "revenue_pages": q.get("revenue_pages", 0),
                 "source_query": query,
+                "ahrefs_volume": ahrefs.get("volume", 0),
+                "kd": ahrefs.get("kd", -1),
+                "cpc": ahrefs.get("cpc", 0),
+                "competitors_ranking": ahrefs.get("competitors_ranking", -1),
+                "has_shopping": ahrefs.get("has_shopping", False),
+                "has_ai_overview": ahrefs.get("has_ai_overview", False),
+            }
+            sug["score"] = _score_suggestion_v2(sug)
+            all_suggestions.append(sug)
+
+    # ─── SOURCE 1b: Ahrefs-only keyword opportunities ───
+    # Keywords in the queue that have no GSC match — pure Ahrefs discoveries
+    if kw_index:
+        gsc_queries = {q["query"] for q in all_queries} if all_queries else set()
+        for kw_text, kw in kw_index.items():
+            if kw.get("status") in ("archived",):
+                continue
+            if kw_text in gsc_queries:
+                continue
+            volume = kw.get("volume", 0)
+            if volume < 10:
+                continue
+            title = _query_to_title(kw_text)
+            title_key = title.lower()
+            if title_key in existing_titles or title_key in seen_titles:
+                continue
+            if len(title) < 15:
+                continue
+            has_blog = any("blog" in a.get("url", "").lower() for a in articles
+                          if any(w in a.get("title", "").lower()
+                                 for w in kw_text.split() if len(w) > 3))
+            if has_blog:
+                continue
+            seen_titles.add(title_key)
+
+            matched_products = _match_products_to_query(kw_text, products, sitemap_types)
+            commercial = _commercial_intent_score(kw_text)
+
+            sug = {
+                "title": title,
+                "type": "search_opportunity",
+                "reason": (f"Ahrefs: {volume:,} monthly volume, KD {kw.get('kd', '?')}"
+                           f", CPC ${kw.get('cpc', 0):.2f}"),
+                "priority": "high" if volume > 100 else "medium",
+                "impressions": 0,
+                "clicks": 0,
+                "best_position": kw.get("position", 100) or 100,
+                "commercial_intent": commercial,
+                "product_count": len(matched_products),
+                "is_content_gap": True,
+                "revenue_pages": 0,
+                "source_query": kw_text,
+                "ahrefs_volume": volume,
+                "kd": kw.get("kd", -1),
+                "cpc": kw.get("cpc", 0),
+                "competitors_ranking": kw.get("competitors_ranking", -1),
+                "has_shopping": kw.get("has_shopping", False),
+                "has_ai_overview": kw.get("has_ai_overview", False),
             }
             sug["score"] = _score_suggestion_v2(sug)
             all_suggestions.append(sug)
@@ -1286,6 +1419,7 @@ def get_content_suggestions(cluster_id=None):
 
             matched_products = _match_products_to_query(query, products, sitemap_types)
             commercial = _commercial_intent_score(query)
+            ahrefs = kw_index.get(query, {})
 
             sug = {
                 "title": title,
@@ -1301,6 +1435,12 @@ def get_content_suggestions(cluster_id=None):
                 "is_content_gap": False,
                 "revenue_pages": q.get("revenue_pages", 0),
                 "source_query": query,
+                "ahrefs_volume": ahrefs.get("volume", 0),
+                "kd": ahrefs.get("kd", -1),
+                "cpc": ahrefs.get("cpc", 0),
+                "competitors_ranking": ahrefs.get("competitors_ranking", -1),
+                "has_shopping": ahrefs.get("has_shopping", False),
+                "has_ai_overview": ahrefs.get("has_ai_overview", False),
             }
             sug["score"] = _score_suggestion_v2(sug)
             all_suggestions.append(sug)
@@ -1315,11 +1455,17 @@ def get_content_suggestions(cluster_id=None):
         ideas = _PRODUCT_ARTICLE_IDEAS.get(prod["name"].lower(), [
             f"Why Parents Love {prod['name']}: Reviews and Benefits",
         ])
-        # Find GSC impressions related to this product
+        # Find GSC impressions and best Ahrefs match for this product
         prod_impressions = 0
+        best_kw = {}
+        prod_words = [w for w in prod["name"].lower().split() if len(w) > 3]
         for q in all_queries:
-            if any(w in q["query"] for w in prod["name"].lower().split() if len(w) > 3):
+            if any(w in q["query"] for w in prod_words):
                 prod_impressions += q["impressions"]
+        for kw_text, kw in kw_index.items():
+            if any(w in kw_text for w in prod_words):
+                if kw.get("volume", 0) > best_kw.get("volume", 0):
+                    best_kw = kw
 
         for idea_tmpl in ideas:
             idea = idea_tmpl.replace("{year}", str(year))
@@ -1336,18 +1482,24 @@ def get_content_suggestions(cluster_id=None):
                 "priority": "high" if prod_impressions > 50 else "medium",
                 "impressions": prod_impressions,
                 "clicks": 0,
-                "best_position": 50,
+                "best_position": best_kw.get("position", 50) or 50,
                 "commercial_intent": commercial,
                 "product_count": page_count,
                 "is_content_gap": True,
                 "revenue_pages": 0,
+                "ahrefs_volume": best_kw.get("volume", 0),
+                "kd": best_kw.get("kd", -1),
+                "cpc": best_kw.get("cpc", 0),
+                "competitors_ranking": best_kw.get("competitors_ranking", -1),
+                "has_shopping": best_kw.get("has_shopping", False),
+                "has_ai_overview": best_kw.get("has_ai_overview", False),
             }
             sug["score"] = _score_suggestion_v2(sug)
             all_suggestions.append(sug)
             break
 
-    # ─── SOURCE 4: Template fallback (when no eval data) ───
-    if not all_queries:
+    # ─── SOURCE 4: Template fallback (when no eval or Ahrefs data) ───
+    if not all_queries and not kw_index:
         for cluster in clusters:
             if cluster_id and cluster["id"] != cluster_id:
                 continue
@@ -1482,8 +1634,9 @@ def get_content_suggestions(cluster_id=None):
         "products_mentioned": len({s["title"] for s in all_suggestions if s["type"] == "product_support"}),
         "category_pages_supported": len({s.get("money_page_url") for s in all_suggestions
                                           if s.get("money_page_url")}),
-        "data_driven": bool(all_queries),
+        "data_driven": bool(all_queries) or bool(kw_index),
         "queries_analyzed": len(all_queries),
+        "ahrefs_keywords": len(kw_index),
         "top10_types": {s["type"]: 0 for s in all_suggestions[:10]},
         "by_type": by_type,
     }
