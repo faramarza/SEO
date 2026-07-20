@@ -1019,9 +1019,10 @@ def api_ai_recommend():
             )
     gsc_str = "\n".join(gsc_lines) if gsc_lines else "null"
 
-    # ── 2b) Server-side CTR suppression detection ────────────────
-    # If CTR is heavily suppressed relative to position, inject a hard
-    # instruction so the model cannot defer the title/meta test.
+    # ── 2b) Server-side CTR context ────────────────
+    # Provide CTR analysis as context, not a mandate — the AI should weigh
+    # whether a title change would actually help vs other explanations
+    # (SERP features, intent mismatch, Google title rewrites, etc.)
     ctr_suppression_flag = ""
     if opportunity.get("top_queries"):
         queries = opportunity.get("top_queries", [])
@@ -1029,25 +1030,54 @@ def api_ai_recommend():
         total_clicks = sum(q.get("clicks", 0) for q in queries)
         if total_impressions > 500:
             actual_ctr = (total_clicks / total_impressions) * 100 if total_impressions else 0
-            # Weighted average position
             weighted_pos = sum(
                 q.get("position", 50) * q.get("impressions", 0) for q in queries
             ) / total_impressions if total_impressions else 50
-            # Expected CTR by position (industry benchmarks)
             expected_ctr_map = {1: 28, 2: 15, 3: 10, 4: 7, 5: 5, 6: 4, 7: 3, 8: 2.5, 9: 2, 10: 1.5}
             expected_ctr = expected_ctr_map.get(round(weighted_pos), max(0.5, 30 / (weighted_pos + 1)))
             suppression_ratio = expected_ctr / actual_ctr if actual_ctr > 0 else 999
 
-            if suppression_ratio > 5:  # CTR is 5x+ below expected
+            if suppression_ratio > 2:
                 ctr_suppression_flag = (
-                    f"\n\n⚠️ SERVER-ENFORCED CTR ALERT ⚠️\n"
-                    f"CTR is {suppression_ratio:.0f}x below position-expected rate "
-                    f"(actual: {actual_ctr:.2f}%, expected: {expected_ctr:.1f}% at position {weighted_pos:.1f}).\n"
-                    f"This is a {total_impressions:,} impression page.\n"
-                    f"MANDATORY: You MUST propose a TITLE_META_TEST action for this page.\n"
-                    f"You MUST NOT defer this. Title/meta fixes SERP acquisition; routing fixes monetization.\n"
-                    f"These are independent. Propose BOTH in parallel.\n"
+                    f"\n\nCTR ANALYSIS (informational — NOT a mandate to change titles):\n"
+                    f"Actual CTR: {actual_ctr:.2f}%, position-expected: {expected_ctr:.1f}% "
+                    f"(position {weighted_pos:.1f}, {total_impressions:,} impressions).\n"
+                    f"NOTE: Expected CTR benchmarks are industry averages. Lower CTR may be normal due to:\n"
+                    f"- SERP features (shopping, featured snippets, AI overviews) reducing organic clicks\n"
+                    f"- Google rewriting the title tag in search results\n"
+                    f"- Query-type differences (navigational vs informational)\n"
+                    f"Only recommend TITLE_META_TEST if you can identify a SPECIFIC problem with the "
+                    f"current title (wrong intent, missing key term, worse angle than SERP competitors) "
+                    f"— NOT just because CTR is below a benchmark.\n"
                 )
+
+    # ── 2c) Past action outcomes for this URL ────────────────
+    # Include what was previously tried on this page and whether it worked
+    action_history_str = ""
+    try:
+        ledger = ActionLedger()
+        past_actions = ledger.get_actions_by_url(url)
+        if past_actions:
+            history_lines = []
+            for pa in sorted(past_actions, key=lambda a: a.created_at or "", reverse=True)[:10]:
+                outcome_str = ""
+                if pa.is_complete and pa.outcome:
+                    outcome_str = f" → outcome: {pa.outcome.value}"
+                elif pa.status:
+                    outcome_str = f" → status: {pa.status.value}"
+                history_lines.append(
+                    f"  - {pa.action_type} ({pa.created_at[:10] if pa.created_at else '?'}){outcome_str}"
+                    f"{': ' + pa.description[:80] if pa.description else ''}"
+                )
+            action_history_str = (
+                f"\n\npast_actions_on_this_page (CRITICAL — learn from what was already tried):\n"
+                + "\n".join(history_lines) + "\n"
+                f"RULE: If a TITLE_META_TEST was previously tried on this page and the outcome was "
+                f"NEGATIVE or NEUTRAL, do NOT recommend another TITLE_META_TEST unless you can explain "
+                f"specifically what was wrong with the previous attempt and why yours would differ.\n"
+            )
+    except Exception:
+        pass
 
     # ── 3) Internal outlinks from page metadata ─────────────────
     outlinks = pm.get("internal_outlinks", [])
@@ -2075,7 +2105,7 @@ core_web_vitals (real-user performance data from Chrome UX Report):
 
 url_inspection (Google URL Inspection API — indexing status from Googlebot's perspective):
 {url_insp_str}
-{ctr_suppression_flag}
+{ctr_suppression_flag}{action_history_str}
 ────────────────────────────────
 OUTPUT FORMAT (STRICT)
 ────────────────────────────────
