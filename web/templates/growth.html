@@ -200,6 +200,15 @@
             No prompts configured yet. Click "Add Prompt" to start tracking AI visibility for your brand.
         </div>
     </div>
+
+    <div class="card" id="paid-actions-card" style="margin-top:24px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <h3 style="margin:0;">Paid Actions <span style="font-size:12px;font-weight:400;color:var(--text-muted);">governed Google Ads changes</span></h3>
+            <span id="paid-writes-badge" style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;"></span>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:6px 0 14px;">Data-driven proposals from campaign performance. Preview shows exactly what would change; Apply executes the real change and logs it. Live writes are off until enabled in config.</p>
+        <div id="paid-actions-body"></div>
+    </div>
 </div>
 
 <div id="toast" class="toast hidden"></div>
@@ -1050,10 +1059,83 @@ async function clearQueue() {
     }
 }
 
+// ── Paid Actions (governed Google Ads) ──
+let _paidActions = [];
+async function loadPaidActions() {
+    try {
+        const res = await fetch('/api/ads/recommendations');
+        const data = await res.json();
+        const card = document.getElementById('paid-actions-card');
+        const body = document.getElementById('paid-actions-body');
+        const badge = document.getElementById('paid-writes-badge');
+        // Only show the card when Ads is actually connected with campaigns
+        if (!data.campaigns || data.campaigns.length === 0) { card.style.display = 'none'; return; }
+        card.style.display = 'block';
+        _paidActions = data.recommendations || [];
+        if (data.allow_writes) {
+            badge.textContent = 'LIVE WRITES ON';
+            badge.style.color = '#dc2626'; badge.style.background = '#fee2e2';
+        } else {
+            badge.textContent = 'PREVIEW ONLY';
+            badge.style.color = '#6b7280'; badge.style.background = '#f3f4f6';
+        }
+        if (_paidActions.length === 0) {
+            body.innerHTML = '<div style="padding:16px;text-align:center;color:var(--accent-green);font-weight:600;">No paid actions recommended — campaigns look balanced.</div>';
+            return;
+        }
+        body.innerHTML = _paidActions.map((a, i) => {
+            const riskColor = a.risk === 'medium' ? '#d97706' : '#059669';
+            const label = a.type.replace(/_/g, ' ');
+            return `<div style="border:1px solid var(--border-color);border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <span style="font-size:11px;font-weight:700;color:#fff;background:#6d28d9;padding:2px 7px;border-radius:4px;">${label}</span>
+                    <strong style="font-size:14px;">${a.campaign_name}</strong>
+                    <span style="font-size:10px;font-weight:700;color:${riskColor};background:${riskColor}18;padding:2px 6px;border-radius:3px;">${a.risk} risk</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-secondary);margin:6px 0 10px;">${a.rationale}</div>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="runPaidAction(${i}, true)" style="padding:6px 12px;font-size:12px;font-weight:600;border:1px solid var(--accent-blue);background:transparent;color:var(--accent-blue);border-radius:5px;cursor:pointer;">Preview</button>
+                    <button onclick="runPaidAction(${i}, false)" style="padding:6px 12px;font-size:12px;font-weight:600;border:none;background:var(--accent-purple);color:#fff;border-radius:5px;cursor:pointer;">Apply</button>
+                    <span id="paid-result-${i}" style="font-size:12px;align-self:center;"></span>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (err) {
+        document.getElementById('paid-actions-card').style.display = 'none';
+    }
+}
+
+async function runPaidAction(idx, dryRun) {
+    const a = _paidActions[idx];
+    const resultEl = document.getElementById('paid-result-' + idx);
+    if (!dryRun && !confirm(`Apply "${a.type.replace(/_/g,' ')}" to ${a.campaign_name}? This changes your live Google Ads account.`)) return;
+    resultEl.textContent = dryRun ? 'Previewing…' : 'Applying…';
+    resultEl.style.color = 'var(--text-muted)';
+    try {
+        const res = await fetch('/api/ads/execute', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: a.type, campaign_id: a.campaign_id, params: a.params, dry_run: dryRun}),
+        });
+        const r = await res.json();
+        if (r.success) {
+            resultEl.style.color = 'var(--accent-green)';
+            resultEl.textContent = r.dry_run ? ('Would: ' + (r.would || 'apply change')) : ('Applied ✓ ' + (r.new_status || (r.current!=null ? `$${r.current}→$${r.new}` : '')));
+        } else {
+            resultEl.style.color = 'var(--accent-red)';
+            resultEl.textContent = r.message || 'failed';
+        }
+    } catch (err) {
+        resultEl.style.color = 'var(--accent-red)';
+        resultEl.textContent = 'error: ' + err.message;
+    }
+}
+
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
     loadGrowthData();
     loadQueueData();
+    loadPaidActions();
 });
 </script>
 {% endblock %}

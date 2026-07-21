@@ -3620,6 +3620,7 @@ def api_ads():
 
         for c in campaigns.values():
             campaign_list.append({
+                "campaign_id": c.campaign_id,
                 "name": c.campaign_name,
                 "type": c.campaign_type.value,
                 "status": c.status,
@@ -3662,6 +3663,135 @@ def api_ads():
             "campaigns": [],
             "summary": {},
         })
+
+
+def _fetch_ads_campaigns(config):
+    """Fetch campaign list (read-only). Returns (campaigns_list, error)."""
+    ads_config = config.get("data_sources", {}).get("google_ads", {})
+    if not ads_config.get("customer_id"):
+        return [], "Google Ads not configured"
+    creds_path = ads_config.get("config_path", "google-ads.yaml")
+    if not Path(creds_path).is_absolute():
+        creds_path = str(Path(__file__).parent.parent / creds_path)
+    try:
+        client = GoogleAdsClient(
+            credentials_path=creds_path,
+            customer_id=ads_config.get("customer_id"),
+            login_customer_id=ads_config.get("login_customer_id"),
+            brand_terms=ads_config.get("brand_terms", []),
+        )
+        campaigns = client.fetch_campaign_summary(days=28)
+        out = []
+        for c in campaigns.values():
+            out.append({
+                "campaign_id": c.campaign_id,
+                "name": c.campaign_name,
+                "type": c.campaign_type.value,
+                "status": c.status,
+                "cost": round(c.cost, 2),
+                "conversions": round(c.conversions, 1),
+                "conversion_value": round(c.conversion_value, 2),
+                "roas": round(c.conversion_value / c.cost, 2) if c.cost > 0 else 0,
+            })
+        return out, (None if campaigns else (client._last_error or "no campaigns"))
+    except Exception as e:
+        return [], str(e)
+
+
+@app.route("/api/ads/recommendations")
+def api_ads_recommendations():
+    """Governed paid-action proposals from campaign performance (read-only)."""
+    from src.data_sources.ads_manager import recommend_paid_actions
+    config = load_config()
+    campaigns, error = _fetch_ads_campaigns(config)
+    break_even = config.get("business_context", {}).get("break_even_roas", 4.0)
+    recs = recommend_paid_actions(campaigns, break_even_roas=break_even)
+    allow_writes = config.get("data_sources", {}).get("google_ads", {}).get("allow_writes", False)
+    return jsonify({
+        "recommendations": recs,
+        "campaigns": campaigns,
+        "break_even_roas": break_even,
+        "allow_writes": bool(allow_writes),
+        "error": error,
+    })
+
+
+@app.route("/api/ads/execute", methods=["POST"])
+def api_ads_execute():
+    """Execute one approved paid action. Dry-run unless the caller passes
+    dry_run=false AND allow_writes is enabled in config."""
+    from src.data_sources.ads_manager import GoogleAdsWriter
+    data = request.json or {}
+    action_type = data.get("type")
+    campaign_id = data.get("campaign_id")
+    params = data.get("params", {})
+    dry_run = data.get("dry_run", True)
+
+    if not action_type or not campaign_id:
+        return jsonify({"success": False, "message": "type and campaign_id required"}), 400
+
+    config = load_config()
+    ads_config = config.get("data_sources", {}).get("google_ads", {})
+    allow_writes = bool(ads_config.get("allow_writes", False))
+    if not dry_run and not allow_writes:
+        return jsonify({"success": False,
+                        "message": "Live writes are disabled. Enable allow_writes in config first."}), 403
+
+    creds_path = ads_config.get("config_path", "google-ads.yaml")
+    if not Path(creds_path).is_absolute():
+        creds_path = str(Path(__file__).parent.parent / creds_path)
+
+    writer = GoogleAdsWriter(
+        credentials_path=creds_path,
+        customer_id=ads_config.get("customer_id"),
+        login_customer_id=ads_config.get("login_customer_id"),
+        allow_writes=allow_writes,
+        max_budget_change_pct=ads_config.get("max_budget_change_pct", 50.0),
+    )
+
+    if action_type == "PAUSE_CAMPAIGN":
+        result = writer.set_campaign_status(campaign_id, enable=False, dry_run=dry_run)
+    elif action_type == "ENABLE_CAMPAIGN":
+        result = writer.set_campaign_status(campaign_id, enable=True, dry_run=dry_run)
+    elif action_type == "ADJUST_BUDGET":
+        result = writer.adjust_budget(
+            campaign_id,
+            direction=params.get("direction", "decrease"),
+            step_pct=params.get("step_pct", 20.0),
+            dry_run=dry_run,
+        )
+    else:
+        return jsonify({"success": False, "message": f"unknown action type: {action_type}"}), 400
+
+    # Audit: log executed (non-dry-run) actions to the ledger
+    if result.get("success") and not dry_run:
+        try:
+            from src.ledger.action_ledger import ActionFingerprint, ActionRecord
+            import uuid
+            ledger = ActionLedger()
+            aid = f"ADS-{uuid.uuid4().hex[:8].upper()}"
+            rec = ActionRecord(
+                action_id=aid,
+                url=f"google-ads:campaign/{campaign_id}",
+                action_type=action_type,
+                score_type="ads",
+                score_value=0,
+                confidence=1.0,
+                fingerprint=ActionFingerprint(
+                    page_type="paid", intent_cluster="commercial",
+                    action_surface="ads", action_type=action_type,
+                ),
+                recommendation_json={
+                    "campaign_id": campaign_id, "params": params, "result": result,
+                    "source": "ads_manager",
+                },
+                status=ActionStatus.IMPLEMENTED,
+            )
+            ledger.add_action(rec)
+        except Exception:
+            pass
+
+    return jsonify(result)
 
 
 @app.route("/api/serp/status")
