@@ -11,12 +11,14 @@
     <!-- KPI Cards -->
     <div class="kpi-row">
         <div class="kpi-card">
-            <span class="kpi-label">Total Pages</span>
+            <span class="kpi-label">Content Pages</span>
             <span class="kpi-value" id="kpi-pages">—</span>
+            <span class="kpi-sub" id="kpi-pages-sub"></span>
         </div>
         <div class="kpi-card">
-            <span class="kpi-label">Action Rate</span>
+            <span class="kpi-label">Opportunities</span>
             <span class="kpi-value" id="kpi-action-rate">—</span>
+            <span class="kpi-sub" id="kpi-opps-sub"></span>
         </div>
         <div class="kpi-card">
             <span class="kpi-label">Est. Value</span>
@@ -30,6 +32,7 @@
         <div class="kpi-card">
             <span class="kpi-label">Regret Budget</span>
             <span class="kpi-value" id="kpi-regret">—</span>
+            <span class="kpi-sub" id="kpi-regret-sub"></span>
         </div>
     </div>
 
@@ -189,14 +192,22 @@ async function loadDashboard() {
         console.log('Dashboard data:', data);
 
         // KPIs - handle numbers properly
-        const pages = data.kpis?.total_pages;
-        const actionRate = data.kpis?.action_rate;
+        const pages = data.kpis?.content_pages;
+        const totalUrls = data.kpis?.total_urls;
+        const realOpps = data.kpis?.real_opportunities;
+        const highConfOpps = data.kpis?.high_conf_opportunities;
         const ev = data.kpis?.total_expected_value;
 
         document.getElementById('kpi-pages').textContent =
             (pages !== undefined && pages !== null) ? pages.toLocaleString() : '—';
+        const pagesSub = document.getElementById('kpi-pages-sub');
+        if (pagesSub && totalUrls) pagesSub.textContent = `of ${totalUrls.toLocaleString()} URLs`;
+
         document.getElementById('kpi-action-rate').textContent =
-            (actionRate !== undefined && actionRate !== null) ? actionRate.toFixed(1) + '%' : '—';
+            (realOpps !== undefined && realOpps !== null) ? realOpps.toLocaleString() : '—';
+        const oppsSub = document.getElementById('kpi-opps-sub');
+        if (oppsSub && highConfOpps !== undefined) oppsSub.textContent = `${highConfOpps} high-confidence`;
+
         document.getElementById('kpi-ev').textContent =
             (ev !== undefined && ev !== null) ? '$' + ev.toLocaleString() : '—';
 
@@ -210,21 +221,25 @@ async function loadDashboard() {
             coverageEl.textContent = `${aiCount}/${aiTotalPages} analyzed`;
         }
 
+        const rb = data.regret_budget || {};
         document.getElementById('kpi-regret').textContent =
-            (data.config?.regret_budget ?? 2) + '/2';
+            (rb.remaining ?? data.config?.regret_budget ?? 2) + '/' + (rb.total ?? 2);
+        const regretSub = document.getElementById('kpi-regret-sub');
+        if (regretSub) regretSub.textContent = (rb.used || 0) + ' high-risk taken (1yr)';
 
-        // Posture
+        // Posture — use the server-provided detail (tied to real state)
         const postureEl = document.getElementById('posture-display');
         if (postureEl && data.posture) {
             postureEl.querySelector('.posture-mode').textContent = data.posture.mode;
             postureEl.className = 'posture-large posture-' + data.posture.color;
             const descEl = document.getElementById('posture-desc');
-            const descriptions = {
-                'PRESERVATION': 'Protecting existing rankings and traffic',
-                'ACTIVE': 'Actively pursuing growth opportunities',
-                'MONITORING': 'Observing results from recent actions',
+            const fallback = {
+                'PRESERVATION': 'Stable — no open opportunities or in-flight actions',
+                'ACTIVE': 'Substantive opportunities awaiting decision',
+                'MONITORING': 'Measuring in-flight actions',
+                'BLOCKED': 'Tracking blockers must be resolved before acting',
             };
-            descEl.textContent = descriptions[data.posture.mode] || '';
+            descEl.textContent = data.posture.detail || fallback[data.posture.mode] || '';
         }
 
         // Config

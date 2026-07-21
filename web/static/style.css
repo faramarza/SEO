@@ -323,6 +323,13 @@ body {
     color: var(--accent-blue);
 }
 
+.posture-large.posture-red {
+    background-color: rgba(220, 38, 38, 0.08);
+}
+.posture-large.posture-red .posture-mode {
+    color: var(--accent-red, #dc2626);
+}
+
 /* ============================================================
    Tables
    ============================================================ */
