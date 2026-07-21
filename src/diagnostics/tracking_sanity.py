@@ -429,17 +429,15 @@ class TrackingSanityDiagnostics:
                 )
                 fix = self._get_platform_fix("volume_low")
             else:
-                # HIGH ratio — only Tier A if extreme AND significant volume
-                if is_special:
-                    severity = Severity.MEDIUM
-                elif (ratio > self.RATIO_TIER_A_UPPER
-                      and gsc_clicks >= self.MIN_CLICKS_FOR_TIER_A):
-                    severity = Severity.HIGH
-                else:
-                    severity = Severity.MEDIUM
+                # HIGH ratio — GA4 has MORE sessions than GSC organic clicks.
+                # This is never data LOSS (it's inflation from direct/brand/
+                # internal/social traffic, which GA4 counts but GSC does not),
+                # so it must never block the Governor. Always Tier B.
+                severity = Severity.MEDIUM
                 interpretation = (
                     f"GA4 organic sessions ({organic_sessions}) higher than "
-                    f"GSC clicks ({gsc_clicks}). Possible misattribution."
+                    f"GSC clicks ({gsc_clicks}). Normal when a page also gets "
+                    f"direct/brand/internal traffic — reduces confidence, not blocking."
                 )
                 fix = (
                     "1. Check GA4 channel grouping rules\n"
@@ -465,28 +463,27 @@ class TrackingSanityDiagnostics:
     def _is_cms_alias_pattern(self, page_path: str, canon_path: str) -> bool:
         """Check if the canonical mismatch is a known CMS alias pattern.
 
-        Common CMS patterns where a URL is a known alias of the canonical:
-          /blog/my-post  →  /blog/post/my-post     (Magento blog)
-          /blog/my-post  →  /blog/posts/my-post    (generic CMS)
-          /news/my-post  →  /news/article/my-post   (news CMS)
+        Common patterns where a URL is a known alias of its canonical and the
+        canonical is correctly set (so GSC consolidates metrics properly):
+          /blog/my-post              → /blog/post/my-post     (Magento blog, deeper)
+          /cat/subcat/product.html   → /product.html          (Magento product, shallower)
+          /news/my-post              → /news/article/my-post  (news CMS)
 
-        These are intentional aliases, not ambiguity.  The canonical is
-        correctly set and GSC will consolidate metrics properly.
+        The reliable signal is the TERMINAL SLUG: if the page and its
+        canonical end in the same slug, they address the same resource and
+        differ only in path depth/structure — an intentional alias, not
+        ambiguity. Direction (deeper vs shallower) does not matter; a product
+        reached via a category path canonicalizing to the clean product URL is
+        just as valid as a blog alias.
         """
-        # Extract slug (last path component) from both
         page_slug = page_path.rstrip("/").rsplit("/", 1)[-1]
         canon_slug = canon_path.rstrip("/").rsplit("/", 1)[-1]
 
-        # If both share the same slug and differ only in intermediate
-        # path segments, it's a CMS alias pattern.
-        if page_slug and page_slug == canon_slug:
-            # Verify the canonical is a "deeper" version of the page path
-            # (e.g. /blog/slug vs /blog/post/slug)
-            page_parts = page_path.strip("/").split("/")
-            canon_parts = canon_path.strip("/").split("/")
-            if len(canon_parts) > len(page_parts):
-                # The canonical has more path segments but same slug
-                return True
+        # Same terminal slug, different path structure → known alias.
+        page_parts = page_path.strip("/").split("/")
+        canon_parts = canon_path.strip("/").split("/")
+        if page_slug and page_slug == canon_slug and page_parts != canon_parts:
+            return True
 
         return False
 
