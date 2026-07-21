@@ -123,14 +123,10 @@ async function loadOpportunities() {
             if (opp.ai_recommendations && !opp._ai_html) {
                 opp._ai_html = buildAIHtml(opp.ai_recommendations, opp.ai_reproducibility);
             }
-            // Hydrate AI revised value from persisted data if not already set
-            if (opp.ai_revised_value == null && opp.ai_recommendations) {
-                const fa = opp.ai_recommendations.funnel_analysis;
-                if (fa && fa.opportunity_estimate && fa.opportunity_estimate.base) {
-                    const total = fa.opportunity_estimate.base.total;
-                    if (total != null) opp.ai_revised_value = parseFloat(total) || null;
-                }
-            }
+            // Do NOT re-derive the AI value from the model's raw base.total —
+            // that number is unvalidated LLM arithmetic. The server recomputes
+            // ai_revised_value deterministically; if it's absent, we show "—"
+            // rather than surfacing the model's unchecked figure.
         }
 
         sortOpportunities();

@@ -285,6 +285,93 @@ def load_config():
     return {}
 
 
+def _recompute_ai_value(recommendations, opportunity, config):
+    """Recompute the AI opportunity value server-side from real page metrics.
+
+    The LLM is trusted only for JUDGMENT — the routing_pct (what fraction of
+    this page's demand can realistically be routed toward a purchase). The
+    dollar arithmetic is done here, deterministically, so the number is
+    reproducible and not dependent on a cheap model's mental math.
+
+    Formula (matches the funnel model described in the prompt):
+        value = demand × routing_pct × CVR × AOV × margin
+
+    Returns (value, meta) where meta records the inputs and any divergence
+    from the model's own asserted total (for transparency).
+    """
+    if not isinstance(recommendations, dict):
+        return None, None
+    fa = recommendations.get("funnel_analysis")
+    if not isinstance(fa, dict):
+        return None, None
+    oe = fa.get("opportunity_estimate")
+    if not isinstance(oe, dict):
+        return None, None
+
+    profit = config.get("profit_model", {})
+    aov = profit.get("aov", 53.19)
+    margin = profit.get("gross_margin_low", 0.27)
+    cvr = profit.get("site_avg_purchase_rate", 0.02)
+
+    # Demand basis: impressions is the top-of-funnel signal the prompt uses.
+    demand = opportunity.get("gsc_impressions") or 0
+    if not demand:
+        # Fall back to the pipeline's own estimate if we have no impressions.
+        return None, {"reason": "no_impression_data",
+                      "pipeline_value": opportunity.get("expected_value", 0)}
+
+    def _routing_fraction(tier):
+        if not isinstance(tier, dict):
+            return None
+        rp = tier.get("routing_pct")
+        try:
+            rp = float(rp)
+        except (TypeError, ValueError):
+            return None
+        # Model may express as percent (5) or fraction (0.05)
+        return rp / 100.0 if rp > 1 else rp
+
+    base_frac = _routing_fraction(oe.get("base"))
+    if base_frac is None:
+        return None, {"reason": "no_routing_pct"}
+
+    def _value(frac):
+        return round(demand * frac * cvr * aov * margin, 2) if frac is not None else None
+
+    value = _value(base_frac)
+    low = _value(_routing_fraction(oe.get("low")))
+    high = _value(_routing_fraction(oe.get("high")))
+
+    # What did the model claim? (for divergence transparency only)
+    model_total = None
+    base = oe.get("base", {})
+    if isinstance(base, dict) and base.get("total") is not None:
+        try:
+            model_total = float(base["total"])
+        except (ValueError, TypeError):
+            model_total = None
+
+    meta = {
+        "source": "server_recomputed",
+        "demand_impressions": demand,
+        "routing_pct": round(base_frac * 100, 2),
+        "cvr": cvr,
+        "aov": aov,
+        "margin": margin,
+        "low": low,
+        "high": high,
+        "model_asserted_total": model_total,
+    }
+    if model_total is not None and value:
+        ratio = model_total / value if value else 0
+        if ratio > 3 or ratio < 0.33:
+            meta["divergence_warning"] = (
+                f"Model claimed ${model_total:,.0f} but recomputed value is "
+                f"${value:,.0f} — model arithmetic was off by {ratio:.1f}x."
+            )
+    return value, meta
+
+
 def _persist_opportunity_update(url: str, updates: dict):
     """Update a specific opportunity in latest_evaluation.json by URL.
 
@@ -429,20 +516,92 @@ def api_dashboard():
 
     # Calculate KPIs
     ledger_summary = ledger.summary()
+    results = eval_data.get("results", [])
 
-    # Determine governor posture
+    # ── Content pages (deduped, real pages only) ──────────────
+    # The raw result count double-counts URL variants and media. Count
+    # distinct normalized URLs that are actual content pages.
+    _FALLBACK_SOURCES = {"demand_coverage_gap", "zero_visibility_review", "sitemap_import"}
+    seen_norm = set()
+    content_pages = 0
+    for r in results:
+        norm = _normalize_url(r.get("url", ""))
+        if norm in seen_norm:
+            continue
+        seen_norm.add(norm)
+        if r.get("asset_type") in ("product", "category", "blog"):
+            content_pages += 1
+
+    # ── Real opportunities (exclude the catch-all fallback) ────
+    # "Action rate" was ~93% because a fallback assigns an action to nearly
+    # every page. Count only substantive opportunities: an actionable page
+    # that a real evaluator (not the fallback) surfaced.
+    preservation_gate = config.get("governance", {}).get("preservation_confidence_threshold", 0.75)
+    real_opportunities = 0
+    high_conf_opportunities = 0
+    for r in results:
+        action = r.get("recommended_action")
+        if action in ("NO_ACTION", "OBSERVE_ONLY", None):
+            continue
+        if r.get("source") in _FALLBACK_SOURCES:
+            continue
+        real_opportunities += 1
+        if (r.get("action_confidence") or 0) >= preservation_gate:
+            high_conf_opportunities += 1
+
+    # ── Regret budget: actually count high-risk actions taken this year ──
+    regret_budget_total = config.get("governance", {}).get("regret_budget_year", 2)
+    _dt_now = datetime.now()
+    regret_used = 0
+    _IRREVERSIBLE = {"NEW_ASSET_CREATION", "CONSOLIDATION_REVIEW", "PAGE_REINVESTMENT"}
+    for action in ledger.get_all_actions():
+        # Only actions actually taken (not just proposed) count as regret risk
+        if action.status in (ActionStatus.PROPOSED,):
+            continue
+        try:
+            created = datetime.fromisoformat(action.created_at)
+            if (_dt_now - created).days > 365:
+                continue
+        except (ValueError, TypeError):
+            continue
+        rec = action.recommendation_json or {}
+        is_high_risk = (rec.get("risk_level") == "high"
+                        or (action.action_type or "").upper() in _IRREVERSIBLE)
+        if is_high_risk:
+            regret_used += 1
+    regret_remaining = max(0, regret_budget_total - regret_used)
+
+    # ── Tracking blockers (Tier A) — needed for real posture ──
+    tier_a_blockers = 0
+    diag_path = DATA_PATH / "diagnostic_results.json"
+    if diag_path.exists():
+        try:
+            with open(diag_path) as f:
+                diag = json.load(f)
+            tier_a_blockers = sum(1 for d in diag.get("results", []) if d.get("tier") == "A")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # ── Governor posture — tied to real state, not a raw counter ──
     pending_actions = len(ledger.get_actions_by_status(ActionStatus.PROPOSED))
     implemented = len(ledger.get_actions_by_status(ActionStatus.IMPLEMENTED))
 
-    if pending_actions == 0 and implemented == 0:
-        posture = "PRESERVATION"
-        posture_color = "green"
-    elif pending_actions > 5:
+    if tier_a_blockers > 0:
+        posture = "BLOCKED"
+        posture_color = "red"
+        posture_detail = f"{tier_a_blockers} Tier A tracking blocker(s) — resolve before acting"
+    elif real_opportunities > 0 and pending_actions < real_opportunities:
         posture = "ACTIVE"
         posture_color = "blue"
-    else:
+        posture_detail = f"{real_opportunities} substantive opportunit(ies) awaiting decision"
+    elif implemented > 0:
         posture = "MONITORING"
         posture_color = "yellow"
+        posture_detail = f"Measuring {implemented} in-flight action(s)"
+    else:
+        posture = "PRESERVATION"
+        posture_color = "green"
+        posture_detail = "Stable — no open opportunities or in-flight actions"
 
     # Compute AI-revised total from individual results
     ai_values = [
@@ -479,9 +638,14 @@ def api_dashboard():
 
     return jsonify({
         "kpis": {
-            "total_pages": eval_data.get("total_pages", 0),
-            "pages_with_action": eval_data.get("pages_with_action", 0),
-            "action_rate": eval_data.get("action_rate", 0),
+            # Raw URL count retained for reference, but the headline is the
+            # deduped content-page count.
+            "total_urls": eval_data.get("total_pages", 0),
+            "content_pages": content_pages,
+            # Replaced the meaningless ~93% "action rate" with counts of
+            # substantive opportunities (fallback-assigned actions excluded).
+            "real_opportunities": real_opportunities,
+            "high_conf_opportunities": high_conf_opportunities,
             "total_expected_value": eval_data.get("total_expected_value", 0),
             "ai_revised_total": ai_total,
             "ai_analyzed_count": ai_analyzed_count,
@@ -490,13 +654,20 @@ def api_dashboard():
         "posture": {
             "mode": posture,
             "color": posture_color,
+            "detail": posture_detail,
         },
+        "regret_budget": {
+            "used": regret_used,
+            "total": regret_budget_total,
+            "remaining": regret_remaining,
+        },
+        "tier_a_blockers": tier_a_blockers,
         "ledger_summary": ledger_summary,
         "task_alerts": task_alerts,
         "config": {
             "aov": config.get("profit_model", {}).get("aov", 53.19),
             "margin": config.get("profit_model", {}).get("gross_margin_low", 0.27),
-            "regret_budget": config.get("governance", {}).get("regret_budget_year", 2),
+            "regret_budget": regret_budget_total,
             "exploration_confidence_threshold": config.get("governance", {}).get("exploration_confidence_threshold", 0.55),
             "preservation_confidence_threshold": config.get("governance", {}).get("preservation_confidence_threshold", 0.75),
         },
@@ -588,6 +759,7 @@ def api_opportunities():
 
     # Re-parse any ai_recommendations that were stored as raw_response
     # due to a bug where the dedup exception handler destroyed valid JSON
+    config = load_config()
     ai_reparsed = 0
     for r in all_results:
         ai_rec = r.get("ai_recommendations")
@@ -611,18 +783,13 @@ def api_opportunities():
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict) and ("validity_audit" in parsed or "recommendations" in parsed):
                     r["ai_recommendations"] = parsed
-                    # Also extract ai_revised_value if it wasn't set
+                    # Recompute the value server-side (never trust the model's
+                    # raw base.total) if it wasn't already set.
                     if r.get("ai_revised_value") is None:
-                        fa = parsed.get("funnel_analysis", {})
-                        if isinstance(fa, dict):
-                            oe = fa.get("opportunity_estimate", {})
-                            if isinstance(oe, dict):
-                                base = oe.get("base", {})
-                                if isinstance(base, dict) and base.get("total") is not None:
-                                    try:
-                                        r["ai_revised_value"] = float(base["total"])
-                                    except (ValueError, TypeError):
-                                        pass
+                        _val, _meta = _recompute_ai_value(parsed, r, config)
+                        if _val is not None:
+                            r["ai_revised_value"] = _val
+                            r["ai_value_meta"] = _meta
                     ai_reparsed += 1
             except (json.JSONDecodeError, Exception):
                 pass  # Genuine parse failure — leave as raw_response
@@ -2583,19 +2750,14 @@ If nothing is broken or improvable:
         except Exception:
             pass  # Dedup failure should not destroy parsed recommendations
 
-        # Extract AI's revised value estimate from funnel_analysis
-        ai_revised_value = None
-        if isinstance(recommendations, dict):
-            fa = recommendations.get("funnel_analysis", {})
-            if isinstance(fa, dict):
-                oe = fa.get("opportunity_estimate", {})
-                if isinstance(oe, dict):
-                    base = oe.get("base", {})
-                    if isinstance(base, dict) and base.get("total") is not None:
-                        try:
-                            ai_revised_value = float(base["total"])
-                        except (ValueError, TypeError):
-                            pass
+        # Derive the revised value estimate. The model supplies JUDGMENT
+        # (routing_pct — how much of the funnel is realistically capturable);
+        # the SERVER does the arithmetic deterministically from real page
+        # metrics. We do NOT trust the model's own `total` (unverified LLM
+        # arithmetic). We keep it only to report divergence.
+        ai_revised_value, ai_value_meta = _recompute_ai_value(
+            recommendations, opportunity, config
+        )
 
         response_data = {
             "success": True,
@@ -2603,6 +2765,7 @@ If nothing is broken or improvable:
             "page_analysis": page_analysis,
             "recommendations": recommendations,
             "ai_revised_value": ai_revised_value,
+            "ai_value_meta": ai_value_meta,
             "reproducibility": {
                 "prompt_hash": prompt_hash,
                 "model": model,
@@ -2620,6 +2783,8 @@ If nothing is broken or improvable:
         }
         if ai_revised_value is not None:
             persist_updates["ai_revised_value"] = ai_revised_value
+        if ai_value_meta is not None:
+            persist_updates["ai_value_meta"] = ai_value_meta
         _persist_opportunity_update(url, persist_updates)
 
         return jsonify(response_data)
