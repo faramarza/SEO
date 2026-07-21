@@ -34,6 +34,36 @@ def _has_breadcrumbs(breadcrumb_links, schema_types, above_fold_html, body_html)
     html = f"{above_fold_html or ''} {body_html or ''}"
     return bool(_BREADCRUMB_RE.search(html))
 
+
+# An interactive CTA can be an anchor, a real button, a form submit, or a
+# JS-bound element — not just <a href>. Only true when NONE of these exist.
+_INTERACTIVE_RE = re.compile(
+    r"<a\b[^>]*\bhref|<button\b|type\s*=\s*\"(submit|button)\"|role\s*=\s*\"button\"|onclick\s*=",
+    re.IGNORECASE,
+)
+_IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+# Lazy-loaded / responsive images the plain <img src> check misses.
+_LAZY_IMG_RE = re.compile(r"data-src|data-lazy|<source\b|srcset", re.IGNORECASE)
+
+
+def _has_above_fold_cta(above_fold_html):
+    """True if the above-fold region has any interactive path (link, button,
+    form submit, JS handler) — not just a literal <a href>."""
+    return bool(_INTERACTIVE_RE.search(above_fold_html or ""))
+
+
+def _image_findings(body_html):
+    """Return (no_images, imgs_missing_alt, total_imgs).
+
+    Counts lazy/responsive images too, and treats only images with NO alt
+    attribute at all as defects — alt="" is a valid decorative image, not a bug.
+    """
+    tags = _IMG_TAG_RE.findall(body_html or "")
+    total = len(tags)
+    has_any_image = total > 0 or bool(_LAZY_IMG_RE.search(body_html or ""))
+    missing_alt = sum(1 for t in tags if "alt=" not in t.lower())
+    return (not has_any_image), missing_alt, total
+
 # Grade bands
 def _grade(score):
     if score >= 85:
@@ -158,23 +188,27 @@ def evaluate_page_quality(
                      "No breadcrumb structured data — misses breadcrumb rich results.",
                      "Add BreadcrumbList JSON-LD.")
 
-        if above_fold_html and not _ANCHOR_RE.search(above_fold_html):
+        # Only flag when we actually captured above-fold HTML and it has NO
+        # interactive element at all (link, button, form submit, JS handler).
+        if len(above_fold_html or "") > 40 and not _has_above_fold_cta(above_fold_html):
             penalize(6, "revenue_ctr", "medium", "No above-fold link/CTA",
-                     "No clickable <a> above the fold — buyers see no immediate path.",
-                     "Add a real anchor CTA (Add to Cart / Shop / view links) in the hero region, not a JS-only span.")
+                     "No clickable link or button above the fold — buyers see no immediate path.",
+                     "Add a real CTA (Add to Cart / Shop / view links) in the hero region, not a JS-only span.")
 
     # ── CRO / content ────────────────────────────────────
-    if has_crawl_data and body_html:
-        imgs = _IMG_RE.findall(body_html)
-        if len(imgs) == 0:
+    # Only run image checks when body_html is substantial (a truncated snippet
+    # gives false 'no images' / 'missing alt' results).
+    if has_crawl_data and len(body_html or "") > 200:
+        no_images, missing_alt, total_imgs = _image_findings(body_html)
+        if no_images:
             penalize(5, "cro", "medium", "No images",
-                     "No <img> elements found on the page.", "Add product/lifestyle imagery.")
-        else:
-            with_alt = _IMG_ALT_RE.findall(body_html)
-            if len(with_alt) < len(imgs):
-                penalize(4, "cro", "low", "Images missing alt text",
-                         f"{len(imgs) - len(with_alt)} of {len(imgs)} images lack alt text.",
-                         "Add descriptive alt text (helps image SEO and accessibility).")
+                     "No images detected on the page.", "Add product/lifestyle imagery.")
+        elif total_imgs >= 3 and missing_alt > total_imgs * 0.4:
+            # Flag only when a meaningful share of images truly lack an alt
+            # attribute (alt="" is valid for decorative images, not a defect).
+            penalize(4, "cro", "low", "Images missing alt text",
+                     f"{missing_alt} of {total_imgs} images have no alt attribute.",
+                     "Add descriptive alt text to content images (helps image SEO and accessibility).")
 
     if asset_type == "category" and has_crawl_data:
         product_links = sum(1 for l in outlinks if ".html" in str(l.get("target_url", "")).lower())
