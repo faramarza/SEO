@@ -1151,6 +1151,30 @@ class FullEvaluationWorkflow:
                 "source": "crux_cwv",
             })
 
+        # Rich-result schema gap → propose the concrete CTR fix and de-prioritize
+        # guessy CTR title tests. Schema (star ratings / price / breadcrumbs in
+        # the SERP) is a deterministic, higher-confidence CTR lever than
+        # rewording a title — so "fix the schema before you touch the title."
+        pq = constraint_data.get("page_quality")
+        schema_gaps = []
+        if pq:
+            schema_gaps = [f for f in pq.get("findings", [])
+                           if f.get("dimension") == "revenue_ctr"
+                           and "schema" in f.get("label", "").lower()]
+        if schema_gaps and asset.gsc.impressions_28d >= 100:
+            # Conservative absolute CTR uplift from rich results.
+            schema_incr_clicks = asset.gsc.impressions_28d * 0.0075
+            candidates.append({
+                "mode": "OPPORTUNITY_DISCOVERY",
+                "action": "SCHEMA_ENHANCEMENT",
+                "expected_value": self._ev_from_clicks(schema_incr_clicks),
+                "confidence": 0.8,  # deterministic, well-defined fix
+                "risk_level": "low",
+                "implementation_steps": [f["fix"] for f in schema_gaps[:3]],
+                "source": "page_quality",
+            })
+            # Priority-level demotion happens after scoring (see below).
+
         # FALLBACK: Create opportunities for pages that no specific evaluator
         # caught. The system should surface ALL pages so operators can see the
         # full inventory, not just the high-traffic tail.
@@ -1233,6 +1257,21 @@ class FullEvaluationWorkflow:
                 has_revenue=asset.ga4.revenue_28d > 0,
             )
             candidate["priority_score"] = priority.priority
+
+        # "Fix schema before you touch the title": when a rich-result schema
+        # gap exists, rank speculative CTR title tests BELOW the concrete schema
+        # fix by capping their priority just under it. Schema is deterministic;
+        # title rewording is a guess.
+        if schema_gaps:
+            schema_prio = max(
+                (c["priority_score"] for c in candidates
+                 if c["action"] == "SCHEMA_ENHANCEMENT"),
+                default=0,
+            )
+            for c in candidates:
+                if c["action"] == "TITLE_META_TEST" and c.get("source") in (
+                        "constraint_detector", "title_evaluator"):
+                    c["priority_score"] = min(c["priority_score"], schema_prio * 0.9)
 
         # Select best candidate by priority
         if candidates:
@@ -1388,6 +1427,7 @@ class FullEvaluationWorkflow:
     _ACTION_TYPE_ALIASES = {
         "VISIBILITY_FIX": ActionType.INTERNAL_LINK_REALLOCATION,
         "HTML_STRUCTURAL_FIX": ActionType.INTERNAL_LINK_REALLOCATION,
+        "SCHEMA_ENHANCEMENT": ActionType.INTERNAL_LINK_REALLOCATION,
         "PAGE_SPEED_FIX": ActionType.PAGE_REINVESTMENT,
         "CONTENT_CLARIFY": ActionType.PAGE_REINVESTMENT,
         "CONSOLIDATION_REVIEW": ActionType.PAGE_REINVESTMENT,
