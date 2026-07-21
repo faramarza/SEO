@@ -16,6 +16,23 @@ import re
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _IMG_ALT_RE = re.compile(r'<img\b[^>]*\balt\s*=\s*"[^"]+"', re.IGNORECASE)
 _ANCHOR_RE = re.compile(r"<a\b[^>]*\bhref", re.IGNORECASE)
+# Breadcrumbs can appear as a nav/list with a breadcrumb class/aria-label or as
+# BreadcrumbList schema — the crawler's breadcrumb_links field misses many.
+_BREADCRUMB_RE = re.compile(
+    r'breadcrumb|aria-label\s*=\s*"[^"]*breadcrumb|itemtype\s*=\s*"[^"]*BreadcrumbList',
+    re.IGNORECASE,
+)
+
+
+def _has_breadcrumbs(breadcrumb_links, schema_types, above_fold_html, body_html):
+    """Detect breadcrumbs from any reliable signal, not just crawler-extracted
+    breadcrumb_links (which misses non-standard markup like Magento's)."""
+    if breadcrumb_links:
+        return True
+    if _has_schema(schema_types, "BreadcrumbList"):
+        return True
+    html = f"{above_fold_html or ''} {body_html or ''}"
+    return bool(_BREADCRUMB_RE.search(html))
 
 # Grade bands
 def _grade(score):
@@ -107,7 +124,7 @@ def evaluate_page_quality(
                  f"{word_count} words (below {thin_threshold}).",
                  "Add unique, useful copy — buying guidance, specs, or category intro — to reduce thinness.")
 
-    if has_crawl_data and not breadcrumbs:
+    if has_crawl_data and not _has_breadcrumbs(breadcrumbs, schema_types, above_fold_html, body_html):
         penalize(3, "seo", "low", "No breadcrumbs",
                  "No breadcrumb navigation detected.", "Add breadcrumb navigation (also enables BreadcrumbList rich results).")
 
