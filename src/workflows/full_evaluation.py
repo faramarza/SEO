@@ -1239,21 +1239,33 @@ class FullEvaluationWorkflow:
             candidates.sort(key=lambda x: x.get("priority_score", 0), reverse=True)
             best = candidates[0]
 
-            # Summarize ALL applicable actions for this page (not just the winner)
-            # so operators can see the full set of options in the detail view.
-            all_candidates = [
-                {
-                    "action": c["action"],
+            # Summarize applicable actions for this page (not just the winner).
+            # Candidates are priority-sorted, so keep the FIRST (best) instance
+            # of each action type and fold duplicates into a source list — a
+            # page shouldn't show the same action twice with conflicting values.
+            all_candidates = []
+            _seen_actions = {}
+            for c in candidates:
+                act = c["action"]
+                if act in _seen_actions:
+                    entry = _seen_actions[act]
+                    src = c.get("source", "")
+                    if src and src not in entry["sources"]:
+                        entry["sources"].append(src)
+                    continue
+                entry = {
+                    "action": act,
                     "mode": c["mode"],
                     "expected_value": round(c["expected_value"], 2),
                     "confidence": round(c["confidence"], 2),
                     "priority_score": round(c.get("priority_score", 0), 2),
                     "risk_level": c.get("risk_level", "low"),
                     "source": c.get("source", ""),
+                    "sources": [c.get("source", "")] if c.get("source") else [],
                     "summary": c["implementation_steps"][0] if c.get("implementation_steps") else "",
                 }
-                for c in candidates
-            ]
+                _seen_actions[act] = entry
+                all_candidates.append(entry)
 
             # Check confidence threshold — lane-aware
             # High-risk (irreversible) actions need PRESERVATION threshold (0.75)

@@ -572,7 +572,7 @@ function showDetail(idx) {
                             <td class="number">${((c.confidence || 0) * 100).toFixed(0)}%</td>
                             <td class="number">${(c.priority_score || 0).toFixed(2)}</td>
                             <td><span class="risk-badge risk-${c.risk_level || 'low'}">${c.risk_level || 'low'}</span></td>
-                            <td style="font-size:11px;color:#6b7280;">${(c.source || '').replace(/_/g, ' ')}</td>
+                            <td style="font-size:11px;color:#6b7280;">${((c.sources && c.sources.length ? c.sources : [c.source || '']).join(', ')).replace(/_/g, ' ')}${(c.sources && c.sources.length > 1) ? ` <span title="flagged by ${c.sources.length} evaluators" style="color:#059669;font-weight:700;">×${c.sources.length}</span>` : ''}</td>
                         </tr>
                     `).join('')}
                 </tbody>
