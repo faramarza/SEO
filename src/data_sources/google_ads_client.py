@@ -296,15 +296,22 @@ class GoogleAdsClient:
     def _init_oauth_client(self, GAdsClient) -> bool:
         """Initialize using OAuth2 (google-ads.yaml)."""
         try:
+            path = None
             if self.credentials_path and Path(self.credentials_path).exists():
-                self._client = GAdsClient.load_from_storage(self.credentials_path)
+                path = self.credentials_path
+            elif (Path.home() / "google-ads.yaml").exists():
+                path = str(Path.home() / "google-ads.yaml")
+            if path:
+                self._client = GAdsClient.load_from_storage(path)
+                # Authenticate through the manager (MCC) account when set, so
+                # queries against a child account's campaigns are permitted.
+                # Overrides any login_customer_id baked into the yaml.
+                if self.login_customer_id:
+                    try:
+                        self._client.login_customer_id = str(self.login_customer_id)
+                    except Exception:
+                        pass
                 return True
-            else:
-                # Try default location
-                default_path = Path.home() / "google-ads.yaml"
-                if default_path.exists():
-                    self._client = GAdsClient.load_from_storage(str(default_path))
-                    return True
         except Exception as e:
             print(f"OAuth init failed: {e}")
         return False

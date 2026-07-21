@@ -3582,6 +3582,7 @@ def api_ads():
         client = GoogleAdsClient(
             credentials_path=creds_path,
             customer_id=ads_config.get("customer_id"),
+            login_customer_id=ads_config.get("login_customer_id"),
             brand_terms=ads_config.get("brand_terms", []),
         )
 
