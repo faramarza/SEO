@@ -2104,7 +2104,15 @@ In Step 4, you MUST:
         3 overlapping query terms: 'wooden trains', 'toy trains', 'model trains'")
      d. WHERE on the source page — e.g., "in the product comparison section",
         "after the introductory paragraph about [topic]"
-     e. SUGGESTED ANCHOR TEXT — following the anchor text accuracy rule below
+     e. SUGGESTED ANCHOR TEXT — CRITICAL DIRECTION RULE: the link points FROM the
+        source page TO the current page, so the anchor MUST describe the CURRENT
+        page (the destination), NOT the source page. Naming the source is wrong —
+        it would mislabel the current page's topic and can read as a self-link.
+        CORRECT (current page = /pretend-play-toys.html, source = /montessori-toys-2-year-olds.html):
+          anchor "Explore our Pretend Play Toys"   (describes the CURRENT page)
+        WRONG:
+          anchor "View Montessori Toys for 2-Year-Olds"  (describes the SOURCE — never do this)
+        Then apply the anchor text accuracy rule below to the CURRENT page's scope.
      f. PRIMARY vs SECONDARY — which is the main funnel link, which are supporting
 
 If site_pages is null, state "Inbound link analysis unavailable — run full evaluation first."
@@ -2133,6 +2141,10 @@ When recommending INTERNAL_LINKING as an action (links FROM this page to others)
 ────────────────────────────────
 ANCHOR TEXT ACCURACY RULE
 ────────────────────────────────
+"Destination" = the page the link POINTS TO. For Step 4 inbound-link
+opportunities the destination is the CURRENT page being analyzed (the link is
+added on the source page and points to the current page) — so the anchor
+describes the CURRENT page, never the source page.
 Anchor text MUST accurately describe the destination page scope:
   – If the URL is a single product (PDP): use the specific product name.
     CORRECT: "See the 218-Piece Unit Block Set" → /unit-blocks-set-e-218-piece-set.html
@@ -2476,7 +2488,7 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
         "query_overlap": <number>,
         "justification": "<why this page is a strong linking source — cite shared query terms>",
         "placement": "<where on the source page to add the link>",
-        "anchor_text": "<suggested anchor text following anchor text accuracy rules>",
+        "anchor_text": "<anchor describing the CURRENT/target page, NOT the source page>",
         "priority": "<PRIMARY | SECONDARY>"
       }}}}
     ]
