@@ -40,6 +40,7 @@ from src.evaluators.internal_link_evaluator import InternalLinkEvaluator
 from src.evaluators.asset_creation_evaluator import AssetCreationEvaluator
 from src.evaluators.constraint_detector import ConstraintDetector, CaptureClass, ConstraintType
 from src.evaluators.html_issue_evaluator import HTMLIssueEvaluator
+from src.evaluators.page_quality_evaluator import evaluate_page_quality
 from src.ledger.action_ledger import ActionLedger, ActionFingerprint, ActionRecord
 from src.output.decision_formatter import DecisionFormatter, OutputFormat
 from src.crawlers.page_inventory import PageInventory
@@ -882,6 +883,24 @@ class FullEvaluationWorkflow:
             # Core Web Vitals (CrUX) — present only for pages we fetched
             "cwv": getattr(asset, "_cwv", None),
         }
+
+        # Page Quality scorecard for product/category pages (rule-based)
+        if asset.asset_type in (AssetType.PRODUCT, AssetType.CATEGORY):
+            constraint_data["page_quality"] = evaluate_page_quality(
+                url=asset.url,
+                asset_type=asset.asset_type.value,
+                title=asset.title,
+                meta_description=asset.meta_description,
+                h1=asset.h1,
+                canonical_url=asset.canonical_url,
+                word_count=asset.word_count,
+                schema_types=getattr(asset, "schema_types", []),
+                above_fold_html=asset.above_fold_html,
+                body_html=asset.body_html,
+                internal_outlinks=asset.internal_outlinks,
+                breadcrumb_links=getattr(asset, "breadcrumb_links", []),
+                has_crawl_data=asset.has_crawl_data,
+            )
 
         candidates = []
         is_blog = asset.asset_type == AssetType.BLOG

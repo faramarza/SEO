@@ -636,6 +636,7 @@ function showDetail(idx) {
         ${constraintScoresHtml}
         ${metricsHtml}
         ${cwvHtml}
+        ${(opp.asset_type === 'product' || opp.asset_type === 'category') ? `<div class="detail-section" id="page-quality-panel-${idx}"><h4>Page Quality Scorecard <span style="font-weight:normal;color:#9ca3af;font-size:12px;">loading…</span></h4></div>` : ''}
         ${allActionsHtml}
         ${constraintsHtml}
         ${queriesHtml}
@@ -739,6 +740,74 @@ function showDetail(idx) {
     // Auto-fetch page context if not already fetched
     if (!pm.has_crawl_data) {
         fetchPageContext(idx, opp.url);
+    }
+
+    // Load the page quality scorecard for product/category pages
+    if (opp.asset_type === 'product' || opp.asset_type === 'category') {
+        loadPageQuality(idx, opp.url);
+    }
+}
+
+const _pqDimLabels = {seo: 'SEO', revenue_ctr: 'Revenue / CTR', cro: 'Conversion'};
+async function loadPageQuality(idx, url) {
+    const panel = document.getElementById(`page-quality-panel-${idx}`);
+    if (!panel) return;
+    try {
+        const res = await fetch('/api/page-quality?url=' + encodeURIComponent(url));
+        const sc = await res.json();
+        if (sc.error) { panel.innerHTML = `<h4>Page Quality Scorecard</h4><p class="empty-state">${escHtml(sc.error)}</p>`; return; }
+        const gradeColor = sc.score >= 85 ? '#059669' : sc.score >= 55 ? '#d97706' : '#dc2626';
+        const dims = ['seo','revenue_ctr','cro'];
+        const grouped = dims.map(d => {
+            const items = (sc.findings || []).filter(f => f.dimension === d);
+            if (items.length === 0) return `<div style="margin-bottom:10px;"><strong style="font-size:12px;">${_pqDimLabels[d]}</strong> <span style="color:var(--accent-green);font-size:12px;">✓ no issues</span></div>`;
+            return `<div style="margin-bottom:10px;">
+                <strong style="font-size:12px;">${_pqDimLabels[d]} <span style="color:var(--text-muted);font-weight:400;">(${items.length})</span></strong>
+                ${items.map(f => {
+                    const sc2 = f.severity === 'high' ? '#dc2626' : f.severity === 'medium' ? '#d97706' : '#6b7280';
+                    return `<div style="border-left:3px solid ${sc2};padding:6px 10px;margin:6px 0;background:var(--bg-primary);border-radius:0 4px 4px 0;">
+                        <div style="font-size:12px;font-weight:600;">${escHtml(f.label)} <span style="font-size:10px;font-weight:700;color:${sc2};">−${f.points}</span></div>
+                        <div style="font-size:11px;color:var(--text-muted);">${escHtml(f.detail)}</div>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;"><strong>Fix:</strong> ${escHtml(f.fix)}</div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        }).join('');
+        panel.innerHTML = `
+            <h4 style="display:flex;align-items:center;gap:10px;">Page Quality Scorecard
+                <span style="font-size:20px;font-weight:800;color:${gradeColor};">${sc.grade}</span>
+                <span style="font-size:12px;color:var(--text-muted);">${sc.score}/100</span>
+                ${sc.limited ? '<span style="font-size:10px;color:#d97706;">(limited — run with crawl for full HTML checks)</span>' : ''}
+            </h4>
+            ${grouped}
+            <div style="margin-top:10px;">
+                <button onclick="genPageCopy('${url.replace(/'/g, "\\'")}', ${idx})" style="padding:6px 14px;font-size:12px;font-weight:600;border:none;border-radius:5px;background:var(--accent-purple);color:#fff;cursor:pointer;">✨ AI: rewrite title / meta / intro</button>
+                <div id="pq-copy-${idx}" style="margin-top:10px;"></div>
+            </div>`;
+    } catch (err) {
+        panel.innerHTML = `<h4>Page Quality Scorecard</h4><p class="empty-state">Failed to load: ${escHtml(err.message)}</p>`;
+    }
+}
+
+async function genPageCopy(url, idx) {
+    const out = document.getElementById(`pq-copy-${idx}`);
+    out.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Generating copy…</span>';
+    try {
+        const res = await fetch('/api/page-quality/ai-copy', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url}),
+        });
+        const c = await res.json();
+        if (c.error) { out.innerHTML = `<span style="color:var(--accent-red);font-size:12px;">${escHtml(c.error)}</span>`; return; }
+        const row = (label, val) => val ? `<div style="margin-bottom:8px;"><div style="font-size:10px;text-transform:uppercase;color:#6b7280;">${label}</div><div style="font-size:12px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:4px;padding:6px 8px;">${escHtml(val)}</div></div>` : '';
+        out.innerHTML = `<div style="border:1px solid var(--accent-purple);border-radius:6px;padding:12px;">
+            ${row('New title (' + (c.title||'').length + ' chars)', c.title)}
+            ${row('New meta description (' + (c.meta_description||'').length + ' chars)', c.meta_description)}
+            ${row('Description intro', c.description_intro)}
+            ${c.notes ? `<div style="font-size:11px;color:var(--text-muted);font-style:italic;">${escHtml(c.notes)}</div>` : ''}
+        </div>`;
+    } catch (err) {
+        out.innerHTML = `<span style="color:var(--accent-red);font-size:12px;">Error: ${escHtml(err.message)}</span>`;
     }
 }
 

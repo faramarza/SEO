@@ -3794,6 +3794,169 @@ def api_ads_execute():
     return jsonify(result)
 
 
+def _llm_json(system_message, user_prompt, config, max_tokens=700):
+    """Compact single-shot LLM call returning parsed JSON. (result, error)."""
+    import os
+    import httpx
+    import json as _json
+    ai_config = config.get("ai", {})
+    model = ai_config.get("model", "gpt-4o-mini")
+    temperature = ai_config.get("temperature", 0.4)
+    timeout_sec = ai_config.get("timeout", 60)
+    try:
+        if model.startswith("claude-"):
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                return None, "ANTHROPIC_API_KEY not configured"
+            body = {"model": model, "max_tokens": max_tokens,
+                    "system": system_message,
+                    "messages": [{"role": "user", "content": user_prompt}]}
+            if model == "claude-fable-5":
+                body["thinking"] = {"type": "adaptive"}
+            else:
+                body["temperature"] = temperature
+            resp = httpx.post("https://api.anthropic.com/v1/messages",
+                              headers={"x-api-key": api_key,
+                                       "anthropic-version": "2023-06-01",
+                                       "Content-Type": "application/json"},
+                              json=body, timeout=timeout_sec)
+            if resp.status_code != 200:
+                return None, f"Anthropic error: {resp.text[:200]}"
+            text = ""
+            for b in resp.json().get("content", []):
+                if b.get("type") == "text":
+                    text = b.get("text", "")
+                    break
+        else:
+            api_key = os.environ.get(ai_config.get("api_key_env", "OPENAI_API_KEY"))
+            if not api_key:
+                return None, "OPENAI_API_KEY not configured"
+            _m = model.lower()
+            payload = {"model": model, "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_prompt}]}
+            if any(_m.startswith(p) for p in ("o1", "o3", "gpt-4.1", "gpt-4.5", "gpt-5")):
+                payload["max_completion_tokens"] = max_tokens
+            else:
+                payload["max_tokens"] = max_tokens
+            if not _m.startswith(("o1", "o3")):
+                payload["temperature"] = temperature
+            resp = httpx.post("https://api.openai.com/v1/chat/completions",
+                              headers={"Authorization": f"Bearer {api_key}",
+                                       "Content-Type": "application/json"},
+                              json=payload, timeout=timeout_sec)
+            if resp.status_code != 200:
+                return None, f"OpenAI error: {resp.text[:200]}"
+            text = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        return None, f"LLM call failed: {e}"
+
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.lower().startswith("json"):
+            t = t[4:]
+    i, j = t.find("{"), t.rfind("}")
+    if i >= 0 and j > i:
+        try:
+            return _json.loads(t[i:j + 1]), None
+        except Exception:
+            pass
+    return None, "could not parse LLM JSON"
+
+
+def _find_eval_result(url):
+    """Find a page's evaluation result by normalized URL."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return None
+    try:
+        with open(eval_path) as f:
+            results = json.load(f).get("results", [])
+    except (json.JSONDecodeError, OSError):
+        return None
+    norm = _normalize_url(url)
+    for r in results:
+        if _normalize_url(r.get("url", "")) == norm:
+            return r
+    return None
+
+
+@app.route("/api/page-quality")
+def api_page_quality():
+    """Rule-based page quality scorecard for a product/category page."""
+    from src.evaluators.page_quality_evaluator import evaluate_page_quality
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    match = _find_eval_result(url)
+    if not match:
+        return jsonify({"error": "page not found in latest evaluation"}), 404
+    # Prefer the scorecard computed during evaluation (has full HTML)
+    if match.get("page_quality"):
+        return jsonify(match["page_quality"])
+    pm = match.get("page_metadata", {})
+    scorecard = evaluate_page_quality(
+        url=match.get("url", ""),
+        asset_type=match.get("asset_type", "other"),
+        title=pm.get("title", ""),
+        meta_description=pm.get("meta_description", ""),
+        h1=pm.get("h1", ""),
+        canonical_url=pm.get("canonical_url", ""),
+        word_count=pm.get("word_count", 0),
+        schema_types=pm.get("schema_types", []),
+        above_fold_html=pm.get("above_fold_html", ""),
+        body_html=pm.get("body_html", ""),
+        internal_outlinks=pm.get("internal_outlinks", []),
+        breadcrumb_links=pm.get("breadcrumb_links", []),
+        has_crawl_data=pm.get("has_crawl_data", False),
+    )
+    return jsonify(scorecard)
+
+
+@app.route("/api/page-quality/ai-copy", methods=["POST"])
+def api_page_quality_ai_copy():
+    """AI copy layer — write improved title/meta/description for one page."""
+    data = request.json or {}
+    url = data.get("url")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    match = _find_eval_result(url)
+    if not match:
+        return jsonify({"error": "page not found in latest evaluation"}), 404
+    pm = match.get("page_metadata", {})
+    queries = [q.get("query", "") for q in match.get("top_queries", [])[:8] if q.get("query")]
+    config = load_config()
+    biz = config.get("business_context", {})
+
+    system_message = (
+        "You are an expert e-commerce SEO copywriter. Write compelling, accurate "
+        "on-page copy that improves search CTR and conversions without keyword "
+        "stuffing or false claims. Respond ONLY with JSON."
+    )
+    user_prompt = f"""Rewrite the on-page copy for this {match.get('asset_type','product')} page.
+
+URL: {match.get('url','')}
+Current title: {pm.get('title') or '(none)'}
+Current meta description: {pm.get('meta_description') or '(none)'}
+Current H1: {pm.get('h1') or '(none)'}
+Top search queries this page appears for: {', '.join(queries) or '(none)'}
+Product families: {', '.join(biz.get('product_families', []))}
+
+Return JSON exactly:
+{{
+  "title": "<= 60 chars, front-load the primary query, include a differentiator>",
+  "meta_description": "~150 chars, benefit + specifics + soft CTA",
+  "description_intro": "2-3 sentence unique intro paragraph for the page body",
+  "notes": "one sentence on what you changed and why"
+}}"""
+
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=700)
+    if err:
+        return jsonify({"error": err}), 502
+    return jsonify(result)
+
+
 @app.route("/api/serp/status")
 def api_serp_status():
     """Get SERP data collection status across all opportunities."""
