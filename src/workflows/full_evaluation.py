@@ -13,6 +13,7 @@ This is the main entry point for running the Governor.
 """
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -1175,6 +1176,14 @@ class FullEvaluationWorkflow:
             })
             # Priority-level demotion happens after scoring (see below).
 
+        # Guard against noise title tests: never recommend changing a title we
+        # can't see (not crawled), or one that's already good. Otherwise the
+        # tool "tests" a title into the one it already is.
+        if any(c["action"] == "TITLE_META_TEST" for c in candidates):
+            no_current_title = not asset.has_crawl_data or not (asset.title or "").strip()
+            if no_current_title or self._title_is_adequate(asset):
+                candidates = [c for c in candidates if c["action"] != "TITLE_META_TEST"]
+
         # FALLBACK: Create opportunities for pages that no specific evaluator
         # caught. The system should surface ALL pages so operators can see the
         # full inventory, not just the high-traffic tail.
@@ -1460,6 +1469,25 @@ class FullEvaluationWorkflow:
             return ActionType(action_str.lower())  # last resort: by value
         except ValueError:
             return ActionType.OBSERVE_ONLY
+
+    def _title_is_adequate(self, asset) -> bool:
+        """True when the current title needs no test: present, sensible length,
+        and it already covers the page's primary query. Don't manufacture a
+        title test when the title is already good."""
+        title = (asset.title or "").strip()
+        if not title:
+            return False
+        if not (25 <= len(title) <= 65):
+            return False  # length off — a rewrite could genuinely help
+        top_q = (asset.gsc.top_queries[0].query.lower()
+                 if asset.gsc.top_queries else "")
+        q_words = [w for w in re.findall(r"[a-z0-9]+", top_q) if len(w) > 2]
+        if q_words:
+            title_l = title.lower()
+            covered = sum(1 for w in q_words if w in title_l)
+            if covered / len(q_words) < 0.5:
+                return False  # title misses the primary query — could improve
+        return True
 
     def _ev_from_clicks(self, incremental_clicks: float) -> float:
         """Monetize incremental monthly organic clicks into recoverable margin.
