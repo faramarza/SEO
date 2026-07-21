@@ -38,18 +38,18 @@
 </div>
 
 <!-- Task Detail Modal -->
-<div id="task-detail-modal" class="modal hidden">
+<div id="task-detail-modal" class="modal hidden" onclick="if(event.target===this)closeTaskDetail()">
     <div class="modal-content">
-        <span class="modal-close" onclick="closeTaskDetail()">&times;</span>
+        <span class="modal-close" onclick="closeTaskDetail()" title="Close (Esc)">&times;</span>
         <h2 id="task-detail-title">Task Details</h2>
         <div id="task-detail-body"></div>
     </div>
 </div>
 
 <!-- Outcome Modal (manual fallback) -->
-<div id="outcome-modal" class="modal hidden">
+<div id="outcome-modal" class="modal hidden" onclick="if(event.target===this)closeOutcomeModal()">
     <div class="modal-content">
-        <span class="modal-close" onclick="closeOutcomeModal()">&times;</span>
+        <span class="modal-close" onclick="closeOutcomeModal()" title="Close (Esc)">&times;</span>
         <h2>Record Outcome Manually</h2>
         <form id="outcome-form">
             <input type="hidden" id="outcome-action-id">
@@ -73,9 +73,9 @@
 </div>
 
 <!-- Reject Modal -->
-<div id="reject-modal" class="modal hidden">
+<div id="reject-modal" class="modal hidden" onclick="if(event.target===this)closeRejectModal()">
     <div class="modal-content">
-        <span class="modal-close" onclick="closeRejectModal()">&times;</span>
+        <span class="modal-close" onclick="closeRejectModal()" title="Close (Esc)">&times;</span>
         <h2>Reject Task</h2>
         <form id="reject-form">
             <input type="hidden" id="reject-action-id">
@@ -92,9 +92,9 @@
 </div>
 
 <!-- Send Back Modal -->
-<div id="sendback-modal" class="modal hidden">
+<div id="sendback-modal" class="modal hidden" onclick="if(event.target===this)closeSendBackModal()">
     <div class="modal-content">
-        <span class="modal-close" onclick="closeSendBackModal()">&times;</span>
+        <span class="modal-close" onclick="closeSendBackModal()" title="Close (Esc)">&times;</span>
         <h2>Send Back for Re-evaluation</h2>
         <p style="color: var(--text-secondary); margin-bottom: 12px;">This will remove the task from the board. The URL will be re-scored on the next evaluation run and reappear in the opportunities queue with updated data.</p>
         <form id="sendback-form">

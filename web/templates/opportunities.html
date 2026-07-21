@@ -92,9 +92,9 @@
 </div>
 
 <!-- Detail Modal -->
-<div id="detail-modal" class="modal hidden">
+<div id="detail-modal" class="modal hidden" onclick="if(event.target===this)closeModal()">
     <div class="modal-content">
-        <span class="modal-close" onclick="closeModal()">&times;</span>
+        <span class="modal-close" onclick="closeModal()" title="Close (Esc)">&times;</span>
         <h2 id="modal-title">Recommendation Details</h2>
         <div id="modal-body"></div>
     </div>
