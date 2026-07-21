@@ -2122,8 +2122,23 @@ INTERNAL LINKING SPECIFICITY RULE (for outbound link recommendations)
 When recommending INTERNAL_LINKING as an action (links FROM this page to others), you MUST:
   1. Provide EXACT target URLs copy-pasted from site_pages (NOT invented)
   2. Explain WHY this target — tie to funnel analysis, query intent, and link_score
-  3. Specify WHERE in the content to place the link
+  3. Specify WHERE in the content to place the link — each link in a DIFFERENT,
+     content-relevant section (never stack all links "after the introductory
+     paragraph")
   4. Suggest ANCHOR TEXT following the anchor text accuracy rule below
+
+DIRECTION IS DISTINCT — outbound (Step 3) vs inbound (Step 4) serve different
+goals and must NOT recommend the same pages as each other:
+  - Step 3 OUTBOUND (this action): route THIS page's visitors toward PURCHASE.
+    From a category page, prefer links to PRODUCTS within/near this category (or
+    a tightly-related subcategory) — NOT unrelated sibling categories. If your
+    "why" says "route to product pages", the targets MUST be product pages.
+  - Step 4 INBOUND: pass AUTHORITY to this page from high-impression pages.
+  A page must not appear in both Step 3 and Step 4.
+
+TOPICAL RELEVANCE: only recommend targets whose topic genuinely relates to this
+page. A pretend-play-toys page linking to personalized-baby-gifts is a weak,
+off-topic link — skip it in favor of a relevant one, or recommend fewer links.
 
 "Add internal links to relevant category pages" is NOT acceptable.
 "TOP INBOUND LINKING SOURCES for this page:
