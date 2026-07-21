@@ -72,6 +72,17 @@ def _load_keywords():
     return []
 
 
+def _stem_word(word):
+    """Crude singular/plural stem: drop a trailing 's' (but not 'ss').
+
+    Lets plural category slugs (rugs, stools, puzzles, trains) match singular
+    article wording (rug, stool, puzzle, train) without a real stemmer.
+    """
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
 def _load_sitemap_urls():
     """Load the set of URLs from the imported sitemap."""
     if SITEMAP_PATH.exists():
@@ -335,27 +346,45 @@ def auto_discover():
                 if prod_words and all(w in art_text for w in prod_words):
                     article["products_supported"].append(prod["name"])
 
-    # Link articles to money pages by keyword overlap
-    _LINK_NOISE = {"com", "www", "html", "htm", "the", "and", "for", "with", "your"}
+    # Link articles to money pages by URL-slug keyword overlap.
+    # Match on the URL SLUG (concise, canonical) — NOT the marketing title,
+    # which is long promotional copy no article title would ever fully
+    # contain. Require the article to match the slug's DISTINCTIVE words (the
+    # product/topic terms), ignoring generic filler shared by many categories.
+    _LINK_STRUCTURAL_NOISE = {
+        "com", "www", "html", "htm", "the", "and", "for", "with", "your",
+        "made", "usa", "free", "shipping", "shop", "buy", "sale", "new",
+    }
+    _GENERIC_CATEGORY_WORDS = {
+        "montessori", "toys", "toy", "kids", "kid", "gifts", "gift",
+        "personalized", "wooden", "educational", "learning",
+        "best", "top", "children", "child",
+    }
     for mp in data["money_pages"]:
         if mp.get("status") == "inactive":
             continue
         mp_slug = re.sub(r'https?://[^/]+', '', mp.get("url", "")).lower()
-        mp_slug_words = set(re.sub(r'[^a-z0-9]+', ' ', mp_slug).split())
-        mp_title_words = set(mp.get("title", "").lower().split())
-        mp_words = {w for w in (mp_slug_words | mp_title_words)
-                    if len(w) > 2 and w not in _LINK_NOISE}
-        if not mp_words:
+        slug_words = [w for w in re.sub(r'[^a-z0-9]+', ' ', mp_slug).split()
+                      if len(w) > 2 and w not in _LINK_STRUCTURAL_NOISE]
+        if not slug_words:
             continue
+        # An article must contain every DISTINCTIVE slug word. If the slug is
+        # all-generic (e.g. montessori-toys), fall back to all slug words.
+        distinctive = [w for w in slug_words if w not in _GENERIC_CATEGORY_WORDS]
+        required = {_stem_word(w) for w in (distinctive if distinctive else slug_words)}
         existing_linked = set(mp.get("supporting_articles", []))
         for article in data["articles"]:
             if article["id"] in existing_linked:
                 continue
             art_text = f"{article.get('title', '')} {article.get('url', '')}".lower()
-            if all(w in art_text for w in mp_words):
+            # Stem article tokens so plural slugs (rugs, stools, puzzles) match
+            # singular article wording (rug, stool, puzzle) and vice versa.
+            art_tokens = {_stem_word(t) for t in re.findall(r'[a-z0-9]+', art_text)}
+            if required <= art_tokens:
                 existing_linked.add(article["id"])
-                if mp["id"] not in article.get("money_pages", []):
-                    article.setdefault("money_pages", []).append(mp["id"])
+                article.setdefault("money_pages", [])
+                if mp["id"] not in article["money_pages"]:
+                    article["money_pages"].append(mp["id"])
         mp["supporting_articles"] = list(existing_linked)
 
     # Fix any /blog/post/ URLs to canonical /blog/ form
