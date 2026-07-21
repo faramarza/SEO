@@ -1120,6 +1120,29 @@ def api_ai_recommend():
     cached_word_count = pm.get("word_count", 0)
     cached_content_preview = pm.get("content_preview", "")
 
+    # Is the current title already adequate? (present, 25-65 chars, covers the
+    # primary query). If so, the AI must not manufacture a title test — this is
+    # the recurring "reword the title into the one it already is" noise.
+    import re as _re_ad
+    _cur_title = (cached_title or "").strip()
+    _tq = opportunity.get("top_queries", [])
+    _top_q = (_tq[0].get("query", "") if _tq else "").lower()
+    _title_adequate = bool(_cur_title) and 25 <= len(_cur_title) <= 65
+    if _title_adequate and _top_q:
+        _qw = [w for w in _re_ad.findall(r"[a-z0-9]+", _top_q) if len(w) > 2]
+        if _qw and sum(1 for w in _qw if w in _cur_title.lower()) / len(_qw) < 0.5:
+            _title_adequate = False
+    title_adequacy_note = ""
+    if _title_adequate:
+        title_adequacy_note = (
+            f"\n\nTITLE ALREADY ADEQUATE: The current title is present, well-sized "
+            f"({len(_cur_title)} chars), and already covers the primary query. Do NOT "
+            f"propose a TITLE_META_TEST unless you name a SPECIFIC concrete defect "
+            f"(wrong intent, missing key term, factual error). Rewording it into a "
+            f"near-identical variant is NOT a valid action — prefer NO_ACTION on the "
+            f"title and focus on other levers (schema, internal links, content)."
+        )
+
     page_analysis = {
         "title": cached_title,
         "meta_description": cached_meta,
@@ -2348,7 +2371,7 @@ core_web_vitals (real-user performance data from Chrome UX Report):
 
 url_inspection (Google URL Inspection API — indexing status from Googlebot's perspective):
 {url_insp_str}
-{ctr_suppression_flag}{action_history_str}
+{ctr_suppression_flag}{action_history_str}{title_adequacy_note}
 ────────────────────────────────
 OUTPUT FORMAT (STRICT)
 ────────────────────────────────
@@ -2749,6 +2772,19 @@ If nothing is broken or improvable:
                             )
         except Exception:
             pass  # Dedup failure should not destroy parsed recommendations
+
+        # Post-filter: even if the model ignored the instruction, never keep a
+        # TITLE_META_TEST when the current title is already adequate.
+        if _title_adequate and isinstance(recommendations, dict):
+            recs = recommendations.get("recommendations")
+            if isinstance(recs, list):
+                kept = [r for r in recs if isinstance(r, dict)
+                        and str(r.get("action_type", "")).upper() != "TITLE_META_TEST"]
+                if len(kept) != len(recs):
+                    recommendations["recommendations"] = kept
+                    recommendations.setdefault("_server_notes", []).append(
+                        "Dropped a TITLE_META_TEST: current title is already adequate."
+                    )
 
         # Derive the revised value estimate. The model supplies JUDGMENT
         # (routing_pct — how much of the funnel is realistically capturable);
