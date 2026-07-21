@@ -280,15 +280,15 @@ class GoogleAdsClient:
             from google.ads.googleads.client import GoogleAdsClient as GAdsClient
 
             if self.use_service_account:
-                # Service Account authentication (like GSC/GA4)
                 return self._init_service_account_client(GAdsClient)
             else:
-                # OAuth2 authentication (google-ads.yaml)
                 return self._init_oauth_client(GAdsClient)
 
         except ImportError:
-            print("google-ads package not installed. Run: pip install google-ads")
+            self._last_error = "google-ads package not installed (pip install google-ads)"
+            print(self._last_error)
         except Exception as e:
+            self._last_error = f"init error: {e}"
             print(f"Failed to initialize Google Ads client: {e}")
 
         return False
@@ -301,6 +301,9 @@ class GoogleAdsClient:
                 path = self.credentials_path
             elif (Path.home() / "google-ads.yaml").exists():
                 path = str(Path.home() / "google-ads.yaml")
+            if not path:
+                self._last_error = f"credentials file not found ({self.credentials_path})"
+                return False
             if path:
                 self._client = GAdsClient.load_from_storage(path)
                 # Authenticate through the manager (MCC) account when set, so
@@ -313,6 +316,7 @@ class GoogleAdsClient:
                         pass
                 return True
         except Exception as e:
+            self._last_error = f"OAuth init failed: {e}"
             print(f"OAuth init failed: {e}")
         return False
 
@@ -539,7 +543,7 @@ class GoogleAdsClient:
         result = {"customer_id": self.customer_id, "is_manager": None,
                   "descriptive_name": "", "accessible_customers": [], "hint": ""}
         if not self._init_client():
-            result["hint"] = "Ads client not initialized — check credentials."
+            result["hint"] = f"Ads client not initialized — {self._last_error or 'check credentials / google-ads package'}"
             return result
 
         _CUST_Q = "SELECT customer.manager, customer.descriptive_name FROM customer LIMIT 1"
