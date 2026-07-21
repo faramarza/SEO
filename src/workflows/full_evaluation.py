@@ -47,6 +47,7 @@ from src.crawlers.link_graph import LinkGraph
 from src.crawlers.beamusup_importer import BeamUsUpImporter
 from src.crawlers.simple_crawler import SimpleCrawler
 from src.data_sources.google_ads_client import GoogleAdsClient, AdsAccountData
+from src.data_sources.crux_client import CrUXClient
 
 
 @dataclass
@@ -201,6 +202,8 @@ class FullEvaluationWorkflow:
             margin=config.margin,
         )
         self.html_evaluator = HTMLIssueEvaluator()
+        # CrUX (Core Web Vitals) — no-op without GOOGLE_API_KEY; 7-day cache.
+        self.crux_client = CrUXClient()
 
         # Google Ads client (optional - absence is neutral, not negative)
         self.ads_client: Optional[GoogleAdsClient] = None
@@ -673,6 +676,35 @@ class FullEvaluationWorkflow:
             time.sleep(0.2)  # Rate limiting
         print(f"  URL inspection: {inspection_count}/{min(len(self._assets), 50)} URLs inspected")
 
+    def _enrich_cwv(self, max_pages: int = 100) -> None:
+        """Attach Core Web Vitals (CrUX) to the highest-traffic assets.
+
+        No-op when GOOGLE_API_KEY is not set. Results are cached for 7 days,
+        so repeat runs cost nothing. Bounded to the top pages by impressions
+        to respect the CrUX rate limit and keep runs fast.
+        """
+        if not self.crux_client.api_key:
+            print("  Core Web Vitals: skipped (GOOGLE_API_KEY not set)")
+            return
+        ranked = sorted(
+            self._assets,
+            key=lambda a: a.gsc.impressions_28d,
+            reverse=True,
+        )[:max_pages]
+        print(f"  Fetching Core Web Vitals for top {len(ranked)} pages...")
+        fetched = 0
+        for asset in ranked:
+            try:
+                cwv = self.crux_client.get_cwv(asset.url)
+                if cwv:
+                    asset._cwv = cwv
+                    fetched += 1
+                else:
+                    asset._cwv = None
+            except Exception:
+                asset._cwv = None
+        print(f"  Core Web Vitals: {fetched}/{len(ranked)} pages have CrUX data")
+
     def run_diagnostics(self) -> dict:
         """
         Run tracking sanity diagnostics.
@@ -844,6 +876,8 @@ class FullEvaluationWorkflow:
             "ga4_revenue": round(asset.ga4.revenue_28d, 2),
             "ga4_purchases": asset.ga4.purchases_28d,
             "ga4_bounce_rate": round(asset.ga4.bounce_rate_28d, 4),
+            # Core Web Vitals (CrUX) — present only for pages we fetched
+            "cwv": getattr(asset, "_cwv", None),
         }
 
         candidates = []
@@ -1064,6 +1098,36 @@ class FullEvaluationWorkflow:
                         for i in html_result.issues
                     ],
                 })
+
+        # Core Web Vitals — poor real-user performance is a genuine ranking &
+        # conversion drag. Only surface for pages with real demand so we don't
+        # prescribe expensive dev work on zero-traffic pages.
+        cwv = getattr(asset, "_cwv", None)
+        if cwv and cwv.get("overall_rating") == "poor" and asset.gsc.impressions_28d >= 100:
+            failing = []
+            if cwv.get("lcp_rating") == "poor":
+                failing.append(f"LCP {cwv.get('lcp_ms')}ms")
+            if cwv.get("inp_rating") == "poor":
+                failing.append(f"INP {cwv.get('inp_ms')}ms")
+            if cwv.get("cls_rating") == "poor":
+                failing.append(f"CLS {cwv.get('cls')}")
+            # Conservative EV: fixing speed recovers ~2% of impressions as clicks.
+            cwv_incr_clicks = asset.gsc.impressions_28d * 0.02
+            candidates.append({
+                "mode": "PRESERVATION",
+                "action": "PAGE_SPEED_FIX",
+                "expected_value": self._ev_from_clicks(cwv_incr_clicks),
+                "confidence": 0.7 if cwv.get("level") == "url" else 0.5,
+                "risk_level": "low",
+                "implementation_steps": [
+                    f"Core Web Vitals rated POOR ({cwv.get('level', 'url')}-level): "
+                    + ", ".join(failing) + ".",
+                    "Prioritize the failing metric: LCP → optimize hero image/server "
+                    "response; INP → reduce JS execution; CLS → set image/embed dimensions.",
+                    "Re-check CrUX after deploy (data updates on a 28-day rolling window).",
+                ],
+                "source": "crux_cwv",
+            })
 
         # FALLBACK: Create opportunities for pages that no specific evaluator
         # caught. The system should surface ALL pages so operators can see the
@@ -1290,6 +1354,7 @@ class FullEvaluationWorkflow:
     _ACTION_TYPE_ALIASES = {
         "VISIBILITY_FIX": ActionType.INTERNAL_LINK_REALLOCATION,
         "HTML_STRUCTURAL_FIX": ActionType.INTERNAL_LINK_REALLOCATION,
+        "PAGE_SPEED_FIX": ActionType.PAGE_REINVESTMENT,
         "CONTENT_CLARIFY": ActionType.PAGE_REINVESTMENT,
         "CONSOLIDATION_REVIEW": ActionType.PAGE_REINVESTMENT,
         "CONTENT_PRUNE": ActionType.PAGE_REINVESTMENT,
@@ -1362,10 +1427,86 @@ class FullEvaluationWorkflow:
         }
         return surfaces.get(action, "other")
 
+    def _append_history_snapshot(self, data_dir: Path):
+        """Append a lightweight site-level snapshot to evaluation_history.json.
+
+        Keeps the last 52 runs so the dashboard can plot site-level trend
+        (total impressions/clicks/revenue, action rate) over time.
+        """
+        history_path = data_dir / "evaluation_history.json"
+        history = []
+        if history_path.exists():
+            try:
+                with open(history_path) as f:
+                    history = json.load(f).get("snapshots", [])
+            except (json.JSONDecodeError, OSError):
+                history = []
+
+        total_impr = sum(r.get("gsc_impressions", 0) or 0 for r in self._evaluation_results)
+        total_clicks = sum(r.get("gsc_clicks", 0) or 0 for r in self._evaluation_results)
+        total_rev = sum(r.get("ga4_revenue", 0) or 0 for r in self._evaluation_results)
+        actionable = sum(
+            1 for r in self._evaluation_results
+            if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)
+        )
+        history.append({
+            "timestamp": datetime.now().isoformat(),
+            "total_pages": len(self._evaluation_results),
+            "actionable_pages": actionable,
+            "total_impressions": total_impr,
+            "total_clicks": total_clicks,
+            "total_revenue": round(total_rev, 2),
+        })
+        history = history[-52:]  # keep last year of weekly runs
+
+        with open(history_path, "w") as f:
+            json.dump({"snapshots": history}, f, indent=2, default=str)
+
     def save_results_for_dashboard(self):
         """Save evaluation and diagnostic results for the web dashboard."""
         data_dir = Path(__file__).parent.parent.parent / "data"
         data_dir.mkdir(exist_ok=True)
+
+        # ── Trend: compare against the previous run before overwriting it ──
+        # Run-over-run deltas turn a static snapshot into a direction: is this
+        # page gaining or losing impressions/clicks/position/revenue?
+        prev_path = data_dir / "latest_evaluation.json"
+        prev_metrics = {}
+        prev_ts = None
+        if prev_path.exists():
+            try:
+                with open(prev_path) as f:
+                    prev = json.load(f)
+                prev_ts = prev.get("timestamp")
+                for r in prev.get("results", []):
+                    u = r.get("url")
+                    if u:
+                        prev_metrics[u] = {
+                            "impressions": r.get("gsc_impressions", 0) or 0,
+                            "clicks": r.get("gsc_clicks", 0) or 0,
+                            "position": r.get("gsc_position", 0) or 0,
+                            "revenue": r.get("ga4_revenue", 0) or 0,
+                        }
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        for r in self._evaluation_results:
+            prev = prev_metrics.get(r.get("url"))
+            if not prev:
+                continue
+            cur_pos = r.get("gsc_position", 0) or 0
+            prev_pos = prev["position"]
+            r["trend"] = {
+                "prev_timestamp": prev_ts,
+                "impressions_delta": (r.get("gsc_impressions", 0) or 0) - prev["impressions"],
+                "clicks_delta": (r.get("gsc_clicks", 0) or 0) - prev["clicks"],
+                # Positive = moved UP the SERP (lower position number = better).
+                "position_delta": round(prev_pos - cur_pos, 1) if (cur_pos and prev_pos) else None,
+                "revenue_delta": round((r.get("ga4_revenue", 0) or 0) - prev["revenue"], 2),
+            }
+
+        # Append a site-level snapshot to the rolling history (last 52 runs)
+        self._append_history_snapshot(data_dir)
 
         # Save evaluation results
         eval_data = {
@@ -1511,6 +1652,10 @@ class FullEvaluationWorkflow:
 
         # Step 3: Build link graph
         self.build_link_graph()
+        print()
+
+        # Step 3b: Enrich with Core Web Vitals (CrUX) — cached 7 days
+        self._enrich_cwv()
         print()
 
         # Step 4: Run evaluations

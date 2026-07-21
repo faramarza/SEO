@@ -46,6 +46,29 @@ DATA_PATH = Path(__file__).parent.parent / "data"
 # workers can read the current state via /api/job-status.
 JOB_STATE_PATH = DATA_PATH / "job_state.json"
 
+# In-process cache for the (expensive) /api/opportunities payload. Keyed on the
+# mtimes of every file the endpoint reads, so it's invalidated automatically
+# when an evaluation, ledger change, or sitemap import touches any of them.
+_OPP_CACHE = {"key": None, "payload": None}
+
+
+def _opportunities_cache_key():
+    """Composite mtime signature of all files /api/opportunities depends on."""
+    paths = [
+        DATA_PATH / "latest_evaluation.json",
+        DATA_PATH / "ai_recommendations.json",
+        DATA_PATH / "sitemap_types.json",
+        DATA_PATH / "serp_cache.json",
+        DATA_PATH / "action_ledger.json",
+    ]
+    sig = []
+    for p in paths:
+        try:
+            sig.append((p.name, p.stat().st_mtime_ns))
+        except OSError:
+            sig.append((p.name, None))
+    return tuple(sig)
+
 
 class _SyncDict(dict):
     """Dict that auto-syncs to a JSON file on every write.
@@ -489,6 +512,11 @@ def api_opportunities():
     if not eval_path.exists():
         return jsonify({"opportunities": [], "message": "No evaluation data. Run workflow first."})
 
+    # Serve from in-process cache when nothing the endpoint reads has changed.
+    cache_key = _opportunities_cache_key()
+    if _OPP_CACHE["key"] == cache_key and _OPP_CACHE["payload"] is not None:
+        return jsonify(_OPP_CACHE["payload"])
+
     with open(eval_path) as f:
         eval_data = json.load(f)
 
@@ -629,12 +657,14 @@ def api_opportunities():
         except (json.JSONDecodeError, IOError):
             pass
 
-    # Return all evaluated pages, mark active tasks and SERP data availability
+    # Return all evaluated pages, mark active tasks and SERP data availability.
+    # Load the SERP cache once (not once-per-query) to avoid an N+1 file read.
+    serp_keys = serp_client.get_cached_query_set()
     for r in all_results:
         r["has_active_task"] = r.get("url", "") in active_task_urls
         # Check SERP data coverage for this opportunity
         top_q = r.get("top_queries", [])[:5]
-        serp_count = sum(1 for q in top_q if serp_client.get_cached_serp(q.get("query", "")))
+        serp_count = sum(1 for q in top_q if q.get("query", "").lower().strip() in serp_keys)
         r["serp_coverage"] = serp_count
         r["serp_total"] = len(top_q)
 
@@ -647,12 +677,17 @@ def api_opportunities():
         )
     )
 
-    return jsonify({
+    payload = {
         "opportunities": all_results,
         "total": len(all_results),
         "actionable": sum(1 for r in all_results if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)),
         "active_tasks": len(active_task_urls),
-    })
+    }
+    # Cache under the post-writeback signature so the next identical request
+    # (same underlying files) is served from memory.
+    _OPP_CACHE["key"] = _opportunities_cache_key()
+    _OPP_CACHE["payload"] = payload
+    return jsonify(payload)
 
 
 @app.route("/api/tasks")

@@ -241,8 +241,8 @@ function renderOpportunities(opportunities) {
                     <div class="demand-fill" style="width: ${(opp.demand_score || 0) * 100}%"></div>
                 </div>
             </td>
-            <td class="number pos-cell" title="Avg position">${opp.gsc_position != null && opp.gsc_position > 0 ? opp.gsc_position.toFixed(1) : '<span class="muted">—</span>'}</td>
-            <td class="number impr-cell" title="Impressions (28d)">${opp.gsc_impressions ? opp.gsc_impressions.toLocaleString() : '<span class="muted">—</span>'}</td>
+            <td class="number pos-cell" title="Avg position">${opp.gsc_position != null && opp.gsc_position > 0 ? opp.gsc_position.toFixed(1) : '<span class="muted">—</span>'}${opp.trend ? trendArrow(opp.trend.position_delta, 'Position') : ''}</td>
+            <td class="number impr-cell" title="Impressions (28d)">${opp.gsc_impressions ? opp.gsc_impressions.toLocaleString() : '<span class="muted">—</span>'}${opp.trend ? trendArrow(opp.trend.impressions_delta, 'Impressions') : ''}</td>
             <td class="number rev-cell" title="Revenue (28d)">${opp.ga4_revenue ? '$' + opp.ga4_revenue.toLocaleString(undefined,{maximumFractionDigits:0}) : '<span class="muted">—</span>'}</td>
             <td class="number ev-cell">$${(opp.expected_value || 0).toFixed(2)}</td>
             <td class="number ai-est-cell">${opp.ai_revised_value != null ? '$' + opp.ai_revised_value.toFixed(2) + '<br><span class="ai-done-tag" title="' + (opp.ai_timestamp || '') + '">' + formatAITime(opp.ai_timestamp) + '</span>' : '<span class="muted">—</span>'}</td>
@@ -309,6 +309,18 @@ function truncateUrl(url) {
 function formatMode(mode) {
     if (!mode) return '—';
     return mode.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Small run-over-run trend arrow. delta > 0 shows ▲, < 0 shows ▼.
+// Color reflects whether the direction is good (green) or bad (red).
+function trendArrow(delta, label) {
+    if (delta == null || delta === 0) return '';
+    const good = delta > 0;  // caller passes an already-oriented delta (positive = improvement)
+    const color = good ? '#059669' : '#dc2626';
+    const arrow = good ? '▲' : '▼';
+    const mag = Math.abs(delta);
+    const magStr = mag >= 1000 ? (mag/1000).toFixed(1) + 'k' : (Number.isInteger(mag) ? mag : mag.toFixed(1));
+    return ` <span style="color:${color};font-size:10px;" title="${label}: ${delta > 0 ? '+' : ''}${delta} vs previous run">${arrow}${magStr}</span>`;
 }
 
 function formatAITime(ts) {
@@ -497,6 +509,41 @@ function showDetail(idx) {
                 ${metric('Purchases', fmtNum(opp.ga4_purchases), 'GA4 purchases')}
                 ${metric('Bounce', fmtPct(opp.ga4_bounce_rate), 'GA4 bounce rate')}
             </div>
+            ${opp.trend ? `
+            <div style="margin-top:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;">
+                <strong>Since last run</strong>${opp.trend.prev_timestamp ? ` <span style="color:#9ca3af;">(${new Date(opp.trend.prev_timestamp).toLocaleDateString()})</span>` : ''}:
+                Impressions ${trendArrow(opp.trend.impressions_delta, 'Impressions') || '<span style="color:#9ca3af;">no change</span>'} ·
+                Clicks ${trendArrow(opp.trend.clicks_delta, 'Clicks') || '<span style="color:#9ca3af;">no change</span>'} ·
+                Position ${trendArrow(opp.trend.position_delta, 'Position') || '<span style="color:#9ca3af;">no change</span>'} ·
+                Revenue ${trendArrow(opp.trend.revenue_delta, 'Revenue') || '<span style="color:#9ca3af;">no change</span>'}
+            </div>` : ''}
+        </div>
+    ` : '';
+
+    // Build Core Web Vitals panel (CrUX real-user data)
+    const cwv = opp.cwv;
+    const cwvBadge = (rating) => {
+        const colors = {good:'#059669', needs_improvement:'#d97706', poor:'#dc2626', unknown:'#9ca3af'};
+        const c = colors[rating] || '#9ca3af';
+        return `<span style="font-size:10px;font-weight:700;color:${c};background:${c}18;padding:1px 6px;border-radius:3px;">${(rating||'unknown').replace(/_/g,' ')}</span>`;
+    };
+    const cwvHtml = cwv ? `
+        <div class="detail-section">
+            <h4>Core Web Vitals <span style="font-weight:normal;color:#9ca3af;font-size:12px;">(CrUX real-user data, ${cwv.level === 'url' ? 'page-level' : 'origin-level fallback'} — overall: ${cwv.overall_rating})</span></h4>
+            <div class="metrics-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;">
+                <div style="border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;background:#fafafa;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#6b7280;margin-bottom:2px;">LCP ${cwvBadge(cwv.lcp_rating)}</div>
+                    <div style="font-size:15px;font-weight:700;color:#111827;">${cwv.lcp_ms != null ? cwv.lcp_ms + 'ms' : '—'}</div>
+                </div>
+                <div style="border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;background:#fafafa;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#6b7280;margin-bottom:2px;">INP ${cwvBadge(cwv.inp_rating)}</div>
+                    <div style="font-size:15px;font-weight:700;color:#111827;">${cwv.inp_ms != null ? cwv.inp_ms + 'ms' : '—'}</div>
+                </div>
+                <div style="border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;background:#fafafa;">
+                    <div style="font-size:10px;text-transform:uppercase;color:#6b7280;margin-bottom:2px;">CLS ${cwvBadge(cwv.cls_rating)}</div>
+                    <div style="font-size:15px;font-weight:700;color:#111827;">${cwv.cls != null ? cwv.cls : '—'}</div>
+                </div>
+            </div>
         </div>
     ` : '';
 
@@ -592,6 +639,7 @@ function showDetail(idx) {
         </div>
         ${constraintScoresHtml}
         ${metricsHtml}
+        ${cwvHtml}
         ${allActionsHtml}
         ${constraintsHtml}
         ${queriesHtml}

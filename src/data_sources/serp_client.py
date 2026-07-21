@@ -61,6 +61,16 @@ def get_cached_serp(query: str) -> Optional[dict]:
     return cache.get("queries", {}).get(query.lower().strip())
 
 
+def get_cached_query_set() -> set:
+    """Return the set of all cached query keys in one file read.
+
+    Avoids the N+1 pattern where callers checking SERP coverage for many
+    pages call get_cached_serp() (a full file read+parse) once per query.
+    """
+    cache = _load_cache()
+    return set(cache.get("queries", {}).keys())
+
+
 def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
     """Fetch SERP results for a query via Serper.dev Google Search API.
 
