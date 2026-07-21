@@ -106,6 +106,17 @@
 
 {% block scripts %}
 <script>
+// HTML-escape helper (was referenced in several places but never defined).
+function escHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 let allOpportunities = [];
 let filteredOpportunities = [];
 let currentSort = { field: 'expected_value', direction: 'desc' };
