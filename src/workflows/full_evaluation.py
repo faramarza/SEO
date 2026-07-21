@@ -162,7 +162,10 @@ class FullEvaluationWorkflow:
         )
 
         # Initialize components
-        self.diagnostics = TrackingSanityDiagnostics(site_platform=config.site_platform)
+        self.diagnostics = TrackingSanityDiagnostics(
+            site_platform=config.site_platform,
+            brand_terms=config.brand_terms,
+        )
         self.ledger = ActionLedger()
 
         # Create Governor dependencies

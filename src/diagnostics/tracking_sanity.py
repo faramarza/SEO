@@ -211,9 +211,41 @@ class TrackingSanityDiagnostics:
         },
     }
 
-    def __init__(self, base_url: str = "https://alphabet-trains.com", site_platform: str = "magento"):
+    # Path fragments that mark a page as utility/policy/navigation — these
+    # rank for the brand term site-wide and must not be treated as content
+    # that "cannibalizes" other pages.
+    _UTILITY_PATH_MARKERS = (
+        "about", "contact", "faq", "shipping", "return", "refund", "terms",
+        "privacy", "policy", "price-match", "testimonial", "special",
+        "shop-by-brand", "warranty", "track", "wishlist", "cart", "checkout",
+        "login", "account", "sitemap", "search",
+    )
+
+    def __init__(
+        self,
+        base_url: str = "https://alphabet-trains.com",
+        site_platform: str = "magento",
+        brand_terms: Optional[list[str]] = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.site_platform = site_platform
+        # Brand terms (e.g. "alphabet trains") are excluded from
+        # cannibalization analysis — everything ranks for the brand.
+        self.brand_terms = [b.lower() for b in (brand_terms or [])]
+
+    def _is_utility_page(self, url: str) -> bool:
+        """True for policy/utility/nav pages that shouldn't be judged for
+        cannibalization (they only overlap on the brand term)."""
+        path = self.normalize_url(url)
+        # The blog index and bare /blog listing are also aggregation pages
+        if path in ("/blog", "/faqs", "/faq"):
+            return True
+        return any(marker in path for marker in self._UTILITY_PATH_MARKERS)
+
+    def _is_brand_query(self, query: str) -> bool:
+        """True if the query is a brand/navigational term."""
+        q = query.lower()
+        return any(b in q for b in self.brand_terms) if self.brand_terms else False
 
     def _get_platform_fix(self, fix_type: str) -> str:
         platform_fixes = self.PLATFORM_FIXES.get(self.site_platform, {})
@@ -230,11 +262,19 @@ class TrackingSanityDiagnostics:
         - Query parameters
         - Trailing slashes
         - Case differences
+        - Magento blog alias (/blog/post/slug ≡ /blog/slug)
+
+        The blog-alias collapse is critical: GSC attributes clicks to one
+        form and GA4 attributes sessions to the other, so without collapsing
+        them the GSC↔GA4 join produces false "GA4 organic zero" blockers on
+        every duplicated blog post.
         """
         parsed = urlparse(url)
         path = parsed.path.lower().rstrip("/")
         if not path:
             path = "/"
+        # Collapse the Magento blog alias so both URL forms map to one key
+        path = path.replace("/blog/post/", "/blog/")
         return path
 
     def is_homepage(self, url: str) -> bool:
@@ -555,23 +595,43 @@ class TrackingSanityDiagnostics:
         if not asset.gsc.top_queries:
             return None
 
-        asset_queries = {q.query.lower() for q in asset.gsc.top_queries[:5]}
+        # Utility/policy/nav pages only overlap on the brand term — skip them
+        if self._is_utility_page(asset.url):
+            return None
+
+        # Non-brand queries only — everything ranks for the brand name, so
+        # brand-term overlap is not cannibalization.
+        asset_norm = self.normalize_url(asset.url)
+        asset_queries = {
+            q.query.lower() for q in asset.gsc.top_queries[:5]
+            if not self._is_brand_query(q.query)
+        }
+        if len(asset_queries) < 2:
+            return None
 
         competitors = []
         for other in all_assets:
             if other.url == asset.url:
                 continue
-            # Skip media files as competitors
+            # Same page via a different alias (e.g. /blog/post/x vs /blog/x)
+            if self.normalize_url(other.url) == asset_norm:
+                continue
+            # Skip media files and utility pages as competitors
             other_ext = Path(self.normalize_url(other.url)).suffix.lower()
             if other_ext in self._MEDIA_EXTS:
+                continue
+            if self._is_utility_page(other.url):
                 continue
             if not other.gsc.top_queries:
                 continue
 
-            other_queries = {q.query.lower() for q in other.gsc.top_queries[:5]}
+            other_queries = {
+                q.query.lower() for q in other.gsc.top_queries[:5]
+                if not self._is_brand_query(q.query)
+            }
             overlap = asset_queries & other_queries
 
-            if len(overlap) >= 2:  # At least 2 shared queries
+            if len(overlap) >= 2:  # At least 2 shared non-brand queries
                 competitors.append({
                     "url": other.url,
                     "shared_queries": list(overlap),
