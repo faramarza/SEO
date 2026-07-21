@@ -1728,6 +1728,21 @@ async function approveAction(idx) {
                 capture_class: opp.capture_class || '',
                 intent_score: opp.intent_score,
                 visibility_score: opp.visibility_score,
+                // Raw metrics, scorecard, and candidates so the task view
+                // shows the same summary/detail as the opportunity.
+                gsc_impressions: opp.gsc_impressions,
+                gsc_clicks: opp.gsc_clicks,
+                gsc_ctr: opp.gsc_ctr,
+                gsc_position: opp.gsc_position,
+                ga4_revenue: opp.ga4_revenue,
+                ga4_sessions: opp.ga4_sessions,
+                ga4_engagement_rate: opp.ga4_engagement_rate,
+                ga4_purchases: opp.ga4_purchases,
+                ga4_bounce_rate: opp.ga4_bounce_rate,
+                page_quality: opp.page_quality || null,
+                all_candidates: opp.all_candidates || [],
+                cwv: opp.cwv || null,
+                trend: opp.trend || null,
             }),
         });
 

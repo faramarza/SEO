@@ -119,6 +119,120 @@
 <script>
 let tasksData = {};
 
+function escHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Demand signals + plain-English summary — shared shape with the
+// opportunities view so an approved task reads the same way it did there.
+function demandSignal(opp) {
+    const impr = opp.gsc_impressions || 0;
+    const pos = opp.gsc_position || 0;
+    const ctr = (opp.gsc_ctr || 0) * 100;
+    if (impr >= 1000 && pos >= 11 && pos <= 30 && ctr < 0.5) {
+        return { label: '🔥 Trapped demand', color: '#dc2626', bg: '#fee2e2',
+            tip: `${impr.toLocaleString()} impressions stuck on page 2+ (pos ${pos.toFixed(0)}) with almost no clicks — one ranking push from real traffic.` };
+    }
+    if (impr >= 500 && pos > 5 && pos <= 12 && ctr < 1) {
+        return { label: '⚡ Near page 1', color: '#d97706', bg: '#fef3c7',
+            tip: `${impr.toLocaleString()} impressions at position ${pos.toFixed(0)} — close to page 1.` };
+    }
+    if (impr >= 300 && (opp.ga4_revenue || 0) === 0 && pos > 3 && ctr < 1) {
+        return { label: '💤 Untapped', color: '#6b7280', bg: '#f3f4f6',
+            tip: `${impr.toLocaleString()} impressions but no revenue.` };
+    }
+    return null;
+}
+
+function buildTaskMetrics(opp) {
+    if (opp.gsc_impressions == null && opp.ga4_sessions == null) return '';
+    const n = v => v == null ? '—' : Number(v).toLocaleString();
+    const pct = v => v == null ? '—' : (v * 100).toFixed(2) + '%';
+    const money = v => v == null ? '—' : '$' + Number(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const cell = (label, val) => `<div style="border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;background:var(--bg-primary);"><div style="font-size:10px;text-transform:uppercase;color:#6b7280;margin-bottom:2px;">${label}</div><div style="font-size:15px;font-weight:700;">${val}</div></div>`;
+    return `<div class="detail-section"><h4>Page Metrics <span style="font-weight:normal;color:#9ca3af;font-size:12px;">(at approval)</span></h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">
+            ${cell('Impressions', n(opp.gsc_impressions))}
+            ${cell('Clicks', n(opp.gsc_clicks))}
+            ${cell('CTR', pct(opp.gsc_ctr))}
+            ${cell('Avg Position', opp.gsc_position != null ? opp.gsc_position.toFixed(1) : '—')}
+            ${cell('Sessions', n(opp.ga4_sessions))}
+            ${cell('Revenue', money(opp.ga4_revenue))}
+            ${cell('Purchases', n(opp.ga4_purchases))}
+        </div></div>`;
+}
+
+function buildOpportunitySummary(opp) {
+    const t = (opp.asset_type || 'page');
+    const tLabel = t === 'category' ? 'category page' : t === 'product' ? 'product page' : t === 'blog' ? 'blog post' : 'page';
+    const impr = opp.gsc_impressions || 0;
+    const pos = opp.gsc_position || 0;
+    const clicks = opp.gsc_clicks || 0;
+    const ctr = (opp.gsc_ctr || 0) * 100;
+    const rev = opp.ga4_revenue || 0;
+    const action = opp.recommended_action;
+    const constraint = opp.primary_constraint;
+    const posLabel = pos >= 21 ? 'page 3 or worse' : pos >= 11 ? 'page 2' : pos >= 4 ? 'lower page 1' : (pos > 0 ? 'top of page 1' : 'unranked');
+    if (impr === 0 && pos === 0) return '';  // no metrics captured for this task
+
+    let situation;
+    if (action === 'NO_ACTION') {
+        situation = `This ${tLabel} looks healthy — no clear problem to fix right now.`;
+    } else if (impr >= 1000 && pos > 10) {
+        situation = `Strong demand (<strong>${impr.toLocaleString()} impressions</strong>) but it ranks on <strong>${posLabel}</strong> (avg position ${pos.toFixed(1)}), so it earns almost no clicks (${ctr.toFixed(2)}% CTR, ${clicks} clicks). The traffic is there — the ranking isn't.`;
+    } else if (impr >= 1000 && pos <= 10 && ctr < 1) {
+        situation = `Ranks on page 1 (position ${pos.toFixed(1)}) with <strong>${impr.toLocaleString()} impressions</strong> but very few clicks (${ctr.toFixed(2)}% CTR).`;
+    } else if (impr < 50) {
+        situation = `Low search demand (${impr.toLocaleString()} impressions) — limited traffic upside.`;
+    } else if (rev > 0) {
+        situation = `${impr.toLocaleString()} impressions, position ${pos.toFixed(1)}, and it already earns revenue ($${rev.toLocaleString()}).`;
+    } else {
+        situation = `${impr.toLocaleString()} impressions at avg position ${pos.toFixed(1)}, ${ctr.toFixed(2)}% CTR.`;
+    }
+
+    const diag = {
+        visibility_blocked: 'This is a <strong>ranking</strong> problem, not a title problem — the levers are authority (links) and on-page relevance.',
+        ctr_suppressed: 'The page ranks but isn\'t earning the clicks its position should. Check the live SERP before changing copy.',
+        intent_mismatch: 'The page ranks for queries it doesn\'t fully answer — align the content to intent.',
+        weak_funnel_routing: 'Visitors arrive but don\'t flow toward products — add internal links to conversion pages.',
+        internal_cannibalization: 'Several pages compete for the same queries — consolidate or differentiate.',
+    }[constraint] || '';
+
+    const levers = [];
+    const pq = opp.page_quality;
+    if (pq && Array.isArray(pq.findings)) {
+        const schemaGap = pq.findings.find(f => f.dimension === 'revenue_ctr' && /schema/i.test(f.label));
+        if (schemaGap) levers.push(schemaGap.fix);
+    }
+    const ai = opp.ai_recommendations;
+    const inb = ai && ai.inbound_link_opportunities;
+    if (inb && Array.isArray(inb.top_3) && inb.top_3.length) {
+        const srcs = inb.top_3.slice(0, 2).map(x => (x.source_title || x.source_url || '').split('|')[0].trim()).filter(Boolean);
+        if (srcs.length) levers.push('Add internal links from: <em>' + srcs.map(escHtml).join('</em>, <em>') + '</em>');
+    }
+    const auth = ai && ai.authority_analysis;
+    if (auth && auth.available && auth.page_authority != null && auth.domain_authority != null && auth.page_authority < auth.domain_authority - 10) {
+        levers.push(`Build authority — page authority (${auth.page_authority}) lags the domain (${auth.domain_authority}).`);
+    }
+
+    let doThis = '';
+    if (action === 'OBSERVE_ONLY') doThis = 'Not enough confidence to act yet — monitor.';
+    else if (levers.length) doThis = '<strong>Do this:</strong><ul style="margin:4px 0 0 18px;padding:0;">' + levers.map(l => `<li style="margin-bottom:3px;">${l}</li>`).join('') + '</ul>';
+
+    const sig = demandSignal(opp);
+    const color = sig ? sig.color : 'var(--accent-blue)';
+    return `<div style="border-left:4px solid ${color};background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:14px 16px;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);">In plain English</span>
+            ${sig ? `<span style="font-size:10px;font-weight:700;color:${sig.color};background:${sig.bg};padding:1px 7px;border-radius:3px;">${sig.label}</span>` : ''}
+        </div>
+        <div style="font-size:13px;line-height:1.6;">${situation}</div>
+        ${diag ? `<div style="font-size:13px;line-height:1.6;color:var(--text-secondary);margin-top:6px;">${diag}</div>` : ''}
+        ${doThis ? `<div style="font-size:13px;line-height:1.6;margin-top:8px;">${doThis}</div>` : ''}
+    </div>`;
+}
+
 async function loadTasks() {
     const res = await fetch('/api/tasks');
     tasksData = await res.json();
@@ -673,6 +787,8 @@ function showTaskDetail(actionId, status) {
                 <p><span class="risk-badge risk-${task.risk_level || 'low'}">${task.risk_level || 'low'}</span></p>
             </div>
         </div>
+        ${buildOpportunitySummary(task)}
+        ${buildTaskMetrics(task)}
         ${constraintScoresHtml}
         ${constraintsHtml}
         ${queriesHtml}
