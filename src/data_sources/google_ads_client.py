@@ -520,6 +520,71 @@ class GoogleAdsClient:
 
         return campaigns
 
+    def diagnose_account(self) -> dict:
+        """Explain why a campaign query returns empty: manager (MCC) account
+        vs. a standard account with no spend.
+
+        Querying `FROM campaign` on a manager account returns zero rows with
+        NO error — the classic gotcha. This checks whether the configured
+        customer is a manager and lists accessible child accounts so the user
+        knows which customer_id to actually use.
+        """
+        result = {"customer_id": self.customer_id, "is_manager": None,
+                  "descriptive_name": "", "accessible_customers": [], "hint": ""}
+        if not self._init_client():
+            result["hint"] = "Ads client not initialized — check credentials."
+            return result
+
+        _CUST_Q = "SELECT customer.manager, customer.descriptive_name FROM customer LIMIT 1"
+        try:
+            ga = self._client.get_service("GoogleAdsService")
+            for row in ga.search(customer_id=self.customer_id, query=_CUST_Q):
+                result["is_manager"] = bool(row.customer.manager)
+                result["descriptive_name"] = row.customer.descriptive_name
+        except Exception as e:
+            result["hint"] = f"Could not read customer {self.customer_id}: {e}"
+
+        try:
+            cust_service = self._client.get_service("CustomerService")
+            accessible = cust_service.list_accessible_customers()
+            for rn in accessible.resource_names:
+                cid = rn.split("/")[-1]
+                entry = {"id": cid, "manager": None, "name": ""}
+                try:
+                    for r in self._client.get_service("GoogleAdsService").search(
+                            customer_id=cid, query=_CUST_Q):
+                        entry["manager"] = bool(r.customer.manager)
+                        entry["name"] = r.customer.descriptive_name
+                except Exception:
+                    pass
+                result["accessible_customers"].append(entry)
+        except Exception as e:
+            if not result["hint"]:
+                result["hint"] = f"Could not list accessible customers: {e}"
+
+        children = [c for c in result["accessible_customers"] if c.get("manager") is False]
+        if result["is_manager"]:
+            if children:
+                ids = ", ".join(f"{c['id']} ({c['name'] or 'unnamed'})" for c in children)
+                result["hint"] = (
+                    f"Customer {self.customer_id} is a MANAGER (MCC) account — it has no "
+                    f"campaigns of its own, which is why the query is empty (no error). "
+                    f"Fix: set login_customer_id to {self.customer_id} and set customer_id "
+                    f"to a child account: {ids}."
+                )
+            else:
+                result["hint"] = (
+                    f"Customer {self.customer_id} is a manager account with no visible child "
+                    f"accounts — check account linking / developer-token access level."
+                )
+        elif result["is_manager"] is False:
+            result["hint"] = (
+                f"Customer {self.customer_id} is a standard account with no non-removed "
+                f"campaigns in the last 28 days — most likely no active ad spend. "
+                f"Not an error; the zeros are real."
+            )
+        return result
+
     def load_from_cache(self, cache_path: str) -> Optional[AdsAccountData]:
         """Load Ads data from a cached JSON file."""
         path = Path(cache_path)

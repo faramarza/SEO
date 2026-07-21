@@ -417,7 +417,13 @@ async function loadAdsData() {
         const summaryGrid = document.getElementById('ads-summary');
         const campaignsList = document.getElementById('ads-campaigns-list');
 
-        if (data.connected) {
+        if (data.connected && (!data.campaigns || data.campaigns.length === 0)) {
+            // Connected but no campaigns — don't imply data is flowing. Show
+            // the diagnosis (manager account vs. no spend) instead of zeros.
+            indicator.style.color = '#d97706';  // amber
+            statusText.textContent = data.message || 'Connected — no active campaigns';
+            summaryGrid.style.display = 'none';
+        } else if (data.connected) {
             indicator.style.color = '#198038';
             statusText.textContent = 'Connected';
             summaryGrid.style.display = 'grid';

@@ -3588,14 +3588,25 @@ def api_ads():
         # Fetch campaign data
         campaigns = client.fetch_campaign_summary(days=28)
 
-        # Debug: Log if no campaigns returned
+        # No campaigns returned — diagnose why (manager account vs. no spend)
         if not campaigns:
-            error_msg = client._last_error or "No error captured"
+            error_msg = client._last_error
+            try:
+                diagnosis = client.diagnose_account()
+            except Exception as diag_err:
+                diagnosis = {"hint": f"diagnosis failed: {diag_err}"}
             return jsonify({
                 "connected": True,
-                "message": f"No campaigns returned. Error: {error_msg}",
+                "message": diagnosis.get("hint") or (
+                    f"No campaigns returned. Error: {error_msg}" if error_msg
+                    else "No campaigns returned (no error)."
+                ),
                 "campaigns": [],
-                "summary": {"debug_path": creds_path, "error": error_msg},
+                "summary": {
+                    "debug_path": creds_path,
+                    "error": error_msg,
+                    "diagnosis": diagnosis,
+                },
             })
 
         # Build response
