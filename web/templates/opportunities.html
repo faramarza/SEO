@@ -242,7 +242,7 @@ function renderOpportunities(opportunities) {
             </td>
             <td><span class="type-badge type-${opp.asset_type || 'other'}">${formatAssetType(opp.asset_type)}</span></td>
             <td><span class="constraint-badge constraint-${(opp.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(opp.primary_constraint)}</span></td>
-            <td><span class="action-badge action-${(opp.recommended_action || '').toLowerCase()}">${opp.recommended_action || 'N/A'}</span></td>
+            <td><span class="action-code action-${(opp.recommended_action || '').toLowerCase()}" title="${(opp.recommended_action || 'N/A').replace(/_/g, ' ')}">${actionCode(opp.recommended_action)}</span></td>
             <td class="number demand-cell">
                 <div class="demand-bar" title="Demand: ${((opp.demand_score || 0) * 100).toFixed(0)}%">
                     <div class="demand-fill" style="width: ${(opp.demand_score || 0) * 100}%"></div>
@@ -316,6 +316,31 @@ function truncateUrl(url) {
 function formatMode(mode) {
     if (!mode) return '—';
     return mode.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Compact codes for the Action column — full name shows on hover (title attr).
+const ACTION_CODES = {
+    TITLE_META_TEST: 'TITLE',
+    INTERNAL_LINK_REALLOCATION: 'LINKS',
+    INTERNAL_LINKING: 'LINKS',
+    VISIBILITY_FIX: 'VIS',
+    CANONICAL_FIX: 'CANON',
+    SCHEMA_ENHANCEMENT: 'SCHEMA',
+    HTML_STRUCTURAL_FIX: 'HTML',
+    PAGE_SPEED_FIX: 'SPEED',
+    CONTENT_CLARIFY: 'CONTENT',
+    CONTENT_PRUNE: 'PRUNE',
+    CONSOLIDATION_REVIEW: 'CONSOL',
+    PAGE_REINVESTMENT: 'REINVEST',
+    PAID_BUDGET_INCREASE: 'BUDGET+',
+    EXPAND_PAID_COVERAGE: 'PAID+',
+    REVIEW_PMAX_COVERAGE: 'PMAX',
+    OBSERVE_ONLY: 'OBSERVE',
+    NO_ACTION: 'NONE',
+};
+function actionCode(action) {
+    if (!action) return '—';
+    return ACTION_CODES[action] || action.split('_').map(w => w[0]).join('').slice(0, 6);
 }
 
 // Small run-over-run trend arrow. delta > 0 shows ▲, < 0 shows ▼.

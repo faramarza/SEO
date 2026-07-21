@@ -1359,6 +1359,30 @@ td.negative { color: var(--accent-red); font-weight: 600; }
     color: var(--accent-green);
 }
 
+/* Compact code badge for the Action column (full name on hover) */
+.action-code {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: nowrap;
+    cursor: default;
+    background-color: var(--bg-hover);
+    color: var(--text-secondary);
+}
+.action-code.action-title_meta_test { background-color: rgba(217, 119, 6, 0.12); color: var(--accent-yellow); }
+.action-code.action-internal_link_reallocation,
+.action-code.action-internal_linking { background-color: rgba(8, 145, 178, 0.12); color: var(--accent-teal); }
+.action-code.action-canonical_fix { background-color: rgba(124, 58, 237, 0.12); color: var(--accent-purple); }
+.action-code.action-page_reinvestment,
+.action-code.action-schema_enhancement { background-color: rgba(5, 150, 105, 0.12); color: var(--accent-green); }
+.action-code.action-visibility_fix { background-color: rgba(37, 99, 235, 0.12); color: var(--accent-blue); }
+.action-code.action-observe_only,
+.action-code.action-no_action { background-color: var(--bg-hover); color: var(--text-muted); }
+
 .action-badge.action-new_asset_creation {
     background-color: rgba(234, 88, 12, 0.12);
     color: var(--accent-orange);
