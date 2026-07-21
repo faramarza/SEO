@@ -786,12 +786,53 @@ def api_approve_opportunity():
     from src.ledger.action_ledger import ActionFingerprint, ActionRecord
     import uuid
 
+    # Derive fingerprint dimensions from the opportunity data. The frontend
+    # historically sent page_type/intent_cluster/action_surface that don't
+    # exist on the opportunity object, so they always defaulted to
+    # unknown/unknown/other and collapsed all learning into one bucket.
+    # Derive them server-side from asset_type / revenue / action instead.
+    asset_type = (data.get("asset_type") or "other").lower()
+    action_type_str = data.get("action", "OBSERVE_ONLY")
+    revenue = data.get("ga4_revenue") or 0
+
+    page_type = data.get("page_type")
+    if not page_type or page_type == "unknown":
+        page_type = asset_type if asset_type != "other" else "unknown"
+
+    intent_cluster = data.get("intent_cluster")
+    if not intent_cluster or intent_cluster == "unknown":
+        if revenue and revenue > 0:
+            intent_cluster = "transactional"
+        elif asset_type in ("product", "category"):
+            intent_cluster = "commercial"
+        elif asset_type == "blog":
+            intent_cluster = "informational"
+        else:
+            intent_cluster = "unknown"
+
+    action_surface = data.get("action_surface")
+    if not action_surface or action_surface == "other":
+        _SURFACE_MAP = {
+            "TITLE_META_TEST": "title",
+            "CANONICAL_FIX": "canonical",
+            "INTERNAL_LINK_REALLOCATION": "links",
+            "INTERNAL_LINKING": "links",
+            "VISIBILITY_FIX": "visibility",
+            "HTML_STRUCTURAL_FIX": "html",
+            "PAGE_SPEED_FIX": "performance",
+            "CONTENT_CLARIFY": "content",
+            "CONTENT_PRUNE": "content",
+            "PAGE_REINVESTMENT": "content",
+            "CONSOLIDATION_REVIEW": "content",
+        }
+        action_surface = _SURFACE_MAP.get(action_type_str, "other")
+
     # Create fingerprint from opportunity data
     fingerprint = ActionFingerprint(
-        page_type=data.get("page_type", "unknown"),
-        intent_cluster=data.get("intent_cluster", "unknown"),
-        action_surface=data.get("action_surface", "other"),
-        action_type=data.get("action", "OBSERVE_ONLY"),
+        page_type=page_type,
+        intent_cluster=intent_cluster,
+        action_surface=action_surface,
+        action_type=action_type_str,
     )
 
     # Generate action ID
