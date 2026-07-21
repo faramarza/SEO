@@ -150,6 +150,27 @@ _SKIP_PATHS = {
 
 _BLOG_SKIP_PATTERNS = re.compile(r'/blog/(author|archive|tag|category|page)/')
 
+# Promotional / navigational pages that get swept in as "category" money
+# pages but are not content-worthy landing pages (they only exist to route
+# or merchandise, and rank only for the brand term). Excluded from money
+# pages so they don't sit at 0 coverage forever demanding supporting content.
+_PROMO_NAV_URL = re.compile(
+    r'(/specials?[./]|special-promo|/promos?[./]|shop-by-brand|featured-product'
+    r'|gift-cards?|/printables?[./]|clearance|new-arrivals?|best-sellers?|/brands?[./])',
+    re.IGNORECASE,
+)
+_PROMO_NAV_TITLE = re.compile(
+    r'(special promotion|featured product|shop by brand|gift card|printable'
+    r'|clearance|new arrival|best seller)',
+    re.IGNORECASE,
+)
+
+
+def _is_promo_nav_page(url, title):
+    """True for promo/merchandising/navigation pages that aren't real money pages."""
+    path = re.sub(r'https?://[^/]+', '', url or "")
+    return bool(_PROMO_NAV_URL.search(path) or _PROMO_NAV_TITLE.search(title or ""))
+
 _CATEGORY_PATTERNS = re.compile(
     r'^/('
     r'name-trains|wooden-name-puzzles|personalized-step-stools|'
@@ -304,6 +325,9 @@ def auto_discover():
             continue
         title = _clean_title(page_data.get("title", ""))
         h1 = _clean_title(page_data.get("h1", ""))
+        # Skip promo/merchandising/navigation pages — not real money pages
+        if _is_promo_nav_page(url, title or h1):
+            continue
         path = re.sub(r'https?://[^/]+', '', url).rstrip("/")
         is_category = bool(_CATEGORY_PATTERNS.search(path))
         data["money_pages"].append({
@@ -418,6 +442,14 @@ def auto_discover():
             kw_target = published + max(matching_kws // 3, 2)
             c["target_articles"] = max(c.get("target_articles", 10),
                                        kw_target, published)
+
+    # Deactivate any existing promo/nav money pages left over from earlier
+    # discovery runs (new ones are skipped at creation above).
+    for mp in data["money_pages"]:
+        if mp.get("status") == "inactive":
+            continue
+        if _is_promo_nav_page(mp.get("url", ""), mp.get("title", "")):
+            mp["status"] = "inactive"
 
     # Validate money pages against sitemap — pages not in the sitemap
     # are likely discontinued and should not appear in suggestions
