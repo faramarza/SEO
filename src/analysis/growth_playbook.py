@@ -47,11 +47,26 @@ SYSTEM_PATH_MARKERS = (
     "/authornet", "/paypal", "/rss/", "/cms/", "/index.php",
 )
 
+# Non-HTML assets — images, media, documents, static files. These appear in GSC
+# via Image Search (impressions=1) and get pulled into the evaluation, but they
+# are NOT content pages and must never be flagged as prune/orphan candidates.
+ASSET_EXTENSIONS = (
+    ".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".ico", ".bmp", ".tiff",
+    ".avif", ".pdf", ".mp4", ".webm", ".mov", ".avi", ".mkv", ".mp3", ".wav",
+    ".css", ".js", ".json", ".xml", ".txt", ".woff", ".woff2", ".ttf", ".eot",
+    ".zip", ".gz", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+)
+MEDIA_PATH_MARKERS = (
+    "/media/", "/static/", "/catalog/product/cache/", "/mf_webp/", "/pub/media/",
+    "/wp-content/uploads/", "/skin/", "/assets/", "/webp-to-jpg",
+)
+
 
 def _is_system_page(url, extra_disallow=None):
-    """True if the URL is a platform system/utility page (checkout, account,
-    search, cart, etc.) — never real content. `extra_disallow` is an optional
-    iterable of path prefixes parsed from robots.txt Disallow rules.
+    """True if the URL is NOT a real content page — a platform system/utility
+    page (checkout, account, search, cart), OR a non-HTML asset (image, media,
+    document, static file). Such URLs must never be flagged as prune/orphan/
+    striking candidates. `extra_disallow` is optional robots.txt Disallow prefixes.
     """
     if not url:
         return False
@@ -59,6 +74,11 @@ def _is_system_page(url, extra_disallow=None):
         path = urlparse(url.lower()).path
     except Exception:
         path = str(url).lower()
+    # Non-HTML assets (images, PDFs, media, static files).
+    if path.endswith(ASSET_EXTENSIONS):
+        return True
+    if any(marker in path for marker in MEDIA_PATH_MARKERS):
+        return True
     if any(marker in path for marker in SYSTEM_PATH_MARKERS):
         return True
     if extra_disallow:
