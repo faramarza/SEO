@@ -3992,8 +3992,40 @@ def api_ads_relevance_audit():
 
     terms = list(account.queries.values())
     if not terms:
-        return jsonify({"error": "No search-term data (no active Search campaigns, no spend, or API returned nothing).",
-                        "terms": []})
+        # Diagnose WHY there's no search-term data by looking at what campaign
+        # types actually have spend. search_term_view covers Search & Shopping
+        # only — Performance Max does not expose exact terms there.
+        try:
+            camps = client.fetch_campaign_summary(days=28)
+        except Exception:
+            camps = {}
+        by_type = {}
+        for c in camps.values():
+            t = c.campaign_type.value
+            e = by_type.setdefault(t, {"count": 0, "cost": 0.0})
+            e["count"] += 1
+            e["cost"] += c.cost
+        if not camps:
+            msg = ("No campaigns found on this Ads account. Check that the account ID "
+                   "points to the CHILD account that runs the ads (not the manager), "
+                   "with login_customer_id set to the manager.")
+        else:
+            parts = ", ".join(f"{v['count']} {k} (${v['cost']:.0f})" for k, v in by_type.items())
+            has_search = any(k in ("search", "shopping") for k in by_type)
+            pmax_spend = by_type.get("pmax", {}).get("cost", 0)
+            if not has_search and pmax_spend > 0:
+                msg = (f"Your account runs: {parts}. The search-term report only covers "
+                       f"classic Search & Shopping campaigns — Performance Max (${pmax_spend:.0f} "
+                       f"spend) does NOT expose exact search terms, only aggregated 'search term "
+                       f"insights'. So there are no individual terms to audit for relevance yet.")
+            elif has_search:
+                msg = (f"Your account runs: {parts}. Search/Shopping campaigns exist but returned "
+                       f"no individual search terms with ≥10 impressions in the last 28 days "
+                       f"(low volume, or terms below the threshold).")
+            else:
+                msg = (f"Your account runs: {parts}, none of which produce classic search terms "
+                       f"(search_term_view is Search/Shopping only).")
+        return jsonify({"error": msg, "terms": [], "campaign_breakdown": by_type})
 
     # Classify the biggest spenders (cost-weighted) to control latency/cost.
     terms.sort(key=lambda q: q.cost, reverse=True)
