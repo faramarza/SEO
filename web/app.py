@@ -5884,40 +5884,44 @@ def api_ai_batch_analyze():
                 if opp.get("recommended_action") not in ("NO_ACTION", None)
             ]
 
-            # Skip URLs that already have an active task on the board
-            ledger = ActionLedger()
-            active_urls = set()
-            for st in (ActionStatus.PROPOSED, ActionStatus.APPROVED,
-                       ActionStatus.IMPLEMENTED, ActionStatus.MEASURED):
-                for act in ledger.get_actions_by_status(st):
-                    active_urls.add(act.url)
-            before_count = len(actionable)
-            actionable = [
-                opp for opp in actionable
-                if opp.get("url", "") not in active_urls
-            ]
-            skipped_active = before_count - len(actionable)
-
-            # Filter by specific URLs if provided
+            skipped_active = 0
             if selected_urls:
+                # EXPLICIT selection — honor it exactly. Do NOT apply the
+                # active-task or already-analyzed skips: the user deliberately
+                # chose these pages (e.g. to re-run AI on one already on the board).
                 actionable = [
                     opp for opp in actionable
                     if opp.get("url", "") in selected_urls
                 ]
-
-            # Filter by page type if specified
-            if page_types:
+            else:
+                # Bulk run — skip URLs that already have an active task on the
+                # board (don't re-analyze work already queued).
+                ledger = ActionLedger()
+                active_urls = set()
+                for st in (ActionStatus.PROPOSED, ActionStatus.APPROVED,
+                           ActionStatus.IMPLEMENTED, ActionStatus.MEASURED):
+                    for act in ledger.get_actions_by_status(st):
+                        active_urls.add(act.url)
+                before_count = len(actionable)
                 actionable = [
                     opp for opp in actionable
-                    if (opp.get("asset_type") or "other") in page_types
+                    if opp.get("url", "") not in active_urls
                 ]
+                skipped_active = before_count - len(actionable)
 
-            # Optionally skip already-analyzed
-            if skip_analyzed:
-                actionable = [
-                    opp for opp in actionable
-                    if not opp.get("ai_revised_value")
-                ]
+                # Filter by page type if specified (bulk only)
+                if page_types:
+                    actionable = [
+                        opp for opp in actionable
+                        if (opp.get("asset_type") or "other") in page_types
+                    ]
+
+                # Optionally skip already-analyzed (bulk only)
+                if skip_analyzed:
+                    actionable = [
+                        opp for opp in actionable
+                        if not opp.get("ai_revised_value")
+                    ]
 
             job_state["total"] = len(actionable)
             job_state["progress"] = 0
@@ -5958,13 +5962,12 @@ def api_ai_batch_analyze():
                         job_state["progress"] = i + 1
                         continue
 
-                # Step 2: Check SERP data availability
+                # Step 2: SERP data is ENHANCING context, not required. The
+                # single-page AI path runs fine without it, so the batch must
+                # too (Serper credits may be exhausted). Proceed either way.
                 serp_summary = serp_client.get_serp_summary_for_opportunity(opp)
                 if not serp_summary or not serp_summary.get("serp_results"):
-                    print(f"[AI-ERROR] batch skip {short_url}: no SERP data", flush=True)
-                    job_state["message"] = f"[{i+1}/{len(actionable)}] Skipping {short_url} — no SERP data yet"
-                    job_state["progress"] = i + 1
-                    continue
+                    print(f"[AI-INFO] batch {short_url}: no SERP data — analyzing without it", flush=True)
 
                 # Step 3: Run AI analysis
                 job_state["message"] = f"[{i+1}/{len(actionable)}] Analyzing {short_url}..."
