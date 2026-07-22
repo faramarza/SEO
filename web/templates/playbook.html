@@ -152,6 +152,21 @@ function pbShowTab(tab) {
 }
 
 let PB_DATA = null;
+const PB_ADDED = new Set();  // keys of rows already added this session
+
+function pbKey(method, url, extra) {
+    return method + '|' + (url || '') + '|' + (extra || '');
+}
+// Render a +Task button that shows "✓ Added" (disabled) if this row was already
+// added — persists across filter/sort/reload so a row can't be added twice.
+function pbTaskBtn(method, idx, subIdx, key, label, extraClass) {
+    const cls = 'pb-task-btn' + (extraClass ? ' ' + extraClass : '');
+    if (PB_ADDED.has(key)) {
+        return `<button class="${cls} pb-added" disabled>✓ Added</button>`;
+    }
+    const si = (subIdx === null || subIdx === undefined) ? 'null' : subIdx;
+    return `<button class="${cls}" data-key="${key}" onclick="pbAddTask('${method}', ${idx}, ${si}, this)">${label || '+ Task'}</button>`;
+}
 
 function pbToast(msg, isError) {
     const t = document.getElementById('pb-toast');
@@ -208,7 +223,12 @@ async function pbAddTask(method, idx, subIdx, btn) {
         }
         const data = await res.json();
         if (data.success) {
-            if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
+            if (btn) {
+                btn.textContent = '✓ Added';
+                btn.classList.add('pb-added');
+                btn.disabled = true;
+                if (btn.dataset.key) PB_ADDED.add(btn.dataset.key);
+            }
             pbToast(data.message + ' — Task Board → Proposed (newest at top)');
         } else {
             if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
@@ -325,7 +345,7 @@ function renderStrikingTable(rows) {
             <td class="pb-num">${r.clicks}</td>
             <td class="pb-num">${r.ctr}%</td>
             <td class="pb-num pb-upside">+${r.upside_clicks}/mo</td>
-            <td><button class="pb-task-btn" onclick="pbAddTask('striking', ${r._idx}, null, this)">+ Task</button></td>
+            <td>${pbTaskBtn('striking', r._idx, null, pbKey('striking', r.url, r.query), '+ Task')}</td>
         </tr>`;
     });
     html += '</tbody></table>';
@@ -357,7 +377,7 @@ function renderDecay(decay) {
             <td class="pb-num pb-drop">−${r.drop_pct}%</td>
             <td class="pb-num">${r.position_peak} ${posMove} ${r.position_current}</td>
             <td class="pb-num">${escHtml(r.peak_date)}</td>
-            <td><button class="pb-task-btn" onclick="pbAddTask('decay', ${i}, null, this)">+ Refresh</button></td>
+            <td>${pbTaskBtn('decay', i, null, pbKey('decay', r.url), '+ Refresh')}</td>
         </tr>`;
     });
     html += '</tbody></table>';
@@ -384,7 +404,7 @@ function renderOrphans(oc) {
                 <td class="pb-num">${o.impressions.toLocaleString()}</td>
                 <td class="pb-num">${o.clicks}</td>
                 <td class="pb-num">${o.position}</td>
-                <td><button class="pb-task-btn" onclick="pbAddTask('orphan', ${i}, null, this)">+ Task</button></td>
+                <td>${pbTaskBtn('orphan', i, null, pbKey('orphan', o.url), '+ Task')}</td>
             </tr>`;
         });
         html += '</tbody></table>';
@@ -410,7 +430,7 @@ function renderOrphans(oc) {
                 c.missing_pillar_links.forEach((m, li) => {
                     html += `<li><a href="${escHtml(m.url)}" target="_blank" title="${escHtml(m.url)}">${escHtml(fmtUrl(m.url))}</a>
                         <span class="pb-num">${m.impressions.toLocaleString()} impr</span> — should link to the pillar
-                        <button class="pb-task-btn pb-task-btn-sm" onclick="pbAddTask('cluster_link', ${ci}, ${li}, this)">+ Link task</button></li>`;
+                        ${pbTaskBtn('cluster_link', ci, li, pbKey('cluster_link', m.url, c.pillar.url), '+ Link task', 'pb-task-btn-sm')}</li>`;
                 });
                 html += '</ul></div>';
             } else {
@@ -445,7 +465,7 @@ function renderPruning(rows) {
             <td class="pb-num">${r.word_count}</td>
             <td><span class="pb-disp ${dispClass}">${dispLabel}</span></td>
             <td>${whyCell}</td>
-            <td><button class="pb-task-btn" onclick="pbAddTask('pruning', ${i}, null, this)">+ Review task</button></td>
+            <td>${pbTaskBtn('pruning', i, null, pbKey('pruning', r.url), '+ Review task')}</td>
         </tr>`;
     });
     html += '</tbody></table>';
@@ -490,7 +510,7 @@ function renderGeo(geo) {
             <td class="pb-num">${(p.gsc_impressions||0).toLocaleString()}</td>
             <td>${fixes}${note}</td>
             <td class="pb-geo-actions">
-                <button class="pb-task-btn" onclick="pbAddGeoTask(${i}, this)">+ Task</button>
+                ${PB_ADDED.has(pbKey('geo', p.url)) ? '<button class="pb-task-btn pb-added" disabled>✓ Added</button>' : `<button class="pb-task-btn" data-key="${pbKey('geo', p.url)}" onclick="pbAddGeoTask(${i}, this)">+ Task</button>`}
                 <button class="pb-task-btn pb-task-btn-alt" onclick="pbGenQuestions('${escHtml(p.url).replace(/'/g,"\\'")}', this)">AI Questions</button>
                 <button class="pb-task-btn pb-task-btn-alt2" onclick="pbDemandCoverage('${escHtml(p.url).replace(/'/g,"\\'")}', this)">Demand Coverage</button>
             </td>
@@ -511,7 +531,7 @@ async function pbAddGeoTask(idx, btn) {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload) });
         const data = await res.json();
-        if (data.success) { if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); } pbToast(data.message + ' — Task Board → Proposed (newest at top)'); }
+        if (data.success) { if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); btn.disabled = true; if (btn.dataset.key) PB_ADDED.add(btn.dataset.key); } pbToast(data.message + ' — Task Board → Proposed (newest at top)'); }
         else { if (btn) { btn.disabled = false; btn.textContent = '+ Task'; } pbToast(data.error || 'Failed', true); }
     } catch (e) { if (btn) { btn.disabled = false; btn.textContent = '+ Task'; } pbToast('Failed: ' + e.message, true); }
 }

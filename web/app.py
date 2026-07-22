@@ -6339,12 +6339,39 @@ def _playbook_add_task_impl(body):
         return jsonify({"success": False, "error": f"Unknown method '{method}'"}), 400
 
     data["source"] = "playbook"
+    # Safety net against duplicates (client guard + this): if an identical
+    # proposed task already exists, return it instead of creating a copy.
+    existing = _find_duplicate_proposed(data)
+    if existing:
+        return jsonify({
+            "success": True,
+            "action_id": existing,
+            "message": f"Already on the Task Board ({existing})",
+            "duplicate": True,
+        })
     action_id = _persist_action(data)
     return jsonify({
         "success": True,
         "action_id": action_id,
         "message": f"Added {action_id} to Task Board",
     })
+
+
+def _find_duplicate_proposed(data):
+    """Return the id of an existing PROPOSED action identical to `data`
+    (same url + action type + summary), else None."""
+    try:
+        ledger = ActionLedger()
+        for a in ledger.get_all_actions():
+            if a.status.value != "proposed":
+                continue
+            if a.url == data.get("url") and a.action_type == data.get("action"):
+                rec = a.recommendation_json or {}
+                if rec.get("implementation_summary") == data.get("implementation_summary"):
+                    return a.action_id
+    except Exception:
+        pass
+    return None
 
 
 @app.route("/api/internal-link-map")
