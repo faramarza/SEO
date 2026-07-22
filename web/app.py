@@ -964,6 +964,11 @@ def api_tasks():
             "baseline_captured": action.baseline_metrics is not None,
         })
 
+    # Newest first within each column so a just-added task (e.g. from the
+    # Playbook "+ Task" button) appears at the TOP of Proposed, not buried.
+    for col in tasks_by_status.values():
+        col.sort(key=lambda t: t.get("created_at") or "", reverse=True)
+
     return jsonify(tasks_by_status)
 
 
@@ -5963,6 +5968,40 @@ def api_ai_batch_analyze():
     })
 
 
+_ROBOTS_CACHE = {"rules": None}
+
+
+def _robots_disallow_rules():
+    """Fetch and cache the site's robots.txt Disallow path prefixes (best-effort).
+
+    Returns a list of path prefixes to treat as non-content. Empty list on any
+    failure — the analyzer's hardcoded Magento patterns still apply.
+    """
+    if _ROBOTS_CACHE["rules"] is not None:
+        return _ROBOTS_CACHE["rules"]
+    rules = []
+    try:
+        import httpx
+        cfg = load_config()
+        base = (cfg.get("business_context", {}).get("domain")
+                or cfg.get("site_url") or "https://alphabet-trains.com")
+        if not base.startswith("http"):
+            base = "https://" + base
+        resp = httpx.get(base.rstrip("/") + "/robots.txt", timeout=8,
+                         follow_redirects=True)
+        if resp.status_code == 200:
+            for line in resp.text.splitlines():
+                line = line.strip()
+                if line.lower().startswith("disallow:"):
+                    path = line.split(":", 1)[1].strip()
+                    if path and path != "/":
+                        rules.append(path)
+    except Exception:
+        rules = []
+    _ROBOTS_CACHE["rules"] = rules
+    return rules
+
+
 @app.route("/api/playbook")
 def api_playbook():
     """Growth Playbook — Brian Dean & Neil Patel method reports over the
@@ -5985,12 +6024,18 @@ def api_playbook():
     results = eval_data.get("results", [])
     out = {"timestamp": eval_data.get("timestamp", ""), "page_count": len(results)}
 
+    # robots.txt Disallow prefixes — so system/utility pages the platform
+    # blocks (Magento checkout/account/search, etc.) are never surfaced as
+    # pruning/orphan candidates. Best-effort + cached; hardcoded Magento
+    # patterns in the analyzer are the reliable fallback.
+    disallow = _robots_disallow_rules()
+
     if section in ("all", "striking"):
-        out["striking_distance"] = gp.find_striking_distance(results)
+        out["striking_distance"] = gp.find_striking_distance(results, system_disallow=disallow)
     if section in ("all", "orphans"):
-        out["orphans_clusters"] = gp.find_orphans_and_clusters(results)
+        out["orphans_clusters"] = gp.find_orphans_and_clusters(results, system_disallow=disallow)
     if section in ("all", "pruning"):
-        out["pruning"] = gp.find_pruning_candidates(results)
+        out["pruning"] = gp.find_pruning_candidates(results, system_disallow=disallow)
     if section in ("all", "geo"):
         geo_rows = []
         grade_counts = {}
@@ -6042,7 +6087,7 @@ def api_playbook():
         # Ensure the current evaluation is represented as the latest point.
         if not snaps or snaps[-1].get("timestamp") != eval_data.get("timestamp"):
             snaps.append(eval_data)
-        out["decay"] = gp.find_content_decay(snaps)
+        out["decay"] = gp.find_content_decay(snaps, system_disallow=disallow)
 
     return jsonify(out)
 

@@ -35,6 +35,40 @@ _CTR_BY_POSITION = {
 }
 
 
+# Magento (and generic e-commerce) system / utility paths that are never
+# content and must never be flagged for pruning, orphan-rescue, etc. They are
+# noindex by platform default. Matched as path substrings, case-insensitive.
+SYSTEM_PATH_MARKERS = (
+    "/checkout", "/cart", "/customer", "/account", "/login", "/register",
+    "/create", "/wishlist", "/catalogsearch", "/search", "/sales/",
+    "/paypal", "/onestepcheckout", "/onepage", "/downloadable", "/review/",
+    "/newsletter", "/sendfriend", "/gift", "/catalog/product_compare",
+    "/compare", "/contacts", "/customer-service/", "/multishipping",
+    "/authornet", "/paypal", "/rss/", "/cms/", "/index.php",
+)
+
+
+def _is_system_page(url, extra_disallow=None):
+    """True if the URL is a platform system/utility page (checkout, account,
+    search, cart, etc.) — never real content. `extra_disallow` is an optional
+    iterable of path prefixes parsed from robots.txt Disallow rules.
+    """
+    if not url:
+        return False
+    try:
+        path = urlparse(url.lower()).path
+    except Exception:
+        path = str(url).lower()
+    if any(marker in path for marker in SYSTEM_PATH_MARKERS):
+        return True
+    if extra_disallow:
+        for dp in extra_disallow:
+            dp = (dp or "").lower().rstrip("*")
+            if dp and dp != "/" and path.startswith(dp):
+                return True
+    return False
+
+
 def _norm(u, base_url=""):
     """Normalize a URL for comparison: resolve relative, drop scheme/www/slash."""
     if not u:
@@ -73,7 +107,7 @@ def _expected_ctr(position):
 # ══════════════════════════════════════════════════════════════════════
 
 def find_striking_distance(results, min_impressions=30, pos_low=6.0,
-                           pos_high=20.0, limit=100):
+                           pos_high=20.0, limit=100, system_disallow=None):
     """Queries ranking just off page 1 (pos ~6-20) with real search demand.
 
     These are the cheapest ranking wins: the page already ranks and has
@@ -86,6 +120,8 @@ def find_striking_distance(results, min_impressions=30, pos_low=6.0,
     rows = []
     for r in results:
         url = r.get("url", "")
+        if _is_system_page(url, system_disallow):
+            continue
         asset_type = r.get("asset_type", "other")
         for q in r.get("top_queries", []):
             pos = q.get("position", 0) or 0
@@ -198,7 +234,8 @@ def _union_find_clusters(graph, min_shared=3):
     return [members for members in clusters.values() if len(members) >= 3]
 
 
-def find_orphans_and_clusters(results, orphan_min_impressions=20):
+def find_orphans_and_clusters(results, orphan_min_impressions=20,
+                              system_disallow=None):
     """Orphan pages (no internal inlinks) with demand, plus topic clusters
     with an identified pillar and missing cluster->pillar links.
     """
@@ -211,6 +248,8 @@ def find_orphans_and_clusters(results, orphan_min_impressions=20):
         path = urlparse(page["url"].lower()).path.rstrip("/")
         if path in ("", "/"):
             continue  # homepage
+        if _is_system_page(page["url"], system_disallow):
+            continue  # checkout/account/search — never content
         if page["inlink_norms"]:
             continue
         if page["gsc_impressions"] < orphan_min_impressions:
@@ -283,13 +322,15 @@ def find_orphans_and_clusters(results, orphan_min_impressions=20):
 # 3. PRUNING CANDIDATES (Dean)
 # ══════════════════════════════════════════════════════════════════════
 
-def find_pruning_candidates(results, max_impressions=15, thin_words=300):
+def find_pruning_candidates(results, max_impressions=15, thin_words=300,
+                            system_disallow=None):
     """Dead-weight pages: no traffic, no demand, thin and/or orphaned.
 
     Conservative by design — only flags blog/other pages (never products or
-    categories, which carry commercial/structural value even when quiet) and
-    always frames the output as a REVIEW candidate with a suggested
-    disposition, never an automatic delete.
+    categories, which carry commercial/structural value even when quiet),
+    never platform system pages (checkout/account/search), and always frames
+    the output as a REVIEW candidate with a suggested disposition, never an
+    automatic delete.
     """
     graph = _build_graph(results)
     candidates = []
@@ -300,6 +341,9 @@ def find_pruning_candidates(results, max_impressions=15, thin_words=300):
             continue
         path = urlparse(page["url"].lower()).path.rstrip("/")
         if path in ("", "/"):
+            continue
+        # Never flag platform system/utility pages (checkout, account, search…).
+        if _is_system_page(page["url"], system_disallow):
             continue
         impr = page["gsc_impressions"]
         clicks = page["gsc_clicks"]
@@ -352,7 +396,8 @@ def find_pruning_candidates(results, max_impressions=15, thin_words=300):
 # 4. CONTENT DECAY (Patel)
 # ══════════════════════════════════════════════════════════════════════
 
-def find_content_decay(snapshots, min_peak_clicks=3, decay_ratio=0.6, limit=50):
+def find_content_decay(snapshots, min_peak_clicks=3, decay_ratio=0.6, limit=50,
+                       system_disallow=None):
     """Pages sliding over time -> refresh queue.
 
     `snapshots` is a chronological list of evaluation dicts (oldest first),
@@ -378,7 +423,7 @@ def find_content_decay(snapshots, min_peak_clicks=3, decay_ratio=0.6, limit=50):
         date = (snap.get("timestamp", "") or "")[:10]
         for r in snap.get("results", []):
             url = r.get("url", "")
-            if not url:
+            if not url or _is_system_page(url, system_disallow):
                 continue
             series.setdefault(url, {"dates": [], "clicks": [], "impr": [],
                                     "pos": [], "asset_type": r.get("asset_type", "other")})
