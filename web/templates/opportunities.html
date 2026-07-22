@@ -333,15 +333,22 @@ function demandSignal(opp) {
     const impr = opp.gsc_impressions || 0;
     const pos = opp.gsc_position || 0;
     const ctr = (opp.gsc_ctr || 0) * 100;
-    if (impr >= 1000 && pos >= 11 && pos <= 30 && ctr < 0.5) {
+    // Products live on long-tail, low-impression queries, so judge them on a
+    // much lower volume bar than categories/blogs — otherwise their trapped
+    // demand never surfaces (an individual product rarely clears 500 impr).
+    const isProduct = (opp.asset_type || '') === 'product';
+    const T = isProduct
+        ? { trapped: 200, near: 100, untapped: 60 }
+        : { trapped: 1000, near: 500, untapped: 300 };
+    if (impr >= T.trapped && pos >= 11 && pos <= 30 && ctr < 0.5) {
         return { key: 'trapped', label: '🔥 Trapped demand', color: '#dc2626', bg: '#fee2e2',
             tip: `${impr.toLocaleString()} impressions stuck on page 2+ (pos ${pos.toFixed(0)}) with almost no clicks — one ranking push from real traffic.` };
     }
-    if (impr >= 500 && pos > 5 && pos <= 12 && ctr < 1) {
+    if (impr >= T.near && pos > 5 && pos <= 12 && ctr < 1) {
         return { key: 'near_page_1', label: '⚡ Near page 1', color: '#d97706', bg: '#fef3c7',
             tip: `${impr.toLocaleString()} impressions at position ${pos.toFixed(0)} — close to page 1; a small push could break through.` };
     }
-    if (impr >= 300 && (opp.ga4_revenue || 0) === 0 && pos > 3 && ctr < 1) {
+    if (impr >= T.untapped && (opp.ga4_revenue || 0) === 0 && pos > 3 && ctr < 1) {
         return { key: 'untapped', label: '💤 Untapped', color: '#6b7280', bg: '#f3f4f6',
             tip: `${impr.toLocaleString()} impressions but no revenue — demand exists, capture is missing.` };
     }
