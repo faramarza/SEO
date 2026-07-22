@@ -42,6 +42,7 @@ from src.evaluators.asset_creation_evaluator import AssetCreationEvaluator
 from src.evaluators.constraint_detector import ConstraintDetector, CaptureClass, ConstraintType
 from src.evaluators.html_issue_evaluator import HTMLIssueEvaluator
 from src.evaluators.page_quality_evaluator import evaluate_page_quality
+from src.evaluators.geo_scorecard import evaluate_geo_readiness
 from src.ledger.action_ledger import ActionLedger, ActionFingerprint, ActionRecord
 from src.output.decision_formatter import DecisionFormatter, OutputFormat
 from src.crawlers.page_inventory import PageInventory
@@ -905,6 +906,24 @@ class FullEvaluationWorkflow:
                 ],
                 internal_outlinks=asset.internal_outlinks,
                 breadcrumb_links=getattr(asset, "breadcrumb_links", []),
+                has_crawl_data=asset.has_crawl_data,
+            )
+
+        # GEO Citation Readiness — applies to ALL page types (guides/blogs are
+        # the primary citation vehicle). Computed here where full body_html is
+        # available so list/table/structure detection is accurate.
+        if asset.has_crawl_data:
+            constraint_data["geo_scorecard"] = evaluate_geo_readiness(
+                url=asset.url,
+                asset_type=asset.asset_type.value,
+                title=asset.title,
+                meta_description=asset.meta_description,
+                headings=getattr(asset, "headings", []),
+                content_preview=asset.content_preview,
+                body_html=asset.body_html,
+                above_fold_html=asset.above_fold_html,
+                word_count=asset.word_count,
+                schema_types=getattr(asset, "schema_types", []),
                 has_crawl_data=asset.has_crawl_data,
             )
 

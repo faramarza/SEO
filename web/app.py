@@ -4155,6 +4155,114 @@ def api_page_quality():
     return jsonify(scorecard)
 
 
+def _compute_geo(match, page_authority=None):
+    """GEO scorecard for one eval result: prefer the version computed during
+    evaluation (full body_html); fall back to page_metadata (partial — no
+    body_html, so list/table detection uses above_fold only).
+    """
+    from src.evaluators.geo_scorecard import evaluate_geo_readiness
+    stored = match.get("geo_scorecard")
+    if stored and page_authority is None:
+        return stored
+    pm = match.get("page_metadata", {})
+    return evaluate_geo_readiness(
+        url=match.get("url", ""),
+        asset_type=match.get("asset_type", "other"),
+        title=pm.get("title", ""),
+        meta_description=pm.get("meta_description", ""),
+        headings=pm.get("headings", []),
+        content_preview=pm.get("content_preview", ""),
+        body_html=pm.get("body_html", ""),
+        above_fold_html=pm.get("above_fold_html", ""),
+        word_count=pm.get("word_count", 0),
+        schema_types=pm.get("schema_types", []),
+        page_authority=page_authority,
+        has_crawl_data=pm.get("has_crawl_data", False),
+    )
+
+
+@app.route("/api/geo-scorecard")
+def api_geo_scorecard():
+    """GEO Citation Readiness scorecard for one page (adds Moz PA if available)."""
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    match = _find_eval_result(url)
+    if not match:
+        return jsonify({"error": "page not found in latest evaluation"}), 404
+    # Enrich with page authority if Moz is configured (optional).
+    pa = None
+    try:
+        moz = MozClient()
+        if moz.api_token:
+            metrics = moz.get_url_metrics(url)
+            if metrics:
+                pa = metrics.get("page_authority")
+    except Exception:
+        pa = None
+    return jsonify(_compute_geo(match, page_authority=pa))
+
+
+@app.route("/api/geo/questions", methods=["POST"])
+def api_geo_questions():
+    """Reverse-search question generator (Pinterest GEO method): the natural-
+    language questions a shopper would ask an AI engine about this page, plus a
+    concise quotable answer for each — ready to add as an FAQ block.
+    """
+    data = request.json or {}
+    url = data.get("url")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    match = _find_eval_result(url)
+    if not match:
+        return jsonify({"error": "page not found in latest evaluation"}), 404
+    pm = match.get("page_metadata", {})
+    config = load_config()
+
+    queries = match.get("top_queries", [])
+    query_lines = "\n".join(
+        f'  - "{q.get("query","")}" ({q.get("impressions",0)} impr, pos {q.get("position",0)})'
+        for q in queries[:12]
+    ) or "  (no GSC query data)"
+
+    system_message = (
+        "You are a Generative Engine Optimization strategist. You produce the "
+        "questions real shoppers ask AI assistants (ChatGPT, Gemini, Google AI "
+        "Overviews, Perplexity), and concise, quotable answers grounded in the "
+        "page's actual topic. This is the Pinterest 'reverse search' method: "
+        "predict the question, then supply a directly-citable answer. Return "
+        "ONLY valid JSON."
+    )
+    user_prompt = f"""PAGE
+url: {url}
+title: {pm.get('title','')}
+type: {match.get('asset_type','')}
+summary: {(pm.get('content_preview','') or '')[:600]}
+
+TOP GSC QUERIES (real demand — base the questions on these intents):
+{query_lines}
+
+TASK
+Generate 8 natural-language questions a shopper would ask an AI assistant that
+THIS page should be the cited answer for. For each, write a concise 2-3 sentence
+answer (<=45 words) that directly and factually answers it, quotable as-is.
+Favor questions with clear buying or research intent tied to the queries above.
+
+Return JSON exactly:
+{{
+  "faq": [
+    {{"question": "...", "answer": "...", "intent": "informational|commercial|comparison"}}
+  ],
+  "note": "one sentence on how to deploy these (FAQ section + FAQPage schema)"
+}}"""
+
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
+    if err:
+        print(f"[GEO-QUESTIONS] {url} error: {err}", flush=True)
+        return jsonify({"error": err}), 502
+    return jsonify(result)
+
+
 @app.route("/api/page-quality/ai-copy", methods=["POST"])
 def api_page_quality_ai_copy():
     """AI copy layer — write improved title/meta/description for one page."""
@@ -5668,6 +5776,44 @@ def api_playbook():
         out["orphans_clusters"] = gp.find_orphans_and_clusters(results)
     if section in ("all", "pruning"):
         out["pruning"] = gp.find_pruning_candidates(results)
+    if section in ("all", "geo"):
+        geo_rows = []
+        grade_counts = {}
+        score_sum = 0
+        scored = 0
+        for r in results:
+            pm = r.get("page_metadata", {})
+            if not pm.get("has_crawl_data"):
+                continue
+            sc = _compute_geo(r)
+            if sc.get("limited"):
+                continue
+            scored += 1
+            score_sum += sc.get("score", 0)
+            grade_counts[sc.get("grade", "?")] = grade_counts.get(sc.get("grade", "?"), 0) + 1
+            geo_rows.append({
+                "url": r.get("url", ""),
+                "asset_type": r.get("asset_type", "other"),
+                "score": sc.get("score", 0),
+                "grade": sc.get("grade", "—"),
+                "gsc_impressions": r.get("gsc_impressions", 0) or 0,
+                "verdict": sc.get("verdict", ""),
+                "top_findings": [
+                    {"label": f["label"], "fix": f["fix"], "dimension": f["dimension"]}
+                    for f in sc.get("findings", [])[:3]
+                ],
+                "format_note": sc.get("format_note"),
+            })
+        # Worst first, but weight by demand so high-impression weak pages rank up.
+        geo_rows.sort(key=lambda g: (g["score"], -g["gsc_impressions"]))
+        out["geo"] = {
+            "pages": geo_rows,
+            "summary": {
+                "scored": scored,
+                "avg_score": round(score_sum / scored, 1) if scored else 0,
+                "grade_counts": grade_counts,
+            },
+        }
     if section in ("all", "decay"):
         # Load chronological history snapshots (oldest first).
         snaps = []
@@ -5783,6 +5929,22 @@ def api_playbook_add_task():
                 "Use anchor text describing this page; place links inside relevant content sections (not nav/footer).",
                 "Orphan pages can't accumulate internal authority — inbound links are the fix.",
             ],
+        })
+    elif method == "geo":
+        score = body.get("score", 0)
+        fixes = body.get("fixes", []) or []
+        steps = [f"Improve GEO citation readiness (current score {score}/100) so AI engines (ChatGPT, Gemini, AI Overviews) can cite this page."]
+        steps += [f"• {fx}" for fx in fixes[:5]]
+        steps.append("Then re-check the GEO scorecard in Playbook → GEO.")
+        data.update({
+            "action": "CONTENT_CLARIFY",
+            "primary_constraint": "GEO / AI Citation",
+            "expected_value": 0,
+            "confidence": 0.6,
+            "risk_level": "low",
+            "gsc_impressions": body.get("impressions", 0),
+            "implementation_summary": f"Raise GEO citation readiness ({score}/100)",
+            "implementation_steps": steps,
         })
     elif method == "pruning":
         disposition = body.get("disposition", "prune")

@@ -23,6 +23,9 @@
         <button class="pb-tab" data-tab="pruning" onclick="pbShowTab('pruning')">
             ✂️ Pruning
         </button>
+        <button class="pb-tab" data-tab="geo" onclick="pbShowTab('geo')">
+            🤖 GEO / AI Citation
+        </button>
     </div>
 
     <div id="pb-meta" class="playbook-meta"></div>
@@ -76,6 +79,33 @@
         </div>
         <div id="pb-pruning-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
     </section>
+
+    <!-- GEO / AI Citation Readiness -->
+    <section class="pb-panel" id="pb-geo">
+        <div class="pb-explain">
+            <strong>Method: GEO — Generative Engine Optimization (Török 2026 / Pinterest 2025).</strong>
+            AI answer engines (ChatGPT, Gemini, Google AI Overviews, Perplexity)
+            <em>cite</em> sources rather than rank links. Citation is driven by
+            <strong>evidence</strong> (stats/data), <strong>structure</strong>
+            (headings, lists, tables), <strong>answerability</strong> (question-form
+            content + FAQ schema), and <strong>freshness</strong>. This scores each
+            page's citation readiness and gives concrete fixes. Emerging best
+            practice — treat as directional guidance. Use <strong>AI Questions</strong>
+            to generate the questions shoppers ask an AI (Pinterest "reverse search")
+            with ready-to-paste FAQ answers.
+        </div>
+        <div id="pb-geo-summary" class="pb-geo-summary"></div>
+        <div id="pb-geo-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- GEO FAQ modal -->
+    <div id="pb-faq-modal" class="pb-modal hidden" onclick="if(event.target===this)pbCloseFaq()">
+        <div class="pb-modal-content">
+            <span class="pb-modal-close" onclick="pbCloseFaq()">&times;</span>
+            <h2>AI Questions &amp; FAQ</h2>
+            <div id="pb-faq-body"></div>
+        </div>
+    </div>
 
     <div id="pb-toast" class="pb-toast"></div>
 </div>
@@ -175,6 +205,7 @@ async function loadPlaybook() {
         renderDecay(data.decay || {});
         renderOrphans(data.orphans_clusters || {});
         renderPruning(data.pruning || []);
+        renderGeo(data.geo || {});
     } catch (e) {
         document.getElementById('pb-striking-body').innerHTML =
             `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
@@ -323,6 +354,99 @@ function renderPruning(rows) {
     html += '</tbody></table>';
     body.innerHTML = html;
 }
+
+function geoGradeClass(g) {
+    return 'geo-grade-' + (g === 'A' ? 'a' : g === 'B' ? 'b' : g === 'C' ? 'c' : g === 'D' ? 'd' : 'f');
+}
+
+function renderGeo(geo) {
+    const summary = document.getElementById('pb-geo-summary');
+    const body = document.getElementById('pb-geo-body');
+    const pages = geo.pages || [];
+    const s = geo.summary || {};
+    if (!pages.length) {
+        summary.innerHTML = '';
+        body.innerHTML = '<p class="empty-state">No GEO data yet. Run an evaluation with crawl to score citation readiness.</p>';
+        return;
+    }
+    const gc = s.grade_counts || {};
+    summary.innerHTML = `
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.avg_score ?? '—'}</span><span class="pb-geo-stat-lbl">avg readiness</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.scored ?? 0}</span><span class="pb-geo-stat-lbl">pages scored</span></div>
+        <div class="pb-geo-grades">
+            ${['A','B','C','D','F'].map(g => `<span class="geo-pill ${geoGradeClass(g)}">${g}: ${gc[g] || 0}</span>`).join('')}
+        </div>`;
+
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Page</th><th>Type</th><th>Score</th><th>Impr</th>
+        <th>Top gaps to fix</th><th></th></tr></thead><tbody>`;
+    pages.forEach((p, i) => {
+        const fixes = (p.top_findings || []).map(f =>
+            `<div class="pb-geo-fix"><strong>${escHtml(f.label)}</strong> — ${escHtml(f.fix)}</div>`).join('')
+            || '<span class="pb-missing pb-ok">Strong — no major gaps ✓</span>';
+        const note = p.format_note
+            ? `<div class="pb-geo-note">${escHtml(p.format_note)}</div>` : '';
+        html += `<tr>
+            <td><a href="${escHtml(p.url)}" target="_blank" title="${escHtml(p.url)}">${escHtml(fmtUrl(p.url))}</a></td>
+            <td>${escHtml(p.asset_type)}</td>
+            <td><span class="geo-pill ${geoGradeClass(p.grade)}">${p.grade} ${p.score}</span></td>
+            <td class="pb-num">${(p.gsc_impressions||0).toLocaleString()}</td>
+            <td>${fixes}${note}</td>
+            <td class="pb-geo-actions">
+                <button class="pb-task-btn" onclick="pbAddGeoTask(${i}, this)">+ Task</button>
+                <button class="pb-task-btn pb-task-btn-alt" onclick="pbGenQuestions('${escHtml(p.url).replace(/'/g,"\\'")}', this)">AI Questions</button>
+            </td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+async function pbAddGeoTask(idx, btn) {
+    const p = PB_DATA.geo.pages[idx];
+    const payload = { method: 'geo', url: p.url, asset_type: p.asset_type,
+        score: p.score, impressions: p.gsc_impressions,
+        fixes: (p.top_findings || []).map(f => f.fix) };
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) { if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); } pbToast(data.message + ' — see Task Board'); }
+        else { if (btn) { btn.disabled = false; btn.textContent = '+ Task'; } pbToast(data.error || 'Failed', true); }
+    } catch (e) { if (btn) { btn.disabled = false; btn.textContent = '+ Task'; } pbToast('Failed: ' + e.message, true); }
+}
+
+async function pbGenQuestions(url, btn) {
+    const modal = document.getElementById('pb-faq-modal');
+    const fbody = document.getElementById('pb-faq-body');
+    fbody.innerHTML = '<p class="pb-loading">Generating questions shoppers ask AI… (a few seconds)</p>';
+    modal.classList.remove('hidden');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/geo/questions', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }) });
+        const data = await res.json();
+        if (data.error) { fbody.innerHTML = `<p class="empty-state">${escHtml(data.error)}</p>`; return; }
+        const faq = data.faq || [];
+        let html = `<p class="pb-geo-note">${escHtml(data.note || 'Add these as an FAQ section with FAQPage JSON-LD schema.')}</p>`;
+        html += '<ol class="pb-faq-list">';
+        faq.forEach(q => {
+            html += `<li>
+                <div class="pb-faq-q">${escHtml(q.question)} <span class="pb-badge">${escHtml(q.intent || '')}</span></div>
+                <div class="pb-faq-a">${escHtml(q.answer)}</div>
+            </li>`;
+        });
+        html += '</ol>';
+        fbody.innerHTML = html;
+    } catch (e) {
+        fbody.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
+    } finally { if (btn) btn.disabled = false; }
+}
+
+function pbCloseFaq() { document.getElementById('pb-faq-modal').classList.add('hidden'); }
 
 document.addEventListener('DOMContentLoaded', loadPlaybook);
 </script>
