@@ -6156,6 +6156,7 @@ def api_playbook_add_task():
         current = body.get("current_clicks", 0)
         drop = body.get("drop_pct", 0)
         peak_date = body.get("peak_date", "")
+        hint = body.get("action_hint") or "Refresh the page and re-index in GSC."
         data.update({
             "action": "PAGE_REINVESTMENT",
             "primary_constraint": "Content Decay",
@@ -6165,9 +6166,9 @@ def api_playbook_add_task():
             "gsc_impressions": body.get("impressions_current", 0),
             "implementation_summary": f"Refresh decaying content (down {drop}% since {peak_date})",
             "implementation_steps": [
-                f"Refresh this page — clicks fell {drop}% from {peak} to {current} since {peak_date}.",
-                "Update stats/dates, deepen thin sections to match current top-ranking competitors, and realign the page to current search intent.",
-                "Refresh the internal links pointing to this page, then request re-indexing in GSC.",
+                f"Clicks fell {drop}% from {peak} to {current} since {peak_date}.",
+                hint,
+                "Request re-indexing in GSC once updated, then re-check in 3-4 weeks.",
             ],
         })
     elif method == "cluster_link":
@@ -6191,6 +6192,16 @@ def api_playbook_add_task():
         })
     elif method == "orphan":
         impr = body.get("impressions", 0)
+        link_from = body.get("link_from") or []
+        steps = [
+            f"This page has {impr:,} impressions but ZERO internal inbound links.",
+        ]
+        if link_from:
+            steps.append("Add contextual links to it from these specific related pages:")
+            steps += [f"• {lf.get('title', lf.get('url', ''))} ({lf.get('url', '')})" for lf in link_from]
+        else:
+            steps.append("Link it from your homepage/category nav or a relevant new article (no strong topical match found to link from).")
+        steps.append("Use anchor text that describes THIS page; place links inside content, not nav/footer.")
         data.update({
             "action": "INTERNAL_LINKING",
             "primary_constraint": "Internal Linking",
@@ -6199,11 +6210,7 @@ def api_playbook_add_task():
             "risk_level": "low",
             "gsc_impressions": impr,
             "implementation_summary": "Rescue orphan page — add internal inbound links",
-            "implementation_steps": [
-                f"This page has {impr:,} impressions but ZERO internal inbound links — add links to it from topically-related pages.",
-                "Use anchor text describing this page; place links inside relevant content sections (not nav/footer).",
-                "Orphan pages can't accumulate internal authority — inbound links are the fix.",
-            ],
+            "implementation_steps": steps,
         })
     elif method == "geo":
         score = body.get("score", 0)

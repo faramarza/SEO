@@ -171,11 +171,13 @@ async function pbAddTask(method, idx, subIdx, btn) {
         } else if (method === 'decay') {
             const r = PB_DATA.decay.decaying[idx];
             payload = { method, url: r.url, asset_type: r.asset_type, peak_clicks: r.peak_clicks,
+                cause: r.cause, action_hint: r.action_hint,
                 current_clicks: r.current_clicks, drop_pct: r.drop_pct, peak_date: r.peak_date,
                 impressions_current: r.impressions_current };
         } else if (method === 'orphan') {
             const r = PB_DATA.orphans_clusters.orphans[idx];
-            payload = { method, url: r.url, asset_type: r.asset_type, impressions: r.impressions };
+            payload = { method, url: r.url, asset_type: r.asset_type, impressions: r.impressions,
+                action_hint: r.action_hint, link_from: r.link_from };
         } else if (method === 'cluster_link') {
             const c = PB_DATA.orphans_clusters.clusters[idx];
             const m = c.missing_pillar_links[subIdx];
@@ -280,7 +282,7 @@ function renderDecay(decay) {
         html += `<tr>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
                 <span class="pb-badge">${escHtml(r.asset_type)}</span>
-                <div class="pb-todo">→ Refresh it: update facts &amp; dates, deepen the thin sections to match current top-ranking pages, refresh the internal links pointing here, then request re-indexing in GSC.</div></td>
+                <div class="pb-todo">→ ${escHtml(r.action_hint || 'Refresh the page and re-index in GSC.')}</div></td>
             <td class="pb-num">${r.peak_clicks} → ${r.current_clicks}</td>
             <td class="pb-num pb-drop">−${r.drop_pct}%</td>
             <td class="pb-num">${r.position_peak} ${posMove} ${r.position_current}</td>
@@ -306,7 +308,8 @@ function renderOrphans(oc) {
             <th>Impr</th><th>Clicks</th><th>Pos</th><th></th></tr></thead><tbody>`;
         orphans.forEach((o, i) => {
             html += `<tr>
-                <td><a href="${escHtml(o.url)}" target="_blank" title="${escHtml(o.url)}">${escHtml(fmtUrl(o.url))}</a></td>
+                <td><a href="${escHtml(o.url)}" target="_blank" title="${escHtml(o.url)}">${escHtml(fmtUrl(o.url))}</a>
+                    <div class="pb-todo">→ ${escHtml(o.action_hint || 'Add internal links to this page from related pages.')}</div></td>
                 <td>${escHtml(o.asset_type)}</td>
                 <td class="pb-num">${o.impressions.toLocaleString()}</td>
                 <td class="pb-num">${o.clicks}</td>

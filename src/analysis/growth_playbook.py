@@ -283,6 +283,28 @@ def find_orphans_and_clusters(results, orphan_min_impressions=20,
             continue
         if page["gsc_impressions"] < orphan_min_impressions:
             continue
+        # Ground the fix: name the ACTUAL pages that should link here — the
+        # ones with the most shared query terms that don't already link to it.
+        candidates = []
+        for onorm, other in graph.items():
+            if onorm == norm or _is_system_page(other["url"], system_disallow):
+                continue
+            overlap = len(page["query_words"] & other["query_words"])
+            if overlap >= 2 and norm not in other["outlink_norms"]:
+                candidates.append((overlap, other["gsc_impressions"], other["url"], other["title"]))
+        candidates.sort(reverse=True)
+        link_from = [{"url": c[2], "title": c[3], "shared_terms": c[0]} for c in candidates[:3]]
+        if link_from:
+            names = ", ".join(c["title"] for c in link_from)
+            action_hint = (
+                f"This page has demand ({page['gsc_impressions']:,} impr) but ZERO internal "
+                f"inbound links. Add contextual links to it from these related pages that "
+                f"share its topics: {names}. Use anchor text describing THIS page.")
+        else:
+            action_hint = (
+                f"This page has demand ({page['gsc_impressions']:,} impr) but ZERO internal "
+                f"inbound links, and no strong topical match to link from — link it from your "
+                f"homepage/category nav or a relevant new article.")
         orphans.append({
             "url": page["url"],
             "title": page["title"],
@@ -290,6 +312,8 @@ def find_orphans_and_clusters(results, orphan_min_impressions=20,
             "impressions": page["gsc_impressions"],
             "clicks": page["gsc_clicks"],
             "position": page["gsc_position"],
+            "link_from": link_from,
+            "action_hint": action_hint,
         })
     orphans.sort(key=lambda o: o["impressions"], reverse=True)
 
@@ -478,6 +502,34 @@ def find_content_decay(snapshots, min_peak_clicks=3, decay_ratio=0.6, limit=50,
         drop_pct = round((1 - current / peak) * 100) if peak else 0
         impr = s["impr"]
         pos = s["pos"]
+        pos_now = round(pos[-1], 1) if pos else 0
+        pos_peak = round(pos[peak_idx], 1) if peak_idx < len(pos) else 0
+        impr_now = impr[-1] if impr else 0
+        impr_peak = impr[peak_idx] if peak_idx < len(impr) else 0
+
+        # Grounded diagnosis of WHY it decayed, from the actual signature.
+        if pos_now and pos_peak and pos_now >= pos_peak + 3:
+            cause = "ranking_slip"
+            action_hint = (
+                f"You slipped from position {pos_peak} to {pos_now} — a competitor likely "
+                f"out-updated you. Deepen the content to match what now ranks, add fresh "
+                f"data/examples, update the visible 'last updated' date, and add internal "
+                f"links to this page from your strongest related pages.")
+        elif impr_peak and impr_now < impr_peak * 0.7:
+            cause = "demand_or_coverage_drop"
+            action_hint = (
+                f"Impressions fell from {impr_peak:,} to {impr_now:,} — Google shows this "
+                f"page for fewer queries (lost coverage or seasonal demand). Re-check search "
+                f"intent, expand topical coverage to the facets people now search, and "
+                f"refresh internal links.")
+        else:
+            cause = "ctr_erosion"
+            action_hint = (
+                f"Position roughly held ({pos_now}) but clicks fell {drop_pct}% — this is CTR "
+                f"erosion (new SERP features, a stale-looking listing, or seasonality). "
+                f"Refresh the title/meta and add a current date FIRST; only rewrite the body "
+                f"if the content itself is dated.")
+
         decaying.append({
             "url": url,
             "asset_type": s["asset_type"],
@@ -486,10 +538,12 @@ def find_content_decay(snapshots, min_peak_clicks=3, decay_ratio=0.6, limit=50,
             "drop_pct": drop_pct,
             "peak_date": s["dates"][peak_idx],
             "current_date": s["dates"][-1],
-            "impressions_current": impr[-1] if impr else 0,
-            "impressions_peak": impr[peak_idx] if peak_idx < len(impr) else 0,
-            "position_current": round(pos[-1], 1) if pos else 0,
-            "position_peak": round(pos[peak_idx], 1) if peak_idx < len(pos) else 0,
+            "impressions_current": impr_now,
+            "impressions_peak": impr_peak,
+            "position_current": pos_now,
+            "position_peak": pos_peak,
+            "cause": cause,
+            "action_hint": action_hint,
             "clicks_series": clicks,
         })
     # Biggest losers (by absolute clicks lost) first.
