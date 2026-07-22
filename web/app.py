@@ -2640,7 +2640,7 @@ If nothing is broken or improvable:
                 timeout=api_timeout,
             )
             if api_response.status_code != 200:
-                print(f"[AI-ERROR] Anthropic {api_response.status_code}: {api_response.text[:800]}")
+                print(f"[AI-ERROR] Anthropic {api_response.status_code}: {api_response.text[:800]}", flush=True)
                 return jsonify({"error": f"Anthropic API error: {api_response.text}"}), 500
             result = api_response.json()
             # Extract text from content blocks (skip thinking blocks for Fable 5)
@@ -2886,7 +2886,7 @@ If nothing is broken or improvable:
 
     except Exception as e:
         import traceback
-        print(f"[AI-ERROR] recommend failed for {url}: {e}")
+        print(f"[AI-ERROR] recommend failed for {url}: {e}", flush=True)
         traceback.print_exc()
         return jsonify({"error": f"AI request failed: {e}"}), 500
 
@@ -5407,7 +5407,10 @@ def api_ai_batch_analyze():
                             if resp.status_code == 200:
                                 pm = resp.get_json()
                                 opp["page_metadata"] = pm
+                            else:
+                                print(f"[AI-ERROR] batch fetch {short_url} HTTP {resp.status_code}: {resp.get_data(as_text=True)[:400]}", flush=True)
                     except Exception as e:
+                        print(f"[AI-ERROR] batch fetch exception {short_url}: {e}", flush=True)
                         job_state["message"] = f"[{i+1}/{len(actionable)}] Fetch failed for {short_url}: {e}"
                         errors += 1
                         job_state["progress"] = i + 1
@@ -5416,6 +5419,7 @@ def api_ai_batch_analyze():
                 # Step 2: Check SERP data availability
                 serp_summary = serp_client.get_serp_summary_for_opportunity(opp)
                 if not serp_summary or not serp_summary.get("serp_results"):
+                    print(f"[AI-ERROR] batch skip {short_url}: no SERP data", flush=True)
                     job_state["message"] = f"[{i+1}/{len(actionable)}] Skipping {short_url} — no SERP data yet"
                     job_state["progress"] = i + 1
                     continue
@@ -5441,13 +5445,14 @@ def api_ai_batch_analyze():
                                     )
                             else:
                                 err_msg = ai_data.get("error", "Unknown error")
+                                print(f"[AI-ERROR] batch {short_url} success=false: {err_msg}", flush=True)
                                 job_state["message"] = f"[{i+1}/{len(actionable)}] {short_url}: {err_msg}"
                                 errors += 1
                         else:
-                            print(f"[AI-ERROR] batch {short_url} HTTP {resp.status_code}: {resp.get_data(as_text=True)[:500]}")
+                            print(f"[AI-ERROR] batch {short_url} HTTP {resp.status_code}: {resp.get_data(as_text=True)[:500]}", flush=True)
                             errors += 1
                 except Exception as e:
-                    print(f"[AI-ERROR] batch exception for {short_url}: {e}")
+                    print(f"[AI-ERROR] batch exception for {short_url}: {e}", flush=True)
                     job_state["message"] = f"[{i+1}/{len(actionable)}] AI failed for {short_url}: {e}"
                     errors += 1
 
