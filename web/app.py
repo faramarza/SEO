@@ -4263,6 +4263,84 @@ Return JSON exactly:
     return jsonify(result)
 
 
+@app.route("/api/geo/demand-coverage", methods=["POST"])
+def api_geo_demand_coverage():
+    """Latent Demand Coverage (MindReader / ACL 2026 method).
+
+    Decompose the page's primary query into its latent demand facets — the
+    underlying reasoning a generative engine must satisfy to cite a source —
+    then judge whether the page's current content covers each facet, and give
+    the specific content to add for the gaps. This is the lightweight,
+    prompt-driven form of MindReader's decomposition + reasoning-coverage idea
+    (the heavy RL step isn't reproduced; the actionable diagnosis is).
+    """
+    data = request.json or {}
+    url = data.get("url")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    match = _find_eval_result(url)
+    if not match:
+        return jsonify({"error": "page not found in latest evaluation"}), 404
+    pm = match.get("page_metadata", {})
+    config = load_config()
+
+    queries = match.get("top_queries", [])
+    primary = max(queries, key=lambda q: q.get("impressions", 0) or 0).get("query", "") if queries else ""
+    query_lines = "\n".join(
+        f'  - "{q.get("query","")}" ({q.get("impressions",0)} impr)' for q in queries[:10]
+    ) or "  (no GSC query data)"
+
+    system_message = (
+        "You are a Generative Engine Optimization strategist applying the "
+        "MindReader method: a query hides multiple LATENT demand facets (the "
+        "underlying reasons and decision factors a user really wants resolved), "
+        "and a generative engine (ChatGPT, Gemini, AI Overviews, Perplexity) "
+        "cites the source that best COVERS THE REASONING behind those facets. "
+        "You decompose demand and audit reasoning coverage. Return ONLY valid JSON."
+    )
+    user_prompt = f"""PAGE
+url: {url}
+title: {pm.get('title','')}
+type: {match.get('asset_type','')}
+primary_query: {primary}
+current_content: {(pm.get('content_preview','') or '')[:900]}
+headings: {", ".join(pm.get('headings', [])[:12]) or "(none captured)"}
+
+OTHER REAL QUERIES:
+{query_lines}
+
+TASK
+1. Decompose the primary query into 4-6 LATENT DEMAND FACETS — the distinct
+   underlying things a user actually wants resolved when they search it (the
+   reasoning an AI must satisfy to answer well). Be specific to this product/topic.
+2. For EACH facet, judge how well the CURRENT content covers the reasoning:
+   "covered" | "partial" | "missing", with a one-line reason grounded in the
+   content/headings shown.
+3. For partial/missing facets, give the SPECIFIC content to add (1-2 sentences of
+   the actual reasoning/fact the page should state) so it becomes the citable source.
+
+Return JSON exactly:
+{{
+  "primary_query": "{primary}",
+  "facets": [
+    {{"facet": "...", "coverage": "covered|partial|missing", "reason": "...", "add": "..."}}
+  ],
+  "summary": "one sentence on the biggest reasoning gap to close first"
+}}"""
+
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1500)
+    if err:
+        print(f"[GEO-DEMAND] {url} error: {err}", flush=True)
+        return jsonify({"error": err}), 502
+    # Add a coverage score for display.
+    facets = (result or {}).get("facets", []) if isinstance(result, dict) else []
+    if facets:
+        weight = {"covered": 1.0, "partial": 0.5, "missing": 0.0}
+        pct = round(sum(weight.get(f.get("coverage", "missing"), 0) for f in facets) / len(facets) * 100)
+        result["coverage_pct"] = pct
+    return jsonify(result)
+
+
 @app.route("/api/page-quality/ai-copy", methods=["POST"])
 def api_page_quality_ai_copy():
     """AI copy layer — write improved title/meta/description for one page."""

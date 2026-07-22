@@ -395,6 +395,7 @@ function renderGeo(geo) {
             <td class="pb-geo-actions">
                 <button class="pb-task-btn" onclick="pbAddGeoTask(${i}, this)">+ Task</button>
                 <button class="pb-task-btn pb-task-btn-alt" onclick="pbGenQuestions('${escHtml(p.url).replace(/'/g,"\\'")}', this)">AI Questions</button>
+                <button class="pb-task-btn pb-task-btn-alt2" onclick="pbDemandCoverage('${escHtml(p.url).replace(/'/g,"\\'")}', this)">Demand Coverage</button>
             </td>
         </tr>`;
     });
@@ -421,6 +422,7 @@ async function pbAddGeoTask(idx, btn) {
 async function pbGenQuestions(url, btn) {
     const modal = document.getElementById('pb-faq-modal');
     const fbody = document.getElementById('pb-faq-body');
+    document.querySelector('#pb-faq-modal h2').textContent = 'AI Questions & FAQ';
     fbody.innerHTML = '<p class="pb-loading">Generating questions shoppers ask AI… (a few seconds)</p>';
     modal.classList.remove('hidden');
     if (btn) btn.disabled = true;
@@ -447,6 +449,42 @@ async function pbGenQuestions(url, btn) {
 }
 
 function pbCloseFaq() { document.getElementById('pb-faq-modal').classList.add('hidden'); }
+
+async function pbDemandCoverage(url, btn) {
+    const modal = document.getElementById('pb-faq-modal');
+    const fbody = document.getElementById('pb-faq-body');
+    document.querySelector('#pb-faq-modal h2').textContent = 'Latent Demand Coverage';
+    fbody.innerHTML = '<p class="pb-loading">Decomposing the query into latent demands and auditing reasoning coverage… (a few seconds)</p>';
+    modal.classList.remove('hidden');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/geo/demand-coverage', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }) });
+        const data = await res.json();
+        if (data.error) { fbody.innerHTML = `<p class="empty-state">${escHtml(data.error)}</p>`; return; }
+        const facets = data.facets || [];
+        const covClass = data.coverage_pct >= 75 ? 'geo-grade-a' : data.coverage_pct >= 50 ? 'geo-grade-c' : 'geo-grade-f';
+        let html = `<p class="pb-geo-note">Primary query: <strong>${escHtml(data.primary_query || '')}</strong>
+            &nbsp;·&nbsp; Reasoning coverage: <span class="geo-pill ${covClass}">${data.coverage_pct ?? '—'}%</span></p>
+            <p class="pb-geo-note">${escHtml(data.summary || '')}</p>`;
+        html += '<div class="pb-facets">';
+        facets.forEach(f => {
+            const cov = (f.coverage || 'missing').toLowerCase();
+            const badge = cov === 'covered' ? 'geo-grade-a' : cov === 'partial' ? 'geo-grade-c' : 'geo-grade-f';
+            html += `<div class="pb-facet">
+                <div class="pb-facet-head"><span class="geo-pill ${badge}">${escHtml(cov)}</span>
+                    <strong>${escHtml(f.facet)}</strong></div>
+                <div class="pb-facet-reason">${escHtml(f.reason || '')}</div>
+                ${cov !== 'covered' && f.add ? `<div class="pb-facet-add"><span class="pb-facet-add-lbl">Add:</span> ${escHtml(f.add)}</div>` : ''}
+            </div>`;
+        });
+        html += '</div>';
+        fbody.innerHTML = html;
+    } catch (e) {
+        fbody.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
+    } finally { if (btn) btn.disabled = false; }
+}
 
 document.addEventListener('DOMContentLoaded', loadPlaybook);
 </script>

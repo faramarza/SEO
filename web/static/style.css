@@ -2844,3 +2844,14 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .pb-faq-list li { margin-bottom: 14px; }
 .pb-faq-q { font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
 .pb-faq-a { font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+
+/* Playbook — latent demand coverage (MindReader) */
+.pb-task-btn-alt2 { background: #0891b2; }
+.pb-facets { margin-top: 12px; }
+.pb-facet { border: 1px solid var(--border-color); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.pb-facet-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.pb-facet-head strong { color: var(--text-primary); }
+.pb-facet-reason { font-size: 13px; color: var(--text-secondary); line-height: 1.45; }
+.pb-facet-add { font-size: 13px; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(8,145,178,.08); color: var(--text-secondary); line-height: 1.5; }
+.pb-facet-add-lbl { font-weight: 700; color: #0891b2; }
