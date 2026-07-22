@@ -932,6 +932,13 @@ async function loadPageQuality(idx, url) {
         const res = await fetch('/api/page-quality?url=' + encodeURIComponent(url));
         const sc = await res.json();
         if (sc.error) { panel.innerHTML = `<h4>Page Quality Scorecard</h4><p class="empty-state">${escHtml(sc.error)}</p>`; return; }
+        // Honest limited state: not crawled ⇒ no HTML ⇒ no score. Don't show a
+        // score or "no issues" (both mislead) — prompt to crawl the page.
+        if (sc.limited) {
+            panel.innerHTML = `<h4>Page Quality Scorecard <span style="font-size:11px;color:#d97706;font-weight:600;">not assessed</span></h4>
+                <p class="empty-state" style="text-align:left;line-height:1.5;">This page hasn't been crawled, so its HTML (title, H1, meta, canonical, schema, content) couldn't be checked — there's no score yet. Click <strong>Re-fetch</strong> above to fetch this page, or run <strong>Run with Crawl</strong>, for real quality checks.</p>`;
+            return;
+        }
         const gradeColor = sc.score >= 85 ? '#059669' : sc.score >= 55 ? '#d97706' : '#dc2626';
         const dims = ['seo','revenue_ctr','cro'];
         const grouped = dims.map(d => {

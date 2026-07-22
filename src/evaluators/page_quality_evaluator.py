@@ -158,34 +158,39 @@ def evaluate_page_quality(
         })
 
     # ── SEO ──────────────────────────────────────────────
-    if not title.strip():
-        penalize(12, "seo", "high", "Missing title tag",
-                 "No <title> found.", "Add a 50–60 char title targeting the page's primary query.")
-    else:
-        n = len(title)
-        if n > 60:
-            penalize(4, "seo", "medium", "Title too long",
-                     f"{n} chars — Google truncates past ~60.", "Trim the title to ≤60 characters.")
-        elif n < 30:
-            penalize(3, "seo", "low", "Title very short",
-                     f"{n} chars — leaving CTR/keyword room on the table.", "Expand the title toward 50–60 chars.")
+    # Element-presence checks require crawl data. Without it (GSC/GA4-only),
+    # the title/meta/H1/canonical fields are simply empty because we never
+    # fetched the HTML — that is NOT evidence they're missing. Only run these
+    # when we actually have the page's HTML.
+    if has_crawl_data:
+        if not title.strip():
+            penalize(12, "seo", "high", "Missing title tag",
+                     "No <title> found.", "Add a 50–60 char title targeting the page's primary query.")
+        else:
+            n = len(title)
+            if n > 60:
+                penalize(4, "seo", "medium", "Title too long",
+                         f"{n} chars — Google truncates past ~60.", "Trim the title to ≤60 characters.")
+            elif n < 30:
+                penalize(3, "seo", "low", "Title very short",
+                         f"{n} chars — leaving CTR/keyword room on the table.", "Expand the title toward 50–60 chars.")
 
-    if not meta_description.strip():
-        penalize(8, "seo", "medium", "Missing meta description",
-                 "No meta description — Google auto-generates a snippet.", "Write a 140–160 char description with a benefit + call to action.")
-    else:
-        n = len(meta_description)
-        if n > 165 or n < 70:
-            penalize(3, "seo", "low", "Meta description length off",
-                     f"{n} chars (ideal 140–160).", "Rewrite the meta description to ~150 chars.")
+        if not meta_description.strip():
+            penalize(8, "seo", "medium", "Missing meta description",
+                     "No meta description — Google auto-generates a snippet.", "Write a 140–160 char description with a benefit + call to action.")
+        else:
+            n = len(meta_description)
+            if n > 165 or n < 70:
+                penalize(3, "seo", "low", "Meta description length off",
+                         f"{n} chars (ideal 140–160).", "Rewrite the meta description to ~150 chars.")
 
-    if not h1.strip():
-        penalize(8, "seo", "high", "Missing H1",
-                 "No H1 heading detected.", "Add a single H1 with the page's primary keyword.")
+        if not h1.strip():
+            penalize(8, "seo", "high", "Missing H1",
+                     "No H1 heading detected.", "Add a single H1 with the page's primary keyword.")
 
-    if not (canonical_url or "").strip():
-        penalize(5, "seo", "medium", "No canonical tag",
-                 "No canonical URL declared.", "Add a self-referencing canonical tag.")
+        if not (canonical_url or "").strip():
+            penalize(5, "seo", "medium", "No canonical tag",
+                     "No canonical URL declared.", "Add a self-referencing canonical tag.")
 
     thin_threshold = 150 if asset_type == "category" else 120
     if has_crawl_data and word_count and word_count < thin_threshold:
