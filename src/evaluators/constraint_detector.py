@@ -105,6 +105,12 @@ class ConstraintDetector:
     - NEVER uses Ads data to infer lack of demand or exclude products
     """
 
+    # Grammatical filler for query-in-title coverage checks (grounded advice).
+    _VIS_STOP = {
+        "for", "the", "and", "with", "how", "what", "why", "are", "can",
+        "from", "that", "this", "your", "our", "all", "buy", "best", "top",
+    }
+
     def __init__(
         self,
         aov: float = 53.19,
@@ -338,6 +344,36 @@ class ConstraintDetector:
         # position represents blocked demand worth surfacing to operators.
         if impressions >= 50 and position > 10:
             severity = "critical" if impressions >= 5000 else "high" if impressions >= 1000 else "medium"
+            # Ground the recommendation in what the page ALREADY has, rather than
+            # a blanket "improve on-page SEO" (which is wrong for well-optimized
+            # pages that just need authority).
+            top_q = (asset.gsc.top_queries[0].query
+                     if asset.gsc and asset.gsc.top_queries else "")
+            title_h1 = ((getattr(asset, "title", "") or "") + " "
+                        + (getattr(asset, "h1", "") or "")).lower()
+            q_words = [w for w in top_q.lower().split()
+                       if len(w) > 2 and w not in self._VIS_STOP]
+            q_covered = bool(q_words) and (
+                sum(1 for w in q_words if w in title_h1) / len(q_words) >= 0.6)
+            wc = getattr(asset, "word_count", 0) or 0
+            inlinks = getattr(asset, "inlinks", 0) or 0
+            if q_covered:
+                rec_action = (
+                    f"'{top_q}' is already in the title/H1 — the lever at position "
+                    f"{position:.0f} is AUTHORITY: add internal links from strong related "
+                    f"pages" + (f" (only {inlinks} internal inbound links today)" if inlinks < 3 else "")
+                    + " and earn a few relevant external links. Re-adding the keyword won't help.")
+            elif wc and wc < 300:
+                rec_action = (
+                    f"Thin content ({wc} words) at position {position:.0f} — expand it with the "
+                    f"subtopics searchers want, and make sure '{top_q}' is in the title, H1 and "
+                    f"opening paragraph.")
+            else:
+                rec_action = (
+                    f"Work '{top_q}' into the title, H1 and opening paragraph"
+                    + (", " if top_q else "")
+                    + f"then add internal links from strong related pages to lift position "
+                    f"{position:.0f} onto page 1.")
             constraints.append(ConstraintSignal(
                 constraint_type=ConstraintType.VISIBILITY_BLOCKED,
                 severity=severity,
@@ -348,7 +384,7 @@ class ConstraintDetector:
                     "clicks": clicks,
                     "potential_clicks_at_pos_5": int(impressions * 0.05),  # ~5% CTR at pos 5
                 },
-                recommended_action="Improve on-page SEO and internal linking to boost ranking",
+                recommended_action=rec_action,
                 reversibility="slow",
             ))
 
@@ -717,9 +753,9 @@ class ConstraintDetector:
 
         for constraint in constraints:
             if constraint.constraint_type == ConstraintType.VISIBILITY_BLOCKED:
+                # recommended_action is already grounded in the page's real
+                # state (query-in-title, thin content, inlink count).
                 recommendations.append(f"SEO: {constraint.recommended_action}")
-                if asset.gsc.impressions_28d >= 2000:
-                    recommendations.append("Consider internal linking from high-authority pages")
 
             elif constraint.constraint_type == ConstraintType.CTR_SUPPRESSED:
                 recommendations.append(f"TITLE TEST: {constraint.recommended_action}")
