@@ -3955,6 +3955,115 @@ def api_ads_recommendations():
     })
 
 
+@app.route("/api/ads/relevance-audit")
+def api_ads_relevance_audit():
+    """Paid-search relevance & wasted-spend auditor.
+
+    Implements the actionable core of Walmart AdTech's LLM ad-relevance work
+    (Rokon et al. 2025) without the LoRA fine-tuning: pull the Google Ads
+    search-term report, classify each term's relevance to the business
+    (relevant / partial / irrelevant) with the LLM, and flag irrelevant terms
+    that spent money without converting as negative-keyword candidates —
+    surfacing wasted spend.
+    """
+    config = load_config()
+    ads_config = config.get("data_sources", {}).get("google_ads", {})
+    if not ads_config.get("customer_id"):
+        return jsonify({"error": "Google Ads not configured"})
+    creds_path = ads_config.get("config_path", "google-ads.yaml")
+    if not Path(creds_path).is_absolute():
+        creds_path = str(Path(__file__).parent.parent / creds_path)
+
+    try:
+        client = GoogleAdsClient(
+            credentials_path=creds_path,
+            customer_id=ads_config.get("customer_id"),
+            login_customer_id=ads_config.get("login_customer_id"),
+            brand_terms=ads_config.get("brand_terms", []),
+        )
+        account = client.fetch_search_terms(days=28, min_impressions=10)
+    except Exception as e:
+        return jsonify({"error": f"Ads fetch failed: {e}"})
+
+    terms = list(account.queries.values())
+    if not terms:
+        return jsonify({"error": "No search-term data (no active Search campaigns, no spend, or API returned nothing).",
+                        "terms": []})
+
+    # Classify the biggest spenders (cost-weighted) to control latency/cost.
+    terms.sort(key=lambda q: q.cost, reverse=True)
+    top = terms[:40]
+
+    biz = config.get("business_context", {})
+    families = biz.get("product_families", [])
+    term_lines = "\n".join(
+        f'{i+1}. "{t.query}" — cost ${t.cost:.2f}, {t.conversions:.1f} conv, ad group: {t.ad_group_name or "?"}'
+        for i, t in enumerate(top)
+    )
+    system_message = (
+        "You are a paid-search relevance auditor. Given an advertiser's business "
+        "and the search terms that triggered its Google Ads, classify each term's "
+        "relevance to what the business actually sells: 'relevant' (a real buyer "
+        "of these products), 'partial' (loosely related, mixed intent), or "
+        "'irrelevant' (wrong product, wrong intent, or wrong audience — wasted "
+        "spend). Return ONLY valid JSON."
+    )
+    user_prompt = f"""BUSINESS
+Alphabet Trains & Toys — an e-commerce store selling: {', '.join(families) or "children's educational toys, wooden trains, Montessori toys"}.
+Buyers are parents/gift-givers shopping for kids' toys.
+
+SEARCH TERMS (that triggered our ads in the last 28 days):
+{term_lines}
+
+TASK
+Classify EACH numbered term. 'irrelevant' = someone unlikely to ever buy our
+toys (wrong product category, info-only with no purchase intent for us, job
+seekers, wrong brand, adult/unrelated items). Give a short reason.
+
+Return JSON exactly:
+{{"classifications": [{{"n": 1, "relevance": "relevant|partial|irrelevant", "reason": "..."}}]}}"""
+
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=2200)
+    if err or not isinstance(result, dict):
+        print(f"[ADS-RELEVANCE] classify error: {err}", flush=True)
+        return jsonify({"error": err or "classification failed"})
+
+    by_n = {c.get("n"): c for c in result.get("classifications", []) if isinstance(c, dict)}
+    rows = []
+    wasted = 0.0
+    for i, t in enumerate(top):
+        c = by_n.get(i + 1, {})
+        rel = (c.get("relevance") or "partial").lower()
+        is_waste = rel == "irrelevant" and t.cost > 0 and t.conversions == 0
+        if is_waste:
+            wasted += t.cost
+        rows.append({
+            "query": t.query,
+            "cost": round(t.cost, 2),
+            "clicks": t.clicks,
+            "conversions": round(t.conversions, 1),
+            "campaign": t.campaign_name,
+            "ad_group": t.ad_group_name,
+            "relevance": rel,
+            "reason": c.get("reason", ""),
+            "negative_candidate": is_waste,
+        })
+    # Order: negative candidates first (by cost), then partial, then relevant.
+    order = {"irrelevant": 0, "partial": 1, "relevant": 2}
+    rows.sort(key=lambda r: (order.get(r["relevance"], 1), -r["cost"]))
+    counts = {"relevant": 0, "partial": 0, "irrelevant": 0}
+    for r in rows:
+        counts[r["relevance"]] = counts.get(r["relevance"], 0) + 1
+    return jsonify({
+        "terms": rows,
+        "analyzed": len(top),
+        "total_terms": len(terms),
+        "wasted_spend": round(wasted, 2),
+        "negative_candidates": sum(1 for r in rows if r["negative_candidate"]),
+        "counts": counts,
+    })
+
+
 @app.route("/api/ads/execute", methods=["POST"])
 def api_ads_execute():
     """Execute one approved paid action. Dry-run unless the caller passes

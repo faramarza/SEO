@@ -26,6 +26,9 @@
         <button class="pb-tab" data-tab="geo" onclick="pbShowTab('geo')">
             🤖 GEO / AI Citation
         </button>
+        <button class="pb-tab" data-tab="ads" onclick="pbShowTab('ads')">
+            💸 Ad Relevance
+        </button>
     </div>
 
     <div id="pb-meta" class="playbook-meta"></div>
@@ -96,6 +99,23 @@
         </div>
         <div id="pb-geo-summary" class="pb-geo-summary"></div>
         <div id="pb-geo-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- Ad Relevance / Wasted Spend -->
+    <section class="pb-panel" id="pb-ads">
+        <div class="pb-explain">
+            <strong>Method: Paid-Search Relevance Auditor (Walmart AdTech / Rokon 2025).</strong>
+            Walmart fine-tuned an LLM to classify whether a search query is
+            <em>relevant</em> to an ad. This runs the actionable core: it pulls your
+            Google Ads <strong>search-term report</strong>, classifies each term's
+            relevance to what you actually sell (relevant / partial / irrelevant),
+            and flags <strong>irrelevant terms that spent money without converting</strong>
+            as negative-keyword candidates — surfacing wasted ad spend. Live +
+            AI-classified, so run it on demand.
+        </div>
+        <button class="pb-task-btn" id="pb-ads-run" onclick="pbRunAdsAudit(this)" style="margin-bottom:14px;">Run Audit</button>
+        <div id="pb-ads-summary" class="pb-geo-summary"></div>
+        <div id="pb-ads-body" class="pb-body"></div>
     </section>
 
     <!-- GEO FAQ modal -->
@@ -449,6 +469,47 @@ async function pbGenQuestions(url, btn) {
 }
 
 function pbCloseFaq() { document.getElementById('pb-faq-modal').classList.add('hidden'); }
+
+async function pbRunAdsAudit(btn) {
+    const summary = document.getElementById('pb-ads-summary');
+    const body = document.getElementById('pb-ads-body');
+    summary.innerHTML = '';
+    body.innerHTML = '<p class="pb-loading">Fetching search-term report and classifying relevance… (10-20s)</p>';
+    if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+    try {
+        const res = await fetch('/api/ads/relevance-audit');
+        const data = await res.json();
+        if (data.error) { body.innerHTML = `<p class="empty-state">${escHtml(data.error)}</p>`; return; }
+        const c = data.counts || {};
+        summary.innerHTML = `
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val" style="color:#dc2626;">$${(data.wasted_spend||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">wasted spend (28d)</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${data.negative_candidates||0}</span><span class="pb-geo-stat-lbl">negative-kw candidates</span></div>
+            <div class="pb-geo-grades">
+                <span class="geo-pill geo-grade-f">Irrelevant: ${c.irrelevant||0}</span>
+                <span class="geo-pill geo-grade-c">Partial: ${c.partial||0}</span>
+                <span class="geo-pill geo-grade-a">Relevant: ${c.relevant||0}</span>
+            </div>`;
+        const rows = data.terms || [];
+        let html = `<p class="pb-geo-note">Analyzed the top ${data.analyzed} of ${data.total_terms} search terms by spend. Add flagged terms as negative keywords in Google Ads to stop the waste.</p>`;
+        html += `<table class="pb-table"><thead><tr>
+            <th>Search term</th><th>Relevance</th><th>Cost</th><th>Clicks</th><th>Conv</th><th>Why</th></tr></thead><tbody>`;
+        rows.forEach(r => {
+            const badge = r.relevance === 'relevant' ? 'geo-grade-a' : r.relevance === 'partial' ? 'geo-grade-c' : 'geo-grade-f';
+            html += `<tr>
+                <td><strong>${escHtml(r.query)}</strong>${r.negative_candidate ? ' <span class="pb-disp pb-disp-prune">NEGATIVE KW</span>' : ''}</td>
+                <td><span class="geo-pill ${badge}">${escHtml(r.relevance)}</span></td>
+                <td class="pb-num">$${r.cost}</td>
+                <td class="pb-num">${r.clicks}</td>
+                <td class="pb-num">${r.conversions}</td>
+                <td>${escHtml(r.reason)}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
+    } finally { if (btn) { btn.disabled = false; btn.textContent = 'Run Audit'; } }
+}
 
 async function pbDemandCoverage(url, btn) {
     const modal = document.getElementById('pb-faq-modal');
