@@ -8,7 +8,10 @@
     <p style="margin: 0; color: var(--text-muted); font-size: 13px;">
         Approve, then deploy changes and click "Mark as Done" to start the evaluation clock.
     </p>
-    <button class="btn btn-small" id="btn-check-measurements" onclick="runAutoMeasure()">Check Measurements</button>
+    <div style="display:flex; gap:8px;">
+        <button class="btn btn-small btn-secondary" onclick="clearProposed()">Clear Proposed</button>
+        <button class="btn btn-small" id="btn-check-measurements" onclick="runAutoMeasure()">Check Measurements</button>
+    </div>
 </div>
 
 <div class="task-board">
@@ -955,6 +958,23 @@ document.getElementById('reject-form').addEventListener('submit', async (e) => {
         showToast('Error: ' + (data.error || 'Unknown error'), 'error');
     }
 });
+
+async function clearProposed() {
+    const n = document.getElementById('count-proposed').textContent;
+    if (!confirm(`Clear all ${n} Proposed tasks? This removes tasks awaiting a decision (In Progress and Closed are kept).`)) return;
+    try {
+        const res = await fetch('/api/tasks/clear', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope: 'proposed' }) });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`Cleared ${data.removed} proposed task(s)`, 'info');
+            loadTasks();
+        } else {
+            showToast('Error: ' + (data.error || 'clear failed'), 'error');
+        }
+    } catch (e) { showToast('Clear failed: ' + e.message, 'error'); }
+}
 
 function showSendBackModal(actionId) {
     document.getElementById('sendback-action-id').value = actionId;

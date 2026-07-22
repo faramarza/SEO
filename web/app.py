@@ -3295,6 +3295,21 @@ def _get_variants(action) -> list[dict]:
     return []
 
 
+@app.route("/api/tasks/clear", methods=["POST"])
+def api_clear_tasks():
+    """Bulk-clear tasks. scope='proposed' (default) removes only tasks awaiting a
+    decision; scope='all' removes everything (including closed history)."""
+    data = request.json or {}
+    scope = (data.get("scope") or "proposed").lower()
+    ledger = ActionLedger()
+    removed = 0
+    for a in ledger.get_all_actions():  # list copy — safe to delete while iterating
+        if scope == "all" or a.status.value == "proposed":
+            if ledger.delete_action(a.action_id):
+                removed += 1
+    return jsonify({"success": True, "removed": removed, "scope": scope})
+
+
 @app.route("/api/tasks/<action_id>/reject", methods=["POST"])
 def api_reject_task(action_id):
     """Reject a task — sends it back to opportunities for re-evaluation."""
