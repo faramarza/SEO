@@ -1672,6 +1672,38 @@ def api_ai_recommend():
     # ── 6) Above-fold HTML and robots meta ──────────────────────
     above_fold_html_raw = pm.get("above_fold_html", "")
     robots_meta = pm.get("robots_meta", "")
+
+    # ── 6a) Indexability signal (resolve the "INCONCLUSIVE" hedge) ──
+    # Google cannot show a URL in search results unless it is indexed, so
+    # ANY GSC impressions are conclusive proof of indexation — no URL
+    # Inspection call required. Compute a definitive signal from data we
+    # already have so the AI stops answering "INCONCLUSIVE pending crawl".
+    _idx_impr = sum(q.get("impressions", 0) for q in opportunity.get("top_queries", []))
+    if not _idx_impr:
+        _idx_impr = opportunity.get("gsc_impressions", 0) or 0
+    _robots_lc = (robots_meta or "").lower()
+    if "noindex" in _robots_lc:
+        indexability_signal_str = (
+            "CONCLUSIVE: robots meta contains 'noindex' — page is intentionally "
+            "excluded from the index. Classify indexability INVALID."
+        )
+    elif url_inspection and "error" not in (url_inspection or {}):
+        indexability_signal_str = (
+            "CONCLUSIVE: use the url_inspection verdict/coverage_state below as the "
+            "authoritative indexing status."
+        )
+    elif _idx_impr > 0:
+        indexability_signal_str = (
+            f"CONCLUSIVE: page received {_idx_impr:,} GSC impressions in the last 28 days. "
+            "Google only serves indexed URLs, so this PROVES the page is indexed. "
+            "With no noindex directive, classify indexability VALID (indexed — confirmed "
+            "by live GSC impressions). Do NOT answer INCONCLUSIVE."
+        )
+    else:
+        indexability_signal_str = (
+            "UNRESOLVED: 0 GSC impressions and no url_inspection data — indexation cannot "
+            "be confirmed from available data; INCONCLUSIVE is acceptable here."
+        )
     # Clean above-fold HTML: strip structural tags, keep semantic content
     # This gives the AI a readable view of what's above the fold
     if above_fold_html_raw:
@@ -1819,6 +1851,24 @@ VALID / INVALID / INCONCLUSIVE
 If VALID:
 → Lock the element
 → Do NOT include it in recommendations
+
+CONCLUSIVE-VERDICT RULES — do NOT default to INCONCLUSIVE when the data
+already settles the question:
+• Indexability: obey the indexability_signal in INPUTS. GSC impressions > 0
+  is conclusive proof the page is indexed (Google never serves a non-indexed
+  URL), so with no noindex directive the verdict is VALID — cite the
+  impression count. Only answer INCONCLUSIVE when impressions are 0 AND no
+  url_inspection data exists. "Cannot confirm without URL inspection" is WRONG
+  when the page has impressions.
+• Schema markup: schema_types is read directly from the page's JSON-LD during
+  the crawl, so the presence or absence of a type is a CONFIRMED FACT, not a
+  guess. You do NOT need GSC rich-result data to state a type is absent. When
+  schema_types is provided:
+    – Category/PLP page with no ItemList and no Product/Offer schema → MISSING
+      (concrete, actionable gap — recommend adding ItemList JSON-LD).
+    – All expected types present → VALID.
+    – Reserve INCONCLUSIVE ONLY for when schema_types could not be read
+      (no crawl data). Never call a crawled schema state INCONCLUSIVE.
 
 ────────────────────────────────
 STEP 2 — FUNNEL ANALYSIS (MANDATORY)
@@ -2450,6 +2500,7 @@ meta_desc_current: {cached_meta or 'null'}
 h1_current: {cached_h1 or 'null'}
 canonical_current: {cached_canonical or 'null'}
 robots_meta: {robots_meta or 'null'}
+indexability_signal: {indexability_signal_str}
 word_count: {cached_word_count}
 schema_types: {', '.join(pm.get('schema_types', [])) or 'none detected'}
 above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
@@ -2491,12 +2542,12 @@ Respond ONLY with valid JSON (no markdown fences, no commentary outside JSON):
 {{{{
   "validity_audit": {{{{
     "canonical": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
-    "indexability": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
+    "indexability": "<VALID | INVALID | INCONCLUSIVE> — obey indexability_signal; impressions>0 ⇒ VALID (indexed), not INCONCLUSIVE",
     "intent_alignment": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
     "serp_alignment": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
     "internal_links": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
     "funnel_role": "<VALID | INVALID | INCONCLUSIVE> — <brief reason>",
-    "schema_markup": "<VALID | INVALID | MISSING | INCONCLUSIVE> — <brief reason based on schema_types input>"
+    "schema_markup": "<VALID | INVALID | MISSING | INCONCLUSIVE> — crawled schema_types is fact; PLP missing ItemList/Product ⇒ MISSING, not INCONCLUSIVE"
   }}}},
   "funnel_analysis": {{{{
     "entry_intent": "<dominant query clusters, impression share, what users expect next>",
