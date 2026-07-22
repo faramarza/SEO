@@ -3277,10 +3277,18 @@ def api_mark_done(action_id):
 def _get_variants(action) -> list[dict]:
     """Extract structured variants from an action's recommendation_json."""
     rec_json = action.recommendation_json or {}
-    # Look in ai_recommendations (stored at approval) or directly in recommendations
-    ai_rec = rec_json.get("ai_recommendations", rec_json)
-    recs = ai_rec.get("recommendations", [])
+    # Look in ai_recommendations (stored at approval) or directly in recommendations.
+    # NB: use `or`, not .get(key, default) — the key is often present with value
+    # None (e.g. Playbook tasks), and .get would return that None and crash below.
+    ai_rec = rec_json.get("ai_recommendations") or rec_json
+    if not isinstance(ai_rec, dict):
+        return []
+    recs = ai_rec.get("recommendations", []) or []
+    if not isinstance(recs, list):
+        return []
     for r in recs:
+        if not isinstance(r, dict):
+            continue
         variants = r.get("variants", [])
         if variants:
             return sorted(variants, key=lambda v: v.get("priority", 99))
