@@ -1050,6 +1050,7 @@ def _persist_action(data):
             "risk_level": data.get("risk_level"),
             "implementation_steps": data.get("implementation_steps", []),
             "source": data.get("source", "manual"),
+            "dedup_key": data.get("dedup_key"),
             "primary_constraint": data.get("primary_constraint"),
             "asset_type": data.get("asset_type"),
             "demand_score": data.get("demand_score"),
@@ -6339,6 +6340,15 @@ def _playbook_add_task_impl(body):
         return jsonify({"success": False, "error": f"Unknown method '{method}'"}), 400
 
     data["source"] = "playbook"
+    # Stable dedup key (mirrors the client's pbKey) — NOT the summary, which
+    # embeds volatile numbers like position. method|url|extra where extra is the
+    # query (striking) or pillar url (cluster_link).
+    _extra = ""
+    if method == "striking":
+        _extra = body.get("query", "")
+    elif method == "cluster_link":
+        _extra = body.get("pillar_url", "")
+    data["dedup_key"] = f"{method}|{body.get('url', '')}|{_extra}"
     # Safety net against duplicates (client guard + this): if an identical
     # proposed task already exists, return it instead of creating a copy.
     existing = _find_duplicate_proposed(data)
@@ -6358,17 +6368,28 @@ def _playbook_add_task_impl(body):
 
 
 def _find_duplicate_proposed(data):
-    """Return the id of an existing PROPOSED action identical to `data`
-    (same url + action type + summary), else None."""
+    """Return the id of an existing PROPOSED action identical to `data`, matched
+    on the stable dedup_key, with a position-insensitive summary fallback so
+    legacy rows (created before dedup_key existed) are still caught."""
+    key = data.get("dedup_key")
+
+    def _norm(s):
+        # Strip volatile bits like "(pos 12.5)" and bare numbers so the same
+        # task matches across evaluations where position shifts slightly.
+        return re.sub(r"\(pos[^)]*\)|[0-9]+", "", s or "").strip().lower()
+
+    new_summary = _norm(data.get("implementation_summary"))
     try:
         ledger = ActionLedger()
         for a in ledger.get_all_actions():
             if a.status.value != "proposed":
                 continue
-            if a.url == data.get("url") and a.action_type == data.get("action"):
-                rec = a.recommendation_json or {}
-                if rec.get("implementation_summary") == data.get("implementation_summary"):
-                    return a.action_id
+            rec = a.recommendation_json or {}
+            if key and rec.get("dedup_key") == key:
+                return a.action_id
+            if (a.url == data.get("url") and a.action_type == data.get("action")
+                    and new_summary and _norm(rec.get("implementation_summary")) == new_summary):
+                return a.action_id
     except Exception:
         pass
     return None
