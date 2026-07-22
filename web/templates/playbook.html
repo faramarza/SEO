@@ -167,7 +167,8 @@ async function pbAddTask(method, idx, subIdx, btn) {
             const r = PB_DATA.striking_distance[idx];
             payload = { method, url: r.url, asset_type: r.asset_type, query: r.query,
                 position: r.position, impressions: r.impressions, upside_clicks: r.upside_clicks,
-                on_page_covered: r.on_page_covered, action_hint: r.action_hint };
+                on_page_covered: r.on_page_covered, action_hint: r.action_hint,
+                lever: r.lever, internal_inlinks: r.internal_inlinks };
         } else if (method === 'decay') {
             const r = PB_DATA.decay.decaying[idx];
             payload = { method, url: r.url, asset_type: r.asset_type, peak_clicks: r.peak_clicks,
@@ -241,13 +242,20 @@ function renderStriking(rows) {
         body.innerHTML = '<p class="empty-state">No striking-distance queries found. Run an evaluation with crawl + GSC data first.</p>';
         return;
     }
-    let html = `<table class="pb-table"><thead><tr>
+    const counts = { internal: 0, external: 0, on_page: 0 };
+    rows.forEach(r => { counts[r.lever] = (counts[r.lever] || 0) + 1; });
+    let html = `<div class="pb-lever-legend">
+        <span class="pb-lever" style="color:#059669;border-color:#059669;">Quick win: internal links</span> ${counts.internal} — cheapest, do first (add internal links, no backlinks needed)
+        <br><span class="pb-lever" style="color:#d97706;border-color:#d97706;">Needs backlinks</span> ${counts.external} — already well internally linked; needs external authority
+        <br><span class="pb-lever" style="color:#2563eb;border-color:#2563eb;">On-page fix</span> ${counts.on_page} — query isn't in the title/H1 yet; fix on-page first
+    </div>`;
+    html += `<table class="pb-table"><thead><tr>
         <th>Query</th><th>Page</th><th>Pos</th><th>Impr</th>
         <th>Clicks</th><th>CTR</th><th title="Clicks available if this query reached position 5">Upside</th><th></th></tr></thead><tbody>`;
     rows.forEach((r, i) => {
         html += `<tr>
             <td><strong>${escHtml(r.query)}</strong>
-                ${r.on_page_covered === 'yes' ? '<span class="pb-badge" style="background:rgba(5,150,105,.15);color:#059669;">on-page ✓</span>' : '<span class="pb-badge" style="background:rgba(220,38,38,.12);color:#dc2626;">not in title/H1</span>'}
+                <span class="pb-lever" style="color:${r.lever_color};border-color:${r.lever_color};">${escHtml(r.lever_label)}</span>
                 <div class="pb-todo">→ ${escHtml(r.action_hint)}</div></td>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
             <td class="pb-num">${r.position}</td>

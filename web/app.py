@@ -6121,21 +6121,32 @@ def api_playbook_add_task():
         pos = body.get("position", 0)
         impr = body.get("impressions", 0)
         upside = body.get("upside_clicks", 0)
-        covered = body.get("on_page_covered") == "yes"
-        # Grounded steps: don't tell them to add a keyword that's already there.
-        if covered:
+        lever = body.get("lever", "on_page")
+        inlinks = body.get("internal_inlinks", 0)
+        # Grounded steps by lever: don't tell them to add a keyword or backlinks
+        # they don't need.
+        if lever == "internal":
+            summary = f"Quick win — internal links to '{query}' (pos {pos})"
             steps = [
-                f"'{query}' is ALREADY in this page's title/H1 (position {pos}, {impr:,} impressions) — do NOT re-add the keyword.",
-                "Build authority: add internal links to this page from your strongest, most topically-related pages (use anchor text describing THIS page).",
-                "Earn a few relevant external links (parenting/education/toy-review sites).",
-                "Confirm the page directly answers this exact intent; add a focused section if a gap exists.",
-                "Re-check the query's position in GSC after 3-4 weeks.",
+                f"'{query}' is already in the title/H1 (position {pos}, {impr:,} impressions) and this page has only {inlinks} internal inbound link(s) — do NOT re-add the keyword or chase backlinks yet.",
+                "Add contextual internal links to this page from your strongest, most topically-related pages (see Playbook → Orphans/Clusters and Link Map for which).",
+                "Use anchor text that describes THIS page.",
+                "Re-check the query's position in GSC after 3-4 weeks — internal linking alone may lift it.",
             ]
-        else:
+        elif lever == "external":
+            summary = f"Earn backlinks for '{query}' (pos {pos})"
+            steps = [
+                f"'{query}' is already in the title/H1 and this page is well internally linked ({inlinks} inbound), position {pos} — internal linking is largely tapped.",
+                "Earn a few relevant external backlinks: parenting/education/toy-review sites, gift-guide roundups, guest posts, digital PR (HARO).",
+                "Target links whose topic matches this page; anchor text should describe this page.",
+                "Re-check position after 6-8 weeks (external links take longer to register).",
+            ]
+        else:  # on_page
+            summary = f"Optimize + link '{query}' onto page 1 (pos {pos})"
             steps = [
                 f"'{query}' is NOT in this page's title/H1 yet (position {pos}, {impr:,} impressions) — work the query and close variants into the title, H1, and first 100 words.",
                 f"Add a section that directly answers '{query}'.",
-                "Add internal links from strong, topically-related pages using anchor text that describes THIS page.",
+                "Then add internal links from strong, topically-related pages using anchor text that describes THIS page.",
                 "Re-check the query's position in GSC after 3-4 weeks.",
             ]
         data.update({
@@ -6146,9 +6157,7 @@ def api_playbook_add_task():
             "risk_level": "low",
             "gsc_impressions": impr,
             "gsc_position": pos,
-            "implementation_summary": (
-                f"Build authority for '{query}' (already on-page, pos {pos})" if covered
-                else f"Optimize + link '{query}' onto page 1 (pos {pos})"),
+            "implementation_summary": summary,
             "implementation_steps": steps,
         })
     elif method == "decay":

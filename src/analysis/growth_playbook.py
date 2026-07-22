@@ -117,6 +117,12 @@ def find_striking_distance(results, min_impressions=30, pos_low=6.0,
     Returns rows sorted by upside = incremental clicks available if the query
     reached position 5.
     """
+    # Internal link graph so we know each page's inbound-link count — that
+    # decides whether the authority gap is fixable with internal links (cheap)
+    # or needs external backlinks (harder).
+    graph = _build_graph(results)
+    internal_link_threshold = 3
+
     rows = []
     for r in results:
         url = r.get("url", "")
@@ -127,6 +133,8 @@ def find_striking_distance(results, min_impressions=30, pos_low=6.0,
         # keyword" when it's already in the title/H1).
         pm = r.get("page_metadata", {})
         title_h1 = ((pm.get("title", "") or "") + " " + (pm.get("h1", "") or "")).lower()
+        gnode = graph.get(_norm(url))
+        inlinks = len(gnode["inlink_norms"]) if gnode else 0
         for q in r.get("top_queries", []):
             pos = q.get("position", 0) or 0
             impr = q.get("impressions", 0) or 0
@@ -150,21 +158,43 @@ def find_striking_distance(results, min_impressions=30, pos_low=6.0,
             covered = bool(qwords) and (
                 sum(1 for w in qwords if w in title_h1) / len(qwords) >= 0.6)
             posr = round(pos, 1)
-            if covered:
-                on_page = "yes"
-                action_hint = (
-                    f'"{query}" is already in this page\'s title/H1, so re-adding the '
-                    f'keyword won\'t help. At position {posr} the lever is AUTHORITY: add '
-                    f'internal links to this page from your strongest related pages, and '
-                    f'earn a few relevant external links. Also check the page truly answers '
-                    f'this exact intent (add a focused section if it doesn\'t).')
-            else:
+            if not covered:
+                # On-page work needed first — the query isn't even in the title.
+                lever = "on_page"
+                lever_label = "On-page fix"
+                lever_color = "#2563eb"  # blue
                 on_page = "no"
                 action_hint = (
                     f'"{query}" is NOT in this page\'s title or H1 yet. Work it into the '
                     f'title, H1 and opening paragraph, add a section that directly answers '
                     f'it, then add internal links from strong related pages to push it from '
                     f'position {posr} onto page 1.')
+            elif inlinks < internal_link_threshold:
+                # Authority gap, but the page is under-linked internally — the
+                # cheap, in-your-control fix.
+                lever = "internal"
+                lever_label = "Quick win: internal links"
+                lever_color = "#059669"  # green
+                on_page = "yes"
+                action_hint = (
+                    f'"{query}" is already in the title/H1, and this page has only {inlinks} '
+                    f'internal inbound link{"s" if inlinks != 1 else ""} — the quick, free win '
+                    f'is INTERNAL LINKS: add contextual links to it from your strongest '
+                    f'related pages (descriptive anchor text). That alone can lift it from '
+                    f'position {posr}. No backlinks needed yet.')
+            else:
+                # Authority gap and already well internally linked — the harder
+                # external-link lever.
+                lever = "external"
+                lever_label = "Needs backlinks"
+                lever_color = "#d97706"  # amber
+                on_page = "yes"
+                action_hint = (
+                    f'"{query}" is already in the title/H1 and this page is already well '
+                    f'internally linked ({inlinks} inbound). Internal linking is largely '
+                    f'tapped — the remaining lever at position {posr} is EXTERNAL authority: '
+                    f'earn a few backlinks from relevant parenting / education / toy-review '
+                    f'sites (guest posts, gift-guide roundups, digital PR).')
 
             rows.append({
                 "url": url,
@@ -177,7 +207,11 @@ def find_striking_distance(results, min_impressions=30, pos_low=6.0,
                 "potential_clicks_at_pos5": round(potential_clicks),
                 "upside_clicks": round(upside_clicks),
                 "score": round(score, 1),
+                "internal_inlinks": inlinks,
                 "on_page_covered": on_page,
+                "lever": lever,
+                "lever_label": lever_label,
+                "lever_color": lever_color,
                 "action_hint": action_hint,
             })
     rows.sort(key=lambda x: x["score"], reverse=True)
