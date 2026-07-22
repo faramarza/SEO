@@ -838,10 +838,20 @@ body {
 }
 
 .detail-actions {
-    margin-top: 28px;
+    position: sticky;
+    bottom: -32px;
+    margin: 28px -32px -32px -32px;
+    padding: 16px 32px;
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
+    background-color: var(--bg-card);
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 16px 16px;
+    box-shadow: 0 -6px 16px -8px rgba(0, 0, 0, 0.28);
+    z-index: 15;
 }
 
 /* ============================================================

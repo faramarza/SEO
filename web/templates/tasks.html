@@ -823,7 +823,7 @@ function showTaskDetail(actionId, status) {
             ${task.notes ? `<p style="margin: 0; color: var(--text-secondary);">${task.notes}</p>` : ''}
         </div>
         ` : ''}
-        <div style="display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--border-color); padding-top: 12px;">
+        <div class="detail-actions">
             <button class="btn btn-secondary" onclick="printTaskDetail()">Print</button>
             <button class="btn btn-secondary" onclick="closeTaskDetail()">Close</button>
         </div>

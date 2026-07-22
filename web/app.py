@@ -13,6 +13,7 @@ Flask application providing operator interface per doctrine:
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -1079,6 +1080,27 @@ def api_approve_opportunity():
     })
 
 
+_HEADING_TAG_RE = re.compile(r"<h[2-4][^>]*>(.*?)</h[2-4]>", re.IGNORECASE | re.DOTALL)
+_TAG_STRIP_RE = re.compile(r"<[^>]+>")
+
+
+def _extract_headings(above_fold_html):
+    """Pull real section headings from an above_fold_html snippet.
+
+    Backward-compat fallback for evaluation data crawled before headings were
+    captured as a first-class field. Returns cleaned h2/h3/h4 text.
+    """
+    if not above_fold_html:
+        return []
+    out = []
+    for m in _HEADING_TAG_RE.findall(above_fold_html):
+        text = _TAG_STRIP_RE.sub("", m)
+        text = re.sub(r"\s+", " ", text).strip()
+        if 2 < len(text) <= 90 and text not in out:
+            out.append(text)
+    return out
+
+
 @app.route("/api/ai/recommend", methods=["POST"])
 def api_ai_recommend():
     """Get AI-powered SEO recommendations for a page.
@@ -1510,6 +1532,14 @@ def api_ai_recommend():
                 # Mark if this page already links to the target
                 has_inbound = r_url in already_links_to_target
 
+                # Real section headings for this source page, so link-placement
+                # suggestions cite sections that ACTUALLY exist (not invented).
+                # Prefer the stored headings list; fall back to parsing the
+                # above_fold_html for eval data that predates heading capture.
+                r_headings = pm_r.get("headings") or []
+                if not r_headings:
+                    r_headings = _extract_headings(pm_r.get("above_fold_html", ""))
+
                 site_pages[r_type].append({
                     "url": r_url,
                     "title": title_r[:80],
@@ -1519,6 +1549,7 @@ def api_ai_recommend():
                     "position": round(avg_pos, 1) if avg_pos else 0,
                     "query_overlap": overlap,
                     "already_links_to_target": has_inbound,
+                    "headings": r_headings[:12],
                     "top_queries_summary": ", ".join(
                         rq.get("query", "") for rq in r_queries[:5]
                     ) if r_queries else "",
@@ -1555,7 +1586,7 @@ def api_ai_recommend():
             # Sort by linking score descending, show top 30
             available.sort(key=lambda p: p["linking_score"], reverse=True)
             target_pages_str += f"\n{ptype.upper()} pages ({len(available)} available, {len(already_linking)} already link to this page):\n"
-            for p in available[:30]:
+            for idx, p in enumerate(available[:30]):
                 queries_tag = f'  queries=[{p["top_queries_summary"]}]' if p.get("top_queries_summary") else ''
                 target_pages_str += (
                     f'  - {p["url"]}  [{p["title"]}]  '
@@ -1563,6 +1594,15 @@ def api_ai_recommend():
                     f'pos={p["position"]}  overlap={p["query_overlap"]}  '
                     f'link_score={p["linking_score"]:.0f}{queries_tag}\n'
                 )
+                # Real section headings for the strongest candidates so the AI
+                # can cite an ACTUAL section for placement instead of inventing one.
+                headings = p.get("headings") or []
+                if idx < 15:
+                    if headings:
+                        sections_str = " | ".join(headings[:8])
+                        target_pages_str += f'      sections=[{sections_str}]\n'
+                    else:
+                        target_pages_str += '      sections=[none captured — do NOT invent one]\n'
             if len(available) > 30:
                 target_pages_str += f"  ... and {len(available) - 30} more\n"
 
@@ -2102,8 +2142,17 @@ In Step 4, you MUST:
      c. DATA JUSTIFICATION — cite the page's impressions, position, and query overlap
         that make it a strong linking source (e.g., "1,240 impressions, position 4.2,
         3 overlapping query terms: 'wooden trains', 'toy trains', 'model trains'")
-     d. WHERE on the source page — e.g., "in the product comparison section",
-        "after the introductory paragraph about [topic]"
+     d. WHERE on the source page — GROUND THIS IN REAL DATA, DO NOT GUESS.
+        Each candidate lists sections=[...] = the ACTUAL h2/h3 headings crawled
+        from that source page. You MUST name placement using ONE of those exact
+        headings, e.g. sections=[Why Wooden Trains | Care Guide | Related Sets]
+        → "in the 'Related Sets' section". Quote the heading verbatim.
+        - If sections=[none captured], the page's section structure is unknown.
+          Do NOT invent a section name. Instead give honest, structure-free
+          placement: "in a body paragraph that mentions [target topic]" and add
+          "(source sections not crawled — reviewer to pick the exact spot)".
+        - NEVER output a section name that is not present in that page's
+          sections=[...] list. Fabricated section names are a hard failure.
      e. SUGGESTED ANCHOR TEXT — CRITICAL DIRECTION RULE: the link points FROM the
         source page TO the current page, so the anchor MUST describe the CURRENT
         page (the destination), NOT the source page. Naming the source is wrong —
@@ -2141,17 +2190,22 @@ page. A pretend-play-toys page linking to personalized-baby-gifts is a weak,
 off-topic link — skip it in favor of a relevant one, or recommend fewer links.
 
 "Add internal links to relevant category pages" is NOT acceptable.
+Each placement below cites a section taken verbatim from that source's
+sections=[...] list (or is honest when none was captured):
 "TOP INBOUND LINKING SOURCES for this page:
 1. /collections/wooden-trains [Wooden Train Sets] — link_score=15,480
-   (1,240 impr, pos 4.2, 3 query overlaps). Add link in the comparison
-   section after 'types of wooden trains' paragraph. Anchor: 'See our
-   Alphabet Train Set'. Primary funnel link.
+   (1,240 impr, pos 4.2, 3 query overlaps). sections=[Why Wooden Trains |
+   Types of Track | Related Sets]. Add link in the 'Related Sets' section.
+   Anchor: 'See our Alphabet Train Set'. Primary funnel link.
 2. /blog/montessori-toy-guide [Montessori Toy Guide] — link_score=8,200
-   (890 impr, pos 6.1, 2 query overlaps). Add link in the 'educational
-   benefits' section. Anchor: 'Alphabet Learning Train'. Secondary.
+   (890 impr, pos 6.1, 2 query overlaps). sections=[Educational Benefits |
+   Age Guide]. Add link in the 'Educational Benefits' section.
+   Anchor: 'Alphabet Learning Train'. Secondary.
 3. /wooden-blocks [Wooden Blocks Collection] — link_score=5,100
-   (620 impr, pos 8.3, 1 query overlap). Add link in 'related products'
-   CTA. Anchor: 'Pair with Wooden Blocks'. Secondary." IS acceptable.
+   (620 impr, pos 8.3, 1 query overlap). sections=[none captured — source
+   sections not crawled, reviewer to pick the exact spot]. Add link in a
+   body paragraph mentioning early-learning toys. Anchor: 'Pair with Wooden
+   Blocks'. Secondary." IS acceptable.
 
 ────────────────────────────────
 ANCHOR TEXT ACCURACY RULE

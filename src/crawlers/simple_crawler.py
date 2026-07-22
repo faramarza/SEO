@@ -38,6 +38,7 @@ class CrawlResult:
     above_fold_html: str = ""
     body_html: str = ""  # Raw body HTML for structural analysis (e.g. HTMLIssueEvaluator)
     internal_outlinks: list = None  # List of {target_url, anchor_text, location}
+    headings: list = None  # Ordered section headings (h2/h3/h4 text)
     breadcrumb_links: list = None  # List of {target_url, anchor_text} from breadcrumb nav
     schema_types: list = None  # List of JSON-LD @type values found on the page
     error: Optional[str] = None
@@ -45,6 +46,8 @@ class CrawlResult:
     def __post_init__(self):
         if self.internal_outlinks is None:
             self.internal_outlinks = []
+        if self.headings is None:
+            self.headings = []
         if self.breadcrumb_links is None:
             self.breadcrumb_links = []
         if self.schema_types is None:
@@ -94,6 +97,11 @@ class HTMLMetaParser(HTMLParser):
         self._current_link_location: str = "body"
         self._in_main = False
         self._section_tag: str = ""
+
+        # Section headings (h2/h3/h4 text) — real content structure for link placement
+        self._headings: list[str] = []
+        self._in_heading = False
+        self._heading_buf: list[str] = []
 
         # Breadcrumb links (captured separately from content outlinks)
         self._breadcrumb_links: list[dict] = []
@@ -159,6 +167,8 @@ class HTMLMetaParser(HTMLParser):
             self._in_main = True
         if tag in ("h2", "h3", "h4"):
             self._section_tag = tag
+            self._in_heading = True
+            self._heading_buf = []
 
         if tag == "link" and attrs_dict.get("rel", "").lower() == "canonical":
             self.canonical_url = attrs_dict.get("href")
@@ -239,6 +249,14 @@ class HTMLMetaParser(HTMLParser):
         elif tag == "body":
             self._in_body = False
 
+        if tag in ("h2", "h3", "h4") and self._in_heading:
+            self._in_heading = False
+            heading = re.sub(r'\s+', ' ', " ".join(self._heading_buf)).strip()
+            self._heading_buf = []
+            if 2 < len(heading) <= 90 and len(self._headings) < 25:
+                if heading not in self._headings:
+                    self._headings.append(heading)
+
         # Close breadcrumb link
         if tag == "a" and self._in_breadcrumb_link:
             self._in_breadcrumb_link = False
@@ -305,6 +323,10 @@ class HTMLMetaParser(HTMLParser):
             if stripped:
                 self._body_text.append(stripped)
 
+        # Section heading text (h2/h3/h4)
+        if self._in_heading:
+            self._heading_buf.append(data)
+
         # Link anchor text
         if self._in_link:
             self._current_link_text.append(data)
@@ -345,6 +367,10 @@ class HTMLMetaParser(HTMLParser):
         raw = " ".join(self._above_fold_parts)
         # Collapse whitespace
         return re.sub(r'\s+', ' ', raw).strip()[:1500]
+
+    def get_headings(self) -> list:
+        """Return the ordered list of section headings (h2/h3/h4 text)."""
+        return list(self._headings)
 
     # URL path patterns that indicate nav/footer/utility pages, not content
     _UTILITY_PATHS = (
@@ -500,6 +526,7 @@ class SimpleCrawler:
                     above_fold_html=parser.get_above_fold_html(),
                     body_html=body_html,
                     internal_outlinks=parser.get_internal_outlinks(),
+                    headings=parser.get_headings(),
                     breadcrumb_links=parser.get_breadcrumb_links(),
                     schema_types=parser.get_schema_types(),
                 )
@@ -597,6 +624,8 @@ class SimpleCrawler:
             asset.word_count = result.word_count or asset.word_count
             asset.content_preview = result.content_preview or asset.content_preview
             asset.above_fold_html = result.above_fold_html or asset.above_fold_html
+            if result.headings:
+                asset.headings = result.headings
             # Set outlink count and detailed outlinks from crawl
             if result.internal_outlinks:
                 asset.outlinks = len(result.internal_outlinks)
