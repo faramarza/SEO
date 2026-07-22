@@ -498,6 +498,12 @@ def content_page():
     return render_template("content.html")
 
 
+@app.route("/playbook")
+def playbook():
+    """Growth Playbook view — Dean/Patel method reports."""
+    return render_template("playbook.html")
+
+
 # ============================================================
 # API ROUTES
 # ============================================================
@@ -5620,6 +5626,52 @@ def api_ai_batch_analyze():
         "message": "Batch AI analysis started",
         "status": "running",
     })
+
+
+@app.route("/api/playbook")
+def api_playbook():
+    """Growth Playbook — Brian Dean & Neil Patel method reports over the
+    latest evaluation plus rolling history snapshots.
+
+    section=all|striking|orphans|pruning|decay (default all).
+    """
+    from src.analysis import growth_playbook as gp
+
+    section = (request.args.get("section") or "all").lower()
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"error": "No evaluation data. Run evaluation with crawl first."})
+    try:
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return jsonify({"error": "Could not read evaluation data."})
+
+    results = eval_data.get("results", [])
+    out = {"timestamp": eval_data.get("timestamp", ""), "page_count": len(results)}
+
+    if section in ("all", "striking"):
+        out["striking_distance"] = gp.find_striking_distance(results)
+    if section in ("all", "orphans"):
+        out["orphans_clusters"] = gp.find_orphans_and_clusters(results)
+    if section in ("all", "pruning"):
+        out["pruning"] = gp.find_pruning_candidates(results)
+    if section in ("all", "decay"):
+        # Load chronological history snapshots (oldest first).
+        snaps = []
+        if EVAL_HISTORY_PATH.exists():
+            for p in sorted(EVAL_HISTORY_PATH.glob("*.json")):
+                try:
+                    with open(p) as f:
+                        snaps.append(json.load(f))
+                except (json.JSONDecodeError, OSError):
+                    continue
+        # Ensure the current evaluation is represented as the latest point.
+        if not snaps or snaps[-1].get("timestamp") != eval_data.get("timestamp"):
+            snaps.append(eval_data)
+        out["decay"] = gp.find_content_decay(snaps)
+
+    return jsonify(out)
 
 
 @app.route("/api/internal-link-map")

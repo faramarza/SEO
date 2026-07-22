@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}Growth Playbook{% endblock %}
+{% block header %}Growth Playbook{% endblock %}
+
+{% block content %}
+<div class="playbook-page">
+    <p class="playbook-intro">
+        Actionable reports built on proven methods from
+        <strong>Brian Dean (Backlinko)</strong> and <strong>Neil Patel</strong>,
+        computed from your live GSC, crawl, and trend data.
+    </p>
+
+    <div class="playbook-tabs">
+        <button class="pb-tab active" data-tab="striking" onclick="pbShowTab('striking')">
+            🎯 Striking Distance
+        </button>
+        <button class="pb-tab" data-tab="decay" onclick="pbShowTab('decay')">
+            📉 Content Decay
+        </button>
+        <button class="pb-tab" data-tab="orphans" onclick="pbShowTab('orphans')">
+            🕸️ Orphans &amp; Clusters
+        </button>
+        <button class="pb-tab" data-tab="pruning" onclick="pbShowTab('pruning')">
+            ✂️ Pruning
+        </button>
+    </div>
+
+    <div id="pb-meta" class="playbook-meta"></div>
+
+    <!-- Striking Distance -->
+    <section class="pb-panel active" id="pb-striking">
+        <div class="pb-explain">
+            <strong>Method: Striking Distance (Dean / Patel).</strong> Queries where a
+            page already ranks just off page 1 (positions 6–20) with real search
+            demand. These are the cheapest ranking wins — the page is already
+            relevant, it just needs a nudge (tighter on-page relevance for the query
+            + internal links from strong pages) to cross onto page 1 where clicks
+            happen.
+        </div>
+        <div id="pb-striking-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- Content Decay -->
+    <section class="pb-panel" id="pb-decay">
+        <div class="pb-explain">
+            <strong>Method: Content Decay → Refresh (Patel / Dean).</strong> Pages that
+            once earned traffic and have since slid. Refreshing decaying content
+            (update facts, deepen to match current competitors, realign intent,
+            refresh internal links) is one of the highest-ROI SEO moves — Backlinko
+            saw +260% in 14 days from a refresh.
+        </div>
+        <div id="pb-decay-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- Orphans & Clusters -->
+    <section class="pb-panel" id="pb-orphans">
+        <div class="pb-explain">
+            <strong>Method: Topic Clusters &amp; Orphan Rescue (Patel).</strong> Pages
+            with no internal links pointing to them "wither"; pages organized into
+            topic clusters that all link to a pillar build topical authority and
+            resist decay. Below: orphan pages that have demand but no internal
+            inbound links, and topic clusters with their pillar and any missing
+            cluster → pillar links.
+        </div>
+        <div id="pb-orphans-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- Pruning -->
+    <section class="pb-panel" id="pb-pruning">
+        <div class="pb-explain">
+            <strong>Method: Content Pruning (Dean).</strong> Dead-weight pages — no
+            traffic, no demand, thin and/or orphaned — dilute your site's topical
+            focus. Merge/redirect them into a stronger related page, or prune
+            (noindex/remove). <em>Review candidates only</em> — products and category
+            pages are never flagged, and nothing is changed automatically.
+        </div>
+        <div id="pb-pruning-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtUrl(u) {
+    try {
+        const p = new URL(u).pathname;
+        return p.length > 48 ? '…' + p.slice(-46) : p;
+    } catch (e) { return u; }
+}
+function pbShowTab(tab) {
+    document.querySelectorAll('.pb-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.pb-panel').forEach(p =>
+        p.classList.toggle('active', p.id === 'pb-' + tab));
+}
+
+let PB_DATA = null;
+
+async function loadPlaybook() {
+    try {
+        const res = await fetch('/api/playbook');
+        const data = await res.json();
+        PB_DATA = data;
+        if (data.error) {
+            const msg = `<p class="empty-state">${escHtml(data.error)}</p>`;
+            ['striking','decay','orphans','pruning'].forEach(s =>
+                document.getElementById('pb-' + s + '-body').innerHTML = msg);
+            return;
+        }
+        const d = data.timestamp ? new Date(data.timestamp).toLocaleString() : '—';
+        document.getElementById('pb-meta').innerHTML =
+            `Based on ${data.page_count} pages · evaluation ${escHtml(d)}`;
+        renderStriking(data.striking_distance || []);
+        renderDecay(data.decay || {});
+        renderOrphans(data.orphans_clusters || {});
+        renderPruning(data.pruning || []);
+    } catch (e) {
+        document.getElementById('pb-striking-body').innerHTML =
+            `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
+    }
+}
+
+function renderStriking(rows) {
+    const body = document.getElementById('pb-striking-body');
+    if (!rows.length) {
+        body.innerHTML = '<p class="empty-state">No striking-distance queries found. Run an evaluation with crawl + GSC data first.</p>';
+        return;
+    }
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Query</th><th>Page</th><th>Pos</th><th>Impr</th>
+        <th>Clicks</th><th>CTR</th><th title="Clicks available if this query reached position 5">Upside</th></tr></thead><tbody>`;
+    rows.forEach(r => {
+        html += `<tr>
+            <td><strong>${escHtml(r.query)}</strong></td>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+            <td class="pb-num">${r.position}</td>
+            <td class="pb-num">${r.impressions.toLocaleString()}</td>
+            <td class="pb-num">${r.clicks}</td>
+            <td class="pb-num">${r.ctr}%</td>
+            <td class="pb-num pb-upside">+${r.upside_clicks}/mo</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+function renderDecay(decay) {
+    const body = document.getElementById('pb-decay-body');
+    if (decay.status === 'insufficient_history') {
+        body.innerHTML = `<p class="empty-state">${escHtml(decay.message || 'Not enough history yet.')}<br>
+            <span style="color:var(--text-muted);font-size:13px;">Snapshots available: ${decay.snapshots_available || 0}. Decay detection compares evaluations over time — it strengthens with each run.</span></p>`;
+        return;
+    }
+    const rows = decay.decaying || [];
+    if (!rows.length) {
+        body.innerHTML = '<p class="empty-state">No decaying pages detected — nothing has slipped meaningfully from its peak. 🎉</p>';
+        return;
+    }
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Page</th><th>Peak → Now (clicks)</th><th>Drop</th><th>Position</th>
+        <th>Peak date</th></tr></thead><tbody>`;
+    rows.forEach(r => {
+        const posMove = r.position_current > r.position_peak ? '▼' : '▲';
+        html += `<tr>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
+                <span class="pb-badge">${escHtml(r.asset_type)}</span></td>
+            <td class="pb-num">${r.peak_clicks} → ${r.current_clicks}</td>
+            <td class="pb-num pb-drop">−${r.drop_pct}%</td>
+            <td class="pb-num">${r.position_peak} ${posMove} ${r.position_current}</td>
+            <td class="pb-num">${escHtml(r.peak_date)}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+function renderOrphans(oc) {
+    const body = document.getElementById('pb-orphans-body');
+    const orphans = oc.orphans || [];
+    const clusters = oc.clusters || [];
+    let html = '';
+
+    html += `<h3 class="pb-subhead">Orphan pages with demand (${orphans.length})</h3>`;
+    if (!orphans.length) {
+        html += '<p class="empty-state">No demand-bearing orphans — every page with traffic has at least one internal inbound link. 🎉</p>';
+    } else {
+        html += `<table class="pb-table"><thead><tr><th>Page</th><th>Type</th>
+            <th>Impr</th><th>Clicks</th><th>Pos</th></tr></thead><tbody>`;
+        orphans.forEach(o => {
+            html += `<tr>
+                <td><a href="${escHtml(o.url)}" target="_blank" title="${escHtml(o.url)}">${escHtml(fmtUrl(o.url))}</a></td>
+                <td>${escHtml(o.asset_type)}</td>
+                <td class="pb-num">${o.impressions.toLocaleString()}</td>
+                <td class="pb-num">${o.clicks}</td>
+                <td class="pb-num">${o.position}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+    }
+
+    html += `<h3 class="pb-subhead" style="margin-top:28px;">Topic clusters &amp; pillar links (${clusters.length})</h3>`;
+    if (!clusters.length) {
+        html += '<p class="empty-state">No topic clusters detected (needs 3+ pages sharing 3+ query terms). This grows as more pages are crawled with GSC data.</p>';
+    } else {
+        clusters.forEach(c => {
+            const pillarOrphan = c.pillar.is_orphan
+                ? ' <span class="pb-drop" title="The pillar itself has no internal inbound links">⚠ pillar is orphaned</span>' : '';
+            html += `<div class="pb-cluster">
+                <div class="pb-cluster-head">
+                    <span class="pb-cluster-topic">${escHtml(c.topic)}</span>
+                    <span class="pb-cluster-size">${c.size} pages</span>
+                </div>
+                <div class="pb-pillar">Pillar: <a href="${escHtml(c.pillar.url)}" target="_blank">${escHtml(c.pillar.title)}</a>
+                    <span class="pb-badge">${escHtml(c.pillar.asset_type)}</span>
+                    <span class="pb-num">${c.pillar.impressions.toLocaleString()} impr</span>${pillarOrphan}</div>`;
+            if (c.missing_pillar_links && c.missing_pillar_links.length) {
+                html += `<div class="pb-missing">Missing cluster → pillar links (${c.missing_pillar_links.length}):<ul>`;
+                c.missing_pillar_links.forEach(m => {
+                    html += `<li><a href="${escHtml(m.url)}" target="_blank" title="${escHtml(m.url)}">${escHtml(fmtUrl(m.url))}</a>
+                        <span class="pb-num">${m.impressions.toLocaleString()} impr</span> — should link to the pillar</li>`;
+                });
+                html += '</ul></div>';
+            } else {
+                html += '<div class="pb-missing pb-ok">All cluster pages already link to the pillar. ✓</div>';
+            }
+            html += '</div>';
+        });
+    }
+    body.innerHTML = html;
+}
+
+function renderPruning(rows) {
+    const body = document.getElementById('pb-pruning-body');
+    if (!rows.length) {
+        body.innerHTML = '<p class="empty-state">No pruning candidates — no dead-weight blog/other pages found. 🎉</p>';
+        return;
+    }
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Page</th><th>Impr</th><th>Words</th><th>Disposition</th>
+        <th>Why / Target</th></tr></thead><tbody>`;
+    rows.forEach(r => {
+        const dispClass = r.disposition === 'prune' ? 'pb-disp-prune' : 'pb-disp-merge';
+        const dispLabel = r.disposition === 'prune' ? 'PRUNE' : 'MERGE / 301';
+        let whyCell = escHtml(r.reason);
+        if (r.redirect_target) {
+            whyCell += `<br><span style="color:var(--text-muted);">→ ${escHtml(r.redirect_target.title)}</span>`;
+        }
+        html += `<tr>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
+                ${r.is_orphan ? '<span class="pb-badge">orphan</span>' : ''}</td>
+            <td class="pb-num">${r.impressions}</td>
+            <td class="pb-num">${r.word_count}</td>
+            <td><span class="pb-disp ${dispClass}">${dispLabel}</span></td>
+            <td>${whyCell}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', loadPlaybook);
+</script>
+{% endblock %}
