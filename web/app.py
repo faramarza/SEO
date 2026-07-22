@@ -2640,6 +2640,7 @@ If nothing is broken or improvable:
                 timeout=api_timeout,
             )
             if api_response.status_code != 200:
+                print(f"[AI-ERROR] Anthropic {api_response.status_code}: {api_response.text[:800]}")
                 return jsonify({"error": f"Anthropic API error: {api_response.text}"}), 500
             result = api_response.json()
             # Extract text from content blocks (skip thinking blocks for Fable 5)
@@ -2884,6 +2885,9 @@ If nothing is broken or improvable:
         return jsonify(response_data)
 
     except Exception as e:
+        import traceback
+        print(f"[AI-ERROR] recommend failed for {url}: {e}")
+        traceback.print_exc()
         return jsonify({"error": f"AI request failed: {e}"}), 500
 
 
@@ -5440,8 +5444,10 @@ def api_ai_batch_analyze():
                                 job_state["message"] = f"[{i+1}/{len(actionable)}] {short_url}: {err_msg}"
                                 errors += 1
                         else:
+                            print(f"[AI-ERROR] batch {short_url} HTTP {resp.status_code}: {resp.get_data(as_text=True)[:500]}")
                             errors += 1
                 except Exception as e:
+                    print(f"[AI-ERROR] batch exception for {short_url}: {e}")
                     job_state["message"] = f"[{i+1}/{len(actionable)}] AI failed for {short_url}: {e}"
                     errors += 1
 
