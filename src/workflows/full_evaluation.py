@@ -53,6 +53,28 @@ from src.data_sources.google_ads_client import GoogleAdsClient, AdsAccountData
 from src.data_sources.crux_client import CrUXClient
 
 
+# Non-HTML assets — images, media, documents, static files. Google Image Search
+# reports these in GSC (impressions=1), but they are NOT content pages and must
+# never be evaluated as such. Excluded when building the asset list so they
+# don't pollute the page count, Opportunities, Link Map, or Playbook.
+_ASSET_URL_EXTENSIONS = (
+    ".webp", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".ico", ".bmp", ".tiff",
+    ".avif", ".pdf", ".mp4", ".webm", ".mov", ".avi", ".mkv", ".mp3", ".wav",
+    ".css", ".js", ".json", ".xml", ".txt", ".woff", ".woff2", ".ttf", ".eot",
+    ".zip", ".gz", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+)
+_ASSET_PATH_MARKERS = (
+    "/media/", "/static/", "/catalog/product/cache/", "/mf_webp/", "/pub/media/",
+    "/wp-content/uploads/", "/skin/", "/assets/", "/webp-to-jpg",
+)
+
+
+def _is_asset_url(url: str) -> bool:
+    """True if the URL is a non-HTML asset (image/media/document/static file)."""
+    p = (url or "").split("?")[0].split("#")[0].lower()
+    return p.endswith(_ASSET_URL_EXTENSIONS) or any(m in p for m in _ASSET_PATH_MARKERS)
+
+
 @dataclass
 class WorkflowConfig:
     """Configuration for the evaluation workflow."""
@@ -396,8 +418,14 @@ class FullEvaluationWorkflow:
         # Merge into PageAssets
         all_urls = set(gsc_data.keys()) | set(ga4_data.keys())
         assets = []
+        _skipped_assets = 0
 
         for url in all_urls:
+            # Drop non-HTML assets (images/media/docs from GSC Image Search) —
+            # they are not content pages.
+            if _is_asset_url(url):
+                _skipped_assets += 1
+                continue
             gsc = gsc_data.get(url, {})
             ga4 = ga4_data.get(url, {})
 
@@ -448,6 +476,8 @@ class FullEvaluationWorkflow:
             )
             assets.append(asset)
 
+        if _skipped_assets:
+            print(f"  Skipped {_skipped_assets} non-HTML asset URLs (images/media/docs)")
         self._assets = assets
         print(f"  Merged: {len(assets)} PageAssets")
 
