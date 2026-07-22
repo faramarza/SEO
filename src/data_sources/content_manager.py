@@ -1316,6 +1316,25 @@ def _score_suggestion_v2(sug):
     if sug.get("has_ai_overview", False):
         score += 2
 
+    # GEO citable-format signal (Török 2026): AI answer engines cite
+    # comparison, guide, review, and FAQ/how-to formats far more than bare
+    # keyword pages. Favor suggestions whose intent implies a citable format,
+    # and add weight when an AI Overview already shows for the query (GEO
+    # visibility is directly at stake there).
+    text = " ".join(
+        str(sug.get(k, "")) for k in ("keyword", "idea", "title", "primary_keyword")
+    ).lower()
+    geo_score = 0
+    if re.search(
+        r"\b(vs\.?|versus|compare|comparison|best|top \d+|guide|how to|how do|"
+        r"what is|why|review|checklist|ideas|ultimate|explained)\b", text
+    ):
+        geo_score += 5
+    if sug.get("has_ai_overview", False):
+        geo_score += 3
+    score += min(8, geo_score)
+    sug["geo_citable"] = geo_score > 0
+
     return min(100, score)
 
 

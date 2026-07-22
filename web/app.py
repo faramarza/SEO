@@ -6858,6 +6858,23 @@ ADDITIONAL RULES:
   Place product images inside or near their product callout boxes. Use the EXACT image URLs provided — do NOT invent image URLs.
 
 ═══════════════════════════════════════
+PHASE 8.5: GENERATIVE ENGINE OPTIMIZATION (GEO — get cited by AI answer engines)
+═══════════════════════════════════════
+Discovery increasingly happens INSIDE AI answer engines (ChatGPT, Gemini, Google AI Overviews, Perplexity) that CITE sources rather than list ten blue links. Research (Török 2026; Pinterest GEO 2025; MindReader / ACL 2026) shows these engines cite content that is evidence-rich, answer-first, well-structured, and fresh. Apply ALL of the following — they are not optional:
+
+1. EVIDENCE DENSITY (the single biggest citation driver): back claims with SPECIFIC, quantified, verifiable facts — numbers, percentages, ages, dimensions, price ranges, dated findings — and attribute them ("according to the AAP…", "a 2026 study found…"). Vague, unquantified prose does not get cited. Aim for a concrete data point in most sections.
+
+2. ANSWER-FIRST CHUNKS (inverted pyramid): open the article AND each major H2 with a concise, self-contained 2–3 sentence answer an AI could quote VERBATIM, then elaborate. Every section must stand alone as a quotable unit — do not bury the answer below setup.
+
+3. LATENT-DEMAND REASONING COVERAGE (MindReader method): decompose the primary query into the distinct underlying facets a reader actually wants resolved (e.g. how to choose, by age/stage, safety/materials, value/price, alternatives, common mistakes), and ensure a section answers the REASONING behind each facet — not just restating the keyword. Breadth of covered reasoning is what wins citations.
+
+4. FRESHNESS: include a visible "Last updated: <current month and year>" line near the top, and reference the current year where natural. Engines discount stale-looking sources.
+
+5. STRUCTURED FOR EXTRACTION: use question-form H2/H3 headings, bulleted/numbered lists, and at least one comparison table — these are the structures AI answers lift most often.
+
+6. DUAL SCHEMA: output BOTH FAQPage AND Article/BlogPosting JSON-LD. The Article schema MUST include datePublished and dateModified so engines can parse authorship and freshness.
+
+═══════════════════════════════════════
 PHASE 9: SEO REVIEW
 ═══════════════════════════════════════
 Before finishing, verify:
@@ -6907,6 +6924,11 @@ Before outputting the article, confirm:
 ✓ Product links included with reasons.
 ✓ Topic-cluster links included.
 ✓ Minimum 2 external reference links to authoritative sources.
+✓ GEO: specific, attributed, quantified facts present (not vague prose).
+✓ GEO: each major section opens with a quotable answer-first sentence.
+✓ GEO: primary query's latent-demand facets each covered by a section.
+✓ GEO: visible "Last updated" date present.
+✓ GEO: BOTH FAQPage and Article/BlogPosting JSON-LD emitted (Article has dateModified).
 ✓ SEO metadata complete.
 ✓ Valid HTML for Magento.
 ✓ Grammar checked.
@@ -6931,15 +6953,18 @@ START your response IMMEDIATELY with the article HTML — the very first charact
 
 The article HTML must include:
 1. Hero banner with gradient at the top
-2. TL;DR summary box
-3. At least one comparison or decision table
-4. 3-5 product callout boxes with CTA buttons scattered throughout
-5. Tip boxes and/or warning boxes where relevant
-6. A benefit grid (3-column) where appropriate
-7. FAQ section (visible Q&A in HTML)
-8. Final CTA banner near the bottom
-9. Implementation tips or actionable checklist section
-10. FAQ schema JSON-LD <script type="application/ld+json"> tag at the very end
+2. A visible "Last updated: <current month and year>" line near the top (GEO freshness)
+3. TL;DR summary box that directly answers the primary question in 2-3 quotable sentences (GEO answer-first)
+4. At least one comparison or decision table
+5. 3-5 product callout boxes with CTA buttons scattered throughout
+6. Tip boxes and/or warning boxes where relevant
+7. A benefit grid (3-column) where appropriate
+8. Each major H2 opening with a self-contained, quotable 2-3 sentence answer before elaborating (GEO extraction)
+9. Specific, attributed, quantified facts throughout (GEO evidence density)
+10. FAQ section (visible Q&A in HTML)
+11. Final CTA banner near the bottom
+12. Implementation tips or actionable checklist section
+13. BOTH FAQPage AND Article/BlogPosting JSON-LD <script type="application/ld+json"> tags at the very end; the Article schema must include datePublished and dateModified
 
 ALL styling must be inline (style="...") — Magento strips CSS classes.
 Use &#NNN; decimal HTML entities for all special characters and emoji.
