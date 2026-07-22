@@ -166,7 +166,8 @@ async function pbAddTask(method, idx, subIdx, btn) {
         if (method === 'striking') {
             const r = PB_DATA.striking_distance[idx];
             payload = { method, url: r.url, asset_type: r.asset_type, query: r.query,
-                position: r.position, impressions: r.impressions, upside_clicks: r.upside_clicks };
+                position: r.position, impressions: r.impressions, upside_clicks: r.upside_clicks,
+                on_page_covered: r.on_page_covered, action_hint: r.action_hint };
         } else if (method === 'decay') {
             const r = PB_DATA.decay.decaying[idx];
             payload = { method, url: r.url, asset_type: r.asset_type, peak_clicks: r.peak_clicks,
@@ -244,7 +245,8 @@ function renderStriking(rows) {
     rows.forEach((r, i) => {
         html += `<tr>
             <td><strong>${escHtml(r.query)}</strong>
-                <div class="pb-todo">→ Work "${escHtml(r.query)}" into the page's title, H1 and first paragraph, then add internal links to it from your strongest related pages — that nudge from pos ${r.position} onto page 1 is where the +${r.upside_clicks} clicks come from.</div></td>
+                ${r.on_page_covered === 'yes' ? '<span class="pb-badge" style="background:rgba(5,150,105,.15);color:#059669;">on-page ✓</span>' : '<span class="pb-badge" style="background:rgba(220,38,38,.12);color:#dc2626;">not in title/H1</span>'}
+                <div class="pb-todo">→ ${escHtml(r.action_hint)}</div></td>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
             <td class="pb-num">${r.position}</td>
             <td class="pb-num">${r.impressions.toLocaleString()}</td>

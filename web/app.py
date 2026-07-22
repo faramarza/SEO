@@ -6121,6 +6121,23 @@ def api_playbook_add_task():
         pos = body.get("position", 0)
         impr = body.get("impressions", 0)
         upside = body.get("upside_clicks", 0)
+        covered = body.get("on_page_covered") == "yes"
+        # Grounded steps: don't tell them to add a keyword that's already there.
+        if covered:
+            steps = [
+                f"'{query}' is ALREADY in this page's title/H1 (position {pos}, {impr:,} impressions) — do NOT re-add the keyword.",
+                "Build authority: add internal links to this page from your strongest, most topically-related pages (use anchor text describing THIS page).",
+                "Earn a few relevant external links (parenting/education/toy-review sites).",
+                "Confirm the page directly answers this exact intent; add a focused section if a gap exists.",
+                "Re-check the query's position in GSC after 3-4 weeks.",
+            ]
+        else:
+            steps = [
+                f"'{query}' is NOT in this page's title/H1 yet (position {pos}, {impr:,} impressions) — work the query and close variants into the title, H1, and first 100 words.",
+                f"Add a section that directly answers '{query}'.",
+                "Add internal links from strong, topically-related pages using anchor text that describes THIS page.",
+                "Re-check the query's position in GSC after 3-4 weeks.",
+            ]
         data.update({
             "action": "VISIBILITY_FIX",
             "primary_constraint": "Visibility",
@@ -6129,12 +6146,10 @@ def api_playbook_add_task():
             "risk_level": "low",
             "gsc_impressions": impr,
             "gsc_position": pos,
-            "implementation_summary": f"Push '{query}' from position {pos} onto page 1",
-            "implementation_steps": [
-                f"Strengthen on-page relevance for '{query}' (position {pos}, {impr:,} impressions): make sure the exact query and close variants appear in the title, H1, and first 100 words.",
-                f"Add internal links from strong, topically-related pages using anchor text that describes THIS page, to lift '{query}' onto page 1 where clicks happen.",
-                "Re-check the query's position in GSC after 3-4 weeks.",
-            ],
+            "implementation_summary": (
+                f"Build authority for '{query}' (already on-page, pos {pos})" if covered
+                else f"Optimize + link '{query}' onto page 1 (pos {pos})"),
+            "implementation_steps": steps,
         })
     elif method == "decay":
         peak = body.get("peak_clicks", 0)

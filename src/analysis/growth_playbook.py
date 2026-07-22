@@ -123,6 +123,10 @@ def find_striking_distance(results, min_impressions=30, pos_low=6.0,
         if _is_system_page(url, system_disallow):
             continue
         asset_type = r.get("asset_type", "other")
+        # What the page ALREADY has, so the advice is grounded (not "add the
+        # keyword" when it's already in the title/H1).
+        pm = r.get("page_metadata", {})
+        title_h1 = ((pm.get("title", "") or "") + " " + (pm.get("h1", "") or "")).lower()
         for q in r.get("top_queries", []):
             pos = q.get("position", 0) or 0
             impr = q.get("impressions", 0) or 0
@@ -139,17 +143,42 @@ def find_striking_distance(results, min_impressions=30, pos_low=6.0,
             # How close to page 1 — nearer queries are easier, weight them up.
             proximity = max(0.1, (pos_high - pos) / (pos_high - pos_low))
             score = upside_clicks * (0.5 + 0.5 * proximity)
+
+            # Grounded action hint: is the query already covered on-page?
+            query = q.get("query", "")
+            qwords = _query_words(query)
+            covered = bool(qwords) and (
+                sum(1 for w in qwords if w in title_h1) / len(qwords) >= 0.6)
+            posr = round(pos, 1)
+            if covered:
+                on_page = "yes"
+                action_hint = (
+                    f'"{query}" is already in this page\'s title/H1, so re-adding the '
+                    f'keyword won\'t help. At position {posr} the lever is AUTHORITY: add '
+                    f'internal links to this page from your strongest related pages, and '
+                    f'earn a few relevant external links. Also check the page truly answers '
+                    f'this exact intent (add a focused section if it doesn\'t).')
+            else:
+                on_page = "no"
+                action_hint = (
+                    f'"{query}" is NOT in this page\'s title or H1 yet. Work it into the '
+                    f'title, H1 and opening paragraph, add a section that directly answers '
+                    f'it, then add internal links from strong related pages to push it from '
+                    f'position {posr} onto page 1.')
+
             rows.append({
                 "url": url,
                 "asset_type": asset_type,
-                "query": q.get("query", ""),
-                "position": round(pos, 1),
+                "query": query,
+                "position": posr,
                 "impressions": impr,
                 "clicks": clicks,
                 "ctr": round((clicks / impr * 100) if impr else 0, 2),
                 "potential_clicks_at_pos5": round(potential_clicks),
                 "upside_clicks": round(upside_clicks),
                 "score": round(score, 1),
+                "on_page_covered": on_page,
+                "action_hint": action_hint,
             })
     rows.sort(key=lambda x: x["score"], reverse=True)
     return rows[:limit]
