@@ -6132,7 +6132,16 @@ def api_playbook_add_task():
     Builds a method-appropriate action (type, steps, EV) and persists it via
     the shared _persist_action helper so it appears on the Task Board.
     """
-    body = request.json or {}
+    try:
+        return _playbook_add_task_impl(request.json or {})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[PLAYBOOK-ADDTASK] error: {e}", flush=True)
+        return jsonify({"success": False, "error": f"Server error: {e}"}), 500
+
+
+def _playbook_add_task_impl(body):
     method = (body.get("method") or "").lower()
 
     config = load_config()

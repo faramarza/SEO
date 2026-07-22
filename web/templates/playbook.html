@@ -197,6 +197,15 @@ async function pbAddTask(method, idx, subIdx, btn) {
         const res = await fetch('/api/playbook/add-task', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload) });
+        if (!res.ok) {
+            let detail = 'HTTP ' + res.status;
+            try { const j = await res.json(); detail = j.error || detail; } catch (_) {}
+            if (res.status === 404) detail += ' — the server has old code; run the deploy + restart.';
+            if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+            pbToast('Add failed: ' + detail, true);
+            console.error('add-task failed', res.status, detail);
+            return;
+        }
         const data = await res.json();
         if (data.success) {
             if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
@@ -208,6 +217,7 @@ async function pbAddTask(method, idx, subIdx, btn) {
     } catch (e) {
         if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
         pbToast('Failed: ' + e.message, true);
+        console.error('add-task exception', e);
     }
 }
 
