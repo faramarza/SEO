@@ -57,6 +57,14 @@
             <option value="medium">Medium Risk</option>
             <option value="high">High Risk</option>
         </select>
+        <select id="filter-signal" onchange="filterOpportunities()">
+            <option value="">All Demand Signals</option>
+            <option value="trapped">🔥 Trapped demand</option>
+            <option value="near_page_1">⚡ Near page 1</option>
+            <option value="untapped">💤 Untapped</option>
+            <option value="__any__">Any signal</option>
+            <option value="__none__">No signal</option>
+        </select>
         <input type="text" id="filter-search" placeholder="Search URLs..." oninput="filterOpportunities()">
         <span class="result-count" id="result-count">0 opportunities</span>
     </div>
@@ -326,19 +334,20 @@ function demandSignal(opp) {
     const pos = opp.gsc_position || 0;
     const ctr = (opp.gsc_ctr || 0) * 100;
     if (impr >= 1000 && pos >= 11 && pos <= 30 && ctr < 0.5) {
-        return { label: '🔥 Trapped demand', color: '#dc2626', bg: '#fee2e2',
+        return { key: 'trapped', label: '🔥 Trapped demand', color: '#dc2626', bg: '#fee2e2',
             tip: `${impr.toLocaleString()} impressions stuck on page 2+ (pos ${pos.toFixed(0)}) with almost no clicks — one ranking push from real traffic.` };
     }
     if (impr >= 500 && pos > 5 && pos <= 12 && ctr < 1) {
-        return { label: '⚡ Near page 1', color: '#d97706', bg: '#fef3c7',
+        return { key: 'near_page_1', label: '⚡ Near page 1', color: '#d97706', bg: '#fef3c7',
             tip: `${impr.toLocaleString()} impressions at position ${pos.toFixed(0)} — close to page 1; a small push could break through.` };
     }
     if (impr >= 300 && (opp.ga4_revenue || 0) === 0 && pos > 3 && ctr < 1) {
-        return { label: '💤 Untapped', color: '#6b7280', bg: '#f3f4f6',
+        return { key: 'untapped', label: '💤 Untapped', color: '#6b7280', bg: '#f3f4f6',
             tip: `${impr.toLocaleString()} impressions but no revenue — demand exists, capture is missing.` };
     }
     return null;
 }
+function demandSignalKey(opp) { const s = demandSignal(opp); return s ? s.key : ''; }
 function demandSignalBadge(opp) {
     const s = demandSignal(opp);
     if (!s) return '';
@@ -510,6 +519,7 @@ function filterOpportunities() {
     const actionFilter = document.getElementById('filter-action').value;
     const typeFilter = document.getElementById('filter-type').value;
     const riskFilter = document.getElementById('filter-risk').value;
+    const signalFilter = document.getElementById('filter-signal').value;
     const searchFilter = document.getElementById('filter-search').value.toLowerCase();
 
     let filtered = allOpportunities;
@@ -528,6 +538,13 @@ function filterOpportunities() {
     }
     if (riskFilter) {
         filtered = filtered.filter(o => o.risk_level === riskFilter);
+    }
+    if (signalFilter === '__any__') {
+        filtered = filtered.filter(o => demandSignalKey(o) !== '');
+    } else if (signalFilter === '__none__') {
+        filtered = filtered.filter(o => demandSignalKey(o) === '');
+    } else if (signalFilter) {
+        filtered = filtered.filter(o => demandSignalKey(o) === signalFilter);
     }
     if (searchFilter) {
         filtered = filtered.filter(o => {
