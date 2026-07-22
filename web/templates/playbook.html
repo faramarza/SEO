@@ -157,12 +157,20 @@ const PB_ADDED = new Set();  // keys of rows already added this session
 function pbKey(method, url, extra) {
     return method + '|' + (url || '') + '|' + (extra || '');
 }
-// Render a +Task button that shows "✓ Added" (disabled) if this row was already
-// added — persists across filter/sort/reload so a row can't be added twice.
+// True if this row's task is already on the Task Board. Matches the exact key,
+// OR a legacy key ("?|url|extra", any method) reconstructed for tasks created
+// before dedup keys existed.
+function pbIsAdded(key) {
+    if (PB_ADDED.has(key)) return true;
+    const parts = key.split('|');
+    return PB_ADDED.has('?|' + parts.slice(1).join('|'));
+}
+// Render a +Task button that shows "✓ Added" (disabled) if this row is already
+// on the Task Board — persists across filter/sort/reload/session.
 function pbTaskBtn(method, idx, subIdx, key, label, extraClass) {
     const cls = 'pb-task-btn' + (extraClass ? ' ' + extraClass : '');
-    if (PB_ADDED.has(key)) {
-        return `<button class="${cls} pb-added" disabled>✓ Added</button>`;
+    if (pbIsAdded(key)) {
+        return `<button class="${cls} pb-added" disabled title="Already on the Task Board">✓ Added</button>`;
     }
     const si = (subIdx === null || subIdx === undefined) ? 'null' : subIdx;
     return `<button class="${cls}" data-key="${key}" onclick="pbAddTask('${method}', ${idx}, ${si}, this)">${label || '+ Task'}</button>`;
@@ -252,6 +260,9 @@ async function loadPlaybook() {
                 document.getElementById('pb-' + s + '-body').innerHTML = msg);
             return;
         }
+        // Gray out rows already on the Task Board (across reloads/sessions).
+        PB_ADDED.clear();
+        (data.existing_task_keys || []).forEach(k => PB_ADDED.add(k));
         const d = data.timestamp ? new Date(data.timestamp).toLocaleString() : '—';
         document.getElementById('pb-meta').innerHTML =
             `Based on ${data.page_count} pages · evaluation ${escHtml(d)}`;
@@ -510,7 +521,7 @@ function renderGeo(geo) {
             <td class="pb-num">${(p.gsc_impressions||0).toLocaleString()}</td>
             <td>${fixes}${note}</td>
             <td class="pb-geo-actions">
-                ${PB_ADDED.has(pbKey('geo', p.url)) ? '<button class="pb-task-btn pb-added" disabled>✓ Added</button>' : `<button class="pb-task-btn" data-key="${pbKey('geo', p.url)}" onclick="pbAddGeoTask(${i}, this)">+ Task</button>`}
+                ${pbIsAdded(pbKey('geo', p.url)) ? '<button class="pb-task-btn pb-added" disabled title="Already on the Task Board">✓ Added</button>' : `<button class="pb-task-btn" data-key="${pbKey('geo', p.url)}" onclick="pbAddGeoTask(${i}, this)">+ Task</button>`}
                 <button class="pb-task-btn pb-task-btn-alt" onclick="pbGenQuestions('${escHtml(p.url).replace(/'/g,"\\'")}', this)">AI Questions</button>
                 <button class="pb-task-btn pb-task-btn-alt2" onclick="pbDemandCoverage('${escHtml(p.url).replace(/'/g,"\\'")}', this)">Demand Coverage</button>
             </td>

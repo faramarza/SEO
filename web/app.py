@@ -6145,6 +6145,28 @@ def api_playbook():
             snaps.append(eval_data)
         out["decay"] = gp.find_content_decay(snaps, system_disallow=disallow)
 
+    # Dedup keys of tasks ALREADY on the Task Board (proposed), so the Playbook
+    # can gray out rows that have already been added — across page reloads and
+    # sessions, not just the current one.
+    existing_keys = []
+    try:
+        for a in ActionLedger().get_all_actions():
+            if a.status.value not in ("proposed", "approved", "implemented"):
+                continue
+            rec = a.recommendation_json or {}
+            k = rec.get("dedup_key")
+            if not k:
+                # Legacy fallback: reconstruct method|url|query from the summary.
+                summ = rec.get("implementation_summary", "") or ""
+                m = re.search(r"'([^']+)'", summ)
+                if a.url and (a.recommendation_json or {}).get("source") == "playbook":
+                    k = f"?|{a.url}|{m.group(1) if m else ''}"
+            if k:
+                existing_keys.append(k)
+    except Exception:
+        pass
+    out["existing_task_keys"] = existing_keys
+
     return jsonify(out)
 
 
