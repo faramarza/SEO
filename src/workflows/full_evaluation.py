@@ -898,6 +898,11 @@ class FullEvaluationWorkflow:
                 schema_types=getattr(asset, "schema_types", []),
                 above_fold_html=asset.above_fold_html,
                 body_html=asset.body_html,
+                content_preview=asset.content_preview,
+                top_queries=[
+                    {"query": q.query, "impressions": q.impressions}
+                    for q in (asset.gsc.top_queries[:10] if asset.gsc and asset.gsc.top_queries else [])
+                ],
                 internal_outlinks=asset.internal_outlinks,
                 breadcrumb_links=getattr(asset, "breadcrumb_links", []),
                 has_crawl_data=asset.has_crawl_data,

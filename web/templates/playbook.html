@@ -76,6 +76,8 @@
         </div>
         <div id="pb-pruning-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
     </section>
+
+    <div id="pb-toast" class="pb-toast"></div>
 </div>
 {% endblock %}
 
@@ -100,6 +102,60 @@ function pbShowTab(tab) {
 }
 
 let PB_DATA = null;
+
+function pbToast(msg, isError) {
+    const t = document.getElementById('pb-toast');
+    t.textContent = msg;
+    t.className = 'pb-toast show' + (isError ? ' error' : '');
+    setTimeout(() => { t.className = 'pb-toast'; }, 3200);
+}
+
+async function pbAddTask(method, idx, subIdx, btn) {
+    let payload = { method };
+    try {
+        if (method === 'striking') {
+            const r = PB_DATA.striking_distance[idx];
+            payload = { method, url: r.url, asset_type: r.asset_type, query: r.query,
+                position: r.position, impressions: r.impressions, upside_clicks: r.upside_clicks };
+        } else if (method === 'decay') {
+            const r = PB_DATA.decay.decaying[idx];
+            payload = { method, url: r.url, asset_type: r.asset_type, peak_clicks: r.peak_clicks,
+                current_clicks: r.current_clicks, drop_pct: r.drop_pct, peak_date: r.peak_date,
+                impressions_current: r.impressions_current };
+        } else if (method === 'orphan') {
+            const r = PB_DATA.orphans_clusters.orphans[idx];
+            payload = { method, url: r.url, asset_type: r.asset_type, impressions: r.impressions };
+        } else if (method === 'cluster_link') {
+            const c = PB_DATA.orphans_clusters.clusters[idx];
+            const m = c.missing_pillar_links[subIdx];
+            payload = { method, url: m.url, asset_type: m.asset_type, impressions: m.impressions,
+                pillar_url: c.pillar.url, pillar_title: c.pillar.title, topic: c.topic };
+        } else if (method === 'pruning') {
+            const r = PB_DATA.pruning[idx];
+            payload = { method, url: r.url, asset_type: r.asset_type, disposition: r.disposition,
+                reason: r.reason, redirect_target: r.redirect_target, impressions: r.impressions,
+                word_count: r.word_count };
+        }
+    } catch (e) { pbToast('Could not build task: ' + e.message, true); return; }
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
+            pbToast(data.message + ' — see Task Board');
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+            pbToast(data.error || 'Failed to add task', true);
+        }
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+        pbToast('Failed: ' + e.message, true);
+    }
+}
 
 async function loadPlaybook() {
     try {
@@ -133,8 +189,8 @@ function renderStriking(rows) {
     }
     let html = `<table class="pb-table"><thead><tr>
         <th>Query</th><th>Page</th><th>Pos</th><th>Impr</th>
-        <th>Clicks</th><th>CTR</th><th title="Clicks available if this query reached position 5">Upside</th></tr></thead><tbody>`;
-    rows.forEach(r => {
+        <th>Clicks</th><th>CTR</th><th title="Clicks available if this query reached position 5">Upside</th><th></th></tr></thead><tbody>`;
+    rows.forEach((r, i) => {
         html += `<tr>
             <td><strong>${escHtml(r.query)}</strong></td>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
@@ -143,6 +199,7 @@ function renderStriking(rows) {
             <td class="pb-num">${r.clicks}</td>
             <td class="pb-num">${r.ctr}%</td>
             <td class="pb-num pb-upside">+${r.upside_clicks}/mo</td>
+            <td><button class="pb-task-btn" onclick="pbAddTask('striking', ${i}, null, this)">+ Task</button></td>
         </tr>`;
     });
     html += '</tbody></table>';
@@ -163,8 +220,8 @@ function renderDecay(decay) {
     }
     let html = `<table class="pb-table"><thead><tr>
         <th>Page</th><th>Peak → Now (clicks)</th><th>Drop</th><th>Position</th>
-        <th>Peak date</th></tr></thead><tbody>`;
-    rows.forEach(r => {
+        <th>Peak date</th><th></th></tr></thead><tbody>`;
+    rows.forEach((r, i) => {
         const posMove = r.position_current > r.position_peak ? '▼' : '▲';
         html += `<tr>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
@@ -173,6 +230,7 @@ function renderDecay(decay) {
             <td class="pb-num pb-drop">−${r.drop_pct}%</td>
             <td class="pb-num">${r.position_peak} ${posMove} ${r.position_current}</td>
             <td class="pb-num">${escHtml(r.peak_date)}</td>
+            <td><button class="pb-task-btn" onclick="pbAddTask('decay', ${i}, null, this)">+ Refresh</button></td>
         </tr>`;
     });
     html += '</tbody></table>';
@@ -190,14 +248,15 @@ function renderOrphans(oc) {
         html += '<p class="empty-state">No demand-bearing orphans — every page with traffic has at least one internal inbound link. 🎉</p>';
     } else {
         html += `<table class="pb-table"><thead><tr><th>Page</th><th>Type</th>
-            <th>Impr</th><th>Clicks</th><th>Pos</th></tr></thead><tbody>`;
-        orphans.forEach(o => {
+            <th>Impr</th><th>Clicks</th><th>Pos</th><th></th></tr></thead><tbody>`;
+        orphans.forEach((o, i) => {
             html += `<tr>
                 <td><a href="${escHtml(o.url)}" target="_blank" title="${escHtml(o.url)}">${escHtml(fmtUrl(o.url))}</a></td>
                 <td>${escHtml(o.asset_type)}</td>
                 <td class="pb-num">${o.impressions.toLocaleString()}</td>
                 <td class="pb-num">${o.clicks}</td>
                 <td class="pb-num">${o.position}</td>
+                <td><button class="pb-task-btn" onclick="pbAddTask('orphan', ${i}, null, this)">+ Task</button></td>
             </tr>`;
         });
         html += '</tbody></table>';
@@ -207,7 +266,7 @@ function renderOrphans(oc) {
     if (!clusters.length) {
         html += '<p class="empty-state">No topic clusters detected (needs 3+ pages sharing 3+ query terms). This grows as more pages are crawled with GSC data.</p>';
     } else {
-        clusters.forEach(c => {
+        clusters.forEach((c, ci) => {
             const pillarOrphan = c.pillar.is_orphan
                 ? ' <span class="pb-drop" title="The pillar itself has no internal inbound links">⚠ pillar is orphaned</span>' : '';
             html += `<div class="pb-cluster">
@@ -220,9 +279,10 @@ function renderOrphans(oc) {
                     <span class="pb-num">${c.pillar.impressions.toLocaleString()} impr</span>${pillarOrphan}</div>`;
             if (c.missing_pillar_links && c.missing_pillar_links.length) {
                 html += `<div class="pb-missing">Missing cluster → pillar links (${c.missing_pillar_links.length}):<ul>`;
-                c.missing_pillar_links.forEach(m => {
+                c.missing_pillar_links.forEach((m, li) => {
                     html += `<li><a href="${escHtml(m.url)}" target="_blank" title="${escHtml(m.url)}">${escHtml(fmtUrl(m.url))}</a>
-                        <span class="pb-num">${m.impressions.toLocaleString()} impr</span> — should link to the pillar</li>`;
+                        <span class="pb-num">${m.impressions.toLocaleString()} impr</span> — should link to the pillar
+                        <button class="pb-task-btn pb-task-btn-sm" onclick="pbAddTask('cluster_link', ${ci}, ${li}, this)">+ Link task</button></li>`;
                 });
                 html += '</ul></div>';
             } else {
@@ -242,8 +302,8 @@ function renderPruning(rows) {
     }
     let html = `<table class="pb-table"><thead><tr>
         <th>Page</th><th>Impr</th><th>Words</th><th>Disposition</th>
-        <th>Why / Target</th></tr></thead><tbody>`;
-    rows.forEach(r => {
+        <th>Why / Target</th><th></th></tr></thead><tbody>`;
+    rows.forEach((r, i) => {
         const dispClass = r.disposition === 'prune' ? 'pb-disp-prune' : 'pb-disp-merge';
         const dispLabel = r.disposition === 'prune' ? 'PRUNE' : 'MERGE / 301';
         let whyCell = escHtml(r.reason);
@@ -257,6 +317,7 @@ function renderPruning(rows) {
             <td class="pb-num">${r.word_count}</td>
             <td><span class="pb-disp ${dispClass}">${dispLabel}</span></td>
             <td>${whyCell}</td>
+            <td><button class="pb-task-btn" onclick="pbAddTask('pruning', ${i}, null, this)">+ Review task</button></td>
         </tr>`;
     });
     html += '</tbody></table>';

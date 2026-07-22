@@ -967,10 +967,13 @@ def api_tasks():
     return jsonify(tasks_by_status)
 
 
-@app.route("/api/opportunities/approve", methods=["POST"])
-def api_approve_opportunity():
-    """Approve an opportunity and create a proposed action."""
-    data = request.json
+def _persist_action(data):
+    """Create a proposed ActionRecord from an opportunity/task payload and add
+    it to the ledger (Task Board). Returns the new action_id.
+
+    Shared by /api/opportunities/approve and /api/playbook/add-task so both
+    produce identically-shaped task records with the same fingerprint logic.
+    """
     ledger = ActionLedger()
 
     from src.ledger.action_ledger import ActionFingerprint, ActionRecord
@@ -1078,7 +1081,14 @@ def api_approve_opportunity():
 
     # Add to ledger
     ledger.add_action(action)
+    return action_id
 
+
+@app.route("/api/opportunities/approve", methods=["POST"])
+def api_approve_opportunity():
+    """Approve an opportunity and create a proposed action."""
+    data = request.json
+    action_id = _persist_action(data)
     return jsonify({
         "success": True,
         "action_id": action_id,
@@ -4136,6 +4146,8 @@ def api_page_quality():
         schema_types=pm.get("schema_types", []),
         above_fold_html=pm.get("above_fold_html", ""),
         body_html=pm.get("body_html", ""),
+        content_preview=pm.get("content_preview", ""),
+        top_queries=match.get("top_queries", []),
         internal_outlinks=pm.get("internal_outlinks", []),
         breadcrumb_links=pm.get("breadcrumb_links", []),
         has_crawl_data=pm.get("has_crawl_data", False),
@@ -5672,6 +5684,150 @@ def api_playbook():
         out["decay"] = gp.find_content_decay(snaps)
 
     return jsonify(out)
+
+
+@app.route("/api/playbook/add-task", methods=["POST"])
+def api_playbook_add_task():
+    """Turn a Playbook report row into a proposed Task Board action.
+
+    Body: {method: striking|decay|cluster_link|orphan|pruning, ...row fields}.
+    Builds a method-appropriate action (type, steps, EV) and persists it via
+    the shared _persist_action helper so it appears on the Task Board.
+    """
+    body = request.json or {}
+    method = (body.get("method") or "").lower()
+
+    config = load_config()
+    profit = config.get("profit_model", {})
+    aov = profit.get("aov", 53.19)
+    margin = profit.get("gross_margin_low", 0.27)
+    cvr = profit.get("site_avg_purchase_rate", 0.02)
+
+    def ev(clicks):
+        return round(max(0, clicks) * cvr * aov * margin, 2)
+
+    url = body.get("url", "")
+    asset_type = body.get("asset_type", "other")
+    data = {"url": url, "asset_type": asset_type}
+
+    if method == "striking":
+        query = body.get("query", "")
+        pos = body.get("position", 0)
+        impr = body.get("impressions", 0)
+        upside = body.get("upside_clicks", 0)
+        data.update({
+            "action": "VISIBILITY_FIX",
+            "primary_constraint": "Visibility",
+            "expected_value": ev(upside),
+            "confidence": 0.7,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+            "gsc_position": pos,
+            "implementation_summary": f"Push '{query}' from position {pos} onto page 1",
+            "implementation_steps": [
+                f"Strengthen on-page relevance for '{query}' (position {pos}, {impr:,} impressions): make sure the exact query and close variants appear in the title, H1, and first 100 words.",
+                f"Add internal links from strong, topically-related pages using anchor text that describes THIS page, to lift '{query}' onto page 1 where clicks happen.",
+                "Re-check the query's position in GSC after 3-4 weeks.",
+            ],
+        })
+    elif method == "decay":
+        peak = body.get("peak_clicks", 0)
+        current = body.get("current_clicks", 0)
+        drop = body.get("drop_pct", 0)
+        peak_date = body.get("peak_date", "")
+        data.update({
+            "action": "PAGE_REINVESTMENT",
+            "primary_constraint": "Content Decay",
+            "expected_value": ev(peak - current),
+            "confidence": 0.7,
+            "risk_level": "low",
+            "gsc_impressions": body.get("impressions_current", 0),
+            "implementation_summary": f"Refresh decaying content (down {drop}% since {peak_date})",
+            "implementation_steps": [
+                f"Refresh this page — clicks fell {drop}% from {peak} to {current} since {peak_date}.",
+                "Update stats/dates, deepen thin sections to match current top-ranking competitors, and realign the page to current search intent.",
+                "Refresh the internal links pointing to this page, then request re-indexing in GSC.",
+            ],
+        })
+    elif method == "cluster_link":
+        pillar_url = body.get("pillar_url", "")
+        pillar_title = body.get("pillar_title", "")
+        topic = body.get("topic", "")
+        src_impr = body.get("impressions", 0)
+        data.update({
+            "action": "INTERNAL_LINKING",
+            "primary_constraint": "Internal Linking",
+            "expected_value": ev(src_impr * 0.005),
+            "confidence": 0.65,
+            "risk_level": "low",
+            "gsc_impressions": src_impr,
+            "implementation_summary": f"Link this cluster page to pillar '{pillar_title}'",
+            "implementation_steps": [
+                f"Add an internal link from {url} to the pillar page '{pillar_title}' ({pillar_url}).",
+                f"Use descriptive anchor text about the pillar's topic ({topic}); place it in a relevant content section.",
+                "Consolidates topical authority toward the pillar (Neil Patel topic-cluster method).",
+            ],
+        })
+    elif method == "orphan":
+        impr = body.get("impressions", 0)
+        data.update({
+            "action": "INTERNAL_LINKING",
+            "primary_constraint": "Internal Linking",
+            "expected_value": ev(impr * 0.005),
+            "confidence": 0.65,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+            "implementation_summary": "Rescue orphan page — add internal inbound links",
+            "implementation_steps": [
+                f"This page has {impr:,} impressions but ZERO internal inbound links — add links to it from topically-related pages.",
+                "Use anchor text describing this page; place links inside relevant content sections (not nav/footer).",
+                "Orphan pages can't accumulate internal authority — inbound links are the fix.",
+            ],
+        })
+    elif method == "pruning":
+        disposition = body.get("disposition", "prune")
+        reason = body.get("reason", "")
+        target = body.get("redirect_target") or {}
+        impr = body.get("impressions", 0)
+        words = body.get("word_count", 0)
+        if disposition == "merge_redirect":
+            data.update({
+                "action": "CONSOLIDATION_REVIEW",
+                "implementation_summary": f"Merge & 301 to {target.get('title', 'stronger page')}",
+                "implementation_steps": [
+                    f"Merge any useful content from this page into '{target.get('title', '')}' ({target.get('url', '')}).",
+                    f"301-redirect {url} to that page to preserve residual link equity.",
+                    f"Rationale: {reason}",
+                    "Review before executing — this is a suggestion, not an automatic change.",
+                ],
+            })
+        else:
+            data.update({
+                "action": "CONTENT_PRUNE",
+                "implementation_summary": f"Prune dead page ({impr} impr, {words} words)",
+                "implementation_steps": [
+                    f"Prune this dead page ({impr} impressions, {words} words) — noindex it or remove and 410.",
+                    f"Rationale: {reason}",
+                    "Review before executing — this is a suggestion, not an automatic change.",
+                ],
+            })
+        data.update({
+            "primary_constraint": "Content Hygiene",
+            "expected_value": 0,
+            "confidence": 0.6,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+        })
+    else:
+        return jsonify({"success": False, "error": f"Unknown method '{method}'"}), 400
+
+    data["source"] = "playbook"
+    action_id = _persist_action(data)
+    return jsonify({
+        "success": True,
+        "action_id": action_id,
+        "message": f"Added {action_id} to Task Board",
+    })
 
 
 @app.route("/api/internal-link-map")

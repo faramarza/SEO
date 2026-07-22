@@ -23,6 +23,43 @@ _BREADCRUMB_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Grammatical filler only — attributes/audience terms carry topical signal.
+_KW_STOP = {
+    "for", "the", "and", "with", "how", "what", "why", "are", "can", "from",
+    "that", "this", "your", "our", "all", "has", "its", "you", "was", "get",
+    "not", "but", "will", "more", "buy", "shop", "best", "top", "usa",
+}
+
+
+def _kw_words(text):
+    """Significant (topical) tokens from a keyword phrase."""
+    return [
+        w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(w) > 2 and w not in _KW_STOP
+    ]
+
+
+def _kw_coverage(text, words):
+    """Fraction of `words` (singular/plural-tolerant) present in `text`."""
+    if not words:
+        return 1.0
+    hay = (text or "").lower()
+    hits = 0
+    for w in words:
+        stem = w[:-1] if len(w) > 3 and w.endswith("s") else w
+        if w in hay or stem in hay:
+            hits += 1
+    return hits / len(words)
+
+
+def _primary_keyword(top_queries):
+    """Highest-impression query = the page's primary target keyword."""
+    if not top_queries:
+        return "", []
+    best = max(top_queries, key=lambda q: q.get("impressions", 0) or 0)
+    kw = best.get("query", "") or ""
+    return kw, _kw_words(kw)
+
 
 def _has_breadcrumbs(breadcrumb_links, schema_types, above_fold_html, body_html):
     """Detect breadcrumbs from any reliable signal, not just crawler-extracted
@@ -94,6 +131,8 @@ def evaluate_page_quality(
     schema_types=None,
     above_fold_html="",
     body_html="",
+    content_preview="",
+    top_queries=None,
     internal_outlinks=None,
     breadcrumb_links=None,
     has_crawl_data=True,
@@ -161,6 +200,33 @@ def evaluate_page_quality(
     if has_crawl_data and not outlinks:
         penalize(4, "seo", "medium", "No internal links out",
                  "Page links to no other internal pages.", "Add internal links to related products/categories or supporting content.")
+
+    # ── ON-PAGE KEYWORD PLACEMENT (Brian Dean / Backlinko) ──
+    # Dean's on-page method: the primary target keyword should appear in the
+    # title, H1, URL, and the opening copy. We use the highest-impression GSC
+    # query as the primary keyword and check coverage of its topical words,
+    # tolerating word order and singular/plural. Low-severity, gap-only — so
+    # this informs without reintroducing title-test noise.
+    primary_kw, kw_words = _primary_keyword(top_queries)
+    if has_crawl_data and kw_words:
+        if title.strip() and _kw_coverage(title, kw_words) < 0.5:
+            penalize(4, "seo", "medium", "Primary keyword weak in title",
+                     f"Title covers little of the top query '{primary_kw}'.",
+                     f"Work the main terms of '{primary_kw}' into the title naturally (keep it 40–60 chars).")
+        if h1.strip() and _kw_coverage(h1, kw_words) < 0.5:
+            penalize(3, "seo", "low", "Primary keyword weak in H1",
+                     f"H1 covers little of the top query '{primary_kw}'.",
+                     f"Ensure the H1 reflects '{primary_kw}'.")
+        slug = re.sub(r"[^a-z0-9]+", " ", (url or "").lower().rsplit("/", 1)[-1])
+        if slug and _kw_coverage(slug, kw_words) == 0:
+            penalize(2, "seo", "low", "Primary keyword not in URL",
+                     f"URL slug contains none of '{primary_kw}'.",
+                     "For NEW pages, include the primary keyword in the slug. Don't rewrite existing URLs without a 301.")
+        opening = " ".join((content_preview or "").split()[:100])
+        if opening and _kw_coverage(opening, kw_words) < 0.5:
+            penalize(3, "seo", "low", "Primary keyword weak in opening copy",
+                     f"The first 100 words barely mention '{primary_kw}'.",
+                     f"Mention '{primary_kw}' (and close variants) naturally within the first paragraph.")
 
     # ── REVENUE / CTR (rich-result schema is the big lever) ──
     if has_crawl_data:

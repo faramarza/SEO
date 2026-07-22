@@ -2789,3 +2789,22 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .pb-disp { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 8px; white-space: nowrap; }
 .pb-disp-prune { background: rgba(220,38,38,.12); color: #dc2626; }
 .pb-disp-merge { background: rgba(217,119,6,.12); color: #d97706; }
+
+/* Playbook task buttons + toast */
+.pb-task-btn {
+    background: var(--accent, #2563eb); color: #fff; border: none;
+    padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; transition: opacity .15s;
+}
+.pb-task-btn:hover { opacity: .88; }
+.pb-task-btn:disabled { cursor: default; opacity: .7; }
+.pb-task-btn.pb-added { background: #059669; }
+.pb-task-btn-sm { padding: 2px 8px; font-size: 11px; margin-left: 6px; }
+.pb-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #111827; color: #fff; padding: 12px 20px; border-radius: 10px;
+    font-size: 14px; font-weight: 500; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 2000;
+}
+.pb-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.pb-toast.error { background: #b91c1c; }
