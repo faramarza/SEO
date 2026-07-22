@@ -2629,31 +2629,51 @@ If nothing is broken or improvable:
             else:
                 anthropic_body["temperature"] = temperature
 
-            api_response = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": anthropic_key,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json",
-                },
-                json=anthropic_body,
-                timeout=api_timeout,
-            )
-            if api_response.status_code != 200:
-                print(f"[AI-ERROR] Anthropic {api_response.status_code}: {api_response.text[:800]}", flush=True)
-                return jsonify({"error": f"Anthropic API error: {api_response.text}"}), 500
-            result = api_response.json()
-            # Extract text from content blocks (skip thinking blocks for Fable 5)
+            # Stream the response. Claude generates the whole body before a
+            # non-streaming request returns anything, so large outputs blow past
+            # the read timeout. Streaming delivers tokens continuously, so the
+            # per-chunk read timeout never trips regardless of total length.
+            anthropic_body["stream"] = True
             ai_content = ""
-            for block in result.get("content", []):
-                if block.get("type") == "text":
-                    ai_content = block.get("text", "")
-                    break
-            usage = result.get("usage", {})
+            in_tokens = out_tokens = 0
+            headers = {
+                "x-api-key": anthropic_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            }
+            with httpx.stream("POST", "https://api.anthropic.com/v1/messages",
+                              headers=headers, json=anthropic_body, timeout=api_timeout) as r:
+                if r.status_code != 200:
+                    body = r.read().decode("utf-8", "replace")
+                    print(f"[AI-ERROR] Anthropic {r.status_code}: {body[:800]}", flush=True)
+                    return jsonify({"error": f"Anthropic API error: {body}"}), 500
+                for line in r.iter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if not payload or payload == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(payload)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    etype = event.get("type")
+                    if etype == "content_block_delta":
+                        delta = event.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            ai_content += delta.get("text", "")
+                    elif etype == "message_start":
+                        in_tokens = event.get("message", {}).get("usage", {}).get("input_tokens", 0) or 0
+                    elif etype == "message_delta":
+                        out_tokens = event.get("usage", {}).get("output_tokens", out_tokens) or out_tokens
+                    elif etype == "error":
+                        err = event.get("error", {})
+                        print(f"[AI-ERROR] Anthropic stream error: {err}", flush=True)
+                        return jsonify({"error": f"Anthropic stream error: {err}"}), 500
             usage = {
-                "prompt_tokens": usage.get("input_tokens"),
-                "completion_tokens": usage.get("output_tokens"),
-                "total_tokens": (usage.get("input_tokens", 0) or 0) + (usage.get("output_tokens", 0) or 0),
+                "prompt_tokens": in_tokens,
+                "completion_tokens": out_tokens,
+                "total_tokens": in_tokens + out_tokens,
             }
         else:
             # Build OpenAI payload — handle parameter differences across model generations
