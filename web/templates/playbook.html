@@ -484,19 +484,22 @@ async function pbRunAdsAudit(btn) {
         summary.innerHTML = `
             <div class="pb-geo-stat"><span class="pb-geo-stat-val" style="color:#dc2626;">$${(data.wasted_spend||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">wasted spend (28d)</span></div>
             <div class="pb-geo-stat"><span class="pb-geo-stat-val">${data.negative_candidates||0}</span><span class="pb-geo-stat-lbl">negative-kw candidates</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val" style="color:#d97706;">$${(data.overlap_spend||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">organic-overlap spend</span></div>
             <div class="pb-geo-grades">
                 <span class="geo-pill geo-grade-f">Irrelevant: ${c.irrelevant||0}</span>
                 <span class="geo-pill geo-grade-c">Partial: ${c.partial||0}</span>
                 <span class="geo-pill geo-grade-a">Relevant: ${c.relevant||0}</span>
             </div>`;
         const rows = data.terms || [];
-        let html = `<p class="pb-geo-note">Analyzed the top ${data.analyzed} of ${data.total_terms} search terms by spend. Add flagged terms as negative keywords in Google Ads to stop the waste.</p>`;
+        let html = `<p class="pb-geo-note">Analyzed the top ${data.analyzed} of ${data.total_terms} search terms by spend. <strong>NEGATIVE KW</strong> = irrelevant with no conversions → add as a negative keyword. <strong>ORGANIC #n</strong> = you already rank top-3 organically → test lowering the paid bid to check incrementality (cost-dilution, Li et al. 2026 / JAIS).</p>`;
         html += `<table class="pb-table"><thead><tr>
             <th>Search term</th><th>Relevance</th><th>Cost</th><th>Clicks</th><th>Conv</th><th>Why</th></tr></thead><tbody>`;
         rows.forEach(r => {
             const badge = r.relevance === 'relevant' ? 'geo-grade-a' : r.relevance === 'partial' ? 'geo-grade-c' : 'geo-grade-f';
+            const flags = (r.negative_candidate ? ' <span class="pb-disp pb-disp-prune">NEGATIVE KW</span>' : '')
+                + (r.organic_overlap ? ` <span class="pb-disp pb-disp-merge">ORGANIC #${r.organic_position}</span>` : '');
             html += `<tr>
-                <td><strong>${escHtml(r.query)}</strong>${r.negative_candidate ? ' <span class="pb-disp pb-disp-prune">NEGATIVE KW</span>' : ''}</td>
+                <td><strong>${escHtml(r.query)}</strong>${flags}</td>
                 <td><span class="geo-pill ${badge}">${escHtml(r.relevance)}</span></td>
                 <td class="pb-num">$${r.cost}</td>
                 <td class="pb-num">${r.clicks}</td>

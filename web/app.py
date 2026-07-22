@@ -4028,15 +4028,39 @@ Return JSON exactly:
         print(f"[ADS-RELEVANCE] classify error: {err}", flush=True)
         return jsonify({"error": err or "classification failed"})
 
+    # Organic-overlap (cost-dilution) map — Li et al. 2026 (JAIS): paid spend on
+    # a query you ALREADY rank for organically is often low-incremental. Build a
+    # query -> best organic position map from the latest evaluation's GSC data.
+    organic_pos = {}
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if eval_path.exists():
+        try:
+            with open(eval_path) as f:
+                _ev = json.load(f)
+            for r in _ev.get("results", []):
+                for q in r.get("top_queries", []):
+                    qt = (q.get("query") or "").lower().strip()
+                    pos = q.get("position", 0) or 0
+                    if qt and pos > 0 and (qt not in organic_pos or pos < organic_pos[qt]):
+                        organic_pos[qt] = pos
+        except (json.JSONDecodeError, OSError):
+            pass
+
     by_n = {c.get("n"): c for c in result.get("classifications", []) if isinstance(c, dict)}
     rows = []
     wasted = 0.0
+    overlap_spend = 0.0
     for i, t in enumerate(top):
         c = by_n.get(i + 1, {})
         rel = (c.get("relevance") or "partial").lower()
         is_waste = rel == "irrelevant" and t.cost > 0 and t.conversions == 0
         if is_waste:
             wasted += t.cost
+        # Organic overlap: we rank top-3 organically AND pay for the same term.
+        opos = organic_pos.get(t.query.lower().strip())
+        is_overlap = bool(opos and opos <= 3 and t.cost > 0 and not is_waste)
+        if is_overlap:
+            overlap_spend += t.cost
         rows.append({
             "query": t.query,
             "cost": round(t.cost, 2),
@@ -4047,6 +4071,8 @@ Return JSON exactly:
             "relevance": rel,
             "reason": c.get("reason", ""),
             "negative_candidate": is_waste,
+            "organic_overlap": is_overlap,
+            "organic_position": round(opos, 1) if opos else None,
         })
     # Order: negative candidates first (by cost), then partial, then relevant.
     order = {"irrelevant": 0, "partial": 1, "relevant": 2}
@@ -4060,6 +4086,8 @@ Return JSON exactly:
         "total_terms": len(terms),
         "wasted_spend": round(wasted, 2),
         "negative_candidates": sum(1 for r in rows if r["negative_candidate"]),
+        "overlap_spend": round(overlap_spend, 2),
+        "overlap_candidates": sum(1 for r in rows if r["organic_overlap"]),
         "counts": counts,
     })
 
@@ -6984,6 +7012,35 @@ H1: [the page H1 heading]
 """
 
 
+def _derive_demand_facets(topic, config):
+    """Decompose an article topic into its latent-demand facets (MindReader).
+
+    Best-effort: returns a list of facet strings the article must cover, or []
+    on any failure (generation proceeds regardless).
+    """
+    if not topic:
+        return []
+    system_message = (
+        "You decompose a content topic into the distinct LATENT DEMAND FACETS a "
+        "reader really wants resolved — the underlying reasoning an AI answer "
+        "engine must satisfy to cite the page. Return ONLY valid JSON."
+    )
+    user_prompt = (
+        f'TOPIC: "{topic}"\n\n'
+        "List 5-7 distinct latent-demand facets a reader wants answered (e.g. how "
+        "to choose, by age/stage, safety/materials, value/price, alternatives, "
+        "common mistakes). Be specific to this topic.\n"
+        'Return JSON: {"facets": ["...", "..."]}'
+    )
+    try:
+        result, err = _llm_json(system_message, user_prompt, config, max_tokens=500)
+        if err or not isinstance(result, dict):
+            return []
+        return [str(f) for f in result.get("facets", []) if f][:7]
+    except Exception:
+        return []
+
+
 @app.route("/api/content/generate-article", methods=["POST"])
 def api_content_generate_article():
     """Stream-generate an article using Claude API with the 12-phase framework."""
@@ -7005,6 +7062,21 @@ def api_content_generate_article():
         user_prompt_parts.append(f"WRITING PROMPT:\n{writing_prompt}")
     else:
         user_prompt_parts.append(f"Write an article titled: {title}")
+
+    # Latent-demand coverage brief (MindReader): feed the DIAGNOSIS into
+    # creation. Prefer explicit facets passed by the caller (e.g. from the
+    # Demand Coverage tool's uncovered facets); otherwise derive them from the
+    # topic. Each facet becomes a required section — this is what makes the
+    # draft citable by AI answer engines rather than just well-written.
+    _cfg = load_config()
+    demand_facets = data.get("demand_facets") or _derive_demand_facets(
+        title or writing_prompt, _cfg)
+    if demand_facets:
+        user_prompt_parts.append(
+            "LATENT-DEMAND FACETS TO COVER (MindReader — each MUST be answered by a "
+            "dedicated section with concrete, quotable reasoning, not just mentioned):\n"
+            + "\n".join(f"- {f}" for f in demand_facets)
+        )
 
     # Add money pages and products context if available
     money_pages = data.get("money_pages", [])
