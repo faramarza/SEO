@@ -1195,6 +1195,21 @@ def api_ai_recommend():
     cached_word_count = pm.get("word_count", 0)
     cached_content_preview = pm.get("content_preview", "")
 
+    # HARD GATE: never analyze a page we have no HTML for. Without crawl data the
+    # model can't see the title/H1/content and will hallucinate findings like
+    # "add a title" for a page that already has one. Require real crawl data.
+    if not pm.get("has_crawl_data") and not (
+            (cached_title or "").strip()
+            or (cached_content_preview or "").strip()
+            or pm.get("body_html")):
+        return jsonify({
+            "error": ("This page hasn't been crawled, so there's no HTML to analyze. "
+                      "Click 'Fetch Page' / 'Re-fetch' above to crawl it first, then re-run AI. "
+                      "Analyzing with no crawl data produces false findings (e.g. 'add a title' "
+                      "when the title already exists)."),
+            "needs_crawl": True,
+        }), 422
+
     # Is the current title already adequate? (present, 25-65 chars, covers the
     # primary query). If so, the AI must not manufacture a title test — this is
     # the recurring "reword the title into the one it already is" noise.
