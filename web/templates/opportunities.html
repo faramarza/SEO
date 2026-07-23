@@ -593,7 +593,7 @@ function showDetail(idx) {
     };
 
     // Build constraint scores section
-    const constraintScoresHtml = (opp.demand_score !== undefined) ? `
+    const constraintScoresHtml = (opp.demand_score != null) ? `
         <div class="constraint-scores">
             <div class="score-item">
                 <span class="score-label">Demand</span>

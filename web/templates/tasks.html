@@ -591,8 +591,11 @@ function showTaskDetail(actionId, status) {
         ? '<ol class="impl-steps">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
         : '<p class="no-steps">No implementation steps specified.</p>';
 
-    // Constraint scores bars
-    const constraintScoresHtml = (task.demand_score !== undefined) ? `
+    // Constraint scores bars — only when actually computed (constraint
+    // detector). Playbook-sourced tasks have null scores; showing them as a red
+    // "0%" is misleading (a 400-impression page does not have 0% demand), so we
+    // hide the block entirely rather than imply zero. (null != null is false.)
+    const constraintScoresHtml = (task.demand_score != null) ? `
         <div class="constraint-scores">
             <div class="score-item">
                 <span class="score-label">Demand</span>
