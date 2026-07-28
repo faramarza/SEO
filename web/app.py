@@ -6463,6 +6463,15 @@ def api_playbook():
     if section in ("all", "reviews"):
         from src.analysis.reviews_engine import find_review_priorities
         out["reviews"] = find_review_priorities(results, system_disallow=disallow)
+    if section in ("all", "brand"):
+        from src.analysis.brand_merchant import brand_merchant_audit
+        try:
+            from src.data_sources.ai_visibility import default_brand_keywords
+            brand_terms = default_brand_keywords()
+        except Exception:
+            brand_terms = ["alphabet trains", "alphabet-trains", "alphabettrains"]
+        out["brand_merchant"] = brand_merchant_audit(results, brand_terms,
+                                                     system_disallow=disallow)
     if section in ("all", "rich"):
         from src.analysis.rich_results import analyze_site_schema
         views = [_schema_page_view(r) for r in results]
@@ -6668,6 +6677,29 @@ def _playbook_add_task_impl(body):
             "implementation_summary": f"Raise GEO citation readiness ({score}/100)",
             "implementation_steps": steps,
         })
+    elif method == "merchant":
+        impr = body.get("impressions", 0)
+        missing = body.get("missing", []) or []
+        steps = [
+            f"Make this product eligible for Google's free product listings / "
+            f"Shopping — it already draws {impr:,} impressions.",
+            "Missing structured data for the feed: " + ", ".join(missing) + ".",
+            "Add the required JSON-LD (grab it from Playbook → Rich Results): "
+            "Product with name/image/brand/sku, and Offer with price, priceCurrency, "
+            "and availability that match the visible page.",
+            "Then set up / verify Google Merchant Center and enable free product "
+            "listings so eligible products surface at no ad cost.",
+        ]
+        data.update({
+            "action": "SCHEMA_MARKUP",
+            "primary_constraint": "Merchant / Free Listings",
+            "expected_value": 0,
+            "confidence": 0.65,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+            "implementation_summary": f"Feed-readiness: add {', '.join(missing)}",
+            "implementation_steps": steps,
+        })
     elif method == "reviews":
         impr = body.get("impressions", 0)
         rev = body.get("revenue", 0)
@@ -6829,6 +6861,8 @@ def _playbook_add_task_impl(body):
         _extra = "cro"
     elif method == "reviews":
         _extra = "reviews"
+    elif method == "merchant":
+        _extra = "merchant"
     data["dedup_key"] = f"{method}|{body.get('url', '')}|{_extra}"
     # Safety net against duplicates (client guard + this): if an identical
     # proposed task already exists, return it instead of creating a copy.

@@ -38,6 +38,9 @@
         <button class="pb-tab" data-tab="geo" onclick="pbShowTab('geo')">
             🤖 GEO / AI Citation
         </button>
+        <button class="pb-tab" data-tab="brand" onclick="pbShowTab('brand')">
+            🏷️ Brand &amp; Merchant
+        </button>
         <button class="pb-tab" data-tab="ads" onclick="pbShowTab('ads')">
             💸 Ad Relevance
         </button>
@@ -174,6 +177,20 @@
         </div>
         <div id="pb-geo-summary" class="pb-geo-summary"></div>
         <div id="pb-geo-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- Brand SERP + Merchant readiness -->
+    <section class="pb-panel" id="pb-brand">
+        <div class="pb-explain">
+            <strong>Method: Brand SERP + Merchant readiness.</strong> Two realistic
+            presence checks. <strong>Brand SERP:</strong> do you own your own name in
+            search? Branded queries where you're not solidly #1 or where click-through
+            is oddly low mean demand that's rightfully yours is leaking to resellers,
+            marketplaces, or ads. <strong>Merchant readiness:</strong> products can show
+            in Google's free product listings only if the page carries Product + Offer
+            structured data — this flags those that aren't feed-ready, by traffic.
+        </div>
+        <div id="pb-brand-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
     </section>
 
     <!-- Ad Relevance / Wasted Spend -->
@@ -331,7 +348,7 @@ async function loadPlaybook() {
         PB_DATA = data;
         if (data.error) {
             const msg = `<p class="empty-state">${escHtml(data.error)}</p>`;
-            ['ctr','cro','striking','decay','orphans','pruning','reviews','rich'].forEach(s =>
+            ['ctr','cro','striking','decay','orphans','pruning','reviews','rich','brand'].forEach(s =>
                 document.getElementById('pb-' + s + '-body').innerHTML = msg);
             return;
         }
@@ -348,6 +365,7 @@ async function loadPlaybook() {
         renderOrphans(data.orphans_clusters || {});
         renderPruning(data.pruning || []);
         renderReviews(data.reviews || {});
+        renderBrandMerchant(data.brand_merchant || {});
         renderRich(data.rich_results || {});
         renderGeo(data.geo || {});
     } catch (e) {
@@ -570,6 +588,88 @@ async function pbAddReviewsTask(idx, btn) {
         const data = await res.json();
         if (data.success) {
             PB_ADDED.add(pbKey('reviews', r.url, 'reviews'));
+            if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
+            pbToast(data.duplicate ? 'Already on the Task Board' : 'Added to Task Board');
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+            pbToast(data.error || 'Failed to add', true);
+        }
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+        pbToast('Failed: ' + e.message, true);
+    }
+}
+
+function renderBrandMerchant(bm) {
+    const body = document.getElementById('pb-brand-body');
+    const brand = bm.brand || {};
+    const merch = bm.merchant || {};
+    if (!brand.brand_queries && !merch.products) {
+        body.innerHTML = '<p class="empty-state">No brand or product data yet. Run with crawl + GSC.</p>';
+        return;
+    }
+    // ── Brand SERP ──
+    let html = `<h3 class="pb-subhead">Brand SERP — do you own your name?</h3>
+        <div class="pb-geo-summary" style="margin-bottom:12px;">
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${(brand.brand_impressions||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">brand impressions</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${brand.brand_ctr ?? 0}%</span><span class="pb-geo-stat-lbl">brand CTR</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${(brand.flags||[]).length}</span><span class="pb-geo-stat-lbl">weak spots</span></div>
+        </div>`;
+    if ((brand.flags || []).length) {
+        html += `<table class="pb-table"><thead><tr><th>Brand query</th><th>Pos</th><th>Impr</th><th>CTR</th><th>Issue</th></tr></thead><tbody>`;
+        brand.flags.forEach(f => {
+            const issues = (f.issues || []).map(x => `<div class="pb-geo-fix">${escHtml(x)}</div>`).join('');
+            html += `<tr>
+                <td>“${escHtml(f.query)}”<br><a href="${escHtml(f.ranking_url)}" target="_blank" style="font-size:11px;">${escHtml(fmtUrl(f.ranking_url))}</a></td>
+                <td class="pb-num">${f.position}</td>
+                <td class="pb-num">${(f.impressions||0).toLocaleString()}</td>
+                <td class="pb-num">${f.ctr}%</td>
+                <td>${issues}</td></tr>`;
+        });
+        html += '</tbody></table>';
+    } else {
+        html += '<p class="empty-state" style="text-align:left;">You own your brand queries — solidly #1 with healthy click-through. 🎉</p>';
+    }
+    // ── Merchant readiness ──
+    html += `<h3 class="pb-subhead" style="margin-top:22px;">Merchant readiness — free product listings</h3>
+        <div class="pb-geo-summary" style="margin-bottom:12px;">
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${merch.ready_pct ?? 0}%</span><span class="pb-geo-stat-lbl">products feed-ready</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${merch.not_ready_count||0}</span><span class="pb-geo-stat-lbl">not feed-ready</span></div>
+        </div>`;
+    const rows = merch.rows || [];
+    if (rows.length) {
+        html += `<table class="pb-table"><thead><tr><th>Product</th><th>Impr</th><th>Missing for the feed</th><th></th></tr></thead><tbody>`;
+        rows.forEach((r, i) => {
+            const key = pbKey('merchant', r.url, 'merchant');
+            const addBtn = pbIsAdded(key)
+                ? '<button class="pb-task-btn pb-added" disabled>✓ Added</button>'
+                : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddMerchantTask(${i}, this)">+ Task</button>`;
+            const miss = (r.missing || []).map(m => `<span class="pb-badge" style="background:#fee2e2;color:#991b1b;">${escHtml(m)}</span>`).join(' ');
+            html += `<tr>
+                <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+                <td class="pb-num">${(r.impressions||0).toLocaleString()}</td>
+                <td>${miss}</td>
+                <td>${addBtn}</td></tr>`;
+        });
+        html += '</tbody></table>';
+    } else {
+        html += '<p class="empty-state" style="text-align:left;">Every crawled product carries Product + Offer schema — feed-ready. 🎉</p>';
+    }
+    body.innerHTML = html;
+}
+
+async function pbAddMerchantTask(idx, btn) {
+    const r = PB_DATA.brand_merchant.merchant.rows[idx];
+    const payload = { method: 'merchant', url: r.url, asset_type: 'product',
+        impressions: r.impressions, missing: r.missing };
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            PB_ADDED.add(pbKey('merchant', r.url, 'merchant'));
             if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
             pbToast(data.duplicate ? 'Already on the Task Board' : 'Added to Task Board');
         } else {
