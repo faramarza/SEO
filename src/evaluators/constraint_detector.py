@@ -394,7 +394,15 @@ class ConstraintDetector:
         # Lowered from 500 to 100: pages ranking on page 1 with any
         # meaningful impressions deserve CTR analysis.
         if position <= 10 and impressions >= 100:
-            expected_ctr = self.expected_ctr_by_position.get(int(position), 0.01)
+            # Prefer the SITE's own measured CTR at this position over industry
+            # averages — this site's SERPs (Shopping packs, image results) yield
+            # lower organic CTR, so a generic curve over-fires CTR_SUPPRESSED and
+            # recommends title tests that can't recover clicks the SERP layout ate.
+            try:
+                from src.analysis.site_benchmarks import site_expected_ctr
+                expected_ctr = site_expected_ctr(position)
+            except Exception:
+                expected_ctr = self.expected_ctr_by_position.get(int(position), 0.01)
             if actual_ctr < expected_ctr * 0.5:  # Less than half expected
                 constraints.append(ConstraintSignal(
                     constraint_type=ConstraintType.CTR_SUPPRESSED,

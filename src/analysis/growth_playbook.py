@@ -110,15 +110,20 @@ def _query_words(text):
 
 
 def _expected_ctr(position):
-    """Interpolated organic CTR for a (possibly fractional) SERP position."""
+    """Organic CTR for a (possibly fractional) SERP position — the SITE's own
+    measured curve when available, else the Backlinko/industry fallback."""
     if position <= 0:
         return 0.0
+    try:
+        from src.analysis.site_benchmarks import site_expected_ctr
+        return site_expected_ctr(position)
+    except Exception:
+        pass
     p = int(round(position))
     if p in _CTR_BY_POSITION:
         return _CTR_BY_POSITION[p]
     if p <= 10:
         return 0.025
-    # Page 2+ decays toward zero.
     return max(0.002, 0.02 / (p - 9))
 
 

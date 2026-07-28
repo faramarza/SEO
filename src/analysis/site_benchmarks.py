@@ -77,6 +77,14 @@ def expected_ctr(position: float, curve: dict = None) -> float:
     return _fallback_ctr(p)
 
 
+def site_expected_ctr(position: float) -> float:
+    """Expected CTR at a position from the site's OWN curve (cached, read from
+    latest_evaluation), with per-position industry fallback baked in."""
+    bm = compute_site_benchmarks()
+    curve = bm.get("ctr_by_position") if bm.get("available") else None
+    return expected_ctr(position, curve)
+
+
 def site_conversion_and_aov(results: list) -> dict:
     """Site conversion rate and AOV from GA4 across all pages, plus per
     asset_type where there's enough volume. Falls back to config-ish defaults

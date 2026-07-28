@@ -286,6 +286,34 @@ def load_config():
     return {}
 
 
+def _biz_params(config, asset_type=None):
+    """Return (aov, cvr, margin, source) preferring the site's OWN measured
+    values (GA4) over config/industry defaults. Per-type CVR when available."""
+    profit = config.get("profit_model", {})
+    biz = config.get("business_context", {})
+    aov = profit.get("aov", biz.get("aov", 53.19))
+    cvr = profit.get("site_avg_purchase_rate", 0.02)
+    margin = profit.get("gross_margin_low", 0.27)
+    source = "config"
+    try:
+        from src.analysis.site_benchmarks import compute_site_benchmarks
+        bm = compute_site_benchmarks()
+        if bm.get("available"):
+            if bm.get("site_aov"):
+                aov = bm["site_aov"]
+                source = "measured"
+            t = (asset_type or "").lower()
+            if t and bm.get("cvr_by_type", {}).get(t):
+                cvr = bm["cvr_by_type"][t]
+                source = "measured"
+            elif bm.get("site_cvr"):
+                cvr = bm["site_cvr"]
+                source = "measured"
+    except Exception:
+        pass
+    return aov, cvr, margin, source
+
+
 def _recompute_ai_value(recommendations, opportunity, config):
     """Recompute the AI opportunity value server-side from real page metrics.
 
@@ -309,10 +337,7 @@ def _recompute_ai_value(recommendations, opportunity, config):
     if not isinstance(oe, dict):
         return None, None
 
-    profit = config.get("profit_model", {})
-    aov = profit.get("aov", 53.19)
-    margin = profit.get("gross_margin_low", 0.27)
-    cvr = profit.get("site_avg_purchase_rate", 0.02)
+    aov, cvr, margin, _bm_src = _biz_params(config, opportunity.get("asset_type"))
 
     # Demand basis: impressions is the top-of-funnel signal the prompt uses.
     demand = opportunity.get("gsc_impressions") or 0
@@ -1401,8 +1426,13 @@ def api_ai_recommend():
             weighted_pos = sum(
                 q.get("position", 50) * q.get("impressions", 0) for q in queries
             ) / total_impressions if total_impressions else 50
-            expected_ctr_map = {1: 28, 2: 15, 3: 10, 4: 7, 5: 5, 6: 4, 7: 3, 8: 2.5, 9: 2, 10: 1.5}
-            expected_ctr = expected_ctr_map.get(round(weighted_pos), max(0.5, 30 / (weighted_pos + 1)))
+            # Site's own CTR at this position (percent), not an industry average.
+            try:
+                from src.analysis.site_benchmarks import site_expected_ctr
+                expected_ctr = site_expected_ctr(weighted_pos) * 100
+            except Exception:
+                expected_ctr_map = {1: 28, 2: 15, 3: 10, 4: 7, 5: 5, 6: 4, 7: 3, 8: 2.5, 9: 2, 10: 1.5}
+                expected_ctr = expected_ctr_map.get(round(weighted_pos), max(0.5, 30 / (weighted_pos + 1)))
             suppression_ratio = expected_ctr / actual_ctr if actual_ctr > 0 else 999
 
             if suppression_ratio > 2:
@@ -1472,10 +1502,10 @@ def api_ai_recommend():
     else:
         outlink_blocklist_section = ""
 
-    # ── 4) Business context from config ─────────────────────────
+    # ── 4) Business context — prefer the site's MEASURED values ──────
     profit_cfg = config.get("profit_model", {})
     biz_ctx = config.get("business_context", {})
-    aov = profit_cfg.get("aov", biz_ctx.get("aov", 53.19))
+    aov, cvr, _m, _bm_src = _biz_params(config, opportunity.get("asset_type"))
     margin_low = profit_cfg.get("gross_margin_low", 0.25)
     margin_high = profit_cfg.get("gross_margin_high", 0.30)
     break_even_roas = biz_ctx.get("break_even_roas", round(1.0 / margin_low, 1) if margin_low else 4.0)
@@ -1485,7 +1515,8 @@ def api_ai_recommend():
     ])
 
     business_context_str = (
-        f"AOV: ${aov:.2f}\n"
+        f"AOV: ${aov:.2f} ({'measured from GA4' if _bm_src == 'measured' else 'config default'})\n"
+        f"Site conversion rate (use THIS, not an assumed 2%): {cvr*100:.2f}%\n"
         f"Gross margin range: {margin_low*100:.0f}%–{margin_high*100:.0f}%\n"
         f"Break-even ROAS: {break_even_roas}\n"
         f"Product families: {', '.join(product_families)}"
@@ -6288,10 +6319,7 @@ def _playbook_add_task_impl(body):
     method = (body.get("method") or "").lower()
 
     config = load_config()
-    profit = config.get("profit_model", {})
-    aov = profit.get("aov", 53.19)
-    margin = profit.get("gross_margin_low", 0.27)
-    cvr = profit.get("site_avg_purchase_rate", 0.02)
+    aov, cvr, margin, _ = _biz_params(config, body.get("asset_type"))
 
     def ev(clicks):
         return round(max(0, clicks) * cvr * aov * margin, 2)
