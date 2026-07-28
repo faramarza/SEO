@@ -69,7 +69,6 @@ from src.ledger.action_ledger import (
 )
 
 
-@dataclass
 def _surface_for_action(action_type: str) -> str:
     """Derive the fingerprint action_surface from the action type — mirrors the
     web task path (web/app.py). Hardcoding 'content' collapsed all agentic
@@ -91,6 +90,7 @@ def _surface_for_action(action_type: str) -> str:
     return _MAP.get((action_type or "").upper(), "other")
 
 
+@dataclass
 class GovernorConfig:
     """Configuration for the Agentic Governor."""
     # Confidence thresholds
