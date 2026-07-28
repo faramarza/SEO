@@ -522,9 +522,23 @@ function renderRich(rich) {
     const body = document.getElementById('pb-rich-body');
     const pages = rich.pages || [];
     const considered = rich.considered || 0;
+    if (rich.considered == null) {
+        summary.innerHTML = '';
+        body.innerHTML = '<p class="empty-state">Rich-Results data isn\'t in this response — the server is running an older build. Deploy the latest and restart the app, then reload.</p>';
+        return;
+    }
     if (!considered) {
         summary.innerHTML = '';
-        body.innerHTML = '<p class="empty-state">No crawled content pages to audit. Run an evaluation with crawl data first.</p>';
+        const total = rich.total_pages || 0;
+        const noCrawl = rich.skipped_no_crawl || 0;
+        const sys = rich.skipped_system || 0;
+        let diag;
+        if (noCrawl >= total - sys && total > 0) {
+            diag = `<p class="empty-state">None of the ${total.toLocaleString()} pages in this evaluation have crawl data — ${noCrawl.toLocaleString()} were GSC-only (no title/content fetched) and ${sys.toLocaleString()} are system/asset URLs. This evaluation looks like it ran <strong>without crawling</strong> (or the crawl was skipped/overwritten). Re-run the evaluation with crawling enabled, then reload this tab. Schema is read from the page HTML, so a crawl is required.</p>`;
+        } else {
+            diag = `<p class="empty-state">Audited 0 of ${total.toLocaleString()} pages (${noCrawl.toLocaleString()} without crawl data, ${sys.toLocaleString()} system/asset URLs). Re-run with crawl to populate this.</p>`;
+        }
+        body.innerHTML = diag;
         return;
     }
     const present = rich.present_counts || {};

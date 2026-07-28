@@ -4543,6 +4543,7 @@ def _schema_page_view(match):
         "asset_type": match.get("asset_type", "other"),
         "has_crawl_data": pm.get("has_crawl_data", False),
         "schema_types": pm.get("schema_types", []) or [],
+        "word_count": pm.get("word_count", 0) or 0,
         "title": pm.get("title", ""),
         "h1": pm.get("h1", ""),
         "meta_description": pm.get("meta_description", ""),

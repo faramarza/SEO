@@ -62,6 +62,25 @@ _IMPACT = {
 }
 
 
+def _has_crawl_signal(page: dict) -> bool:
+    """True if the page was actually fetched and parsed — so we can honestly say
+    what schema it does/doesn't have. Prefer the explicit has_crawl_data flag, but
+    don't depend on it: a GSC-only page has an empty title/0 words/no headings,
+    while any crawled page has at least a title or word count. This keeps the audit
+    working even when the flag is stale or a crawl path forgot to set it."""
+    if page.get("has_crawl_data"):
+        return True
+    if (page.get("word_count") or 0) > 0:
+        return True
+    if (page.get("title") or "").strip():
+        return True
+    if page.get("schema_types"):
+        return True
+    if page.get("headings"):
+        return True
+    return False
+
+
 def _present_set(page: dict) -> set:
     """Lower-cased set of @type values the page ALREADY emits."""
     return {str(s).lower() for s in (page.get("schema_types") or [])}
@@ -214,7 +233,7 @@ def analyze_page_schema(page: dict) -> dict:
     url = page.get("url", "")
     if _is_system_page(url):
         return None
-    if not page.get("has_crawl_data", False):
+    if not _has_crawl_signal(page):
         return None
 
     at = _asset_type(page)
@@ -275,8 +294,17 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
     present_counts = {}
     covered = 0
     considered = 0
+    total = len(results)
+    skipped_system = 0
+    skipped_no_crawl = 0
 
     for r in results:
+        if _is_system_page(r.get("url", "")):
+            skipped_system += 1
+            continue
+        if not _has_crawl_signal(r):
+            skipped_no_crawl += 1
+            continue
         audit = analyze_page_schema(r)
         if audit is None:
             continue
@@ -305,4 +333,9 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
                                       key=lambda kv: -kv[1])),
         "gap_counts": dict(sorted(gap_counts.items(), key=lambda kv: -kv[1])),
         "pages": pages[:limit],
+        # Diagnostics — so an empty audit can explain itself instead of
+        # contradicting the "Based on N pages" header.
+        "total_pages": total,
+        "skipped_system": skipped_system,
+        "skipped_no_crawl": skipped_no_crawl,
     }
