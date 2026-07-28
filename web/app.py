@@ -7306,6 +7306,46 @@ def api_content_generate_article():
             + "\n".join(f"- {f}" for f in demand_facets)
         )
 
+    # ── Content-cluster context (hub-and-spoke) ──────────────────
+    # If this article belongs to a content cluster, feed the cluster's pillar,
+    # money pages, and sibling articles into the brief so the draft deliberately
+    # strengthens the cluster (links UP to the hub, cross-links the spokes) —
+    # rather than linking opportunistically to a flat list.
+    if article_id:
+        try:
+            _all_articles = content_manager.get_articles()
+            _this = next((a for a in _all_articles if a.get("id") == article_id), None)
+            _cluster_id = _this.get("cluster_id") if _this else None
+            if _cluster_id:
+                _cluster = next((c for c in content_manager.get_clusters()
+                                 if c.get("id") == _cluster_id), None)
+                if _cluster:
+                    _mps = {mp["id"]: mp for mp in content_manager.get_money_pages()}
+                    lines = [
+                        f'CONTENT CLUSTER: This article is a spoke in the "{_cluster.get("name", "")}" '
+                        f'topic cluster. Write it to fit and strengthen that cluster (hub-and-spoke), '
+                        f'not as a standalone piece.'
+                    ]
+                    pillar = _cluster.get("pillar_page")
+                    if pillar:
+                        lines.append(f"CLUSTER PILLAR — you MUST link UP to this hub page: {pillar}")
+                    cmp_urls = [_mps[i]["url"] for i in _cluster.get("money_pages", [])
+                                if i in _mps and _mps[i].get("url")]
+                    if cmp_urls:
+                        lines.append("CLUSTER MONEY PAGES (link to the relevant ones):\n"
+                                     + "\n".join(f"- {u}" for u in cmp_urls))
+                    siblings = [a for a in _all_articles
+                                if a.get("cluster_id") == _cluster_id
+                                and a.get("id") != article_id and a.get("url")]
+                    if siblings:
+                        lines.append(
+                            "SIBLING ARTICLES IN THIS CLUSTER (cross-link the genuinely relevant "
+                            "ones to build the cluster — do not force-link every one):\n"
+                            + "\n".join(f"- {a.get('title', '')}: {a['url']}" for a in siblings[:15]))
+                    user_prompt_parts.append("\n".join(lines))
+        except Exception as _e:
+            print(f"[ARTICLE-GEN] cluster context skipped: {_e}", flush=True)
+
     # Add money pages and products context if available
     money_pages = data.get("money_pages", [])
     if money_pages:
