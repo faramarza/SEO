@@ -30,6 +30,25 @@ except ImportError:
     HAS_CRAWL_DEPS = False
 
 
+def _collect_schema_types(node, out: list) -> None:
+    """Recursively collect every JSON-LD @type in a block, including @graph
+    containers and nested nodes (offers, aggregateRating, brand, breadcrumb).
+    Handles @type as a string or a list. A shallow top-level read misses the
+    nested money types Magento/Yoast emit inside the Product node."""
+    if isinstance(node, dict):
+        t = node.get('@type')
+        if isinstance(t, str):
+            out.append(t)
+        elif isinstance(t, list):
+            out.extend(tv for tv in t if isinstance(tv, str))
+        for v in node.values():
+            if isinstance(v, (dict, list)):
+                _collect_schema_types(v, out)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_schema_types(item, out)
+
+
 @dataclass
 class PageCrawlData:
     """Data extracted from a single page crawl."""
@@ -201,14 +220,10 @@ class PageInventory:
             for script in schema_scripts:
                 try:
                     schema_data = json.loads(script.string)
-                    if isinstance(schema_data, dict) and '@type' in schema_data:
-                        schema_types.append(schema_data['@type'])
-                    elif isinstance(schema_data, list):
-                        for item in schema_data:
-                            if isinstance(item, dict) and '@type' in item:
-                                schema_types.append(item['@type'])
+                    _collect_schema_types(schema_data, schema_types)
                 except (json.JSONDecodeError, TypeError):
                     pass
+            schema_types = list(set(schema_types))
 
             # Extract links
             internal_links = []

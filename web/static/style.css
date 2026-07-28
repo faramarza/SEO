@@ -2825,6 +2825,18 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .pb-geo-fix strong { color: var(--text-primary); }
 .pb-geo-note { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 6px; }
 .pb-geo-actions { white-space: nowrap; display: flex; gap: 6px; flex-direction: column; }
+.pb-schema-gap { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.pb-schema-gap:last-child { margin-bottom: 0; }
+.pb-schema-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.pb-schema-impact { font-size: 10px; font-weight: 700; text-transform: uppercase; border: 1px solid; border-radius: 8px; padding: 1px 7px; }
+.pb-schema-why { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+.pb-schema-code { position: relative; margin-top: 8px; }
+.pb-schema-code code { display: block; white-space: pre; overflow-x: auto; background: #0f172a; color: #e2e8f0;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.5;
+    padding: 10px 12px; border-radius: 6px; max-height: 260px; overflow-y: auto; }
+.pb-copy-btn { position: absolute; top: 6px; right: 6px; z-index: 2; font-size: 11px; font-weight: 600;
+    padding: 3px 9px; border: none; border-radius: 5px; background: #334155; color: #fff; cursor: pointer; }
+.pb-copy-btn:hover { background: #475569; }
 .pb-task-btn-alt { background: #6d28d9; }
 .pb-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(4px);

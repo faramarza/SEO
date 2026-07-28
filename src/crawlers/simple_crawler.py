@@ -227,12 +227,7 @@ class HTMLMetaParser(HTMLParser):
             try:
                 raw = "".join(self._jsonld_parts)
                 schema = _json.loads(raw)
-                if isinstance(schema, dict) and "@type" in schema:
-                    self._schema_types.append(schema["@type"])
-                elif isinstance(schema, list):
-                    for item in schema:
-                        if isinstance(item, dict) and "@type" in item:
-                            self._schema_types.append(item["@type"])
+                self._collect_schema_types(schema)
             except (ValueError, TypeError):
                 pass
             self._jsonld_parts = []
@@ -427,6 +422,30 @@ class HTMLMetaParser(HTMLParser):
                 "anchor_text": link["anchor_text"],
             })
         return resolved
+
+    def _collect_schema_types(self, node) -> None:
+        """Recursively collect every @type value anywhere in a JSON-LD block.
+
+        Magento (and Yoast, Rank Math, most CMSs) nest schema inside a top-level
+        @graph array and put the money types inside the Product node itself —
+        offers, aggregateRating, brand, review. A shallow top-level read misses
+        all of it and makes the tool wrongly report 'No Offer schema' on a page
+        that has it. Walk the whole structure and handle @type being a string or
+        a list (e.g. ["Product", "Offer"])."""
+        if isinstance(node, dict):
+            t = node.get("@type")
+            if isinstance(t, str):
+                self._schema_types.append(t)
+            elif isinstance(t, list):
+                for tv in t:
+                    if isinstance(tv, str):
+                        self._schema_types.append(tv)
+            for v in node.values():
+                if isinstance(v, (dict, list)):
+                    self._collect_schema_types(v)
+        elif isinstance(node, list):
+            for item in node:
+                self._collect_schema_types(item)
 
     def get_schema_types(self) -> list[str]:
         """Get JSON-LD schema @type values found on the page."""

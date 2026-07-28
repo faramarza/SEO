@@ -23,6 +23,9 @@
         <button class="pb-tab" data-tab="pruning" onclick="pbShowTab('pruning')">
             ✂️ Pruning
         </button>
+        <button class="pb-tab" data-tab="rich" onclick="pbShowTab('rich')">
+            ⭐ Rich Results
+        </button>
         <button class="pb-tab" data-tab="geo" onclick="pbShowTab('geo')">
             🤖 GEO / AI Citation
         </button>
@@ -81,6 +84,24 @@
             pages are never flagged, and nothing is changed automatically.
         </div>
         <div id="pb-pruning-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- Rich Results / Structured Data -->
+    <section class="pb-panel" id="pb-rich">
+        <div class="pb-explain">
+            <strong>Method: Rich Results / Structured Data.</strong> Star ratings,
+            price &amp; availability, FAQ accordions and breadcrumbs in the SERP are
+            the one CTR advantage you can win <em>without</em> domain authority —
+            and the same schema makes pages quotable by AI answer engines. This
+            reads the JSON-LD each page <strong>already emits</strong> (Magento
+            outputs a lot by default), confirms coverage, and lists only the
+            <strong>genuinely missing</strong> types with ready-to-paste markup
+            grounded in the page's real data. It never asks you to add schema you
+            already have, and never fabricates ratings — AggregateRating is flagged
+            as an opportunity only once you can back it with real reviews.
+        </div>
+        <div id="pb-rich-summary" class="pb-geo-summary"></div>
+        <div id="pb-rich-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
     </section>
 
     <!-- GEO / AI Citation Readiness -->
@@ -256,7 +277,7 @@ async function loadPlaybook() {
         PB_DATA = data;
         if (data.error) {
             const msg = `<p class="empty-state">${escHtml(data.error)}</p>`;
-            ['striking','decay','orphans','pruning'].forEach(s =>
+            ['striking','decay','orphans','pruning','rich'].forEach(s =>
                 document.getElementById('pb-' + s + '-body').innerHTML = msg);
             return;
         }
@@ -270,6 +291,7 @@ async function loadPlaybook() {
         renderDecay(data.decay || {});
         renderOrphans(data.orphans_clusters || {});
         renderPruning(data.pruning || []);
+        renderRich(data.rich_results || {});
         renderGeo(data.geo || {});
     } catch (e) {
         document.getElementById('pb-striking-body').innerHTML =
@@ -481,6 +503,118 @@ function renderPruning(rows) {
     });
     html += '</tbody></table>';
     body.innerHTML = html;
+}
+
+const RICH_IMPACT_COLOR = { high: '#dc2626', medium: '#d97706', low: '#64748b' };
+
+function pbCopyJsonld(btn) {
+    const pre = btn.parentElement.querySelector('code');
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.textContent).then(() => {
+        const old = btn.textContent;
+        btn.textContent = '✓ Copied';
+        setTimeout(() => { btn.textContent = old; }, 1600);
+    }).catch(() => pbToast('Copy failed — select and copy manually', true));
+}
+
+function renderRich(rich) {
+    const summary = document.getElementById('pb-rich-summary');
+    const body = document.getElementById('pb-rich-body');
+    const pages = rich.pages || [];
+    const considered = rich.considered || 0;
+    if (!considered) {
+        summary.innerHTML = '';
+        body.innerHTML = '<p class="empty-state">No crawled content pages to audit. Run an evaluation with crawl data first.</p>';
+        return;
+    }
+    const present = rich.present_counts || {};
+    const gaps = rich.gap_counts || {};
+    const presentChips = Object.entries(present).map(([k, n]) =>
+        `<span class="geo-pill geo-grade-a" title="pages already emitting ${escHtml(k)}">${escHtml(k)}: ${n} ✓</span>`).join(' ')
+        || '<span class="pb-missing">none detected</span>';
+    const gapChips = Object.entries(gaps).map(([k, n]) =>
+        `<span class="geo-pill geo-grade-d" title="pages missing ${escHtml(k)}">${escHtml(k)}: ${n}</span>`).join(' ')
+        || '<span class="pb-missing pb-ok">no gaps 🎉</span>';
+    summary.innerHTML = `
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${rich.coverage_pct ?? 0}%</span><span class="pb-geo-stat-lbl">fully covered</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${rich.covered || 0}/${considered}</span><span class="pb-geo-stat-lbl">pages complete</span></div>
+        <div style="flex:1;min-width:220px;">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:3px;">Already on the site:</div>
+            <div style="margin-bottom:6px;">${presentChips}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:3px;">Missing (real gaps):</div>
+            <div>${gapChips}</div>
+        </div>`;
+
+    if (!pages.length) {
+        body.innerHTML = '<p class="empty-state">Every crawled page already carries the structured data expected for its type. 🎉 Nothing to add.</p>';
+        return;
+    }
+
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Page</th><th>Type</th><th>Already has</th><th>Missing — paste-ready JSON-LD</th></tr></thead><tbody>`;
+    pages.forEach((p, i) => {
+        const has = (p.present || []).length
+            ? (p.present || []).map(t => `<span class="pb-badge" style="background:#dcfce7;color:#166534;">${escHtml(t)}</span>`).join(' ')
+            : '<span class="pb-missing">none</span>';
+        const missing = (p.missing || []).map((m, j) => {
+            const color = RICH_IMPACT_COLOR[m.impact] || '#64748b';
+            const req = m.requires_data
+                ? `<div class="pb-geo-note" style="color:#b45309;">⚠ ${escHtml(m.requires_data)}</div>` : '';
+            const note = m.note ? `<div class="pb-geo-note">${escHtml(m.note)}</div>` : '';
+            const key = pbKey('schema', p.url, m.type);
+            const btn = pbIsAdded(key)
+                ? '<button class="pb-task-btn pb-added" disabled title="Already on the Task Board">✓ Added</button>'
+                : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddSchemaTask(${i}, ${j}, this)">+ Task</button>`;
+            return `<div class="pb-schema-gap">
+                <div class="pb-schema-head">
+                    <span style="font-weight:600;color:${color};">${escHtml(m.type)}</span>
+                    <span class="pb-schema-impact" style="color:${color};border-color:${color};">${escHtml(m.impact)}</span>
+                    ${btn}
+                </div>
+                <div class="pb-schema-why">${escHtml(m.why)}</div>
+                ${req}${note}
+                <div class="pb-schema-code">
+                    <button class="pb-copy-btn" onclick="pbCopyJsonld(this)">Copy</button>
+                    <code>${escHtml(m.jsonld)}</code>
+                </div>
+            </div>`;
+        }).join('');
+        html += `<tr>
+            <td><a href="${escHtml(p.url)}" target="_blank" title="${escHtml(p.url)}">${escHtml(fmtUrl(p.url))}</a></td>
+            <td>${escHtml(p.asset_type)}</td>
+            <td>${has}</td>
+            <td>${missing}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+async function pbAddSchemaTask(pageIdx, gapIdx, btn) {
+    const p = (PB_DATA.rich_results.pages || [])[pageIdx];
+    const m = (p.missing || [])[gapIdx];
+    if (!p || !m) return;
+    const payload = { method: 'schema', url: p.url, asset_type: p.asset_type,
+        schema_type: m.type, why: m.why, note: m.note,
+        jsonld: m.jsonld, requires_data: m.requires_data };
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            PB_ADDED.add(pbKey('schema', p.url, m.type));
+            if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
+            pbToast(data.duplicate ? 'Already on the Task Board' : 'Added to Task Board');
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+            pbToast(data.error || 'Failed to add', true);
+        }
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+        pbToast('Failed: ' + e.message, true);
+    }
 }
 
 function geoGradeClass(g) {

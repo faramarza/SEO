@@ -1072,6 +1072,7 @@ def _persist_action(data):
             "CONTENT_PRUNE": "content",
             "PAGE_REINVESTMENT": "content",
             "CONSOLIDATION_REVIEW": "content",
+            "SCHEMA_MARKUP": "html",
         }
         action_surface = _SURFACE_MAP.get(action_type_str, "other")
 
@@ -4533,6 +4534,60 @@ def api_geo_scorecard():
     return jsonify(_compute_geo(match, page_authority=pa))
 
 
+def _schema_page_view(match):
+    """Flatten an eval result into the shape rich_results expects: url/asset_type
+    are top-level, but the crawled schema fields live under page_metadata."""
+    pm = match.get("page_metadata", {}) or {}
+    return {
+        "url": match.get("url", ""),
+        "asset_type": match.get("asset_type", "other"),
+        "has_crawl_data": pm.get("has_crawl_data", False),
+        "schema_types": pm.get("schema_types", []) or [],
+        "title": pm.get("title", ""),
+        "h1": pm.get("h1", ""),
+        "meta_description": pm.get("meta_description", ""),
+        "content_preview": pm.get("content_preview", ""),
+        "headings": pm.get("headings", []) or [],
+        "breadcrumb_links": pm.get("breadcrumb_links", []) or [],
+    }
+
+
+@app.route("/api/rich-results")
+def api_rich_results():
+    """Site-wide rich-results / structured-data coverage. Reads the schema each
+    page ALREADY emits (crawler now parses @graph + nested Offer/Rating), confirms
+    coverage, and surfaces only the genuine gaps with ready-to-paste JSON-LD."""
+    from src.analysis.rich_results import analyze_site_schema
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"error": "no evaluation available"}), 404
+    try:
+        with open(eval_path) as f:
+            results = json.load(f).get("results", [])
+    except (json.JSONDecodeError, OSError):
+        return jsonify({"error": "could not read evaluation"}), 500
+    views = [_schema_page_view(r) for r in results]
+    return jsonify(analyze_site_schema(views))
+
+
+@app.route("/api/rich-results/page")
+def api_rich_results_page():
+    """Per-page schema audit: what the page already has vs. the missing rich-
+    result types, each with grounded JSON-LD to paste."""
+    from src.analysis.rich_results import analyze_page_schema
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    match = _find_eval_result(url)
+    if not match:
+        return jsonify({"error": "page not found in latest evaluation"}), 404
+    audit = analyze_page_schema(_schema_page_view(match))
+    if audit is None:
+        return jsonify({"error": "page has no crawl data or is a system/asset URL",
+                        "covered": True, "missing": []}), 200
+    return jsonify(audit)
+
+
 @app.route("/api/geo/questions", methods=["POST"])
 def api_geo_questions():
     """Reverse-search question generator (Pinterest GEO method): the natural-
@@ -6271,6 +6326,10 @@ def api_playbook():
                 "grade_counts": grade_counts,
             },
         }
+    if section in ("all", "rich"):
+        from src.analysis.rich_results import analyze_site_schema
+        views = [_schema_page_view(r) for r in results]
+        out["rich_results"] = analyze_site_schema(views)
     if section in ("all", "decay"):
         # Load chronological history snapshots (oldest first).
         snaps = []
@@ -6462,6 +6521,38 @@ def _playbook_add_task_impl(body):
             "implementation_summary": f"Raise GEO citation readiness ({score}/100)",
             "implementation_steps": steps,
         })
+    elif method == "schema":
+        stype = body.get("schema_type", "")
+        why = body.get("why", "")
+        note = body.get("note", "")
+        jsonld = body.get("jsonld", "")
+        requires = body.get("requires_data")
+        impr = body.get("impressions", 0)
+        steps = [
+            f"Add {stype} structured data to this page — it is genuinely missing "
+            f"(the crawler read the page's existing JSON-LD and did not find it).",
+            f"Why it matters: {why}",
+        ]
+        if requires:
+            steps.append(f"⚠ {requires}")
+        steps.append("Paste this JSON-LD (fill any UPPER_CASE placeholders with the "
+                     "page's real values — never fabricate ratings or prices):")
+        if jsonld:
+            steps.append(jsonld)
+        if note:
+            steps.append(note)
+        steps.append("Validate with Google's Rich Results Test, then watch GSC → "
+                     "Enhancements for the new rich-result report.")
+        data.update({
+            "action": "SCHEMA_MARKUP",
+            "primary_constraint": "Rich Results / Structured Data",
+            "expected_value": 0,
+            "confidence": 0.7,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+            "implementation_summary": f"Add {stype} schema (missing)",
+            "implementation_steps": steps,
+        })
     elif method == "pruning":
         disposition = body.get("disposition", "prune")
         reason = body.get("reason", "")
@@ -6508,6 +6599,8 @@ def _playbook_add_task_impl(body):
         _extra = body.get("query", "")
     elif method == "cluster_link":
         _extra = body.get("pillar_url", "")
+    elif method == "schema":
+        _extra = body.get("schema_type", "")
     data["dedup_key"] = f"{method}|{body.get('url', '')}|{_extra}"
     # Safety net against duplicates (client guard + this): if an identical
     # proposed task already exists, return it instead of creating a copy.
