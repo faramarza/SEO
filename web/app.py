@@ -5756,7 +5756,14 @@ def api_run_evaluation():
 
                 from src.crawlers.simple_crawler import SimpleCrawler, CrawlResult, HTMLMetaParser
 
-                crawler = SimpleCrawler(timeout=5.0, max_concurrent=50)
+                # Gentler than before: a heavy Magento server serving uncached
+                # pages can't answer 50 concurrent requests in 5s, so the old
+                # settings mass-timed-out and the run silently fell back to
+                # GSC-only. Fewer concurrent connections + a longer timeout +
+                # one retry let real pages actually come back.
+                CRAWL_TIMEOUT = float(data.get("crawl_timeout", 20.0))
+                CRAWL_CONCURRENCY = int(data.get("crawl_concurrency", 12))
+                crawler = SimpleCrawler(timeout=CRAWL_TIMEOUT, max_concurrent=CRAWL_CONCURRENCY)
                 urls = [asset.url for asset in workflow._assets]
 
                 # Fast crawl with progress tracking
@@ -5766,14 +5773,28 @@ def api_run_evaluation():
 
                 async def crawl_with_progress():
                     global job_state
-                    semaphore = asyncio.Semaphore(50)
+                    semaphore = asyncio.Semaphore(CRAWL_CONCURRENCY)
                     completed = 0
+
+                    async def _get_with_retry(client, url):
+                        # One retry on timeout/connection error — transient server
+                        # overload is the common failure on a busy Magento host.
+                        last_exc = None
+                        for attempt in range(2):
+                            try:
+                                return await client.get(url, timeout=CRAWL_TIMEOUT)
+                            except (httpx.TimeoutException, httpx.ConnectError,
+                                    httpx.ReadError, httpx.RemoteProtocolError) as e:
+                                last_exc = e
+                                if attempt == 0:
+                                    await asyncio.sleep(1.0)
+                        raise last_exc
 
                     async def fetch_one(client, url):
                         nonlocal completed
                         async with semaphore:
                             try:
-                                response = await client.get(url, timeout=5.0)
+                                response = await _get_with_retry(client, url)
 
                                 if response.status_code == 200:
                                     parser = HTMLMetaParser(base_url=url)
@@ -5844,26 +5865,60 @@ def api_run_evaluation():
                     async with httpx.AsyncClient(
                         headers={"User-Agent": "AlphabetTrains-SEO-Crawler/1.0"},
                         follow_redirects=True,
-                        limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+                        limits=httpx.Limits(max_connections=CRAWL_CONCURRENCY,
+                                        max_keepalive_connections=max(4, CRAWL_CONCURRENCY // 2)),
                     ) as client:
                         tasks = [fetch_one(client, url) for url in urls]
                         results = await asyncio.gather(*tasks)
 
-                    # Store results
+                    # Store results + tally WHY fetches failed, so a failed crawl
+                    # can explain itself instead of silently degrading to GSC-only.
+                    from collections import Counter as _Counter
+                    ok = 0
+                    status_counts = _Counter()
+                    error_samples = []
                     for result in results:
-                        if result and result.error is None:
+                        if not result:
+                            continue
+                        if result.error is None and result.status_code == 200:
                             crawler._results[result.url.lower().rstrip('/')] = result
-
+                            ok += 1
+                        else:
+                            if result.status_code:
+                                status_counts[str(result.status_code)] += 1
+                            else:
+                                status_counts["network_error"] += 1
+                            if result.error and len(error_samples) < 5:
+                                error_samples.append(f"{result.url} → {result.error}")
+                    crawler._crawl_stats = {
+                        "attempted": len(urls),
+                        "ok": ok,
+                        "failed": len(urls) - ok,
+                        "status_counts": dict(status_counts),
+                        "error_samples": error_samples,
+                    }
                     return results
 
                 asyncio.run(crawl_with_progress())
 
                 # Enrich assets
                 total, enriched = crawler.enrich_assets(workflow._assets)
+                stats = getattr(crawler, "_crawl_stats", {})
+                stats["enriched"] = enriched
                 job_state["message"] = f"Enriched {enriched}/{total} pages with crawl data"
-                print(f"  Crawl: {len(crawler._results)} results cached, enriched {enriched}/{total} assets")
+                job_state["crawl_summary"] = stats
+                print(f"  Crawl: {stats.get('ok', 0)}/{total} fetched OK, enriched {enriched}/{total}; "
+                      f"failures by status: {stats.get('status_counts', {})}")
+                # Persist a durable summary so the UI can explain a failed crawl
+                # long after the transient job message is gone.
+                try:
+                    from datetime import datetime as _dt2
+                    with open(DATA_PATH / "last_crawl.json", "w") as _cf:
+                        json.dump({**stats, "total": total,
+                                   "timestamp": _dt2.now().isoformat()}, _cf)
+                except OSError:
+                    pass
                 if enriched == 0 and len(crawler._results) > 0:
-                    # Debug: show first asset URL vs first result URL
                     sample_asset = workflow._assets[0].url.lower().rstrip('/') if workflow._assets else "(none)"
                     sample_result = list(crawler._results.keys())[0] if crawler._results else "(none)"
                     print(f"  URL mismatch? Asset: {sample_asset}")
@@ -6330,7 +6385,17 @@ def api_playbook():
     if section in ("all", "rich"):
         from src.analysis.rich_results import analyze_site_schema
         views = [_schema_page_view(r) for r in results]
-        out["rich_results"] = analyze_site_schema(views)
+        rr = analyze_site_schema(views)
+        # Attach the last crawl's outcome so an empty audit can name the real
+        # cause (timeouts / blocked / never crawled) instead of guessing.
+        try:
+            lc_path = DATA_PATH / "last_crawl.json"
+            if lc_path.exists():
+                with open(lc_path) as _lcf:
+                    rr["last_crawl"] = json.load(_lcf)
+        except (json.JSONDecodeError, OSError):
+            pass
+        out["rich_results"] = rr
     if section in ("all", "decay"):
         # Load chronological history snapshots (oldest first).
         snaps = []

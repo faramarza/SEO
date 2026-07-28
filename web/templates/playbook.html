@@ -534,9 +534,40 @@ function renderRich(rich) {
         const sys = rich.skipped_system || 0;
         let diag;
         if (noCrawl >= total - sys && total > 0) {
-            diag = `<p class="empty-state">None of the ${total.toLocaleString()} pages in this evaluation have crawl data — ${noCrawl.toLocaleString()} were GSC-only (no title/content fetched) and ${sys.toLocaleString()} are system/asset URLs. This evaluation looks like it ran <strong>without crawling</strong> (or the crawl was skipped/overwritten). Re-run the evaluation with crawling enabled, then reload this tab. Schema is read from the page HTML, so a crawl is required.</p>`;
+            diag = `<p class="empty-state">None of the ${total.toLocaleString()} pages in this evaluation have crawl data — ${noCrawl.toLocaleString()} were GSC-only (no title/content fetched) and ${sys.toLocaleString()} are system/asset URLs. Schema is read from the page HTML, so a crawl is required.</p>`;
         } else {
-            diag = `<p class="empty-state">Audited 0 of ${total.toLocaleString()} pages (${noCrawl.toLocaleString()} without crawl data, ${sys.toLocaleString()} system/asset URLs). Re-run with crawl to populate this.</p>`;
+            diag = `<p class="empty-state">Audited 0 of ${total.toLocaleString()} pages (${noCrawl.toLocaleString()} without crawl data, ${sys.toLocaleString()} system/asset URLs).</p>`;
+        }
+        // If we have the last crawl's outcome, name the real cause.
+        const lc = rich.last_crawl;
+        if (lc && lc.attempted) {
+            if (lc.ok === 0) {
+                const sc = Object.entries(lc.status_counts || {})
+                    .map(([k, n]) => `${k}: ${n}`).join(', ') || 'unknown';
+                const samples = (lc.error_samples || []).slice(0, 3)
+                    .map(s => `<li><code style="font-size:11px;">${escHtml(s)}</code></li>`).join('');
+                diag += `<div class="pb-explain" style="margin-top:14px;text-align:left;">
+                    <strong>The last crawl fetched 0 of ${lc.attempted.toLocaleString()} pages.</strong>
+                    This is why there's no schema to audit — the crawler couldn't retrieve your pages' HTML.
+                    Failures by response: <strong>${escHtml(sc)}</strong>.
+                    ${samples ? `<ul style="margin:8px 0 0 18px;">${samples}</ul>` : ''}
+                    <div style="margin-top:10px;">Common causes: the server times out under load (heavy Magento pages),
+                    or it blocks the crawler's user-agent (WAF/Cloudflare). Re-run <strong>Run with Crawl</strong> —
+                    it now uses fewer parallel connections, a longer timeout, and one retry. If it still shows
+                    403/blocked, allowlist the <code>AlphabetTrains-SEO-Crawler</code> user-agent on the server.</div>
+                </div>`;
+            } else if (lc.ok > 0) {
+                diag += `<div class="pb-explain" style="margin-top:14px;text-align:left;">
+                    The last crawl fetched <strong>${lc.ok.toLocaleString()}/${lc.attempted.toLocaleString()}</strong>
+                    pages but enriched <strong>${(lc.enriched||0).toLocaleString()}</strong> — a URL-matching issue between
+                    GSC and the crawl. Re-run the evaluation; if it persists, the GSC URLs and crawled URLs differ
+                    (scheme/trailing-slash/redirects).</div>`;
+            }
+        } else {
+            diag += `<div class="pb-explain" style="margin-top:14px;text-align:left;">No crawl has been recorded yet.
+                Click <strong>Run with Crawl</strong> (not plain "Run Evaluation") on the Dashboard or Opportunities page —
+                that's the run that fetches each page's HTML. Plain "Run Evaluation" only pulls GSC/GA4 metrics and can't
+                see schema.</div>`;
         }
         body.innerHTML = diag;
         return;
