@@ -6900,6 +6900,68 @@ def _plan_data_status(results, eval_data):
     }
 
 
+@app.route("/api/action-plan/deliverable", methods=["POST"])
+def api_action_plan_deliverable():
+    """Generate the copy-paste-ready artifact for a task — the actual new title +
+    meta, FAQ block, article outline, review-request copy, or internal-link HTML —
+    grounded in the real page. Returns {blocks:[{label,text}]}. Categories whose
+    deliverable is already inline (schema/merchant JSON-LD) don't need this."""
+    t = request.json or {}
+    cat = (t.get("category") or "").lower()
+    url = t.get("url", "")
+    query = (t.get("metric", {}) or {}).get("query", "") or t.get("query", "")
+    config = load_config()
+
+    match = _find_eval_result(url) if url else None
+    pm = (match or {}).get("page_metadata", {}) if match else {}
+    ctx = (f"url: {url}\n" if url else "") + \
+          (f"current title: {pm.get('title','')}\n" if pm.get("title") else "") + \
+          (f"current meta: {pm.get('meta_description','')}\n" if pm.get("meta_description") else "") + \
+          (f"page topic: {(pm.get('content_preview','') or '')[:400]}\n" if pm.get("content_preview") else "")
+
+    PROMPTS = {
+        "ctr": ("You write SERP titles/metas that earn the click without clickbait.",
+                f"{ctx}\nThe page ranks for “{query}” but is under-clicked. Write 3 titles "
+                f"(<=60 chars, containing the searcher's words) and 2 meta descriptions "
+                f"(<=155 chars). JSON: {{\"blocks\":[{{\"label\":\"Title option 1\",\"text\":\"...\"}},...]}}"),
+        "content": ("You are an ecommerce content strategist and SEO writer.",
+                f"{ctx}\nWrite a ready-to-use brief for an article targeting “{query}”: an "
+                f"H1 title (put a NUMBER if it's a best/top listicle), a 1-paragraph intro "
+                f"that answers the query directly (quotable), and 6-8 H2 section headings. "
+                f"JSON: {{\"blocks\":[{{\"label\":\"Title\",\"text\":\"...\"}},{{\"label\":\"Intro\",\"text\":\"...\"}},{{\"label\":\"Outline\",\"text\":\"H2 ...\\nH2 ...\"}}]}}"),
+        "geo": ("You are a GEO strategist writing quotable FAQ content.",
+                f"{ctx}\nWrite 5 question-form FAQ entries this page should answer so AI "
+                f"engines cite it, each answer <=45 words and factual. JSON: "
+                f"{{\"blocks\":[{{\"label\":\"Q: ...\",\"text\":\"A: ...\"}},...]}}"),
+        "reviews": ("You write concise post-purchase review-request messages.",
+                f"{ctx}\nWrite a short post-purchase review-request email (subject + body) "
+                f"and a 1-line SMS, asking buyers of this product to leave a review. Warm, "
+                f"brief, no incentive that violates guidelines. JSON: "
+                f"{{\"blocks\":[{{\"label\":\"Email subject\",\"text\":\"...\"}},{{\"label\":\"Email body\",\"text\":\"...\"}},{{\"label\":\"SMS\",\"text\":\"...\"}}]}}"),
+        "brand": ("You write SERP titles that make a brand own its own name.",
+                f"{ctx}\nThis page should own the brand query “{query}”. Write a title and "
+                f"meta that clearly claim the brand term. JSON: "
+                f"{{\"blocks\":[{{\"label\":\"Title\",\"text\":\"...\"}},{{\"label\":\"Meta\",\"text\":\"...\"}}]}}"),
+        "striking": ("You are an on-page SEO editor.",
+                f"{ctx}\nThe page ranks just off page 1 for “{query}”. Give the exact on-page "
+                f"changes: a revised title/H1 containing the query, and 2 sentences to add "
+                f"that naturally use the query and its variants. JSON: "
+                f"{{\"blocks\":[{{\"label\":\"Revised title/H1\",\"text\":\"...\"}},{{\"label\":\"Add this copy\",\"text\":\"...\"}}]}}"),
+    }
+    if cat not in PROMPTS:
+        return jsonify({"blocks": [], "note": "This task's deliverable is already in "
+                        "the steps above (copy the markup/instructions)."})
+    system_message, user_prompt = PROMPTS[cat]
+    system_message += " Return ONLY valid JSON."
+    if url and not pm.get("has_crawl_data") and cat in ("ctr", "brand", "striking"):
+        return jsonify({"blocks": [], "note": "Crawl this page first (Run with Crawl) so "
+                        "the rewrite is grounded in the real title."})
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1200)
+    if err:
+        return jsonify({"error": err}), 502
+    return jsonify(result if isinstance(result, dict) else {"blocks": []})
+
+
 @app.route("/api/action-plan/adopt", methods=["POST"])
 def api_action_plan_adopt():
     """Adopt a plan task: persist it with a review date + baseline so the tool can

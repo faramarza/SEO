@@ -94,11 +94,15 @@ function taskCard(t, off){
         return `<div class="dn-review-line">${icon} <span style="color:var(--text-muted);">${esc(rv.checked_on||'')}:</span> ${esc(rv.detail||'')}${rv.tweak?` <em>${esc(rv.tweak)}</em>`:''}</div>`;
     }).join('');
     const statusBadge = t.adopted ? (()=>{ const m=STATUS_META[t.status]||STATUS_META.todo; return `<span class="dn-badge ${m.cls}">${esc(m.txt)}</span>`; })() : '';
-    const btns = t.status==='done'
+    const domId = 'dv-' + btoa(unescape(encodeURIComponent(t.dedup_key))).replace(/[^a-zA-Z0-9]/g,'');
+    const DELIVERABLE_CATS = ['ctr','content','geo','reviews','brand','striking'];
+    const genBtn = DELIVERABLE_CATS.includes(t.category)
+        ? `<button class="pb-task-btn pb-task-btn-alt" onclick="dnGenerate('${esc(t.dedup_key)}','${domId}',this)">✍️ Write it for me</button>` : '';
+    const btns = (t.status==='done'
         ? `<button class="pb-task-btn pb-added" disabled>✓ Done</button>`
         : (t.adopted
             ? `<button class="pb-task-btn" onclick="dnComplete('${esc(t.dedup_key)}', this)">Mark done</button>`
-            : `<button class="pb-task-btn" onclick="dnAdopt('${esc(t.dedup_key)}', this)">Start this →</button>`);
+            : `<button class="pb-task-btn" onclick="dnAdopt('${esc(t.dedup_key)}', this)">Start this →</button>`)) + genBtn;
     return `<div class="dn-card ${off?'dn-off':''}">
         <div class="dn-head">
             <div class="dn-rank">${off?'✓':('#'+t.rank)}</div>
@@ -122,6 +126,7 @@ function taskCard(t, off){
         ${(t.adopted && t.auto_review!==false && t.review_date && t.status!=='done') ? `<div class="dn-when">⏳ Auto-check on <strong>${esc(t.review_date)}</strong> — the tool will re-measure and tell you if it worked.</div>`:''}
         ${(t.adopted && t.auto_review===false && t.status!=='done') ? `<div class="dn-when">✋ Self-report — mark this done once you've actioned it (the tool can't auto-measure removals).</div>`:''}
         ${reviews?`<div class="dn-reviews">${reviews}</div>`:''}
+        <div class="dn-deliverable" id="${domId}"></div>
         <div class="dn-actions">${btns}</div>
     </div>`;
 }
@@ -203,6 +208,33 @@ function renderPlan(plan, extra){
         html += extra.map(t=>taskCard(t,true)).join('');
     }
     body.innerHTML=html;
+}
+
+function dnCopy(btn){
+    const box=btn.parentElement.querySelector('.dn-dv-text');
+    navigator.clipboard.writeText(box.textContent).then(()=>{
+        const o=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=o,1500);
+    }).catch(()=>dnToast('Copy failed',true));
+}
+
+async function dnGenerate(key, domId, btn){
+    const t=[...(DN.plan||[]),...(DN.adopted_extra||[])].find(x=>x.dedup_key===key); if(!t) return;
+    const box=document.getElementById(domId);
+    box.innerHTML='<p class="pb-loading" style="margin:8px 0;">Writing it, grounded in your page…</p>';
+    if(btn) btn.disabled=true;
+    try{
+        const res=await fetch('/api/action-plan/deliverable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
+        const data=await res.json();
+        if(btn) btn.disabled=false;
+        if(data.error){ box.innerHTML=`<p class="empty-state" style="text-align:left;">${esc(data.error)}</p>`; return; }
+        if(!(data.blocks||[]).length){ box.innerHTML=`<p class="dn-note">${esc(data.note||'Nothing to generate for this task.')}</p>`; return; }
+        box.innerHTML = data.blocks.map(b=>`
+            <div class="dn-dv-block">
+                <div class="dn-dv-label">${esc(b.label||'')}</div>
+                <div class="dn-dv-row"><div class="dn-dv-text">${esc(b.text||'')}</div>
+                <button class="dn-copy-btn" onclick="dnCopy(this)">Copy</button></div>
+            </div>`).join('');
+    }catch(e){ if(btn) btn.disabled=false; box.innerHTML=`<p class="empty-state">Failed: ${esc(e.message)}</p>`; }
 }
 
 async function dnAdoptBatch(cat, btn){

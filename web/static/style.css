@@ -2949,3 +2949,12 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 @media (prefers-color-scheme: dark) {
     .dn-datastatus, .dn-batch { background: rgba(255,255,255,.02); }
 }
+
+.dn-deliverable:not(:empty) { margin-top: 10px; border-top: 1px dashed var(--border,#e2e8f0); padding-top: 10px; }
+.dn-dv-block { margin-bottom: 10px; }
+.dn-dv-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+.dn-dv-row { display: flex; gap: 8px; align-items: flex-start; }
+.dn-dv-text { flex: 1; white-space: pre-wrap; font-size: 13px; line-height: 1.5; background: rgba(100,116,139,.07); border-radius: 6px; padding: 8px 10px; }
+.dn-copy-btn { font-size: 11px; font-weight: 600; padding: 4px 10px; border: none; border-radius: 5px; background: #334155; color: #fff; cursor: pointer; white-space: nowrap; }
+.dn-copy-btn:hover { background: #475569; }
+.dn-note { font-size: 12.5px; color: var(--text-muted); font-style: italic; margin: 6px 0; }
