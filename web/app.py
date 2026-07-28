@@ -366,13 +366,60 @@ def _run_autoeval_scheduler():
         time.sleep(1800)  # check every 30 min; the bucket marker enforces cadence
 
 
+WEEKLY_DIGEST_DOW = int(os.environ.get("WEEKLY_DIGEST_DOW", "0"))  # 0=Monday
+WEEKLY_DIGEST_HOUR = int(os.environ.get("WEEKLY_DIGEST_HOUR", "7"))
+
+
+def _claim_weekly_digest():
+    """One digest per ISO week across workers (O_EXCL on the week bucket)."""
+    from datetime import date
+    try:
+        iso = date.today().isocalendar()
+        marker = DATA_PATH / f".digest_{iso[0]}_{iso[1]}"
+        fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.close(fd)
+        for old in DATA_PATH.glob(".digest_*"):
+            if old.name != marker.name:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        return True
+    except (FileExistsError, OSError):
+        return False
+
+
+def _run_weekly_digest_scheduler():
+    """Post a weekly digest notification on WEEKLY_DIGEST_DOW after the hour."""
+    from datetime import datetime, timezone
+    time.sleep(180)
+    while True:
+        try:
+            now = datetime.now()
+            if (now.weekday() == WEEKLY_DIGEST_DOW and now.hour >= WEEKLY_DIGEST_HOUR
+                    and _claim_weekly_digest()):
+                msg, ok = _compose_weekly_digest()
+                if ok and msg:
+                    _save_notification({
+                        "type": "weekly_digest", "severity": "info",
+                        "message": msg,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "read": False,
+                    })
+                    print("[WeeklyDigest] Posted weekly Do-This-Next digest")
+        except Exception as e:
+            print(f"[WeeklyDigest] Error: {e}")
+        time.sleep(3600)
+
+
 def _start_scheduler():
     """Start the background schedulers: task measurement, SERP collector, daily
-    Action Plan auto-review, and the periodic Run-with-Crawl evaluation."""
+    Action Plan auto-review, periodic Run-with-Crawl, and the weekly digest."""
     for target in (_run_scheduled_measurement, _run_serp_collector,
-                   _run_autoreview_scheduler, _run_autoeval_scheduler):
+                   _run_autoreview_scheduler, _run_autoeval_scheduler,
+                   _run_weekly_digest_scheduler):
         threading.Thread(target=target, daemon=True).start()
-    print("[Scheduler] Task monitor + SERP + auto-review + auto-eval(crawl) started")
+    print("[Scheduler] Task monitor + SERP + auto-review + auto-eval + weekly digest started")
 
 
 _scheduler_started = False
@@ -7009,6 +7056,64 @@ def api_action_plan_complete():
         _save_action_plan_store(store)
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "not found"}), 404
+
+
+def _compose_weekly_digest():
+    """Build the weekly digest: this week's 3 best moves + what last week's changes
+    actually measured. Pure data — no AI. Returns (message, has_content)."""
+    from src.analysis.action_plan import build_action_plan
+    from datetime import datetime, timedelta
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return ("Your weekly plan is ready to run — but there's no evaluation yet. "
+                "Click Run with Crawl to generate your first Do-This-Next list.", True)
+    try:
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return ("", False)
+    results = eval_data.get("results", [])
+    disallow = _robots_disallow_rules()
+    store = _load_action_plan_store()
+
+    (ctr, cro, reviews, rich, bm, striking, decay,
+     orphans, pruning, content, geo) = _build_plan_inputs(results, eval_data, disallow)
+    plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
+                             brand_merchant=bm, striking=striking, decay=decay,
+                             content=content, orphans=orphans, pruning=pruning, geo=geo)
+    adopted = store.get("adopted", {})
+    top3 = [t for t in plan if t["dedup_key"] not in adopted][:3]
+
+    # Last 7 days of auto-review outcomes.
+    cutoff = (datetime.now() - timedelta(days=7)).date().isoformat()
+    wins, misses = [], []
+    for t in adopted.values():
+        for rv in (t.get("reviews") or []):
+            if rv.get("checked_on", "") >= cutoff:
+                (wins if rv.get("status") in ("improved", "done") else misses).append(
+                    (t.get("title", ""), rv.get("detail", "")))
+
+    lines = ["📋 Your week in SEO:"]
+    if top3:
+        lines.append("Top 3 moves this week:")
+        for i, t in enumerate(top3, 1):
+            pay = (f"${round(t['expected_value']):,}/mo" if t["expected_value"] > 0
+                   else t["time_to_impact_label"])
+            lines.append(f"  {i}. {t['title']} — {pay}")
+    if wins:
+        lines.append(f"✅ Worked last week: {len(wins)} — e.g. {wins[0][0]} ({wins[0][1]})")
+    if misses:
+        lines.append(f"➖ Needs a tweak: {len(misses)} — check Do This Next for the suggested fix.")
+    if not top3 and not wins and not misses:
+        lines.append("Nothing pending — you're on top of it. 🎉")
+    return ("\n".join(lines), True)
+
+
+@app.route("/api/action-plan/digest")
+def api_action_plan_digest():
+    """Preview the weekly digest on demand."""
+    msg, ok = _compose_weekly_digest()
+    return jsonify({"message": msg, "available": ok})
 
 
 @app.route("/api/action-plan/process-reviews", methods=["POST", "GET"])
