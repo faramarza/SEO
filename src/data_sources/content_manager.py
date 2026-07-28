@@ -1222,6 +1222,58 @@ def _query_to_title(query):
     return title
 
 
+_LISTICLE_SIGNALS = (
+    " best ", " top ", " ideas", " gifts", " gift ", " types", " ways",
+    " examples", " activities", " list of", " options", " picks",
+)
+
+
+def _suits_listicle(text):
+    """True if a topic makes a good numbered listicle/roundup. Listicles get
+    more organic traffic AND are highly citable by AI engines (they lift lists).
+    Comparisons and single-answer definitionals do NOT suit listicles."""
+    t = " " + (text or "").lower().strip() + " "
+    # Explicit listicle signals win first ("best/top/ideas" beat "what are the…").
+    if any(s in t for s in _LISTICLE_SIGNALS):
+        return True
+    # Definitional / comparison intents are single-answer — not listicles.
+    if any(x in t for x in (" vs ", " versus ", "difference between",
+                            " what is ", " what are ", " how to ", " how do ",
+                            " why ", " what does ")):
+        return False
+    # Plural product/browse topic ("montessori toys", "toys for 2 year olds")
+    # makes a natural roundup.
+    words = t.split()
+    if len(words) >= 2 and (t.rstrip().endswith("s") or " for " in t):
+        return True
+    return False
+
+
+def _listicle_title(base_title):
+    """Reframe a title as a listicle (prefix 'Best' unless already list-framed).
+    The actual number is added by the article generator from the real item count."""
+    t = (base_title or "").strip()
+    tl = t.lower()
+    if re.match(r'^\d+\s', t) or tl.startswith(("best ", "top ", "the best ", "the top ")):
+        return t
+    return f"Best {t}"
+
+
+def _apply_listicle_format(sug):
+    """Tag a suggestion as listicle vs standard article, reframe its title, and
+    give listicles a modest priority boost (operator-observed: they out-traffic
+    other formats)."""
+    basis = sug.get("source_query") or sug.get("title", "")
+    if _suits_listicle(basis):
+        sug["format"] = "listicle"
+        sug["is_listicle"] = True
+        sug["title"] = _listicle_title(sug.get("title", ""))
+        sug["score"] = min(100, (sug.get("score", 0) or 0) + 6)
+    else:
+        sug["format"] = "article"
+        sug["is_listicle"] = False
+
+
 def _match_products_to_query(query, products, sitemap_types=None):
     """Find products relevant to a search query."""
     query_words = set(query.lower().split())
@@ -1637,6 +1689,9 @@ def get_content_suggestions(cluster_id=None):
 
     # Enrich with related money pages, products, and writing prompt
     for sug in all_suggestions:
+        # Listicles out-traffic other formats and are highly AI-citable — reframe
+        # suitable topics and boost them BEFORE the title feeds the writing brief.
+        _apply_listicle_format(sug)
         cl_name = sug.get("cluster_name", "")
         cl_match_words = {w for w in cl_name.lower().split()
                           if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
@@ -1692,6 +1747,7 @@ def get_content_suggestions(cluster_id=None):
                 "best_position": sug.get("best_position"),
                 "has_ai_overview": sug.get("has_ai_overview"),
             },
+            is_listicle=sug.get("is_listicle", False),
         )
 
     # Assign final ranks
@@ -1737,7 +1793,8 @@ def get_content_suggestions(cluster_id=None):
 
 
 def _build_writing_prompt(title, cluster_name, money_pages, products,
-                          existing_articles, primary_keyword="", kw_meta=None):
+                          existing_articles, primary_keyword="", kw_meta=None,
+                          is_listicle=False):
     """Build a full writing prompt/content brief for an article."""
     kw_meta = kw_meta or {}
     mp_links = ""
@@ -1781,6 +1838,19 @@ STRUCTURE:
 - 5-7 subheadings (H2s) covering different aspects of the topic
 - Practical tips, comparisons, or actionable advice in each section
 - Conclusion with a clear call-to-action"""
+
+    if is_listicle:
+        prompt += """
+
+FORMAT: LISTICLE (this format out-traffics others for us and AI answer engines
+lift numbered lists directly). Write it as a NUMBERED list:
+- A short intro (how you chose / what to look for), then a numbered list of
+  distinct items — each item its own H2 like "1. <Item Name>".
+- Each item: 2-4 sentences on what it is, who it's best for, and why it made the
+  list, with a concrete detail (age, material, price range, skill it builds).
+- Put the ACTUAL item count in the H1/title (e.g. "12 Best …") — the number in
+  the title MUST match the number of items you write.
+- Optionally a quick comparison table summarizing the items."""
 
     if mp_links:
         prompt += f"""

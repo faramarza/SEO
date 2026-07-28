@@ -7057,6 +7057,17 @@ Structure the article with:
 - An FAQ section using questions from Phase 2.
 - A clear CTA at the end.
 
+LISTICLE RULE: If the title implies a list — it has a number ("12 Best …"),
+or starts with "Best"/"Top", or the brief says FORMAT: LISTICLE — you MUST write
+it as a numbered listicle (listicles out-perform other formats here AND AI answer
+engines lift numbered lists directly):
+- Number each item as its own H2: "1. <Item>", "2. <Item>", …
+- Each item: 2-4 sentences (what it is, who it's best for, why it's on the list,
+  one concrete detail — age/material/price/skill).
+- The number in the H1/title MUST equal the number of items you actually write
+  (if you list 11, the title says 11, not a rounder "12").
+- Include a short comparison table summarizing the items where it helps.
+
 ═══════════════════════════════════════
 PHASE 4: E-E-A-T (Experience, Expertise, Authoritativeness, Trustworthiness)
 ═══════════════════════════════════════
