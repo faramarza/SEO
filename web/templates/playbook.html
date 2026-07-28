@@ -11,7 +11,10 @@
     </p>
 
     <div class="playbook-tabs">
-        <button class="pb-tab active" data-tab="striking" onclick="pbShowTab('striking')">
+        <button class="pb-tab active" data-tab="ctr" onclick="pbShowTab('ctr')">
+            💰 CTR Recovery
+        </button>
+        <button class="pb-tab" data-tab="striking" onclick="pbShowTab('striking')">
             🎯 Striking Distance
         </button>
         <button class="pb-tab" data-tab="decay" onclick="pbShowTab('decay')">
@@ -36,8 +39,23 @@
 
     <div id="pb-meta" class="playbook-meta"></div>
 
+    <!-- CTR Recovery Clinic -->
+    <section class="pb-panel active" id="pb-ctr">
+        <div class="pb-explain">
+            <strong>Method: CTR Recovery.</strong> Your biggest measurable leak: pages
+            that <em>already rank on page 1</em> but get clicked below your site's own
+            CTR curve for that position. The ranking and impressions already exist —
+            recovering the clicks needs no new authority, just a title/meta that earns
+            the click (and, where it helps, star ratings showing in the result). Each
+            row shows the lost clicks (and revenue at your measured conversion rate) and
+            a grounded reason. Hit <strong>Rewrite</strong> for title/meta options.
+        </div>
+        <div id="pb-ctr-summary" class="pb-geo-summary"></div>
+        <div id="pb-ctr-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
     <!-- Striking Distance -->
-    <section class="pb-panel active" id="pb-striking">
+    <section class="pb-panel" id="pb-striking">
         <div class="pb-explain">
             <strong>Method: Striking Distance (Dean / Patel).</strong> Queries where a
             page already ranks just off page 1 (positions 6–20) with real search
@@ -277,7 +295,7 @@ async function loadPlaybook() {
         PB_DATA = data;
         if (data.error) {
             const msg = `<p class="empty-state">${escHtml(data.error)}</p>`;
-            ['striking','decay','orphans','pruning','rich'].forEach(s =>
+            ['ctr','striking','decay','orphans','pruning','rich'].forEach(s =>
                 document.getElementById('pb-' + s + '-body').innerHTML = msg);
             return;
         }
@@ -287,6 +305,7 @@ async function loadPlaybook() {
         const d = data.timestamp ? new Date(data.timestamp).toLocaleString() : '—';
         document.getElementById('pb-meta').innerHTML =
             `Based on ${data.page_count} pages · evaluation ${escHtml(d)}`;
+        renderCtr(data.ctr_recovery || {});
         renderStriking(data.striking_distance || []);
         renderDecay(data.decay || {});
         renderOrphans(data.orphans_clusters || {});
@@ -296,6 +315,105 @@ async function loadPlaybook() {
     } catch (e) {
         document.getElementById('pb-striking-body').innerHTML =
             `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
+    }
+}
+
+function renderCtr(ctr) {
+    const summary = document.getElementById('pb-ctr-summary');
+    const body = document.getElementById('pb-ctr-body');
+    const rows = ctr.rows || [];
+    if (!rows.length) {
+        summary.innerHTML = '';
+        body.innerHTML = '<p class="empty-state">No CTR leaks found — your page-1 queries are clicking at or above your site\'s own curve. 🎉 (Needs GSC query data + a crawl for titles.)</p>';
+        return;
+    }
+    const rev = ctr.total_lost_revenue || 0;
+    summary.innerHTML = `
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${Math.round(ctr.total_lost_clicks||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">clicks/mo left on the table</span></div>
+        ${rev ? `<div class="pb-geo-stat"><span class="pb-geo-stat-val">$${Math.round(rev).toLocaleString()}</span><span class="pb-geo-stat-lbl">est. revenue/mo (your CVR×AOV)</span></div>` : ''}
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${ctr.pages_affected||0}</span><span class="pb-geo-stat-lbl">pages under-clicked</span></div>`;
+
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Page / Query</th><th>Pos</th><th>Impr</th>
+        <th>CTR now → yours</th><th>Lost</th><th>Why it's under-clicked</th><th></th></tr></thead><tbody>`;
+    rows.forEach((r, i) => {
+        r._idx = i;
+        const reasons = (r.reasons || []).map(x => `<div class="pb-geo-fix">${escHtml(x)}</div>`).join('');
+        const lost = `${r.lost_clicks} clk${r.lost_revenue ? `<br><span style="color:var(--text-muted);">$${Math.round(r.lost_revenue).toLocaleString()}</span>` : ''}`;
+        const key = pbKey('ctr', r.url, r.query);
+        const addBtn = pbIsAdded(key)
+            ? '<button class="pb-task-btn pb-added" disabled title="Already on the Task Board">✓ Added</button>'
+            : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddCtrTask(${i}, this)">+ Task</button>`;
+        html += `<tr>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
+                <div style="font-size:12px;color:var(--text-primary);margin-top:2px;">“${escHtml(r.query)}”</div></td>
+            <td class="pb-num">${r.position}</td>
+            <td class="pb-num">${(r.impressions||0).toLocaleString()}</td>
+            <td class="pb-num"><span style="color:#dc2626;">${r.actual_ctr}%</span> → <span style="color:#059669;">${r.expected_ctr}%</span></td>
+            <td class="pb-num">${lost}</td>
+            <td>${reasons}</td>
+            <td class="pb-geo-actions">
+                <button class="pb-task-btn pb-task-btn-alt" onclick="pbCtrRewrite(${i}, this)">Rewrite</button>
+                ${addBtn}
+            </td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+async function pbAddCtrTask(idx, btn) {
+    const r = PB_DATA.ctr_recovery.rows[idx];
+    const payload = { method: 'ctr', url: r.url, asset_type: r.asset_type, query: r.query,
+        position: r.position, impressions: r.impressions, lost_clicks: r.lost_clicks,
+        reasons: r.reasons, current_title: r.current_title };
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            PB_ADDED.add(pbKey('ctr', r.url, r.query));
+            if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
+            pbToast(data.duplicate ? 'Already on the Task Board' : 'Added to Task Board');
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+            pbToast(data.error || 'Failed to add', true);
+        }
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+        pbToast('Failed: ' + e.message, true);
+    }
+}
+
+async function pbCtrRewrite(idx, btn) {
+    const r = PB_DATA.ctr_recovery.rows[idx];
+    const modal = document.getElementById('pb-faq-modal');
+    const bodyEl = document.getElementById('pb-faq-body');
+    document.querySelector('#pb-faq-modal h2').textContent = 'CTR Rewrite — title & meta options';
+    bodyEl.innerHTML = '<p class="pb-loading">Writing options grounded in this page…</p>';
+    modal.classList.remove('hidden');
+    try {
+        const res = await fetch('/api/ctr/rewrite', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: r.url, query: r.query }) });
+        const data = await res.json();
+        if (data.error) { bodyEl.innerHTML = `<p class="empty-state">${escHtml(data.error)}</p>`; return; }
+        const titles = (data.titles || []).map(t =>
+            `<div class="pb-schema-gap"><div style="font-weight:600;">${escHtml(t.text)}</div>
+             <div class="pb-schema-why">${escHtml(t.why||'')}</div></div>`).join('');
+        const metas = (data.metas || []).map(t =>
+            `<div class="pb-schema-gap"><div>${escHtml(t.text)}</div>
+             <div class="pb-schema-why">${escHtml(t.why||'')}</div></div>`).join('');
+        bodyEl.innerHTML = `
+            <p style="font-size:13px;color:var(--text-muted);">For “${escHtml(r.query)}” — current title: <code>${escHtml(r.current_title||'(none)')}</code></p>
+            ${data.tip ? `<div class="pb-explain" style="text-align:left;">💡 ${escHtml(data.tip)}</div>` : ''}
+            <h4 style="margin:14px 0 6px;">Title options</h4>${titles}
+            <h4 style="margin:14px 0 6px;">Meta description options</h4>${metas}
+            <p class="pb-geo-note">Deploy the winner as a TITLE_META_TEST so the CTR lift is measured before/after.</p>`;
+    } catch (e) {
+        bodyEl.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
     }
 }
 

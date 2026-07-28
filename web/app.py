@@ -4589,6 +4589,70 @@ def api_rich_results_page():
     return jsonify(audit)
 
 
+@app.route("/api/ctr/rewrite", methods=["POST"])
+def api_ctr_rewrite():
+    """Generate title + meta-description options for a page that ranks well but is
+    under-clicked, grounded in the page's actual topic and the exact query it's
+    losing clicks on. This is the actionable core of the CTR Recovery Clinic."""
+    data = request.json or {}
+    url = data.get("url")
+    query = data.get("query", "")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    match = _find_eval_result(url)
+    if not match:
+        return jsonify({"error": "page not found in latest evaluation"}), 404
+    pm = match.get("page_metadata", {})
+    if not pm.get("has_crawl_data"):
+        return jsonify({"error": "This page hasn't been crawled — fetch it first so "
+                        "the rewrite is grounded in the real page.", "needs_crawl": True}), 200
+    config = load_config()
+
+    queries = match.get("top_queries", [])[:8]
+    q_lines = "\n".join(
+        f'  - "{q.get("query","")}" ({q.get("impressions",0)} impr, pos {q.get("position",0)}, CTR {q.get("ctr",0)}%)'
+        for q in queries) or "  (no query data)"
+
+    system_message = (
+        "You are a senior ecommerce SEO copywriter. You write SERP titles and meta "
+        "descriptions that earn the click WITHOUT clickbait or false claims. You "
+        "ground every option in the page's real topic and the searcher's actual "
+        "query. Titles <= 60 chars, metas <= 155 chars. Return ONLY valid JSON."
+    )
+    user_prompt = f"""PAGE
+url: {url}
+type: {match.get('asset_type','')}
+current title: {pm.get('title','')}
+current meta: {pm.get('meta_description','')}
+h1: {pm.get('h1','')}
+topic/summary: {(pm.get('content_preview','') or '')[:500]}
+
+PRIMARY QUERY LOSING CLICKS: "{query}"
+
+ALL QUERIES THIS PAGE RANKS FOR (write titles that cover the strongest intents):
+{q_lines}
+
+TASK
+This page ranks on page 1 but is clicked below the site's own average — the
+title/meta aren't earning the click. Write 3 title options and 2 meta options
+that (a) clearly contain the searcher's words for "{query}", (b) lead with a
+concrete benefit/differentiator (e.g. age range, material, free shipping, made
+for), and (c) never overpromise. Note if a number/listicle framing fits.
+
+Return JSON exactly:
+{{
+  "titles": [{{"text": "...", "why": "one phrase on why it earns the click"}}],
+  "metas": [{{"text": "...", "why": "..."}}],
+  "tip": "one sentence on the single highest-impact change to make"
+}}"""
+
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1100)
+    if err:
+        print(f"[CTR-REWRITE] {url} error: {err}", flush=True)
+        return jsonify({"error": err}), 502
+    return jsonify(result)
+
+
 @app.route("/api/geo/questions", methods=["POST"])
 def api_geo_questions():
     """Reverse-search question generator (Pinterest GEO method): the natural-
@@ -6382,6 +6446,17 @@ def api_playbook():
                 "grade_counts": grade_counts,
             },
         }
+    if section in ("all", "ctr"):
+        from src.analysis.ctr_recovery import find_ctr_recovery
+        config = load_config()
+        ctr_out = find_ctr_recovery(results, system_disallow=disallow)
+        # Monetize lost clicks with the site's measured biz params (per type).
+        for row in ctr_out.get("rows", []):
+            aov, cvr, margin, _ = _biz_params(config, row.get("asset_type"))
+            row["lost_revenue"] = round(row["lost_clicks"] * cvr * aov * margin, 2)
+        ctr_out["total_lost_revenue"] = round(
+            sum(r.get("lost_revenue", 0) for r in ctr_out.get("rows", [])), 2)
+        out["ctr_recovery"] = ctr_out
     if section in ("all", "rich"):
         from src.analysis.rich_results import analyze_site_schema
         views = [_schema_page_view(r) for r in results]
@@ -6587,6 +6662,32 @@ def _playbook_add_task_impl(body):
             "implementation_summary": f"Raise GEO citation readiness ({score}/100)",
             "implementation_steps": steps,
         })
+    elif method == "ctr":
+        query = body.get("query", "")
+        pos = body.get("position", 0)
+        impr = body.get("impressions", 0)
+        lost = body.get("lost_clicks", 0)
+        reasons = body.get("reasons", []) or []
+        cur_title = body.get("current_title", "")
+        steps = [
+            f"This page ranks #{pos} for “{query}” with {impr:,} impressions but is "
+            f"clicked below your site's own average — worth about {lost} lost clicks "
+            f"in the window.",
+            f"Current title: {cur_title or '(not crawled)'}",
+        ]
+        steps += [f"• {rz}" for rz in reasons]
+        steps.append("Use the 'Rewrite' button on this row to generate grounded "
+                     "title + meta options, then A/B the winner as a TITLE_META_TEST.")
+        data.update({
+            "action": "TITLE_META_TEST",
+            "primary_constraint": "SERP Click-Through",
+            "expected_value": ev(lost),
+            "confidence": 0.65,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+            "implementation_summary": f"Recover CTR on “{query}” (≈{lost} lost clicks)",
+            "implementation_steps": steps,
+        })
     elif method == "schema":
         stype = body.get("schema_type", "")
         why = body.get("why", "")
@@ -6667,6 +6768,8 @@ def _playbook_add_task_impl(body):
         _extra = body.get("pillar_url", "")
     elif method == "schema":
         _extra = body.get("schema_type", "")
+    elif method == "ctr":
+        _extra = body.get("query", "")
     data["dedup_key"] = f"{method}|{body.get('url', '')}|{_extra}"
     # Safety net against duplicates (client guard + this): if an identical
     # proposed task already exists, return it instead of creating a copy.
