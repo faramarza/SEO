@@ -1685,6 +1685,13 @@ def get_content_suggestions(cluster_id=None):
             sug["title"], cl_name, related_money_pages[:5],
             related_products[:5],
             [{"title": a["title"], "url": a.get("url", "")} for a in cl_articles[:5]],
+            primary_keyword=sug.get("source_query", ""),
+            kw_meta={
+                "volume": sug.get("ahrefs_volume") or sug.get("impressions"),
+                "kd": sug.get("kd"),
+                "best_position": sug.get("best_position"),
+                "has_ai_overview": sug.get("has_ai_overview"),
+            },
         )
 
     # Assign final ranks
@@ -1712,8 +1719,11 @@ def get_content_suggestions(cluster_id=None):
         "low_impact": low_impact,
         "clusters_covered": len({s.get("cluster_name") for s in all_suggestions}),
         "products_mentioned": len({s["title"] for s in all_suggestions if s["type"] == "product_support"}),
-        "category_pages_supported": len({s.get("money_page_url") for s in all_suggestions
-                                          if s.get("money_page_url")}),
+        "category_pages_supported": len({
+            mp.get("url") for s in all_suggestions
+            for mp in (s.get("internal_links") or [])
+            if isinstance(mp, dict) and mp.get("url")
+        }),
         "data_driven": bool(all_queries) or bool(kw_index),
         "queries_analyzed": len(all_queries),
         "ahrefs_keywords": len(kw_index),
@@ -1726,8 +1736,10 @@ def get_content_suggestions(cluster_id=None):
     return {"suggestions": all_suggestions, "summary": summary}
 
 
-def _build_writing_prompt(title, cluster_name, money_pages, products, existing_articles):
+def _build_writing_prompt(title, cluster_name, money_pages, products,
+                          existing_articles, primary_keyword="", kw_meta=None):
     """Build a full writing prompt/content brief for an article."""
+    kw_meta = kw_meta or {}
     mp_links = ""
     if money_pages:
         mp_links = "\n".join(
@@ -1744,8 +1756,21 @@ def _build_writing_prompt(title, cluster_name, money_pages, products, existing_a
             for a in existing_articles[:5]
         )
 
-    prompt = f"""Write a comprehensive, SEO-optimized blog post titled: "{title}"
+    kw_line = ""
+    if primary_keyword:
+        bits = []
+        if kw_meta.get("volume"):
+            bits.append(f"~{kw_meta['volume']} monthly volume/impressions")
+        if kw_meta.get("best_position"):
+            bits.append(f"currently ranking ~position {kw_meta['best_position']}")
+        if kw_meta.get("has_ai_overview"):
+            bits.append("an AI Overview already shows for this query — write to be cited")
+        detail = f" ({'; '.join(bits)})" if bits else ""
+        kw_line = (f'\nPRIMARY KEYWORD (target this EXACT query — it has proven demand{detail}): '
+                   f'"{primary_keyword}"')
 
+    prompt = f"""Write a comprehensive, SEO-optimized blog post titled: "{title}"
+{kw_line}
 Topic Cluster: {cluster_name}
 Target Length: 1,500-2,000 words
 Search Intent: Informational / Commercial Investigation
@@ -1780,7 +1805,7 @@ RELATED ARTICLES TO CROSS-LINK:
     prompt += """
 
 SEO GUIDELINES:
-- Include the primary keyword in the title, first paragraph, and 2-3 subheadings
+- Include the PRIMARY KEYWORD above (verbatim and close variants) in the title, first paragraph, and 2-3 subheadings
 - Use related long-tail keywords naturally throughout
 - Add alt text suggestions for any recommended images
 - End with a FAQ section (3-5 questions) using "People Also Ask" style questions

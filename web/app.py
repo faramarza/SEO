@@ -1741,6 +1741,43 @@ def api_ai_recommend():
             "UNRESOLVED: 0 GSC impressions and no url_inspection data — indexation cannot "
             "be confirmed from available data; INCONCLUSIVE is acceptable here."
         )
+
+    # Measured GA4 performance — ground monetization value in this page's REAL
+    # conversion when we have it, instead of a site-average AOV/CVR assumption.
+    _ga4_rev = opportunity.get("ga4_revenue")
+    _ga4_purch = opportunity.get("ga4_purchases")
+    _ga4_sess = opportunity.get("ga4_sessions")
+    _ga4_eng = opportunity.get("ga4_engagement_rate")
+    _ga4_bounce = opportunity.get("ga4_bounce_rate")
+    if any(v not in (None, 0) for v in (_ga4_rev, _ga4_purch, _ga4_sess)):
+        measured_performance_str = (
+            f"sessions_28d={_ga4_sess if _ga4_sess is not None else 'n/a'}, "
+            f"revenue_28d=${_ga4_rev or 0}, purchases_28d={_ga4_purch if _ga4_purch is not None else 'n/a'}, "
+            f"engagement_rate={_ga4_eng if _ga4_eng is not None else 'n/a'}, "
+            f"bounce_rate={_ga4_bounce if _ga4_bounce is not None else 'n/a'}. "
+            f"When this page has real purchases/revenue, base monetization value on ITS OWN "
+            f"conversion, not the site-average AOV/CVR — and reconcile any estimate against it."
+        )
+    else:
+        measured_performance_str = (
+            "no GA4 sessions/revenue recorded for this page in the last 28 days — "
+            "use the pipeline estimate for value.")
+
+    # Precomputed scorecards — deterministic checks already run over the FULL
+    # page body during evaluation. Summarize them so the model trusts these
+    # instead of re-deriving (and contradicting) structure/schema findings from
+    # the 1500-char above-fold snippet.
+    _pq = opportunity.get("page_quality") or {}
+    _geo = opportunity.get("geo_scorecard") or {}
+    _sc_lines = []
+    if _pq.get("findings") is not None:
+        _pq_top = "; ".join(f.get("label", "") for f in _pq.get("findings", [])[:6]) or "no issues found"
+        _sc_lines.append(f"page_quality: {_pq.get('grade', '?')} {_pq.get('score', '?')}/100 — {_pq_top}")
+    if _geo and not _geo.get("limited"):
+        _geo_top = "; ".join(f.get("label", "") for f in _geo.get("findings", [])[:6]) or "no issues found"
+        _sc_lines.append(f"geo_citation_readiness: {_geo.get('grade', '?')} {_geo.get('score', '?')}/100 — {_geo_top}")
+    precomputed_scorecards_str = "\n".join(_sc_lines) if _sc_lines else "not computed for this page"
+
     # Clean above-fold HTML: strip structural tags, keep semantic content
     # This gives the AI a readable view of what's above the fold
     if above_fold_html_raw:
@@ -2539,6 +2576,10 @@ canonical_current: {cached_canonical or 'null'}
 robots_meta: {robots_meta or 'null'}
 indexability_signal: {indexability_signal_str}
 word_count: {cached_word_count}
+content_preview (first ~200 words of body text): {(cached_content_preview or '')[:1200] or 'null'}
+measured_performance (REAL GA4, last 28 days): {measured_performance_str}
+precomputed_scorecards (deterministic checks already run over the FULL page — trust these over re-deriving from the above-fold snippet):
+{precomputed_scorecards_str}
 schema_types: {', '.join(pm.get('schema_types', [])) or 'none detected'}
 above_fold_html: {above_fold_html[:1500] if above_fold_html else 'null'}
 {html_issues_str}
@@ -4516,8 +4557,10 @@ url: {url}
 title: {pm.get('title','')}
 type: {match.get('asset_type','')}
 primary_query: {primary}
-current_content: {(pm.get('content_preview','') or '')[:900]}
-headings: {", ".join(pm.get('headings', [])[:12]) or "(none captured)"}
+total_word_count: {pm.get('word_count', 0)}
+content_preview (first ~200 words ONLY — the page is longer): {(pm.get('content_preview','') or '')[:900]}
+above_fold_html (more of the page body): {(pm.get('above_fold_html','') or '')[:1200]}
+section_headings (these represent the WHOLE page's structure): {", ".join(pm.get('headings', [])[:15]) or "(none captured)"}
 
 OTHER REAL QUERIES:
 {query_lines}
@@ -4527,8 +4570,12 @@ TASK
    underlying things a user actually wants resolved when they search it (the
    reasoning an AI must satisfy to answer well). Be specific to this product/topic.
 2. For EACH facet, judge how well the CURRENT content covers the reasoning:
-   "covered" | "partial" | "missing", with a one-line reason grounded in the
-   content/headings shown.
+   "covered" | "partial" | "missing", with a one-line reason.
+   IMPORTANT: content_preview is only the FIRST ~200 words of a {pm.get('word_count', 0)}-word
+   page — do NOT mark a facet "missing" merely because it's absent from the preview.
+   Judge PRIMARILY from the section_headings (which cover the whole page): if a facet
+   plausibly maps to an existing heading, mark it "covered" or "partial", not "missing".
+   Only mark "missing" when NEITHER the headings nor the visible content address it.
 3. For partial/missing facets, give the SPECIFIC content to add (1-2 sentences of
    the actual reasoning/fact the page should state) so it becomes the citable source.
 

@@ -1400,6 +1400,7 @@ class FullEvaluationWorkflow:
                         "word_count": asset.word_count,
                         "content_preview": asset.content_preview,
                         "above_fold_html": asset.above_fold_html,
+                        "headings": getattr(asset, "headings", []),
                         "internal_outlinks": asset.internal_outlinks,
                         "breadcrumb_links": getattr(asset, "breadcrumb_links", []),
                         "schema_types": getattr(asset, "schema_types", []),
