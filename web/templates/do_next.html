@@ -14,6 +14,7 @@
     </p>
 
     <div id="dn-reviewed" class="dn-reviewed" style="display:none;"></div>
+    <div id="dn-datastatus" class="dn-datastatus" style="display:none;"></div>
     <div id="dn-meta" class="playbook-meta"></div>
     <div id="dn-body"><p class="pb-loading">Loading your plan…</p></div>
     <div id="dn-toast" class="pb-toast"></div>
@@ -60,8 +61,9 @@ async function loadPlan(){
         DN=data;
         if(data.error){ document.getElementById('dn-body').innerHTML=`<p class="empty-state">${esc(data.error)}</p>`; return; }
         renderReviewed(data.reviewed_now||[]);
+        renderDataStatus(data.data_status||{});
         const d=data.timestamp?new Date(data.timestamp).toLocaleString():'—';
-        document.getElementById('dn-meta').innerHTML=`Ranked from your latest evaluation · ${esc(d)}`;
+        document.getElementById('dn-meta').innerHTML=`Ranked by ROI (value ÷ effort ÷ time) from your latest evaluation · ${esc(d)}`;
         renderPlan(data.plan||[], data.adopted_extra||[]);
     }catch(e){
         document.getElementById('dn-body').innerHTML=`<p class="empty-state">Failed to load: ${esc(e.message)}</p>`;
@@ -104,6 +106,7 @@ function taskCard(t, off){
                 <div class="dn-title">${c.icon} ${esc(t.title)}</div>
                 <div class="dn-sub">
                     <span class="dn-chip">${esc(c.label)}</span>
+                    ${t.rank_reason?`<span class="dn-why">${esc(t.rank_reason)}</span>`:''}
                     ${t.url?`<a href="${esc(t.url)}" target="_blank" title="${esc(t.url)}">${esc(fmtPath(t.url))}</a>`:''}
                 </div>
             </div>
@@ -123,19 +126,96 @@ function taskCard(t, off){
     </div>`;
 }
 
+function renderDataStatus(ds){
+    const el=document.getElementById('dn-datastatus');
+    if(!ds || !ds.total_pages){ el.style.display='none'; return; }
+    const pill=(label,val,ok)=>`<span class="dn-dpill ${ok?'dn-dpill-ok':'dn-dpill-off'}">${esc(label)}: <strong>${esc(val)}</strong></span>`;
+    const crawlOk = ds.crawled_pages>0;
+    let chips = pill('Crawled', `${(ds.crawled_pages||0).toLocaleString()}/${(ds.total_pages||0).toLocaleString()} pages`, crawlOk)
+        + pill('GA4', ds.has_ga4?'connected':'missing', ds.has_ga4)
+        + pill('GSC', ds.has_gsc?'connected':'missing', ds.has_gsc)
+        + pill('Ahrefs kws', (ds.ahrefs_keywords||0).toLocaleString(), (ds.ahrefs_keywords||0)>0)
+        + pill('Data age', ds.eval_age_days==null?'—':`${ds.eval_age_days}d`, (ds.eval_age_days!=null && ds.eval_age_days<=10));
+    let tips=(ds.tips||[]).map(([sev,msg])=>{
+        const ic=sev==='critical'?'⛔':(sev==='warn'?'⚠️':'💡');
+        return `<div class="dn-tip dn-tip-${esc(sev)}">${ic} ${esc(msg)}</div>`;
+    }).join('');
+    el.style.display='block';
+    el.innerHTML=`<div class="dn-dpills">${chips}</div>${tips}`;
+}
+
+const CAT_LABEL = { ctr:'Rewrite titles', schema:'Add schema', merchant:'Fix product feeds', orphan:'Add internal links', pruning:'Prune/merge pages' };
+
 function renderPlan(plan, extra){
     const body=document.getElementById('dn-body');
     if(!plan.length && !extra.length){
         body.innerHTML='<p class="empty-state">No open recommendations right now — either everything is adopted, or you need to run an evaluation with crawl. 🎉</p>';
         return;
     }
+    const open = plan.filter(t=>!t.adopted);
+    const inProgress = plan.filter(t=>t.adopted && t.status!=='done');
+    const thisWeek = open.slice(0,3);
+    const backlog = open.slice(3);
+
     let html='';
-    if(plan.length){ html += plan.map(t=>taskCard(t,false)).join(''); }
+
+    if(inProgress.length){
+        html += `<h3 class="dn-section">🚧 In progress (${inProgress.length})</h3>`;
+        html += inProgress.map(t=>taskCard(t,false)).join('');
+    }
+
+    html += `<h3 class="dn-section">⭐ This week — your 3 best moves</h3>`;
+    if(thisWeek.length){
+        html += `<p class="dn-section-sub">Ranked by ROI. Do these first; the rest are below.</p>`;
+        html += thisWeek.map(t=>taskCard(t,false)).join('');
+    } else {
+        html += `<p class="empty-state" style="text-align:left;">Nothing new to start — you're on top of it. 🎉</p>`;
+    }
+
+    // Batches: group same-type quick wins in the backlog into one session.
+    const batches={};
+    backlog.forEach(t=>{ if(t.is_quick){ (batches[t.category]=batches[t.category]||[]).push(t); } });
+    const batchCats=Object.keys(batches).filter(c=>batches[c].length>=2);
+    const batched=new Set();
+    if(batchCats.length){
+        html += `<h3 class="dn-section">⚡ Knock these out in one sitting</h3>`;
+        batchCats.forEach(c=>{
+            const items=batches[c]; items.forEach(t=>batched.add(t.dedup_key));
+            const reach=items.reduce((a,t)=>a+(t.reach||0),0);
+            html += `<div class="dn-batch">
+                <div class="dn-batch-head" onclick="this.parentElement.classList.toggle('open')">
+                    <span>⚡ ${esc(CAT_LABEL[c]||c)} — ${items.length} pages in one session</span>
+                    <button class="pb-task-btn" onclick="event.stopPropagation();dnAdoptBatch('${esc(c)}',this)">Start all ${items.length}</button>
+                </div>
+                <div class="dn-batch-items">${items.map(t=>taskCard(t,false)).join('')}</div>
+            </div>`;
+        });
+    }
+
+    const rest=backlog.filter(t=>!batched.has(t.dedup_key));
+    if(rest.length){
+        html += `<h3 class="dn-section dn-collapsible" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'block':'none';">▸ Backlog (${rest.length}) — later</h3>`;
+        html += `<div style="display:none;">${rest.map(t=>taskCard(t,false)).join('')}</div>`;
+    }
+
     if(extra.length){
-        html += `<h3 class="pb-subhead" style="margin-top:24px;">Being tracked (auto-checking)</h3>`;
+        html += `<h3 class="dn-section">📊 Tracking (auto-checking / done)</h3>`;
         html += extra.map(t=>taskCard(t,true)).join('');
     }
     body.innerHTML=html;
+}
+
+async function dnAdoptBatch(cat, btn){
+    const items=(DN.plan||[]).filter(t=>!t.adopted && t.category===cat);
+    if(btn){ btn.disabled=true; btn.textContent='Starting…'; }
+    let ok=0;
+    for(const t of items){
+        try{
+            const res=await fetch('/api/action-plan/adopt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
+            if((await res.json()).success) ok++;
+        }catch(e){}
+    }
+    dnToast(`Started ${ok} task(s)`); loadPlan();
 }
 
 async function dnAdopt(key, btn){

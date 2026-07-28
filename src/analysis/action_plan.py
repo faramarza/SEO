@@ -43,6 +43,22 @@ EFFORT = {
     "geo": "Medium (a few hours)", "brand": "Medium (~1 hour)",
 }
 
+# Hours of hands-on work, used for the ROI ranking (value per hour per week).
+EFFORT_HOURS = {
+    "ctr": 0.35, "schema": 0.5, "merchant": 0.5, "orphan": 0.35, "pruning": 0.5,
+    "reviews": 1.0, "brand": 1.0, "striking": 1.0, "geo": 3.0, "cro": 3.0,
+    "decay": 3.0, "content": 8.0,
+}
+# Baseline impact (in $-equivalent points) for foundational tasks that have no
+# measured revenue and little/no reach, so a quick 30-min schema fix still ranks
+# sensibly instead of sinking to zero.
+CATEGORY_BASE = {
+    "reviews": 15, "merchant": 8, "schema": 8, "brand": 8, "geo": 6,
+    "decay": 6, "orphan": 5, "striking": 5, "content": 4, "pruning": 3,
+}
+# Is this a "knock it out now" quick win? Used for batching + the weekly view.
+QUICK_CATS = {"ctr", "schema", "merchant", "orphan", "pruning"}
+
 
 def _tti(cat):
     days, label = TIME_TO_IMPACT.get(cat, (28, "3–6 weeks"))
@@ -321,13 +337,35 @@ def _from_brand(bm, out):
             "other", f.get("query","")))
 
 
-def _priority(t):
-    """Rank: measured $ value first (by amount), then foundational tasks by the
-    traffic they touch. Quicker wins break ties."""
-    has_value = 1 if t["expected_value"] > 0 else 0
-    effort_rank = {"Quick": 0, "Ongoing": 1, "Medium": 2}.get(
-        t["effort"].split(" ")[0], 3)
-    return (-has_value, -t["expected_value"], -t["reach"], effort_rank)
+def _score_task(t):
+    """ROI = value per hour of work per week until it pays off. So a quick,
+    high-value, fast-paying fix outranks a big, slow, expensive one — which is
+    what 'the best use of your next hour' actually means."""
+    cat = t["category"]
+    # Impact in $-equivalent points: real revenue if measured, else a small proxy
+    # from the traffic it touches, floored by the category baseline.
+    impact = t["expected_value"] if t["expected_value"] > 0 else max(
+        t["reach"] * 0.01, CATEGORY_BASE.get(cat, 5))
+    hours = EFFORT_HOURS.get(cat, 2.0)
+    weeks = max(1.0, t["time_to_impact_days"] / 7.0)
+    roi = impact / (hours * weeks)
+    t["roi"] = round(roi, 2)
+    t["is_quick"] = cat in QUICK_CATS
+    # A one-line, honest "why this rank".
+    fast = t["time_to_impact_days"] <= 21
+    cheap = hours <= 0.6
+    big = t["expected_value"] >= 200
+    if cheap and (big or fast):
+        t["rank_reason"] = "Quick win — high value for ~20–30 min of work"
+    elif big:
+        t["rank_reason"] = "High revenue impact"
+    elif cheap:
+        t["rank_reason"] = "Fast and cheap to do"
+    elif cat == "content":
+        t["rank_reason"] = "Bigger effort, slower payoff — schedule it"
+    else:
+        t["rank_reason"] = "Solid value for the effort"
+    return roi
 
 
 def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
@@ -348,7 +386,9 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
     if geo: _from_geo(geo, out)
     if brand_merchant: _from_brand(brand_merchant, out)
 
-    out.sort(key=_priority)
+    for t in out:
+        _score_task(t)
+    out.sort(key=lambda t: -t["roi"])
     for i, t in enumerate(out, start=1):
         t["rank"] = i
     return out[:limit]

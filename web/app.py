@@ -318,16 +318,61 @@ def _run_autoreview_scheduler():
         time.sleep(3600)  # re-check hourly; the day-marker ensures once/day
 
 
+AUTO_EVAL_ENABLED = os.environ.get("AUTO_EVAL", "1") != "0"
+AUTO_EVAL_INTERVAL_HOURS = int(os.environ.get("AUTO_EVAL_INTERVAL_HOURS", "48"))
+
+
+def _claim_due_autoeval():
+    """Claim the current auto-eval window across workers. Buckets time into
+    AUTO_EVAL_INTERVAL_HOURS windows; the first worker to create the bucket
+    marker runs the evaluation, the rest skip. Race-free via O_EXCL."""
+    from datetime import datetime
+    try:
+        DATA_PATH.mkdir(parents=True, exist_ok=True)
+        epoch_hours = datetime.now().timestamp() / 3600.0
+        bucket = int(epoch_hours // max(1, AUTO_EVAL_INTERVAL_HOURS))
+        marker = DATA_PATH / f".autoeval_{bucket}"
+        fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.close(fd)
+        for old in DATA_PATH.glob(".autoeval_*"):
+            if old.name != marker.name:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+
+
+def _run_autoeval_scheduler():
+    """Scheduled Run-with-Crawl every AUTO_EVAL_INTERVAL_HOURS (default 48h). Keeps
+    the data fresh so recommendations stay current AND the Action Plan auto-review
+    always has a newer evaluation to measure against. Skips if a job is already
+    running; deduped across gunicorn workers by the bucket marker."""
+    # Small startup delay so the app is fully up before the first check.
+    time.sleep(120)
+    while True:
+        try:
+            if AUTO_EVAL_ENABLED and not job_state.get("running") and _claim_due_autoeval():
+                with app.test_client() as c:
+                    c.post("/api/run-evaluation", json={"crawl": True})
+                print(f"[AutoEval] Triggered scheduled Run-with-Crawl "
+                      f"(every {AUTO_EVAL_INTERVAL_HOURS}h)")
+        except Exception as e:
+            print(f"[AutoEval] Error: {e}")
+        time.sleep(1800)  # check every 30 min; the bucket marker enforces cadence
+
+
 def _start_scheduler():
-    """Start the background measurement scheduler, SERP collector, and daily
-    Action Plan auto-review."""
-    t = threading.Thread(target=_run_scheduled_measurement, daemon=True)
-    t.start()
-    t2 = threading.Thread(target=_run_serp_collector, daemon=True)
-    t2.start()
-    t3 = threading.Thread(target=_run_autoreview_scheduler, daemon=True)
-    t3.start()
-    print("[Scheduler] Background task monitor + SERP collector + auto-review started")
+    """Start the background schedulers: task measurement, SERP collector, daily
+    Action Plan auto-review, and the periodic Run-with-Crawl evaluation."""
+    for target in (_run_scheduled_measurement, _run_serp_collector,
+                   _run_autoreview_scheduler, _run_autoeval_scheduler):
+        threading.Thread(target=target, daemon=True).start()
+    print("[Scheduler] Task monitor + SERP + auto-review + auto-eval(crawl) started")
 
 
 _scheduler_started = False
@@ -6801,7 +6846,58 @@ def api_action_plan():
         "plan": plan,
         "adopted_extra": extra,
         "reviewed_now": reviewed,
+        "data_status": _plan_data_status(results, eval_data),
     })
+
+
+def _plan_data_status(results, eval_data):
+    """What data is feeding the plan — so the page can tell the operator what to
+    run/refresh instead of them guessing why something's missing."""
+    from datetime import datetime
+    total = len(results)
+    crawled = sum(1 for r in results if (r.get("page_metadata", {}) or {}).get("has_crawl_data"))
+    has_gsc = any((r.get("gsc_impressions", 0) or 0) > 0 for r in results)
+    has_ga4 = any((r.get("ga4_sessions", 0) or 0) > 0 for r in results)
+    ahrefs = 0
+    try:
+        from src.data_sources.ai_visibility import _main_config  # noqa
+    except Exception:
+        pass
+    try:
+        kw_path = DATA_PATH / "keyword_queue.json"
+        if kw_path.exists():
+            with open(kw_path) as f:
+                ahrefs = len(json.load(f).get("keywords", []))
+    except Exception:
+        ahrefs = 0
+    age_days = None
+    ts = eval_data.get("timestamp", "")
+    try:
+        age_days = (datetime.now() - datetime.fromisoformat(ts.replace("Z", ""))).days
+    except Exception:
+        age_days = None
+
+    tips = []
+    if crawled == 0:
+        tips.append(("critical", "No pages have crawl data — click Run with Crawl. "
+                     "Most tasks (titles, schema, content, orphans, GEO, reviews) need it."))
+    elif crawled < total * 0.5:
+        tips.append(("warn", f"Only {crawled} of {total} pages are crawled — Run with Crawl "
+                     "to cover more of your site."))
+    if age_days is not None and age_days > 10:
+        tips.append(("warn", f"Your last evaluation is {age_days} days old — re-run it "
+                     "(with crawl) so recommendations are current and past tasks can be re-measured."))
+    if not has_ga4:
+        tips.append(("warn", "No GA4 data detected — CRO leaks and revenue-based ranking "
+                     "won't appear. Connect GA4 in Admin."))
+    if ahrefs == 0:
+        tips.append(("info", "No Ahrefs keywords imported — content-gap coverage is limited to "
+                     "your existing GSC queries. Import a keyword list (Growth → AI Visibility) to widen it."))
+    return {
+        "total_pages": total, "crawled_pages": crawled,
+        "has_gsc": has_gsc, "has_ga4": has_ga4, "ahrefs_keywords": ahrefs,
+        "eval_age_days": age_days, "tips": tips,
+    }
 
 
 @app.route("/api/action-plan/adopt", methods=["POST"])
