@@ -908,6 +908,18 @@ def _load_brand_terms() -> list:
     return []
 
 
+# Distinctive topical terms — keywords containing any of these are genuine
+# content opportunities for this store even without a product noun, so they
+# survive the product-family filter (matched as substrings, lowercased).
+_DISTINCTIVE_TOPICS = (
+    "montessori", "waldorf", "preschool", "kindergarten", "sensory",
+    "motor skill", "fine motor", "gross motor", "circle time",
+    "pretend play", "imaginative play", "dramatic play", "classroom",
+    "alphabet", "nursery", "dollhouse", "name puzzle", "busy board",
+    "child development", "developmental milestone", "learning through play",
+)
+
+
 def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
     if filters is None:
         filters = {}
@@ -1089,7 +1101,13 @@ def import_keywords_csv(csv_text: str, filters: dict = None) -> dict:
         has_specific = any(p.search(kw_lower) for p in specific_pats)
         has_generic = any(p.search(kw_lower) for p in generic_pats)
         has_child_ctx = any(p.search(kw_lower) for p in child_ctx_pats)
-        if not has_specific and not (has_generic and has_child_ctx):
+        # Keep INFORMATIONAL/topical keywords too — a distinctive topic word
+        # (montessori, waldorf, circle time, motor skill…) signals a genuine
+        # content opportunity even without a product noun. Without this, prime
+        # blog topics like "waldorf vs montessori" or "circle time activities"
+        # were dropped as "no product family match", starving the content engine.
+        has_distinctive = any(t in kw_lower for t in _DISTINCTIVE_TOPICS)
+        if not has_specific and not (has_generic and has_child_ctx) and not has_distinctive:
             _reject("No product family match", row["keyword"], row["volume"])
             continue
         if exclude_terms and any(re.search(r'\b' + re.escape(t) + r'\b', kw_lower) for t in exclude_terms):
