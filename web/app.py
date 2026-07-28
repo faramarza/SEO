@@ -601,6 +601,12 @@ def api_dashboard():
         posture = "ACTIVE"
         posture_color = "blue"
         posture_detail = f"{real_opportunities} substantive opportunit(ies) awaiting decision"
+    elif pending_actions > 0:
+        # Proposed tasks are queued — not "stable". Surface them explicitly so
+        # the dashboard never reads green while decisions are waiting.
+        posture = "ACTIVE"
+        posture_color = "blue"
+        posture_detail = f"{pending_actions} proposed action(s) awaiting your decision on the Task Board"
     elif implemented > 0:
         posture = "MONITORING"
         posture_color = "yellow"
@@ -3618,27 +3624,42 @@ def api_learning():
             "created_at": action.created_at,
         })
 
-    # Calculate success rate and status for each fingerprint
+    # Calculate success rate and status for each fingerprint. IMPORTANT: derive
+    # status from the governor's ACTUAL enforcement (get_learning_insight —
+    # partial fingerprint match over 180 days), not an all-time exact-hash count,
+    # so the page's FORBIDDEN/PROVEN labels match what is really enforced. Also
+    # surface the confidence_adjustment (the single most decision-relevant value).
+    from src.ledger.action_ledger import ActionFingerprint as _AF
     for fp_hash, stats in fingerprint_stats.items():
         completed = stats["positive"] + stats["negative"] + stats["neutral"]
-        if completed > 0:
-            stats["success_rate"] = round(stats["positive"] / completed, 2)
-        else:
-            stats["success_rate"] = None
-
-        # Determine status per doctrine
-        if stats["negative"] >= 3:
-            stats["status"] = "FORBIDDEN"
-            stats["status_color"] = "red"
-        elif stats["negative"] >= 2:
-            stats["status"] = "CAUTION"
-            stats["status_color"] = "orange"
-        elif stats["positive"] >= 2:
-            stats["status"] = "PROVEN"
-            stats["status_color"] = "green"
-        else:
-            stats["status"] = "LEARNING"
-            stats["status_color"] = "gray"
+        stats["success_rate"] = round(stats["positive"] / completed, 2) if completed > 0 else None
+        try:
+            _fp = _AF.from_dict(stats["fingerprint"])
+            _insight = ledger.get_learning_insight(_fp)
+            adj = _insight.confidence_adjustment
+            stats["confidence_adjustment"] = adj
+            stats["governor_recommendation"] = _insight.recommendation
+            stats["matching_actions_180d"] = _insight.matching_actions
+            if adj <= -0.5:
+                stats["status"], stats["status_color"] = "FORBIDDEN", "red"
+            elif adj <= -0.2:
+                stats["status"], stats["status_color"] = "CAUTION", "orange"
+            elif adj < 0:
+                stats["status"], stats["status_color"] = "WARNING", "orange"
+            elif adj >= 0.05:
+                stats["status"], stats["status_color"] = "PROVEN", "green"
+            else:
+                stats["status"], stats["status_color"] = "LEARNING", "gray"
+        except Exception:
+            # Fallback: old exact-hash derivation if the insight can't be computed.
+            if stats["negative"] >= 3:
+                stats["status"], stats["status_color"] = "FORBIDDEN", "red"
+            elif stats["negative"] >= 2:
+                stats["status"], stats["status_color"] = "CAUTION", "orange"
+            elif stats["positive"] >= 2:
+                stats["status"], stats["status_color"] = "PROVEN", "green"
+            else:
+                stats["status"], stats["status_color"] = "LEARNING", "gray"
 
     return jsonify({
         "fingerprints": list(fingerprint_stats.values()),
@@ -4016,6 +4037,11 @@ def _fetch_ads_campaigns(config):
                 "conversions": round(c.conversions, 1),
                 "conversion_value": round(c.conversion_value, 2),
                 "roas": round(c.conversion_value / c.cost, 2) if c.cost > 0 else 0,
+                # Impression share (Search/Shopping only; None otherwise) — lets
+                # the recommender tell a budget-throttled campaign from a maxed one.
+                "impression_share": c.search_impression_share,
+                "lost_is_budget": c.search_lost_is_budget,
+                "lost_is_rank": c.search_lost_is_rank,
             })
         return out, (None if campaigns else (client._last_error or "no campaigns"))
     except Exception as e:

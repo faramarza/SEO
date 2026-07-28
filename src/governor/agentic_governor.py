@@ -70,6 +70,27 @@ from src.ledger.action_ledger import (
 
 
 @dataclass
+def _surface_for_action(action_type: str) -> str:
+    """Derive the fingerprint action_surface from the action type — mirrors the
+    web task path (web/app.py). Hardcoding 'content' collapsed all agentic
+    learning into one bucket, diluting/misattributing pattern learning."""
+    _MAP = {
+        "TITLE_META_TEST": "title",
+        "CANONICAL_FIX": "canonical",
+        "INTERNAL_LINK_REALLOCATION": "links",
+        "INTERNAL_LINKING": "links",
+        "VISIBILITY_FIX": "visibility",
+        "HTML_STRUCTURAL_FIX": "html",
+        "PAGE_SPEED_FIX": "performance",
+        "SCHEMA_ENHANCEMENT": "schema",
+        "CONTENT_CLARIFY": "content",
+        "CONTENT_PRUNE": "content",
+        "PAGE_REINVESTMENT": "content",
+        "CONSOLIDATION_REVIEW": "content",
+    }
+    return _MAP.get((action_type or "").upper(), "other")
+
+
 class GovernorConfig:
     """Configuration for the Agentic Governor."""
     # Confidence thresholds
@@ -149,7 +170,7 @@ class AgenticGovernor:
         return ActionFingerprint(
             page_type=asset.asset_type.value,
             intent_cluster=intent.value,
-            action_surface="content",  # Default; could be more specific
+            action_surface=_surface_for_action(action_type),
             action_type=action_type,
         )
 
@@ -638,7 +659,7 @@ class AgenticGovernor:
         fingerprint = ActionFingerprint(
             page_type=result.asset_type.value,
             intent_cluster=result.raw_metrics.get("intent", "unknown"),
-            action_surface="content",
+            action_surface=_surface_for_action(result.decision.value),
             action_type=result.decision.value,
         )
 

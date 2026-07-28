@@ -52,17 +52,38 @@ def recommend_paid_actions(
         if cost < min_spend_roas:
             continue
 
-        # 2. Scale winners (near or above break-even — worth finding more volume)
+        # 2. Scale winners (near or above break-even — worth finding more volume).
+        # BUT only if there's impression-share headroom to capture. When we know
+        # the campaign is losing little/no IS to budget, raising budget just
+        # wastes spend — a profitable campaign already at ~95% IS can't grow.
+        lost_budget = c.get("lost_is_budget")  # 0..1, or None if unknown
+        imp_share = c.get("impression_share")  # 0..1, or None if unknown
         if roas >= break_even_roas * 0.9:
-            near = "" if roas >= break_even_roas else " (near break-even)"
-            recs.append({
-                "type": "ADJUST_BUDGET",
-                "campaign_id": str(c.get("campaign_id")),
-                "campaign_name": name,
-                "rationale": f"ROAS {roas:.1f}x vs break-even {break_even_roas:.1f}x{near} — best performer, scale up.",
-                "risk": "medium",
-                "params": {"direction": "increase", "step_pct": budget_step_pct},
-            })
+            budget_throttled = (lost_budget is None) or (lost_budget >= 0.10)
+            if budget_throttled:
+                near = "" if roas >= break_even_roas else " (near break-even)"
+                is_note = (f" Losing {lost_budget*100:.0f}% of impressions to budget — headroom to scale."
+                           if lost_budget else "")
+                recs.append({
+                    "type": "ADJUST_BUDGET",
+                    "campaign_id": str(c.get("campaign_id")),
+                    "campaign_name": name,
+                    "rationale": f"ROAS {roas:.1f}x vs break-even {break_even_roas:.1f}x{near} — best performer, scale up.{is_note}",
+                    "risk": "medium",
+                    "params": {"direction": "increase", "step_pct": budget_step_pct},
+                })
+            elif imp_share is not None and imp_share >= 0.85:
+                # Profitable but already dominant — different lever (bids/new terms).
+                recs.append({
+                    "type": "OBSERVE",
+                    "campaign_id": str(c.get("campaign_id")),
+                    "campaign_name": name,
+                    "rationale": (f"ROAS {roas:.1f}x and already {imp_share*100:.0f}% impression share "
+                                  f"(only {(lost_budget or 0)*100:.0f}% lost to budget) — raising budget won't "
+                                  f"capture more; expand keywords/audiences or raise targets instead."),
+                    "risk": "low",
+                    "params": {},
+                })
         # 3. Trim clear losers (well below break-even, but converting)
         elif 0 < roas < break_even_roas * 0.6:
             recs.append({

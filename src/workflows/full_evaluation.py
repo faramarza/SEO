@@ -415,6 +415,17 @@ class FullEvaluationWorkflow:
                 ga4_data[full_url] = value
         print(f"  GA4 after URL alignment: {len(ga4_data)}")
 
+        # Real GA4 landing-page set (normalized) — the URLs GA4 actually
+        # recorded as landing pages. Used by the URL-normalization tracking
+        # check so it can detect GSC pages with NO matching GA4 page. Building
+        # it from all assets (as before) made every path self-present, so the
+        # Tier-A URL_NORMALIZATION_MISMATCH check could never fire.
+        self._ga4_sessions_by_path = {}
+        for _u, _v in ga4_data.items():
+            _p = self.diagnostics.normalize_url(_u)
+            _s = _v.get("sessions", 0) if isinstance(_v, dict) else 0
+            self._ga4_sessions_by_path[_p] = max(self._ga4_sessions_by_path.get(_p, 0), _s)
+
         # Merge into PageAssets
         all_urls = set(gsc_data.keys()) | set(ga4_data.keys())
         assets = []
@@ -750,20 +761,18 @@ class FullEvaluationWorkflow:
         """
         print("Running tracking diagnostics...")
 
-        # Build organic sessions map with normalized paths
-        organic_sessions_map = {}
-        for asset in self._assets:
-            normalized_path = self.diagnostics.normalize_url(asset.url)
-            # Use GA4 sessions as proxy for organic (GA4 client filters organic by default)
-            # Use max when multiple assets normalize to the same path (e.g.
-            # http:// vs https:// variants of the homepage).
-            sessions = asset.ga4.sessions_28d
-            if normalized_path in organic_sessions_map:
+        # Organic sessions map keyed by the REAL GA4 landing-page set (built in
+        # _build_assets). ga4_paths = its keys, so the URL-normalization check
+        # can correctly flag GSC pages GA4 never recorded. Fall back to the old
+        # all-assets construction only if the GA4 set wasn't captured.
+        organic_sessions_map = dict(getattr(self, "_ga4_sessions_by_path", {}) or {})
+        if not organic_sessions_map:
+            for asset in self._assets:
+                normalized_path = self.diagnostics.normalize_url(asset.url)
+                sessions = asset.ga4.sessions_28d
                 organic_sessions_map[normalized_path] = max(
-                    organic_sessions_map[normalized_path], sessions
+                    organic_sessions_map.get(normalized_path, 0), sessions
                 )
-            else:
-                organic_sessions_map[normalized_path] = sessions
 
         # Run diagnostics using the correct method
         results = self.diagnostics.diagnose_all(

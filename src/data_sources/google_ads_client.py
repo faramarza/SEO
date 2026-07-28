@@ -519,11 +519,37 @@ class GoogleAdsClient:
                     cost=row.metrics.cost_micros / 1_000_000,
                     conversions=row.metrics.conversions,
                     conversion_value=row.metrics.conversions_value,
-                    # Impression share metrics removed - not reliably available
+                    # Populated below (best-effort) for Search/Shopping campaigns.
                     search_impression_share=None,
                     search_lost_is_budget=None,
                     search_lost_is_rank=None,
                 )
+
+            # Best-effort enrichment: impression-share metrics are valid only for
+            # SEARCH/SHOPPING channels and error on some accounts (esp. PMax), so
+            # run them as a SEPARATE guarded query. Any failure leaves the base
+            # campaign data (already built above) intact.
+            try:
+                is_query = f"""
+                    SELECT
+                        campaign.id,
+                        metrics.search_impression_share,
+                        metrics.search_budget_lost_impression_share,
+                        metrics.search_rank_lost_impression_share
+                    FROM campaign
+                    WHERE segments.date BETWEEN '{start_date.strftime("%Y-%m-%d")}'
+                        AND '{end_date.strftime("%Y-%m-%d")}'
+                        AND campaign.status != 'REMOVED'
+                        AND campaign.advertising_channel_type IN ('SEARCH', 'SHOPPING')
+                """
+                for row in ga_service.search(customer_id=self.customer_id, query=is_query):
+                    cid = str(row.campaign.id)
+                    if cid in campaigns:
+                        campaigns[cid].search_impression_share = row.metrics.search_impression_share or None
+                        campaigns[cid].search_lost_is_budget = row.metrics.search_budget_lost_impression_share or None
+                        campaigns[cid].search_lost_is_rank = row.metrics.search_rank_lost_impression_share or None
+            except Exception as e:
+                print(f"  Ads: impression-share metrics unavailable ({e})", flush=True)
 
         except Exception as e:
             self._last_error = str(e)
