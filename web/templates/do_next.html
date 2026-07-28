@@ -35,6 +35,9 @@ const CAT_META = {
     decay:    { icon:'📉', label:'Refresh' },
     orphan:   { icon:'🕸️', label:'Links' },
     pruning:  { icon:'✂️', label:'Prune' },
+    content:  { icon:'✍️', label:'Content gap' },
+    geo:      { icon:'🤖', label:'AI Citation' },
+    brand:    { icon:'🏷️', label:'Brand' },
 };
 const STATUS_META = {
     todo:        { txt:'In progress — auto-check scheduled', cls:'dn-badge-todo' },
@@ -113,7 +116,8 @@ function taskCard(t, off){
         <div class="dn-benefit">🎁 <strong>Benefit:</strong> ${esc(t.benefit)}</div>
         <details ${off?'':'open'}><summary>Exact steps</summary><ol class="dn-steps">${steps}</ol></details>
         ${statusBadge}
-        ${t.review_date && t.status!=='done' ? `<div class="dn-when">⏳ Auto-check on <strong>${esc(t.review_date)}</strong> — the tool will re-measure and tell you if it worked.</div>`:''}
+        ${(t.adopted && t.auto_review!==false && t.review_date && t.status!=='done') ? `<div class="dn-when">⏳ Auto-check on <strong>${esc(t.review_date)}</strong> — the tool will re-measure and tell you if it worked.</div>`:''}
+        ${(t.adopted && t.auto_review===false && t.status!=='done') ? `<div class="dn-when">✋ Self-report — mark this done once you've actioned it (the tool can't auto-measure removals).</div>`:''}
         ${reviews?`<div class="dn-reviews">${reviews}</div>`:''}
         <div class="dn-actions">${btns}</div>
     </div>`;

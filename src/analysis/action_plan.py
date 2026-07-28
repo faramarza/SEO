@@ -29,6 +29,9 @@ TIME_TO_IMPACT = {
     "decay":     (14, "~2 weeks"),
     "orphan":    (28, "3–6 weeks"),
     "pruning":   (45, "4–8 weeks"),
+    "content":   (70, "6–12 weeks"),
+    "geo":       (28, "3–6 weeks"),
+    "brand":     (21, "2–4 weeks"),
 }
 
 EFFORT = {
@@ -36,7 +39,8 @@ EFFORT = {
     "schema": "Quick (~30 min)", "merchant": "Quick (~30 min)",
     "reviews": "Ongoing (set up once)", "striking": "Medium (~1 hour)",
     "decay": "Medium (a few hours)", "orphan": "Quick (~20 min)",
-    "pruning": "Quick (review + act)",
+    "pruning": "Quick (review + act)", "content": "Large (write an article)",
+    "geo": "Medium (a few hours)", "brand": "Medium (~1 hour)",
 }
 
 
@@ -46,7 +50,7 @@ def _tti(cat):
 
 
 def _task(cat, url, title, steps, benefit, value, reach, metric,
-          baseline, asset_type="other", dedup_extra=""):
+          baseline, asset_type="other", dedup_extra="", auto_review=True):
     days, label = _tti(cat)
     return {
         "category": cat,
@@ -62,6 +66,7 @@ def _task(cat, url, title, steps, benefit, value, reach, metric,
         "time_to_impact_label": label,
         "metric": metric,          # what to re-measure at review
         "baseline": baseline,      # value now, to compare against
+        "auto_review": auto_review,  # False = operator self-reports (can't auto-measure)
         "dedup_key": f"plan:{cat}|{url}|{dedup_extra}",
     }
 
@@ -208,6 +213,114 @@ def _from_decay(decay, out):
             r.get("asset_type","other")))
 
 
+def _from_content(content, out):
+    sugs = [s for s in (content.get("suggestions") or []) if s.get("is_content_gap")]
+    for s in sugs[:6]:
+        q = s.get("source_query", "")
+        vol = s.get("ahrefs_volume", 0)
+        steps = [
+            f"Write a dedicated article targeting “{q}” — real demand your site has "
+            f"no page for yet.",
+            "Make it a genuinely useful guide/listicle (if it's a 'best/top' query, "
+            "put a NUMBER in the title, e.g. “12 Best …”).",
+            "Answer the actual question in the first paragraph (quotable by AI engines), "
+            "then cover the sub-topics shoppers care about.",
+            "Link from the article down to the matching product/category pages, and "
+            "add a link to it from a related existing page so it isn't an orphan.",
+            "Publish and request indexing in Search Console.",
+        ]
+        reach = s.get("impressions", 0) or vol or 0
+        benefit = (f"“{q}” has real demand" +
+                   (f" ({s.get('impressions'):,} impressions" if s.get("impressions") else
+                    (f" (~{vol:,} monthly searches" if vol else " (search demand")) +
+                   ") but no dedicated content — this captures top-of-funnel traffic and "
+                   "funnels it to your products.")
+        out.append(_task(
+            "content", "",
+            f"Write content for “{q}” (demand with no page)",
+            steps, benefit, 0, reach,
+            {"type": "query_clicks_any", "query": q},
+            {"clicks": s.get("clicks", 0)},
+            "blog", q))
+
+
+def _from_orphans(oc, out):
+    for r in ((oc or {}).get("orphans") or [])[:5]:
+        link_from = r.get("link_from") or []
+        steps = [f"This page has {r.get('impressions',0):,} impressions but ZERO internal inbound links, so it can't rank well or be discovered."]
+        if link_from:
+            steps.append("Add contextual links to it from these specific related pages:")
+            steps += [f"• {lf.get('title', lf.get('url',''))} ({lf.get('url','')})" for lf in link_from[:5]]
+        else:
+            steps.append("Link it from a relevant category/nav or a related article (no strong topical match was found automatically).")
+        steps.append("Use anchor text that describes THIS page; place links inside content, not nav/footer.")
+        out.append(_task(
+            "orphan", r.get("url",""),
+            "Rescue an orphan page (has demand, no internal links)",
+            steps, "Internal links let this page rank and get discovered — orphaned pages wither.",
+            0, r.get("impressions", 0),
+            {"type": "page_clicks", "url": r.get("url","")},
+            {"clicks": r.get("clicks", 0)},
+            r.get("asset_type","other")))
+
+
+def _from_pruning(pruning, out):
+    for r in (pruning or [])[:4]:
+        disp = r.get("disposition", "prune")
+        tgt = r.get("redirect_target") or {}
+        if disp == "merge_redirect":
+            steps = [f"Merge any useful content from this dead page into “{tgt.get('title','a stronger page')}” ({tgt.get('url','')}).",
+                     f"301-redirect this URL to that page to preserve residual equity.",
+                     f"Rationale: {r.get('reason','')}", "Review before executing — this is a suggestion."]
+            title = f"Merge & 301 a dead page into a stronger one"
+        else:
+            steps = [f"Prune this dead page ({r.get('impressions',0)} impr, {r.get('word_count',0)} words) — noindex it or remove and 410.",
+                     f"Rationale: {r.get('reason','')}", "Review before executing — this is a suggestion."]
+            title = "Prune a dead-weight page"
+        out.append(_task(
+            "pruning", r.get("url",""), title, steps,
+            "Removing/merging dead-weight pages concentrates your topical authority.",
+            0, r.get("impressions", 0),
+            {"type": "manual"}, {}, r.get("asset_type","other"), auto_review=False))
+
+
+def _from_geo(geo, out):
+    for p in ((geo or {}).get("pages") or [])[:5]:
+        if p.get("score", 100) >= 70:
+            continue
+        fixes = p.get("top_findings", []) or []
+        steps = [f"Raise this page's AI-citation readiness (currently {p.get('score')}/100) so ChatGPT/Gemini/AI Overviews can cite it."]
+        steps += [f"• {f.get('fix','')}" for f in fixes[:4]]
+        steps.append("Then re-check Playbook → GEO.")
+        out.append(_task(
+            "geo", p.get("url",""),
+            f"Make a page AI-citable (GEO {p.get('score')}/100)",
+            steps, "AI answer engines cite well-structured, evidence-rich pages — this is where discovery is heading.",
+            0, p.get("gsc_impressions", 0),
+            {"type": "geo_score", "url": p.get("url","")},
+            {"score": p.get("score", 0)},
+            p.get("asset_type","other")))
+
+
+def _from_brand(bm, out):
+    for f in ((bm or {}).get("brand", {}).get("flags") or [])[:4]:
+        steps = [f"“{f.get('query','')}” is a search for your own brand, but " +
+                 "; ".join(f.get("issues", [])) + "."]
+        steps += [
+            "Make sure the RIGHT page (usually your homepage or the exact product) is the strong answer for this query.",
+            "Tighten that page's title so it clearly owns the brand term; add Organization/Sitelinks-friendly structure.",
+            "Check Google for anyone bidding on your brand name or a reseller/marketplace outranking you, and act on it.",
+        ]
+        out.append(_task(
+            "brand", f.get("ranking_url",""),
+            f"Reclaim your brand query “{f.get('query','')}”",
+            steps, "Branded searches are your highest-intent traffic — you should own them, not leak them to resellers or ads.",
+            0, f.get("impressions", 0),
+            {"type": "query_position", "url": f.get("ranking_url",""), "query": f.get("query","")},
+            {"position": f.get("position", 0)},
+            "other", f.get("query","")))
+
+
 def _priority(t):
     """Rank: measured $ value first (by amount), then foundational tasks by the
     traffic they touch. Quicker wins break ties."""
@@ -218,8 +331,9 @@ def _priority(t):
 
 
 def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
-                      brand_merchant=None, striking=None, decay=None, limit=40):
-    """Aggregate every subsystem into one ranked, do-this-next list."""
+                      brand_merchant=None, striking=None, decay=None,
+                      content=None, orphans=None, pruning=None, geo=None, limit=60):
+    """Aggregate EVERY subsystem into one ranked, do-this-next list."""
     out = []
     if ctr: _from_ctr(ctr, out)
     if cro: _from_cro(cro, out)
@@ -228,6 +342,11 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
     if brand_merchant: _from_merchant(brand_merchant, out)
     if striking: _from_striking(striking, out)
     if decay: _from_decay(decay, out)
+    if content: _from_content(content, out)
+    if orphans: _from_orphans(orphans, out)
+    if pruning: _from_pruning(pruning, out)
+    if geo: _from_geo(geo, out)
+    if brand_merchant: _from_brand(brand_merchant, out)
 
     out.sort(key=_priority)
     for i, t in enumerate(out, start=1):
@@ -314,6 +433,28 @@ def evaluate_review(metric, baseline, result):
         return verdict(now, baseline.get("clicks"), True,
                        tweak_msg="Clicks haven't recovered — deepen the refresh to match "
                                  "what currently ranks, and add fresh internal links.")
+    if mtype == "manual":
+        return {"status": "not_measurable",
+                "detail": "This one you confirm yourself — mark it done once actioned.",
+                "tweak": ""}
+    if mtype == "query_clicks_any":
+        # Site-wide clicks for the topic (a new article could rank on any URL);
+        # the caller injects the current total under _site_query_clicks.
+        now = (result or {}).get("_site_query_clicks", 0)
+        return verdict(now, baseline.get("clicks"), True,
+                       tweak_msg="Nothing ranks for this topic yet — make sure the new "
+                                 "article puts the exact query in the title/H1, answers it "
+                                 "directly, and is internally linked.")
+    if mtype == "geo_score":
+        # result must carry a recomputed geo score under 'geo_score' (the caller
+        # supplies it); if absent, not measurable.
+        now = result.get("geo_score")
+        if now is None:
+            return {"status": "not_measurable",
+                    "detail": "Re-run the evaluation so GEO can be re-scored.", "tweak": ""}
+        return verdict(now, baseline.get("score"), True,
+                       tweak_msg="Citation readiness didn't move — add real statistics, "
+                                 "question-form H2s + FAQ, and a clear last-updated date.")
     if mtype in ("has_rating_schema", "schema_present"):
         schema = {str(s).lower() for s in ((result.get("page_metadata", {}) or {}).get("schema_types") or [])}
         target = (metric.get("schema_type") or ("aggregaterating" if mtype == "has_rating_schema" else "")).lower()

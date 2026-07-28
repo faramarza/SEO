@@ -6651,7 +6651,33 @@ def _build_plan_inputs(results, eval_data, disallow):
     if not snaps or snaps[-1].get("timestamp") != eval_data.get("timestamp"):
         snaps.append(eval_data)
     decay = gp.find_content_decay(snaps, system_disallow=disallow)
-    return ctr, cro, reviews, rich, bm, striking, decay
+    orphans = gp.find_orphans_and_clusters(results, system_disallow=disallow)
+    pruning = gp.find_pruning_candidates(results, system_disallow=disallow)
+    # Content gaps — demand-driven (GSC/Ahrefs), grounded in real queries.
+    try:
+        from src.data_sources.content_manager import get_content_suggestions
+        content = get_content_suggestions()
+    except Exception:
+        content = {"suggestions": []}
+    # GEO citation readiness per crawled page (prefer the version computed at eval).
+    geo_pages = []
+    for r in results:
+        pm = r.get("page_metadata", {}) or {}
+        if not pm.get("has_crawl_data"):
+            continue
+        sc = r.get("geo_scorecard") or _compute_geo(r)
+        if not sc or sc.get("limited"):
+            continue
+        geo_pages.append({
+            "url": r.get("url", ""), "asset_type": r.get("asset_type", "other"),
+            "score": sc.get("score", 0),
+            "gsc_impressions": r.get("gsc_impressions", 0) or 0,
+            "top_findings": [{"label": f.get("label"), "fix": f.get("fix"),
+                              "dimension": f.get("dimension")}
+                             for f in sc.get("findings", [])[:4]],
+        })
+    geo = {"pages": sorted(geo_pages, key=lambda g: (g["score"], -g["gsc_impressions"]))}
+    return ctr, cro, reviews, rich, bm, striking, decay, orphans, pruning, content, geo
 
 
 def _process_due_reviews(store, results, eval_timestamp=""):
@@ -6666,11 +6692,22 @@ def _process_due_reviews(store, results, eval_timestamp=""):
     from datetime import datetime, date, timedelta
 
     by_url = {_normalize_url(r.get("url", "")): r for r in results}
+    # Site-wide clicks per query, for content tasks (a new article can rank on any URL).
+    site_query_clicks = {}
+    for r in results:
+        for q in (r.get("top_queries") or []):
+            qk = (q.get("query") or "").lower()
+            if qk:
+                site_query_clicks[qk] = site_query_clicks.get(qk, 0) + (q.get("clicks", 0) or 0)
     today = date.today().isoformat()
     eval_day = (eval_timestamp or "")[:10]
     reviewed = []
     for key, t in store.get("adopted", {}).items():
         if t.get("status") == "done":
+            continue
+        # Tasks we can't auto-measure (e.g. pruning) wait for the operator to
+        # mark them done — never auto-reviewed.
+        if t.get("auto_review") is False or (t.get("metric", {}) or {}).get("type") in ("manual", "none", None):
             continue
         rd = t.get("review_date")
         if not rd or rd > today:
@@ -6685,8 +6722,17 @@ def _process_due_reviews(store, results, eval_timestamp=""):
             t.setdefault("reviews", []).append(entry)
             reviewed.append({"key": key, "title": t.get("title"), **entry})
             continue
-        result = by_url.get(_normalize_url(t.get("url", "")))
-        verdict = evaluate_review(t.get("metric", {}), t.get("baseline", {}), result)
+        metric = t.get("metric", {}) or {}
+        mtype = metric.get("type")
+        # Resolve the "current" reading for site-wide / stored metrics.
+        if mtype == "query_clicks_any":
+            result = {"_site_query_clicks": site_query_clicks.get((metric.get("query") or "").lower(), 0)}
+        elif mtype == "geo_score":
+            r = by_url.get(_normalize_url(t.get("url", "")))
+            result = {"geo_score": (r.get("geo_scorecard", {}) or {}).get("score")} if r else None
+        else:
+            result = by_url.get(_normalize_url(t.get("url", "")))
+        verdict = evaluate_review(metric, t.get("baseline", {}), result)
         entry = {"checked_on": today, **verdict}
         t.setdefault("reviews", []).append(entry)
         if verdict["status"] in ("improved", "done"):
@@ -6725,9 +6771,11 @@ def api_action_plan():
     store = _load_action_plan_store()
     reviewed = _process_due_reviews(store, results, eval_data.get("timestamp", ""))
 
-    ctr, cro, reviews, rich, bm, striking, decay = _build_plan_inputs(results, eval_data, disallow)
+    (ctr, cro, reviews, rich, bm, striking, decay,
+     orphans, pruning, content, geo) = _build_plan_inputs(results, eval_data, disallow)
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
-                             brand_merchant=bm, striking=striking, decay=decay)
+                             brand_merchant=bm, striking=striking, decay=decay,
+                             content=content, orphans=orphans, pruning=pruning, geo=geo)
 
     adopted = store.get("adopted", {})
     for t in plan:
