@@ -14,6 +14,9 @@
         <button class="pb-tab active" data-tab="ctr" onclick="pbShowTab('ctr')">
             💰 CTR Recovery
         </button>
+        <button class="pb-tab" data-tab="cro" onclick="pbShowTab('cro')">
+            🛒 CRO Leaks
+        </button>
         <button class="pb-tab" data-tab="striking" onclick="pbShowTab('striking')">
             🎯 Striking Distance
         </button>
@@ -52,6 +55,21 @@
         </div>
         <div id="pb-ctr-summary" class="pb-geo-summary"></div>
         <div id="pb-ctr-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- CRO Leaks -->
+    <section class="pb-panel" id="pb-cro">
+        <div class="pb-explain">
+            <strong>Method: CRO Leak Finder.</strong> Money pages (products, categories)
+            that already get traffic but convert <em>below your own average</em> for
+            their type — ranked by recoverable revenue, so the top of the list is the
+            most money, not just the worst rate. Benchmarks are your own GA4 conversion
+            rates, and each reason is grounded in the real page (thin copy, missing
+            reviews/price, high bounce). Fixing the traffic you already have usually
+            beats chasing more.
+        </div>
+        <div id="pb-cro-summary" class="pb-geo-summary"></div>
+        <div id="pb-cro-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
     </section>
 
     <!-- Striking Distance -->
@@ -295,7 +313,7 @@ async function loadPlaybook() {
         PB_DATA = data;
         if (data.error) {
             const msg = `<p class="empty-state">${escHtml(data.error)}</p>`;
-            ['ctr','striking','decay','orphans','pruning','rich'].forEach(s =>
+            ['ctr','cro','striking','decay','orphans','pruning','rich'].forEach(s =>
                 document.getElementById('pb-' + s + '-body').innerHTML = msg);
             return;
         }
@@ -306,6 +324,7 @@ async function loadPlaybook() {
         document.getElementById('pb-meta').innerHTML =
             `Based on ${data.page_count} pages · evaluation ${escHtml(d)}`;
         renderCtr(data.ctr_recovery || {});
+        renderCro(data.cro_leaks || {});
         renderStriking(data.striking_distance || []);
         renderDecay(data.decay || {});
         renderOrphans(data.orphans_clusters || {});
@@ -414,6 +433,70 @@ async function pbCtrRewrite(idx, btn) {
             <p class="pb-geo-note">Deploy the winner as a TITLE_META_TEST so the CTR lift is measured before/after.</p>`;
     } catch (e) {
         bodyEl.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
+    }
+}
+
+function renderCro(cro) {
+    const summary = document.getElementById('pb-cro-summary');
+    const body = document.getElementById('pb-cro-body');
+    const rows = cro.rows || [];
+    if (!rows.length) {
+        summary.innerHTML = '';
+        const msg = cro.reason_unavailable
+            || 'No CRO leaks found — your money pages convert at or above your own average. 🎉';
+        body.innerHTML = `<p class="empty-state">${escHtml(msg)}</p>`;
+        return;
+    }
+    summary.innerHTML = `
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">$${Math.round(cro.total_lost_revenue||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">recoverable revenue/window</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${cro.pages_affected||0}</span><span class="pb-geo-stat-lbl">under-converting money pages</span></div>`;
+
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Page</th><th>Type</th><th>Sessions</th><th>CVR now → yours</th>
+        <th>Recoverable</th><th>Fix (most impactful first)</th><th></th></tr></thead><tbody>`;
+    rows.forEach((r, i) => {
+        r._idx = i;
+        const reasons = (r.reasons || []).map(x => `<div class="pb-geo-fix">${escHtml(x)}</div>`).join('');
+        const key = pbKey('cro', r.url, 'cro');
+        const addBtn = pbIsAdded(key)
+            ? '<button class="pb-task-btn pb-added" disabled title="Already on the Task Board">✓ Added</button>'
+            : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddCroTask(${i}, this)">+ Task</button>`;
+        html += `<tr>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+            <td>${escHtml(r.asset_type)}</td>
+            <td class="pb-num">${(r.sessions||0).toLocaleString()}</td>
+            <td class="pb-num"><span style="color:#dc2626;">${r.page_cvr}%</span> → <span style="color:#059669;">${r.benchmark_cvr}%</span></td>
+            <td class="pb-num">$${Math.round(r.lost_revenue||0).toLocaleString()}<br><span style="color:var(--text-muted);">${r.lost_purchases} orders</span></td>
+            <td>${reasons}</td>
+            <td>${addBtn}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+async function pbAddCroTask(idx, btn) {
+    const r = PB_DATA.cro_leaks.rows[idx];
+    const payload = { method: 'cro', url: r.url, asset_type: r.asset_type,
+        sessions: r.sessions, page_cvr: r.page_cvr, benchmark_cvr: r.benchmark_cvr,
+        lost_revenue: r.lost_revenue, reasons: r.reasons };
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            PB_ADDED.add(pbKey('cro', r.url, 'cro'));
+            if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
+            pbToast(data.duplicate ? 'Already on the Task Board' : 'Added to Task Board');
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+            pbToast(data.error || 'Failed to add', true);
+        }
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+        pbToast('Failed: ' + e.message, true);
     }
 }
 

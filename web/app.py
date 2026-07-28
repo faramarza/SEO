@@ -6457,6 +6457,9 @@ def api_playbook():
         ctr_out["total_lost_revenue"] = round(
             sum(r.get("lost_revenue", 0) for r in ctr_out.get("rows", [])), 2)
         out["ctr_recovery"] = ctr_out
+    if section in ("all", "cro"):
+        from src.analysis.cro_leaks import find_cro_leaks
+        out["cro_leaks"] = find_cro_leaks(results, system_disallow=disallow)
     if section in ("all", "rich"):
         from src.analysis.rich_results import analyze_site_schema
         views = [_schema_page_view(r) for r in results]
@@ -6662,6 +6665,31 @@ def _playbook_add_task_impl(body):
             "implementation_summary": f"Raise GEO citation readiness ({score}/100)",
             "implementation_steps": steps,
         })
+    elif method == "cro":
+        sessions = body.get("sessions", 0)
+        page_cvr = body.get("page_cvr", 0)
+        bench = body.get("benchmark_cvr", 0)
+        lost_rev = body.get("lost_revenue", 0)
+        reasons = body.get("reasons", []) or []
+        steps = [
+            f"This page gets {sessions:,} sessions but converts at {page_cvr}% vs "
+            f"your {bench}% average for {asset_type} pages — about "
+            f"${lost_rev:,.0f}/window in recoverable revenue.",
+            "Fixes, most impactful first:",
+        ]
+        steps += [f"• {rz}" for rz in reasons]
+        steps.append("Change one thing at a time and watch the purchase rate for "
+                     "this page in GA4 so you know what worked.")
+        data.update({
+            "action": "CONTENT_CLARIFY",
+            "primary_constraint": "Conversion Rate (CRO)",
+            "expected_value": round(lost_rev, 2),
+            "confidence": 0.6,
+            "risk_level": "low",
+            "ga4_sessions": sessions,
+            "implementation_summary": f"CRO: lift conversion (~${lost_rev:,.0f} recoverable)",
+            "implementation_steps": steps,
+        })
     elif method == "ctr":
         query = body.get("query", "")
         pos = body.get("position", 0)
@@ -6770,6 +6798,8 @@ def _playbook_add_task_impl(body):
         _extra = body.get("schema_type", "")
     elif method == "ctr":
         _extra = body.get("query", "")
+    elif method == "cro":
+        _extra = "cro"
     data["dedup_key"] = f"{method}|{body.get('url', '')}|{_extra}"
     # Safety net against duplicates (client guard + this): if an identical
     # proposed task already exists, return it instead of creating a copy.
