@@ -136,6 +136,7 @@ async function loadOpportunities() {
         const res = await fetch('/api/opportunities');
         const data = await res.json();
         allOpportunities = data.opportunities || [];
+        if (data.demand_thresholds) DEMAND_THRESHOLDS = data.demand_thresholds;
 
         // Hydrate persisted AI recommendations so they survive page refresh
         for (const opp of allOpportunities) {
@@ -329,17 +330,25 @@ function formatMode(mode) {
 
 // High-value demand signals — surface pages that are one ranking push from
 // real traffic, so they don't hide behind a generic action label.
+let DEMAND_THRESHOLDS = null;  // set from /api/opportunities (site percentiles)
 function demandSignal(opp) {
     const impr = opp.gsc_impressions || 0;
     const pos = opp.gsc_position || 0;
     const ctr = (opp.gsc_ctr || 0) * 100;
-    // Products live on long-tail, low-impression queries, so judge them on a
-    // much lower volume bar than categories/blogs — otherwise their trapped
-    // demand never surfaces (an individual product rarely clears 500 impr).
+    // Thresholds from the SITE's own impression distribution when available
+    // (p90/p75/p50), else fixed fallbacks. Products get a lower bar (long-tail).
     const isProduct = (opp.asset_type || '') === 'product';
-    const T = isProduct
+    let T = isProduct
         ? { trapped: 200, near: 100, untapped: 60 }
         : { trapped: 1000, near: 500, untapped: 300 };
+    if (DEMAND_THRESHOLDS) {
+        const scale = isProduct ? 0.2 : 1;  // products sit far down the distribution
+        T = {
+            trapped: Math.max(50, Math.round(DEMAND_THRESHOLDS.trapped * scale)),
+            near: Math.max(30, Math.round(DEMAND_THRESHOLDS.near * scale)),
+            untapped: Math.max(20, Math.round(DEMAND_THRESHOLDS.untapped * scale)),
+        };
+    }
     if (impr >= T.trapped && pos >= 11 && pos <= 30 && ctr < 0.5) {
         return { key: 'trapped', label: '🔥 Trapped demand', color: '#dc2626', bg: '#fee2e2',
             tip: `${impr.toLocaleString()} impressions stuck on page 2+ (pos ${pos.toFixed(0)}) with almost no clicks — one ranking push from real traffic.` };

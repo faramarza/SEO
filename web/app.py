@@ -888,11 +888,24 @@ def api_opportunities():
         )
     )
 
+    # Demand-signal thresholds from the site's OWN impression distribution
+    # (percentiles) rather than fixed 1000/500/300 guesses — self-calibrating.
+    demand_thresholds = None
+    try:
+        from src.analysis.site_benchmarks import impression_percentiles
+        pctl = impression_percentiles(all_results)
+        if pctl:
+            demand_thresholds = {"trapped": pctl["p90"], "near": pctl["p75"],
+                                 "untapped": pctl["p50"], "source": "site_percentiles"}
+    except Exception:
+        pass
+
     payload = {
         "opportunities": all_results,
         "total": len(all_results),
         "actionable": sum(1 for r in all_results if r.get("recommended_action") not in ("NO_ACTION", "OBSERVE_ONLY", None)),
         "active_tasks": len(active_task_urls),
+        "demand_thresholds": demand_thresholds,
     }
     # Cache under the post-writeback signature so the next identical request
     # (same underlying files) is served from memory.
