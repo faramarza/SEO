@@ -267,13 +267,67 @@ def _run_serp_collector():
         time.sleep(SERP_COLLECT_INTERVAL)
 
 
+AUTO_REVIEW_HOUR = int(os.environ.get("AUTO_REVIEW_HOUR", "6"))  # local hour to run
+
+
+def _claim_daily_autoreview():
+    """Atomically claim today's auto-review across all gunicorn workers: the first
+    worker to create today's marker file wins and runs it; the rest skip. Uses
+    O_EXCL so the claim is race-free with no locks or extra services."""
+    from datetime import date
+    try:
+        DATA_PATH.mkdir(parents=True, exist_ok=True)
+        marker = DATA_PATH / f".autoreview_{date.today().isoformat()}"
+        fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.close(fd)
+        # Opportunistically clean up old markers.
+        for old in DATA_PATH.glob(".autoreview_*"):
+            if old.name != marker.name:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+
+
+def _run_autoreview_scheduler():
+    """Daily hands-off Action Plan check-back: once a day (after AUTO_REVIEW_HOUR),
+    re-measure every adopted task whose review date has arrived and record the
+    verdict + tweak. Deduped across workers via a per-day marker file, so no cron
+    or systemd timer is needed — it ships with the app."""
+    from datetime import datetime
+    while True:
+        try:
+            now = datetime.now()
+            if now.hour >= AUTO_REVIEW_HOUR and _claim_daily_autoreview():
+                eval_path = DATA_PATH / "latest_evaluation.json"
+                if eval_path.exists():
+                    with open(eval_path) as f:
+                        ev = json.load(f)
+                    store = _load_action_plan_store()
+                    reviewed = _process_due_reviews(store, ev.get("results", []),
+                                                    ev.get("timestamp", ""))
+                    if reviewed:
+                        print(f"[AutoReview] Checked {len(reviewed)} due Action Plan task(s)")
+        except Exception as e:
+            print(f"[AutoReview] Error: {e}")
+        time.sleep(3600)  # re-check hourly; the day-marker ensures once/day
+
+
 def _start_scheduler():
-    """Start the background measurement scheduler and SERP collector."""
+    """Start the background measurement scheduler, SERP collector, and daily
+    Action Plan auto-review."""
     t = threading.Thread(target=_run_scheduled_measurement, daemon=True)
     t.start()
     t2 = threading.Thread(target=_run_serp_collector, daemon=True)
     t2.start()
-    print("[Scheduler] Background task monitor + SERP collector started")
+    t3 = threading.Thread(target=_run_autoreview_scheduler, daemon=True)
+    t3.start()
+    print("[Scheduler] Background task monitor + SERP collector + auto-review started")
 
 
 _scheduler_started = False

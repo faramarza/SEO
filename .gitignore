@@ -44,3 +44,4 @@ config/local.json
 # Generated data files
 data/*.json
 !data/.gitkeep
+data/.autoreview_*
