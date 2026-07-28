@@ -6460,6 +6460,9 @@ def api_playbook():
     if section in ("all", "cro"):
         from src.analysis.cro_leaks import find_cro_leaks
         out["cro_leaks"] = find_cro_leaks(results, system_disallow=disallow)
+    if section in ("all", "reviews"):
+        from src.analysis.reviews_engine import find_review_priorities
+        out["reviews"] = find_review_priorities(results, system_disallow=disallow)
     if section in ("all", "rich"):
         from src.analysis.rich_results import analyze_site_schema
         views = [_schema_page_view(r) for r in results]
@@ -6665,6 +6668,30 @@ def _playbook_add_task_impl(body):
             "implementation_summary": f"Raise GEO citation readiness ({score}/100)",
             "implementation_steps": steps,
         })
+    elif method == "reviews":
+        impr = body.get("impressions", 0)
+        rev = body.get("revenue", 0)
+        steps = [
+            f"Collect customer reviews for this product — it already draws {impr:,} "
+            f"impressions" + (f" and ${rev:,.0f} revenue" if rev else "") +
+            ", so reviews here touch real traffic and money.",
+            "Trigger a post-purchase review request (email/SMS) for recent buyers of "
+            "this product; seed with any existing off-site reviews you can attribute.",
+            "Once you have genuine reviews on the page, add AggregateRating/Review "
+            "JSON-LD (grab the ready markup from Playbook → Rich Results) so stars "
+            "show in search.",
+            "Never publish ratings you can't back with real reviews.",
+        ]
+        data.update({
+            "action": "CONTENT_CLARIFY",
+            "primary_constraint": "Reviews / Social Proof",
+            "expected_value": 0,
+            "confidence": 0.6,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+            "implementation_summary": f"Collect reviews ({impr:,} impr at stake)",
+            "implementation_steps": steps,
+        })
     elif method == "cro":
         sessions = body.get("sessions", 0)
         page_cvr = body.get("page_cvr", 0)
@@ -6800,6 +6827,8 @@ def _playbook_add_task_impl(body):
         _extra = body.get("query", "")
     elif method == "cro":
         _extra = "cro"
+    elif method == "reviews":
+        _extra = "reviews"
     data["dedup_key"] = f"{method}|{body.get('url', '')}|{_extra}"
     # Safety net against duplicates (client guard + this): if an identical
     # proposed task already exists, return it instead of creating a copy.

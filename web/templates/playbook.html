@@ -29,6 +29,9 @@
         <button class="pb-tab" data-tab="pruning" onclick="pbShowTab('pruning')">
             ✂️ Pruning
         </button>
+        <button class="pb-tab" data-tab="reviews" onclick="pbShowTab('reviews')">
+            🌟 Reviews
+        </button>
         <button class="pb-tab" data-tab="rich" onclick="pbShowTab('rich')">
             ⭐ Rich Results
         </button>
@@ -120,6 +123,21 @@
             pages are never flagged, and nothing is changed automatically.
         </div>
         <div id="pb-pruning-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
+    <!-- Reviews & Ratings priority -->
+    <section class="pb-panel" id="pb-reviews">
+        <div class="pb-explain">
+            <strong>Method: Reviews Priority.</strong> Reviews are the highest-leverage
+            trust investment for a respectable brand — stars lift click-through, on-page
+            reviews lift conversion, and the rating schema is the gap Rich Results flags.
+            You can't collect reviews everywhere at once, so this ranks the products with
+            <em>no review schema</em> by the real demand and revenue already flowing
+            through them — run your review-collection campaign top-down. No invented
+            uplift numbers; the priority is your own measured traffic and revenue.
+        </div>
+        <div id="pb-reviews-summary" class="pb-geo-summary"></div>
+        <div id="pb-reviews-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
     </section>
 
     <!-- Rich Results / Structured Data -->
@@ -313,7 +331,7 @@ async function loadPlaybook() {
         PB_DATA = data;
         if (data.error) {
             const msg = `<p class="empty-state">${escHtml(data.error)}</p>`;
-            ['ctr','cro','striking','decay','orphans','pruning','rich'].forEach(s =>
+            ['ctr','cro','striking','decay','orphans','pruning','reviews','rich'].forEach(s =>
                 document.getElementById('pb-' + s + '-body').innerHTML = msg);
             return;
         }
@@ -329,6 +347,7 @@ async function loadPlaybook() {
         renderDecay(data.decay || {});
         renderOrphans(data.orphans_clusters || {});
         renderPruning(data.pruning || []);
+        renderReviews(data.reviews || {});
         renderRich(data.rich_results || {});
         renderGeo(data.geo || {});
     } catch (e) {
@@ -488,6 +507,69 @@ async function pbAddCroTask(idx, btn) {
         const data = await res.json();
         if (data.success) {
             PB_ADDED.add(pbKey('cro', r.url, 'cro'));
+            if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
+            pbToast(data.duplicate ? 'Already on the Task Board' : 'Added to Task Board');
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+            pbToast(data.error || 'Failed to add', true);
+        }
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Task'; }
+        pbToast('Failed: ' + e.message, true);
+    }
+}
+
+function renderReviews(rev) {
+    const summary = document.getElementById('pb-reviews-summary');
+    const body = document.getElementById('pb-reviews-body');
+    const rows = rev.rows || [];
+    if (!rev.money_pages) {
+        summary.innerHTML = '';
+        body.innerHTML = '<p class="empty-state">No crawled product/category pages to assess. Run with crawl first.</p>';
+        return;
+    }
+    summary.innerHTML = `
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${rev.coverage_pct ?? 0}%</span><span class="pb-geo-stat-lbl">money pages with reviews</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${rev.missing_count||0}</span><span class="pb-geo-stat-lbl">missing reviews</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${(rev.impressions_at_stake||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">impressions at stake</span></div>`;
+    if (!rows.length) {
+        body.innerHTML = '<p class="empty-state">Every crawled money page already has review/rating schema. 🎉</p>';
+        return;
+    }
+    let html = `<p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">Work top-down — these products draw the most traffic/revenue but have no reviews yet.</p>
+        <table class="pb-table"><thead><tr>
+        <th>#</th><th>Product</th><th>Impr</th><th>Clicks</th><th>Revenue</th><th></th></tr></thead><tbody>`;
+    rows.forEach((r, i) => {
+        r._idx = i;
+        const key = pbKey('reviews', r.url, 'reviews');
+        const addBtn = pbIsAdded(key)
+            ? '<button class="pb-task-btn pb-added" disabled title="Already on the Task Board">✓ Added</button>'
+            : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddReviewsTask(${i}, this)">+ Task</button>`;
+        html += `<tr>
+            <td class="pb-num">${i + 1}</td>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+            <td class="pb-num">${(r.impressions||0).toLocaleString()}</td>
+            <td class="pb-num">${(r.clicks||0).toLocaleString()}</td>
+            <td class="pb-num">${r.revenue ? '$' + Math.round(r.revenue).toLocaleString() : '—'}</td>
+            <td>${addBtn}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+async function pbAddReviewsTask(idx, btn) {
+    const r = PB_DATA.reviews.rows[idx];
+    const payload = { method: 'reviews', url: r.url, asset_type: r.asset_type,
+        impressions: r.impressions, revenue: r.revenue };
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) {
+            PB_ADDED.add(pbKey('reviews', r.url, 'reviews'));
             if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); }
             pbToast(data.duplicate ? 'Already on the Task Board' : 'Added to Task Board');
         } else {
