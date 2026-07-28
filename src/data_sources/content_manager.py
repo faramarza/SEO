@@ -1249,26 +1249,100 @@ def _suits_listicle(text):
     return False
 
 
-def _listicle_title(base_title):
-    """Reframe a title as a listicle (prefix 'Best' unless already list-framed).
-    The actual number is added by the article generator from the real item count."""
+def _listicle_count(text):
+    """A sensible target item-count for the listicle title. Bigger, round
+    numbers for idea/gift/activity roundups; a solid default otherwise."""
+    t = (text or "").lower()
+    if any(x in t for x in ("idea", "gift", "quote", "activit", " way")):
+        return 20
+    return 15
+
+
+def _listicle_title(base_title, count):
+    """Reframe a title as a NUMBERED listicle, e.g. "20 Best Montessori Toys …".
+    The generator may lower the number to match the real item count."""
     t = (base_title or "").strip()
+    if re.match(r'^\d+\s', t):
+        return t  # already numbered
+    # Drop a leading Best/Top so we don't produce "20 Best Best …".
+    t = re.sub(r'^(the\s+)?(best|top)\s+', '', t, flags=re.IGNORECASE).strip()
+    if t:
+        t = t[0].upper() + t[1:]
     tl = t.lower()
-    if re.match(r'^\d+\s', t) or tl.startswith(("best ", "top ", "the best ", "the top ")):
-        return t
-    return f"Best {t}"
+    # "20 Gift Ideas …" reads better than "20 Best Gift Ideas …".
+    if any(x in tl for x in ("idea", "gift", "quote", "activit", " way")):
+        return f"{count} {t}"
+    return f"{count} Best {t}"
 
 
-def _apply_listicle_format(sug):
-    """Tag a suggestion as listicle vs standard article, reframe its title, and
-    give listicles a modest priority boost (operator-observed: they out-traffic
-    other formats)."""
+def _title_is_listicle(title):
+    """Detect whether an EXISTING page is a listicle from its title."""
+    t = (title or "").strip().lower()
+    if re.match(r'^\d+\s', t):                       # "12 best ...", "20 ..."
+        return True
+    if re.search(r'\b\d+\s+(best|top|ways|ideas|things|tips|reasons)\b', t):
+        return True
+    if t.startswith(("best ", "top ")):
+        return True
+    return False
+
+
+def _url_is_listicle(url):
+    slug = (url or "").rstrip("/").rsplit("/", 1)[-1].lower()
+    return bool(re.match(r'^\d+-', slug) or slug.startswith(("best-", "top-"))
+                or re.search(r'-(best|top)-', slug))
+
+
+def _listicle_traffic_multiplier():
+    """Measure, from the latest evaluation, how much more organic traffic
+    listicle pages get vs other editorial content on THIS site. Returns a dict
+    (multiplier, averages, sample sizes) or None if there isn't enough data."""
+    path = DATA_PATH / "latest_evaluation.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            results = json.load(f).get("results", [])
+    except (json.JSONDecodeError, OSError):
+        return None
+    lis, oth = [], []
+    for r in results:
+        if (r.get("asset_type") or "").lower() not in ("blog", "other"):
+            continue  # compare editorial content only, not product/category
+        pm = r.get("page_metadata", {})
+        title = pm.get("title", "") or ""
+        clicks = r.get("gsc_clicks", 0) or 0
+        if _title_is_listicle(title) or _url_is_listicle(r.get("url", "")):
+            lis.append(clicks)
+        else:
+            oth.append(clicks)
+    if len(lis) < 3 or len(oth) < 3:
+        return None
+    la = sum(lis) / len(lis)
+    oa = sum(oth) / len(oth)
+    if oa <= 0:
+        return None
+    return {
+        "multiplier": round(la / oa, 2),
+        "listicle_avg_clicks": round(la, 1),
+        "other_avg_clicks": round(oa, 1),
+        "n_listicle": len(lis),
+        "n_other": len(oth),
+    }
+
+
+def _apply_listicle_format(sug, boost=6):
+    """Tag a suggestion as listicle vs standard article, reframe its title with a
+    number, and give listicles a priority boost. `boost` is data-tuned from the
+    site's real listicle-vs-other traffic multiplier when available."""
     basis = sug.get("source_query") or sug.get("title", "")
     if _suits_listicle(basis):
+        count = _listicle_count(basis)
         sug["format"] = "listicle"
         sug["is_listicle"] = True
-        sug["title"] = _listicle_title(sug.get("title", ""))
-        sug["score"] = min(100, (sug.get("score", 0) or 0) + 6)
+        sug["listicle_count"] = count
+        sug["title"] = _listicle_title(sug.get("title", ""), count)
+        sug["score"] = min(100, (sug.get("score", 0) or 0) + boost)
     else:
         sug["format"] = "article"
         sug["is_listicle"] = False
@@ -1687,11 +1761,20 @@ def get_content_suggestions(cluster_id=None):
             sug["cluster_name"] = "Uncategorized"
             sug["cluster_id"] = None
 
+    # Data-tuned listicle boost: measure how much more traffic listicle pages
+    # actually get on THIS site and scale the priority boost accordingly. Falls
+    # back to a fixed +6 when there isn't enough published history to measure.
+    listicle_stats = _listicle_traffic_multiplier()
+    if listicle_stats and listicle_stats["multiplier"] > 1:
+        listicle_boost = max(2, min(15, round((listicle_stats["multiplier"] - 1) * 8)))
+    else:
+        listicle_boost = 6
+
     # Enrich with related money pages, products, and writing prompt
     for sug in all_suggestions:
         # Listicles out-traffic other formats and are highly AI-citable — reframe
         # suitable topics and boost them BEFORE the title feeds the writing brief.
-        _apply_listicle_format(sug)
+        _apply_listicle_format(sug, boost=listicle_boost)
         cl_name = sug.get("cluster_name", "")
         cl_match_words = {w for w in cl_name.lower().split()
                           if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
@@ -1748,6 +1831,7 @@ def get_content_suggestions(cluster_id=None):
                 "has_ai_overview": sug.get("has_ai_overview"),
             },
             is_listicle=sug.get("is_listicle", False),
+            listicle_count=sug.get("listicle_count", 15),
         )
 
     # Assign final ranks
@@ -1783,6 +1867,9 @@ def get_content_suggestions(cluster_id=None):
         "data_driven": bool(all_queries) or bool(kw_index),
         "queries_analyzed": len(all_queries),
         "ahrefs_keywords": len(kw_index),
+        "listicles_suggested": sum(1 for s in all_suggestions if s.get("is_listicle")),
+        "listicle_boost": listicle_boost,
+        "listicle_traffic": listicle_stats,  # {multiplier, averages, n} or None
         "top10_types": {s["type"]: 0 for s in all_suggestions[:10]},
         "by_type": by_type,
     }
@@ -1794,7 +1881,7 @@ def get_content_suggestions(cluster_id=None):
 
 def _build_writing_prompt(title, cluster_name, money_pages, products,
                           existing_articles, primary_keyword="", kw_meta=None,
-                          is_listicle=False):
+                          is_listicle=False, listicle_count=15):
     """Build a full writing prompt/content brief for an article."""
     kw_meta = kw_meta or {}
     mp_links = ""
@@ -1840,17 +1927,20 @@ STRUCTURE:
 - Conclusion with a clear call-to-action"""
 
     if is_listicle:
-        prompt += """
+        prompt += f"""
 
 FORMAT: LISTICLE (this format out-traffics others for us and AI answer engines
 lift numbered lists directly). Write it as a NUMBERED list:
-- A short intro (how you chose / what to look for), then a numbered list of
-  distinct items — each item its own H2 like "1. <Item Name>".
+- Target {listicle_count} items. A short intro (how you chose / what to look
+  for), then a numbered list of distinct items — each its own H2 like
+  "1. <Item Name>".
 - Each item: 2-4 sentences on what it is, who it's best for, and why it made the
   list, with a concrete detail (age, material, price range, skill it builds).
-- Put the ACTUAL item count in the H1/title (e.g. "12 Best …") — the number in
-  the title MUST match the number of items you write.
-- Optionally a quick comparison table summarizing the items."""
+- The TITLE already contains the number ({listicle_count}) — write exactly that
+  many items. If you genuinely cannot find {listicle_count} good picks, write
+  fewer and CHANGE the number in the H1/title to the real count — never pad the
+  list with weak filler just to hit the number.
+- Include a quick comparison table summarizing the items."""
 
     if mp_links:
         prompt += f"""
