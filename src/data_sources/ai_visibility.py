@@ -28,6 +28,58 @@ ENGINE_CONFIG = {
     "perplexity": {"key_env": "PERPLEXITY_API_KEY"},
 }
 
+_MAIN_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "defaults.json"
+
+
+def _main_config() -> dict:
+    try:
+        with open(_MAIN_CONFIG_PATH) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def default_brand_keywords() -> list:
+    """Brand terms to detect in AI answers, derived from the main config so the
+    AI-visibility check works without a manual Config step. Falls back sensibly."""
+    cfg = _main_config()
+    terms = list(cfg.get("data_sources", {}).get("google_ads", {}).get("brand_terms", []))
+    if not terms:
+        terms = ["alphabet trains", "alphabet-trains", "alphabettrains"]
+    return terms
+
+
+def default_site_domain() -> str:
+    cfg = _main_config()
+    dom = (cfg.get("business_context", {}).get("domain")
+           or cfg.get("site_url") or "alphabet-trains.com")
+    return dom.replace("https://", "").replace("http://", "").replace("www.", "").strip("/")
+
+
+_QUESTION_STARTERS = {
+    "what", "how", "why", "where", "which", "who", "when", "is", "are",
+    "do", "does", "can", "should", "will", "would", "could",
+}
+
+
+def keyword_to_prompt(keyword: str) -> str:
+    """Turn a keyword into a natural question that elicits brand/retailer
+    recommendations in AI answers — a raw product noun rarely does. Already-
+    question/comparison keywords are kept; 'best/top …' and bare nouns become
+    'What are the best …?'."""
+    k = (keyword or "").strip()
+    if not k:
+        return k
+    kl = k.lower()
+    first = kl.split()[0] if kl.split() else ""
+    if (first in _QUESTION_STARTERS or k.endswith("?")
+            or " vs " in kl or " versus " in kl or "difference between" in kl):
+        q = k if k.endswith("?") else k + "?"
+        return q[0].upper() + q[1:]
+    if kl.startswith(("best ", "top ")):
+        return f"What are the {kl}?"
+    return f"What are the best {kl}?"
+
 
 def _load_data():
     if VISIBILITY_PATH.exists():
@@ -294,13 +346,18 @@ def run_visibility_check(prompt_ids: list = None):
     if prompt_ids:
         prompts = [p for p in prompts if p["id"] in prompt_ids]
 
+    # Fall back to config-derived brand terms/domain so detection works even if
+    # the user never filled in the AI-visibility Config.
+    brand_keywords = config.get("brand_keywords") or default_brand_keywords()
+    site_domain = config.get("site_domain") or default_site_domain()
+
     all_results = []
     for prompt in prompts:
         results = check_prompt(
             prompt["text"],
             engines=prompt.get("engines", list(_QUERY_FNS.keys())),
-            brand_keywords=config.get("brand_keywords", []),
-            site_domain=config.get("site_domain", ""),
+            brand_keywords=brand_keywords,
+            site_domain=site_domain,
         )
         all_results.extend(results)
 
@@ -1302,7 +1359,11 @@ def activate_next_batch() -> dict:
     for kw in batch_keywords:
         prompt_id = f"p{len(data['prompts']) + 1}_{int(time.time())}_{len(activated)}"
         prompt = {
-            "id": prompt_id, "text": kw["keyword"],
+            "id": prompt_id,
+            # Natural-question phrasing elicits brand recommendations; keep the
+            # source keyword for display/reference.
+            "text": keyword_to_prompt(kw["keyword"]),
+            "keyword": kw["keyword"],
             "engines": list(_QUERY_FNS.keys()),
             "created_at": datetime.now().isoformat(),
         }
