@@ -546,6 +546,7 @@ def api_dashboard():
     preservation_gate = config.get("governance", {}).get("preservation_confidence_threshold", 0.75)
     real_opportunities = 0
     high_conf_opportunities = 0
+    substantive_expected_value = 0.0
     for r in results:
         action = r.get("recommended_action")
         if action in ("NO_ACTION", "OBSERVE_ONLY", None):
@@ -553,6 +554,7 @@ def api_dashboard():
         if r.get("source") in _FALLBACK_SOURCES:
             continue
         real_opportunities += 1
+        substantive_expected_value += r.get("expected_value", 0) or 0
         if (r.get("action_confidence") or 0) >= preservation_gate:
             high_conf_opportunities += 1
 
@@ -659,7 +661,11 @@ def api_dashboard():
             # substantive opportunities (fallback-assigned actions excluded).
             "real_opportunities": real_opportunities,
             "high_conf_opportunities": high_conf_opportunities,
-            "total_expected_value": eval_data.get("total_expected_value", 0),
+            # EV over the SAME substantive set as real_opportunities (excludes
+            # OBSERVE_ONLY/NO_ACTION/fallback), so the headline dollar figure and
+            # the opportunity count are computed on the same population.
+            "total_expected_value": round(substantive_expected_value, 2),
+            "total_expected_value_all": eval_data.get("total_expected_value", 0),
             "ai_revised_total": ai_total,
             "ai_analyzed_count": ai_analyzed_count,
             "ai_total_pages": ai_total_pages,

@@ -47,6 +47,8 @@ class ConstraintType(str, Enum):
     IMPRESSION_SHARE_RANK = "impression_share_rank"  # Lost IS due to rank
     PMAX_ABSORPTION = "pmax_absorption"  # PMax absorbing Search traffic
     PAID_COVERAGE_GAP = "paid_coverage_gap"  # High demand, no paid coverage
+    PAID_ORGANIC_OVERLAP = "paid_organic_overlap"  # Paying for terms ranked organically (esp. brand)
+    PAID_ROAS_WASTE = "paid_roas_waste"  # Paid queries converting well below break-even
     NO_CONSTRAINT = "no_constraint"  # Page is performing as expected
 
 
@@ -510,11 +512,17 @@ class ConstraintDetector:
 
             if ads_query:
                 result["has_data"] = True
+                _q_roas = (ads_query.conversion_value / ads_query.cost) if getattr(ads_query, "cost", 0) else None
                 queries_with_ads.append({
                     "query": query_text,
                     "ads_impressions": ads_query.impressions,
                     "ads_conversions": ads_query.conversions,
                     "ads_cpc": ads_query.cpc,
+                    "ads_cost": getattr(ads_query, "cost", 0),
+                    "ads_conversion_value": getattr(ads_query, "conversion_value", 0),
+                    "ads_roas": _q_roas,
+                    "is_brand": getattr(ads_query, "is_brand_query", False),
+                    "organic_position": gsc_query.position,
                     "impression_share": ads_query.search_impression_share,
                 })
 
@@ -619,6 +627,58 @@ class ConstraintDetector:
                         "total_impressions": total_unmon_impressions,
                     },
                     recommended_action="Consider adding these queries to Search campaigns",
+                    reversibility="immediate",
+                ))
+
+        # CONSTRAINT: Paid/organic overlap (brand cannibalization) — paying for
+        # queries this page ALREADY ranks top-3 for organically. Li et al. 2026
+        # cost-dilution: those paid clicks are largely incremental-free.
+        overlap = [
+            q for q in queries_with_ads
+            if (q.get("ads_cost") or 0) > 0
+            and 0 < (q.get("organic_position") or 99) <= 3
+            and (q.get("is_brand") or (q.get("organic_position") or 99) <= 2)
+        ]
+        if overlap:
+            overlap_cost = sum(q.get("ads_cost", 0) for q in overlap)
+            if overlap_cost >= 5:
+                constraints.append(ConstraintSignal(
+                    constraint_type=ConstraintType.PAID_ORGANIC_OVERLAP,
+                    severity="medium",
+                    description=(f"Paying for {len(overlap)} quer(ies) this page already ranks "
+                                f"top-3 for organically (${overlap_cost:,.0f}/28d)"),
+                    evidence={
+                        "queries": [{"query": q["query"], "organic_position": round(q.get("organic_position", 0), 1),
+                                     "cost": round(q.get("ads_cost", 0), 2), "brand": q.get("is_brand", False)}
+                                    for q in overlap[:5]],
+                        "overlap_cost_28d": round(overlap_cost, 2),
+                    },
+                    recommended_action=("Test pausing/reducing bids on these terms and watch total (paid+organic) "
+                                        "clicks — organic likely absorbs most of the traffic for free."),
+                    reversibility="immediate",
+                ))
+
+        # CONSTRAINT: Paid ROAS waste — meaningful spend converting well below
+        # break-even across this page's paid queries.
+        paid_cost = sum(q.get("ads_cost", 0) or 0 for q in queries_with_ads)
+        paid_value = sum(q.get("ads_conversion_value", 0) or 0 for q in queries_with_ads)
+        if paid_cost >= 25:
+            page_roas = (paid_value / paid_cost) if paid_cost else 0
+            break_even = round(1.0 / self.margin, 1) if self.margin else 4.0
+            if page_roas < break_even * 0.6:
+                constraints.append(ConstraintSignal(
+                    constraint_type=ConstraintType.PAID_ROAS_WASTE,
+                    severity="high" if page_roas < break_even * 0.3 else "medium",
+                    description=(f"Paid queries for this page return {page_roas:.1f}x ROAS "
+                                f"(${paid_cost:,.0f} spend → ${paid_value:,.0f}) vs break-even {break_even:.1f}x"),
+                    evidence={
+                        "paid_cost_28d": round(paid_cost, 2),
+                        "paid_conversion_value_28d": round(paid_value, 2),
+                        "page_roas": round(page_roas, 2),
+                        "break_even_roas": break_even,
+                    },
+                    recommended_action=("Trim bids/budget on this page's paid queries or fix the landing-page "
+                                        "conversion path — current spend is unprofitable."),
                     reversibility="immediate",
                 ))
 
