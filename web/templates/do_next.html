@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Do This Next{% endblock %}
+{% block header %}✅ Do This Next{% endblock %}
+
+{% block content %}
+<div class="dn-page">
+    <p class="playbook-intro">
+        Every recommendation across the whole tool, boiled down to one ranked list.
+        Do them <strong>top to bottom</strong>. Each is spelled out step by step, with
+        the benefit, the payoff, the effort, and how long it typically takes to show
+        results. When you <strong>Start</strong> a task the tool remembers it and
+        <strong>automatically checks on the expected date</strong> whether it worked —
+        and tells you what to tweak if it didn't.
+    </p>
+
+    <div id="dn-reviewed" class="dn-reviewed" style="display:none;"></div>
+    <div id="dn-meta" class="playbook-meta"></div>
+    <div id="dn-body"><p class="pb-loading">Loading your plan…</p></div>
+    <div id="dn-toast" class="pb-toast"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtPath(u){ try{ const p=new URL(u).pathname; return p.length>52?'…'+p.slice(-50):p; }catch(e){ return u||''; } }
+
+const CAT_META = {
+    ctr:      { icon:'💰', label:'CTR' },
+    cro:      { icon:'🛒', label:'CRO' },
+    reviews:  { icon:'🌟', label:'Reviews' },
+    schema:   { icon:'⭐', label:'Schema' },
+    merchant: { icon:'🏷️', label:'Merchant' },
+    striking: { icon:'🎯', label:'Ranking' },
+    decay:    { icon:'📉', label:'Refresh' },
+    orphan:   { icon:'🕸️', label:'Links' },
+    pruning:  { icon:'✂️', label:'Prune' },
+};
+const STATUS_META = {
+    todo:        { txt:'In progress — auto-check scheduled', cls:'dn-badge-todo' },
+    needs_tweak: { txt:'Didn\'t move yet — tweak suggested', cls:'dn-badge-tweak' },
+    done:        { txt:'Done / worked ✓', cls:'dn-badge-done' },
+};
+
+let DN = null;
+
+function dnToast(msg, err){
+    const t=document.getElementById('dn-toast');
+    t.textContent=msg; t.className='pb-toast show'+(err?' error':'');
+    setTimeout(()=>{ t.className='pb-toast'; },3000);
+}
+
+async function loadPlan(){
+    try{
+        const res=await fetch('/api/action-plan');
+        const data=await res.json();
+        DN=data;
+        if(data.error){ document.getElementById('dn-body').innerHTML=`<p class="empty-state">${esc(data.error)}</p>`; return; }
+        renderReviewed(data.reviewed_now||[]);
+        const d=data.timestamp?new Date(data.timestamp).toLocaleString():'—';
+        document.getElementById('dn-meta').innerHTML=`Ranked from your latest evaluation · ${esc(d)}`;
+        renderPlan(data.plan||[], data.adopted_extra||[]);
+    }catch(e){
+        document.getElementById('dn-body').innerHTML=`<p class="empty-state">Failed to load: ${esc(e.message)}</p>`;
+    }
+}
+
+function renderReviewed(rev){
+    const box=document.getElementById('dn-reviewed');
+    if(!rev.length){ box.style.display='none'; return; }
+    box.style.display='block';
+    box.innerHTML = `<strong>🔔 Auto-check results (today):</strong>` + rev.map(r=>{
+        const icon = r.status==='improved'||r.status==='done' ? '✅' : (r.status==='worse'?'❌':'➖');
+        return `<div class="dn-review-line">${icon} <strong>${esc(r.title||'')}</strong> — ${esc(r.detail||'')}${r.tweak?` <em>${esc(r.tweak)}</em>`:''}</div>`;
+    }).join('');
+}
+
+function taskCard(t, off){
+    const c=CAT_META[t.category]||{icon:'•',label:t.category};
+    const val = t.expected_value>0 ? `$${Math.round(t.expected_value).toLocaleString()}/mo` :
+                (t.reach? `${(t.reach).toLocaleString()} impr reach` : 'Foundational');
+    const steps=(t.steps||[]).map(s=>{
+        // Render JSON-LD-ish blocks as code.
+        if(/^\s*[\[{]/.test(s)) return `<pre class="dn-code">${esc(s)}</pre>`;
+        return `<li>${esc(s)}</li>`;
+    }).join('');
+    const reviews=(t.reviews||[]).map(rv=>{
+        const icon = rv.status==='improved'||rv.status==='done'?'✅':(rv.status==='worse'?'❌':'➖');
+        return `<div class="dn-review-line">${icon} <span style="color:var(--text-muted);">${esc(rv.checked_on||'')}:</span> ${esc(rv.detail||'')}${rv.tweak?` <em>${esc(rv.tweak)}</em>`:''}</div>`;
+    }).join('');
+    const statusBadge = t.adopted ? (()=>{ const m=STATUS_META[t.status]||STATUS_META.todo; return `<span class="dn-badge ${m.cls}">${esc(m.txt)}</span>`; })() : '';
+    const btns = t.status==='done'
+        ? `<button class="pb-task-btn pb-added" disabled>✓ Done</button>`
+        : (t.adopted
+            ? `<button class="pb-task-btn" onclick="dnComplete('${esc(t.dedup_key)}', this)">Mark done</button>`
+            : `<button class="pb-task-btn" onclick="dnAdopt('${esc(t.dedup_key)}', this)">Start this →</button>`);
+    return `<div class="dn-card ${off?'dn-off':''}">
+        <div class="dn-head">
+            <div class="dn-rank">${off?'✓':('#'+t.rank)}</div>
+            <div class="dn-titlewrap">
+                <div class="dn-title">${c.icon} ${esc(t.title)}</div>
+                <div class="dn-sub">
+                    <span class="dn-chip">${esc(c.label)}</span>
+                    ${t.url?`<a href="${esc(t.url)}" target="_blank" title="${esc(t.url)}">${esc(fmtPath(t.url))}</a>`:''}
+                </div>
+            </div>
+            <div class="dn-metrics">
+                <div class="dn-metric"><span class="dn-metric-val">${val}</span><span class="dn-metric-lbl">payoff</span></div>
+                <div class="dn-metric"><span class="dn-metric-val">${esc((t.effort||'').split(' ')[0])}</span><span class="dn-metric-lbl">effort</span></div>
+                <div class="dn-metric"><span class="dn-metric-val">${esc(t.time_to_impact_label||'')}</span><span class="dn-metric-lbl">to show results</span></div>
+            </div>
+        </div>
+        <div class="dn-benefit">🎁 <strong>Benefit:</strong> ${esc(t.benefit)}</div>
+        <details ${off?'':'open'}><summary>Exact steps</summary><ol class="dn-steps">${steps}</ol></details>
+        ${statusBadge}
+        ${t.review_date && t.status!=='done' ? `<div class="dn-when">⏳ Auto-check on <strong>${esc(t.review_date)}</strong> — the tool will re-measure and tell you if it worked.</div>`:''}
+        ${reviews?`<div class="dn-reviews">${reviews}</div>`:''}
+        <div class="dn-actions">${btns}</div>
+    </div>`;
+}
+
+function renderPlan(plan, extra){
+    const body=document.getElementById('dn-body');
+    if(!plan.length && !extra.length){
+        body.innerHTML='<p class="empty-state">No open recommendations right now — either everything is adopted, or you need to run an evaluation with crawl. 🎉</p>';
+        return;
+    }
+    let html='';
+    if(plan.length){ html += plan.map(t=>taskCard(t,false)).join(''); }
+    if(extra.length){
+        html += `<h3 class="pb-subhead" style="margin-top:24px;">Being tracked (auto-checking)</h3>`;
+        html += extra.map(t=>taskCard(t,true)).join('');
+    }
+    body.innerHTML=html;
+}
+
+async function dnAdopt(key, btn){
+    const t=(DN.plan||[]).find(x=>x.dedup_key===key); if(!t) return;
+    if(btn){ btn.disabled=true; btn.textContent='Starting…'; }
+    try{
+        const res=await fetch('/api/action-plan/adopt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
+        const data=await res.json();
+        if(data.success){ dnToast('Started — auto-check set for '+data.review_date); loadPlan(); }
+        else { if(btn){btn.disabled=false;btn.textContent='Start this →';} dnToast(data.error||'Failed',true); }
+    }catch(e){ if(btn){btn.disabled=false;btn.textContent='Start this →';} dnToast('Failed: '+e.message,true); }
+}
+
+async function dnComplete(key, btn){
+    if(btn){ btn.disabled=true; btn.textContent='…'; }
+    try{
+        const res=await fetch('/api/action-plan/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dedup_key:key})});
+        const data=await res.json();
+        if(data.success){ dnToast('Marked done'); loadPlan(); }
+        else { if(btn){btn.disabled=false;btn.textContent='Mark done';} dnToast(data.error||'Failed',true); }
+    }catch(e){ if(btn){btn.disabled=false;btn.textContent='Mark done';} dnToast('Failed: '+e.message,true); }
+}
+
+loadPlan();
+</script>
+{% endblock %}

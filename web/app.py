@@ -529,6 +529,13 @@ def playbook():
     return render_template("playbook.html")
 
 
+@app.route("/do-next")
+def do_next():
+    """Unified 'Do This Next' action plan — the idiot-proof, ranked, step-by-step
+    list that aggregates every recommendation and auto-checks whether it worked."""
+    return render_template("do_next.html")
+
+
 # ============================================================
 # API ROUTES
 # ============================================================
@@ -6524,6 +6531,241 @@ def api_playbook():
     out["existing_task_keys"] = existing_keys
 
     return jsonify(out)
+
+
+ACTION_PLAN_PATH = DATA_PATH / "action_plan.json"
+
+
+def _now_date_iso():
+    from datetime import date
+    return date.today().isoformat()
+
+
+def _load_action_plan_store():
+    if not ACTION_PLAN_PATH.exists():
+        return {"adopted": {}}
+    try:
+        with open(ACTION_PLAN_PATH) as f:
+            d = json.load(f)
+            d.setdefault("adopted", {})
+            return d
+    except (json.JSONDecodeError, OSError):
+        return {"adopted": {}}
+
+
+def _save_action_plan_store(store):
+    try:
+        with open(ACTION_PLAN_PATH, "w") as f:
+            json.dump(store, f, indent=2)
+    except OSError:
+        pass
+
+
+def _build_plan_inputs(results, eval_data, disallow):
+    """Compute every subsystem's output for the unified Action Plan."""
+    from src.analysis.ctr_recovery import find_ctr_recovery
+    from src.analysis.cro_leaks import find_cro_leaks
+    from src.analysis.reviews_engine import find_review_priorities
+    from src.analysis.rich_results import analyze_site_schema
+    from src.analysis.brand_merchant import brand_merchant_audit
+    from src.analysis import growth_playbook as gp
+
+    config = load_config()
+    ctr = find_ctr_recovery(results, system_disallow=disallow)
+    for row in ctr.get("rows", []):
+        aov, cvr, margin, _ = _biz_params(config, row.get("asset_type"))
+        row["lost_revenue"] = round(row["lost_clicks"] * cvr * aov * margin, 2)
+    cro = find_cro_leaks(results, system_disallow=disallow)
+    reviews = find_review_priorities(results, system_disallow=disallow)
+    rich = analyze_site_schema([_schema_page_view(r) for r in results])
+    try:
+        from src.data_sources.ai_visibility import default_brand_keywords
+        brand_terms = default_brand_keywords()
+    except Exception:
+        brand_terms = ["alphabet trains"]
+    bm = brand_merchant_audit(results, brand_terms, system_disallow=disallow)
+    striking = gp.find_striking_distance(results, system_disallow=disallow)
+    # Decay needs history snapshots.
+    snaps = []
+    if EVAL_HISTORY_PATH.exists():
+        for p in sorted(EVAL_HISTORY_PATH.glob("*.json")):
+            try:
+                with open(p) as f:
+                    snaps.append(json.load(f))
+            except (json.JSONDecodeError, OSError):
+                continue
+    if not snaps or snaps[-1].get("timestamp") != eval_data.get("timestamp"):
+        snaps.append(eval_data)
+    decay = gp.find_content_decay(snaps, system_disallow=disallow)
+    return ctr, cro, reviews, rich, bm, striking, decay
+
+
+def _process_due_reviews(store, results, eval_timestamp=""):
+    """Auto-check every adopted task whose review date has arrived: re-measure
+    against the latest evaluation, record the result + a tweak, and reschedule or
+    close. Returns the list of tasks reviewed this pass.
+
+    A review is only meaningful if a FRESH evaluation ran after the task was
+    adopted — otherwise we'd compare the baseline to itself. When the evaluation
+    is stale, the task is marked not-yet-measurable and re-checked in a week."""
+    from src.analysis.action_plan import evaluate_review, review_date_for
+    from datetime import datetime, date, timedelta
+
+    by_url = {_normalize_url(r.get("url", "")): r for r in results}
+    today = date.today().isoformat()
+    eval_day = (eval_timestamp or "")[:10]
+    reviewed = []
+    for key, t in store.get("adopted", {}).items():
+        if t.get("status") == "done":
+            continue
+        rd = t.get("review_date")
+        if not rd or rd > today:
+            continue
+        # Need a re-evaluation that post-dates when this task was adopted.
+        if eval_day and eval_day <= (t.get("adopted_on", "") or ""):
+            t["review_date"] = (date.today() + timedelta(days=7)).isoformat()
+            entry = {"checked_on": today, "status": "not_measurable",
+                     "detail": "No fresh evaluation since you started this — re-run an "
+                               "evaluation (with crawl) so the tool can measure the change.",
+                     "tweak": ""}
+            t.setdefault("reviews", []).append(entry)
+            reviewed.append({"key": key, "title": t.get("title"), **entry})
+            continue
+        result = by_url.get(_normalize_url(t.get("url", "")))
+        verdict = evaluate_review(t.get("metric", {}), t.get("baseline", {}), result)
+        entry = {"checked_on": today, **verdict}
+        t.setdefault("reviews", []).append(entry)
+        if verdict["status"] in ("improved", "done"):
+            t["status"] = "done"
+        elif verdict["status"] == "not_measurable":
+            # Re-check in a week once a fresh evaluation likely exists.
+            from datetime import timedelta
+            t["review_date"] = (date.today() + timedelta(days=7)).isoformat()
+        else:
+            # Didn't work / flat: surface the tweak and give it one more cycle.
+            t["status"] = "needs_tweak"
+            t["review_date"] = review_date_for(t.get("category", "ctr"))
+        reviewed.append({"key": key, "title": t.get("title"), **entry})
+    if reviewed:
+        _save_action_plan_store(store)
+    return reviewed
+
+
+@app.route("/api/action-plan")
+def api_action_plan():
+    """The unified 'do this next' plan: every recommendation across the tool,
+    ranked, with exact steps, benefit, expected value, effort, time-to-impact, and
+    adoption/auto-review state. Processes any due auto-reviews on load."""
+    from src.analysis.action_plan import build_action_plan
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"error": "No evaluation yet. Run one (with crawl) first."})
+    try:
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return jsonify({"error": "Could not read evaluation."})
+    results = eval_data.get("results", [])
+    disallow = _robots_disallow_rules()
+
+    store = _load_action_plan_store()
+    reviewed = _process_due_reviews(store, results, eval_data.get("timestamp", ""))
+
+    ctr, cro, reviews, rich, bm, striking, decay = _build_plan_inputs(results, eval_data, disallow)
+    plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
+                             brand_merchant=bm, striking=striking, decay=decay)
+
+    adopted = store.get("adopted", {})
+    for t in plan:
+        a = adopted.get(t["dedup_key"])
+        if a:
+            t["adopted"] = True
+            t["status"] = a.get("status", "todo")
+            t["review_date"] = a.get("review_date")
+            t["reviews"] = a.get("reviews", [])
+        else:
+            t["adopted"] = False
+
+    # Adopted tasks that dropped off the fresh plan (e.g. the leak is now fixed) —
+    # keep showing them with their review history so the loop is visible.
+    plan_keys = {t["dedup_key"] for t in plan}
+    extra = []
+    for key, a in adopted.items():
+        if key not in plan_keys:
+            extra.append({**a, "adopted": True, "off_plan": True})
+
+    return jsonify({
+        "timestamp": eval_data.get("timestamp", ""),
+        "plan": plan,
+        "adopted_extra": extra,
+        "reviewed_now": reviewed,
+    })
+
+
+@app.route("/api/action-plan/adopt", methods=["POST"])
+def api_action_plan_adopt():
+    """Adopt a plan task: persist it with a review date + baseline so the tool can
+    auto-check whether it worked. Also files it to the Task Board."""
+    from src.analysis.action_plan import review_date_for
+    task = request.json or {}
+    key = task.get("dedup_key")
+    if not key:
+        return jsonify({"success": False, "error": "dedup_key required"}), 400
+    store = _load_action_plan_store()
+    task["adopted_on"] = _now_date_iso()
+    task["review_date"] = review_date_for(task.get("category", "ctr"))
+    task["status"] = "todo"
+    task.setdefault("reviews", [])
+    store["adopted"][key] = task
+    _save_action_plan_store(store)
+
+    # Mirror onto the Task Board so it lives with everything else.
+    try:
+        data = {
+            "url": task.get("url", ""), "asset_type": task.get("asset_type", "other"),
+            "action": "OBSERVE_ONLY", "primary_constraint": f"Action Plan · {task.get('category','')}",
+            "expected_value": task.get("expected_value", 0), "confidence": 0.6, "risk_level": "low",
+            "source": "action_plan", "dedup_key": key,
+            "implementation_summary": task.get("title", ""),
+            "implementation_steps": (task.get("steps", []) or []) + [
+                f"Benefit: {task.get('benefit','')}",
+                f"Typically shows results in {task.get('time_to_impact_label','')} — "
+                f"the tool will auto-check on {task.get('review_date','')}."],
+        }
+        if not _find_duplicate_proposed(data):
+            _persist_action(data)
+    except Exception:
+        pass
+    return jsonify({"success": True, "review_date": task["review_date"]})
+
+
+@app.route("/api/action-plan/complete", methods=["POST"])
+def api_action_plan_complete():
+    """Mark an adopted task done (operator says they did it / it worked)."""
+    key = (request.json or {}).get("dedup_key")
+    store = _load_action_plan_store()
+    if key in store.get("adopted", {}):
+        store["adopted"][key]["status"] = "done"
+        _save_action_plan_store(store)
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "not found"}), 404
+
+
+@app.route("/api/action-plan/process-reviews", methods=["POST", "GET"])
+def api_action_plan_process_reviews():
+    """Run the auto check-back for every due task. Safe to call from cron daily."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"reviewed": [], "note": "no evaluation"})
+    try:
+        with open(eval_path) as f:
+            _ev = json.load(f)
+            results = _ev.get("results", [])
+    except (json.JSONDecodeError, OSError):
+        return jsonify({"reviewed": [], "note": "unreadable evaluation"})
+    store = _load_action_plan_store()
+    reviewed = _process_due_reviews(store, results, _ev.get("timestamp", ""))
+    return jsonify({"reviewed": reviewed, "count": len(reviewed)})
 
 
 @app.route("/api/playbook/add-task", methods=["POST"])
