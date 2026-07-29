@@ -920,6 +920,7 @@ class FullEvaluationWorkflow:
             "ga4_engagement_rate": round(asset.ga4.engagement_rate_28d, 4),
             "ga4_revenue": round(asset.ga4.revenue_28d, 2),
             "ga4_purchases": asset.ga4.purchases_28d,
+            "ga4_add_to_carts": asset.ga4.add_to_carts_28d,
             "ga4_bounce_rate": round(asset.ga4.bounce_rate_28d, 4),
             # Core Web Vitals (CrUX) — present only for pages we fetched
             "cwv": getattr(asset, "_cwv", None),

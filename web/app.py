@@ -6711,7 +6711,12 @@ def api_playbook():
         out["ctr_recovery"] = ctr_out
     if section in ("all", "cro"):
         from src.analysis.cro_leaks import find_cro_leaks
-        out["cro_leaks"] = find_cro_leaks(results, system_disallow=disallow)
+        _cfg = load_config()
+        _aov, _cvr, _margin, _src = _biz_params(_cfg)
+        # Only pass a config AOV as fallback (measured AOV is used inside when present).
+        _fallback_aov = _aov if _src != "measured" else None
+        out["cro_leaks"] = find_cro_leaks(results, system_disallow=disallow,
+                                          fallback_aov=_fallback_aov)
     if section in ("all", "reviews"):
         from src.analysis.reviews_engine import find_review_priorities
         out["reviews"] = find_review_priorities(results, system_disallow=disallow)

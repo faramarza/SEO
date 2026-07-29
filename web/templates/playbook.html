@@ -482,16 +482,19 @@ function renderCro(cro) {
         summary.innerHTML = '';
         const msg = cro.reason_unavailable
             || 'No CRO leaks found — your money pages convert at or above your own average. 🎉';
-        body.innerHTML = `<p class="empty-state">${escHtml(msg)}</p>`;
+        body.innerHTML = `<p class="empty-state" style="text-align:left;line-height:1.6;">${escHtml(msg)}</p>`;
         return;
     }
+    const atc = cro.mode === 'add_to_cart';
     summary.innerHTML = `
-        <div class="pb-geo-stat"><span class="pb-geo-stat-val">$${Math.round(cro.total_lost_revenue||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">recoverable revenue/window</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">$${Math.round(cro.total_lost_revenue||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">${atc?'est. recoverable (via cart)':'recoverable revenue/window'}</span></div>
         <div class="pb-geo-stat"><span class="pb-geo-stat-val">${cro.pages_affected||0}</span><span class="pb-geo-stat-lbl">under-converting money pages</span></div>`;
 
-    let html = `<table class="pb-table"><thead><tr>
-        <th>Page</th><th>Type</th><th>Sessions</th><th>CVR now → yours</th>
-        <th>Recoverable</th><th>Fix (most impactful first)</th><th></th></tr></thead><tbody>`;
+    let html = '';
+    if (cro.note) html += `<div class="pb-geo-note" style="margin-bottom:10px;">ℹ️ ${escHtml(cro.note)}</div>`;
+    html += `<table class="pb-table"><thead><tr>
+        <th>Page</th><th>Type</th><th>Sessions</th><th>${atc?'Add-to-cart rate → yours':'CVR now → yours'}</th>
+        <th>${atc?'Lost carts':'Recoverable'}</th><th>Fix (most impactful first)</th><th></th></tr></thead><tbody>`;
     rows.forEach((r, i) => {
         r._idx = i;
         const reasons = (r.reasons || []).map(x => `<div class="pb-geo-fix">${escHtml(x)}</div>`).join('');

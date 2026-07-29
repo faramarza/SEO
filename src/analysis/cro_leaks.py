@@ -52,18 +52,50 @@ def _diagnose(r, pm, asset_type, bounce, site_bounce):
     return reasons
 
 
-def find_cro_leaks(results, limit=100, system_disallow=None):
+def _ga4_totals(results):
+    ts = tp = tr = ta = 0.0
+    for r in results:
+        ts += r.get("ga4_sessions", 0) or 0
+        tp += r.get("ga4_purchases", 0) or 0
+        tr += r.get("ga4_revenue", 0) or 0
+        ta += r.get("ga4_add_to_carts", 0) or 0
+    return int(ts), int(tp), round(tr, 2), int(ta)
+
+
+def find_cro_leaks(results, limit=100, system_disallow=None, fallback_aov=None,
+                   cart_to_purchase=0.30):
     """Money pages converting below the site's own per-type average, ranked by
-    recoverable revenue. Returns rows + totals."""
+    recoverable revenue. Falls back to an add-to-cart signal when GA4 purchase
+    tracking is missing, and explains WHY when neither is available."""
     bm = site_conversion_and_aov(results)
     cvr_by_type = bm.get("cvr_by_type", {}) or {}
     site_cvr = bm.get("site_cvr")
     site_aov = bm.get("site_aov")
     if not site_aov:
-        # Without a measured AOV we can't monetize the gap honestly.
+        # No usable purchase/revenue data. Diagnose the real cause from GA4
+        # totals, and fall back to an add-to-cart signal if that's tracked.
+        tot_s, tot_p, tot_r, tot_atc = _ga4_totals(results)
+        if tot_atc >= 20:
+            return _find_cro_leaks_by_cart(results, limit, system_disallow,
+                                           fallback_aov, cart_to_purchase, tot_atc)
+        if tot_s >= 500 and tot_p == 0 and tot_atc == 0:
+            reason = (f"GA4 recorded {tot_s:,} sessions but ZERO purchases and ZERO "
+                      f"add-to-carts in 28 days — your GA4 ecommerce tracking almost "
+                      f"certainly isn't firing (no purchase/add_to_cart events). Fix "
+                      f"GA4 ecommerce tracking to unlock CRO and revenue-based ranking. "
+                      f"Until then, set a manual AOV in config to get ≈ estimates.")
+        elif tot_s >= 500 and tot_p == 0:
+            reason = (f"GA4 has {tot_s:,} sessions and {tot_atc:,} add-to-carts but 0 "
+                      f"purchases recorded — purchase tracking looks broken even though "
+                      f"add-to-cart works. Fix the GA4 purchase event; add-to-cart CRO "
+                      f"will kick in on the next crawl.")
+        else:
+            reason = (f"Not enough GA4 purchase data yet ({tot_p} purchases, {tot_s:,} "
+                      f"sessions in 28 days) to benchmark conversion — low volume.")
         return {"rows": [], "total_lost_revenue": 0, "pages_affected": 0,
-                "reason_unavailable": "Not enough GA4 purchase data to benchmark "
-                "conversion yet — needs measured AOV and per-type conversion rates."}
+                "reason_unavailable": reason,
+                "ga4_totals": {"sessions": tot_s, "purchases": tot_p,
+                               "revenue": tot_r, "add_to_carts": tot_atc}}
 
     # Site bounce baseline (for the diagnosis only).
     b_tot = b_n = 0.0
@@ -118,4 +150,71 @@ def find_cro_leaks(results, limit=100, system_disallow=None):
         "total_lost_revenue": round(sum(x["lost_revenue"] for x in rows), 2),
         "pages_affected": len(rows),
         "site_aov": site_aov,
+        "mode": "purchase",
+    }
+
+
+def _find_cro_leaks_by_cart(results, limit, system_disallow, fallback_aov,
+                            cart_to_purchase, tot_atc):
+    """Fallback CRO signal when GA4 purchase tracking is missing but add-to-cart
+    IS tracked: money pages with traffic but a low add-to-cart rate vs the site's
+    own per-type ATC average. Add-to-cart is a genuine, earlier conversion signal.
+    Monetized only approximately (via a config AOV and an assumed cart→purchase
+    rate), clearly flagged as an estimate."""
+    tot_s = sum(r.get("ga4_sessions", 0) or 0 for r in results) or 1
+    site_atc_rate = tot_atc / tot_s
+    # Per-type ATC rate.
+    by_type = {}
+    for r in results:
+        t = (r.get("asset_type") or "other").lower()
+        if t not in ("product", "category"):
+            continue
+        e = by_type.setdefault(t, [0.0, 0.0])
+        e[0] += r.get("ga4_sessions", 0) or 0
+        e[1] += r.get("ga4_add_to_carts", 0) or 0
+    type_atc = {t: (a / s) for t, (s, a) in by_type.items() if s >= 100 and a > 0}
+
+    rows = []
+    for r in results:
+        url = r.get("url", "")
+        if _is_system_page(url, extra_disallow=system_disallow):
+            continue
+        asset_type = (r.get("asset_type") or "other").lower()
+        if asset_type not in ("product", "category"):
+            continue
+        sessions = r.get("ga4_sessions", 0) or 0
+        atc = r.get("ga4_add_to_carts", 0) or 0
+        if sessions < _MIN_SESSIONS:
+            continue
+        bench = type_atc.get(asset_type) or site_atc_rate
+        if not bench:
+            continue
+        page_atc_rate = atc / sessions if sessions else 0.0
+        if page_atc_rate >= bench * _UNDERPERFORMANCE:
+            continue
+        lost_carts = (bench - page_atc_rate) * sessions
+        if lost_carts < 1:
+            continue
+        pm = r.get("page_metadata", {}) or {}
+        est_rev = (lost_carts * cart_to_purchase * fallback_aov) if fallback_aov else 0
+        rows.append({
+            "url": url, "asset_type": asset_type, "sessions": int(sessions),
+            "purchases": None,
+            "page_cvr": round(page_atc_rate * 100, 2),      # add-to-cart rate
+            "benchmark_cvr": round(bench * 100, 2),
+            "lost_purchases": round(lost_carts, 1),          # lost add-to-carts
+            "lost_revenue": round(est_rev, 2),
+            "reasons": _diagnose(r, pm, asset_type, r.get("ga4_bounce_rate"), None),
+            "has_crawl_data": bool(pm.get("has_crawl_data")),
+        })
+    rows.sort(key=lambda x: -(x["lost_revenue"] or x["lost_purchases"]))
+    return {
+        "rows": rows[:limit],
+        "total_lost_revenue": round(sum(x["lost_revenue"] for x in rows), 2),
+        "pages_affected": len(rows),
+        "mode": "add_to_cart",
+        "note": ("Purchase tracking is unavailable in GA4, so this ranks by "
+                 "ADD-TO-CART rate instead (an earlier conversion signal). "
+                 "'CVR' columns show add-to-cart rate; revenue is a rough estimate."
+                 + ("" if fallback_aov else " Set a manual AOV in config for $ estimates.")),
     }
