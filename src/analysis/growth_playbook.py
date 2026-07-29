@@ -464,8 +464,14 @@ def find_pruning_candidates(results, max_impressions=15, thin_words=300,
         # Dead: negligible demand and no clicks.
         if impr > max_impressions or clicks > 0:
             continue
+        # Prune ONLY genuinely thin content. A substantial article (even orphaned
+        # with 0 impressions) is NOT dead weight — it's under-linked and/or not yet
+        # indexed, which is an orphan-rescue + promotion job (see the Orphans tab),
+        # never a delete. Treating 'orphaned' as a prune signal would tell the
+        # operator to delete real content the site invested in. We also never prune
+        # a page we couldn't measure (word_count 0 = not crawled).
         thin = 0 < words < thin_words
-        if not (thin or is_orphan):
+        if not thin:
             continue
         # Disposition: a topically-related stronger page -> redirect/merge;
         # otherwise prune (noindex/remove).
@@ -483,9 +489,10 @@ def find_pruning_candidates(results, max_impressions=15, thin_words=300,
             target = {"url": best_rel["url"], "title": best_rel["title"]}
         else:
             disposition = "prune"
-            reason = ("No demand, no clicks, "
-                      + ("thin content" if thin else "orphaned")
-                      + ", no strong related page. Noindex or remove.")
+            reason = (f"Thin ({words} words), no demand, no clicks, no strong related "
+                      f"page to merge into. Review — noindex or remove."
+                      + (" (Also orphaned — if you want to KEEP it, add internal "
+                         "links instead of pruning.)" if is_orphan else ""))
             target = None
         candidates.append({
             "url": page["url"],
