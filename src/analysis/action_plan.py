@@ -152,8 +152,13 @@ def _from_reviews(reviews, out):
 
 def _from_rich(rich, out):
     for p in (rich.get("pages") or [])[:6]:
-        # Only the highest-impact missing type per page, to keep the plan short.
-        gaps = sorted(p.get("missing", []),
+        # Only ACTIONABLE schema gaps — skip anything blocked on a prerequisite
+        # (e.g. AggregateRating needs real reviews first). Blocked schema is a
+        # trap as a top task: it tells you to add stars you can't honestly add
+        # yet. Reviews are handled by the review-collection task, which sequences
+        # it correctly (collect reviews → then the schema follows).
+        gaps = [m for m in p.get("missing", []) if not m.get("requires_data")]
+        gaps = sorted(gaps,
                       key=lambda m: {"high":0,"medium":1,"low":2}.get(m.get("impact"),3))
         if not gaps:
             continue
