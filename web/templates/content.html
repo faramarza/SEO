@@ -818,7 +818,7 @@ async function showClusterDetail(id) {
                 </div>
             </div>
 
-            ${renderClusterSuggestions(sugData, id)}
+            ${renderClusterSuggestions(sugData, id, Math.max(0, (cluster.target_articles || 20) - published))}
 
             <div class="detail-section">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -855,12 +855,19 @@ async function showClusterDetail(id) {
     }
 }
 
-function renderClusterSuggestions(data, clusterId) {
+function renderClusterSuggestions(data, clusterId, gapFallback) {
     const sugs = (data && data.suggestions) || [];
-    const gap = data && data.gap || 0;
+    // The endpoint responds with a numeric gap; if it's missing, the endpoint
+    // didn't answer (older server build — needs a restart).
+    const endpointResponded = data && typeof data.gap === 'number';
+    const gap = endpointResponded ? data.gap : (gapFallback || 0);
     if (!sugs.length) {
+        if (!endpointResponded) {
+            return `<div class="detail-section"><h4>✍️ Suggested articles to complete this cluster</h4>
+                 <div style="padding:12px;color:#b45309;font-size:13px;background:rgba(217,119,6,.08);border-radius:8px;">This feature needs the latest app version. On the server: <code>git pull</code> then <code>sudo systemctl restart seo</code>, then reload.</div></div>`;
+        }
         return gap > 0
-            ? `<div class="detail-section"><h4>Suggested articles to complete this cluster</h4>
+            ? `<div class="detail-section"><h4>✍️ Suggested articles to complete this cluster</h4>
                  <div style="padding:12px;color:var(--text-muted);font-size:13px;">Need ${gap} more to hit target, but no data-driven ideas surfaced yet. Run an evaluation (with crawl) and import your Ahrefs keywords so the tool can suggest specific topics from real demand.</div></div>`
             : '';
     }
