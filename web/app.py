@@ -7107,8 +7107,12 @@ def _gather_strategy_signals(results, eval_data, disallow):
                     "missing_count": reviews.get("missing_count"),
                     "money_pages": reviews.get("money_pages"),
                     "top_sellers_missing": top(reviews.get("rows"), ["url", "revenue", "units_sold", "impressions"])},
-        "schema": {"actionable": [{"type": g["type"], "count": g["count"]} for g in (rich.get("gaps_actionable") or [])],
-                   "blocked": [{"type": g["type"], "count": g["count"]} for g in (rich.get("gaps_blocked") or [])]},
+        "schema": {"actionable": [{"type": g["type"], "count": g["count"],
+                                    "template_hint": g.get("template_hint")}
+                                   for g in (rich.get("gaps_actionable") or [])],
+                   "blocked": [{"type": g["type"], "count": g["count"],
+                                "blocker_reason": g.get("blocker")}
+                               for g in (rich.get("gaps_blocked") or [])]},
         "content_gaps": top([s for s in (content.get("suggestions") or []) if s.get("is_content_gap")],
                             ["title", "impressions", "ahrefs_volume"], 5),
         "orphans": {"count": len((orphans or {}).get("orphans") or [])},
@@ -7154,7 +7158,13 @@ def api_action_plan_strategy():
         "given. NO generic advice, NO filler, NO listing everything. If the data shows "
         "a foundational blocker (broken tracking, near-zero reviews, a structural "
         "issue affecting many pages at once), that is the priority — say so. Prefer "
-        "one structural move that fixes many pages over per-page busywork. Return ONLY JSON."
+        "one structural move that fixes many pages over per-page busywork. "
+        "CRITICAL: do NOT invent technical root causes that aren't in the data. When "
+        "a schema type is 'blocked', its blocker_reason IS the cause — e.g. "
+        "AggregateRating is blocked simply because those products have no reviews yet "
+        "(rendering rating schema without real reviews is a Google penalty, so this is "
+        "correct, not a bug). Don't send the operator to audit theme settings; the "
+        "fix for a review-blocker is to COLLECT REVIEWS. Return ONLY JSON."
     )
     user_prompt = f"""STORE DATA (28-day, real measured figures):
 {json.dumps(signals, indent=2, default=str)}
