@@ -52,7 +52,10 @@ def _load_dotenv():
     in .env as requested."""
     env_path = Path(__file__).parent.parent / ".env"
     if not env_path.exists():
+        print(f"[ENV] No .env found at {env_path} — relying on the process environment.",
+              flush=True)
         return
+    loaded = 0
     try:
         for line in env_path.read_text().splitlines():
             line = line.strip()
@@ -63,8 +66,11 @@ def _load_dotenv():
             val = val.strip().strip('"').strip("'")
             if key and key not in os.environ:
                 os.environ[key] = val
-    except OSError:
-        pass
+                loaded += 1
+    except OSError as e:
+        print(f"[ENV] Could not read {env_path}: {e}", flush=True)
+        return
+    print(f"[ENV] Loaded {loaded} var(s) from {env_path}", flush=True)
 
 
 _load_dotenv()
@@ -110,6 +116,9 @@ if not AUTH_PASSWORD:
     print("[AUTH] WARNING: GOVERNOR_PASSWORD is not set — the login gate is "
           "DISABLED and the tool is OPEN. Set GOVERNOR_PASSWORD in .env to secure it.",
           flush=True)
+else:
+    print(f"[AUTH] Login gate ENABLED (user={AUTH_USERNAME}, "
+          f"password {len(AUTH_PASSWORD)} chars).", flush=True)
 
 # Paths reachable without a login (the login form itself, its POST, static assets,
 # and the lightweight job-status poll used before some pages authenticate).
