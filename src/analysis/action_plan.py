@@ -337,15 +337,29 @@ def _from_brand(bm, out):
             "other", f.get("query","")))
 
 
+# Not all traffic is worth the same. Impressions on an informational blog post
+# (low buying intent) are worth far less than on a money page — so a reach-based
+# proxy must be weighted by the page's commercial value, or high-impression blog
+# busywork (e.g. internal-linking every article) floats to the top.
+ASSET_INTENT_WEIGHT = {
+    "product": 1.2, "category": 1.0, "guide": 0.45,
+    "blog": 0.3, "article": 0.3, "other": 0.6,
+}
+
+
 def _score_task(t):
     """ROI = value per hour of work per week until it pays off. So a quick,
     high-value, fast-paying fix outranks a big, slow, expensive one — which is
     what 'the best use of your next hour' actually means."""
     cat = t["category"]
-    # Impact in $-equivalent points: real revenue if measured, else a small proxy
-    # from the traffic it touches, floored by the category baseline.
-    impact = t["expected_value"] if t["expected_value"] > 0 else max(
-        t["reach"] * 0.01, CATEGORY_BASE.get(cat, 5))
+    # Impact in $-equivalent points. Real measured revenue is trusted as-is.
+    # Otherwise use a traffic proxy WEIGHTED by the page's commercial intent, so
+    # informational reach doesn't masquerade as revenue.
+    if t["expected_value"] > 0:
+        impact = t["expected_value"]
+    else:
+        w = ASSET_INTENT_WEIGHT.get((t.get("asset_type") or "other").lower(), 0.6)
+        impact = max(t["reach"] * 0.01 * w, CATEGORY_BASE.get(cat, 5) * w)
     hours = EFFORT_HOURS.get(cat, 2.0)
     weeks = max(1.0, t["time_to_impact_days"] / 7.0)
     roi = impact / (hours * weeks)

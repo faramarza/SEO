@@ -159,8 +159,14 @@ function renderPlan(plan, extra){
     }
     const open = plan.filter(t=>!t.adopted);
     const inProgress = plan.filter(t=>t.adopted && t.status!=='done');
-    const thisWeek = open.slice(0,3);
-    const backlog = open.slice(3);
+    // "3 best moves" = top ROI but DIVERSE — at most one per category, so the
+    // headline slots aren't 3 copies of the same bulk task. Fill any shortfall
+    // from the remaining highest-ROI items.
+    const thisWeek=[]; const usedCats=new Set();
+    for(const t of open){ if(thisWeek.length>=3) break; if(usedCats.has(t.category)) continue; thisWeek.push(t); usedCats.add(t.category); }
+    if(thisWeek.length<3){ for(const t of open){ if(thisWeek.length>=3) break; if(!thisWeek.includes(t)) thisWeek.push(t); } }
+    const twSet=new Set(thisWeek.map(t=>t.dedup_key));
+    const backlog = open.filter(t=>!twSet.has(t.dedup_key));
 
     let html='';
 
