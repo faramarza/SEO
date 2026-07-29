@@ -63,39 +63,53 @@ def _ga4_totals(results):
 
 
 def find_cro_leaks(results, limit=100, system_disallow=None, fallback_aov=None,
-                   cart_to_purchase=0.30):
+                   cart_to_purchase=0.30, account_totals=None):
     """Money pages converting below the site's own per-type average, ranked by
-    recoverable revenue. Falls back to an add-to-cart signal when GA4 purchase
-    tracking is missing, and explains WHY when neither is available."""
-    bm = site_conversion_and_aov(results)
-    cvr_by_type = bm.get("cvr_by_type", {}) or {}
-    site_cvr = bm.get("site_cvr")
-    site_aov = bm.get("site_aov")
-    if not site_aov:
-        # No usable purchase/revenue data. Diagnose the real cause from GA4
-        # totals, and fall back to an add-to-cart signal if that's tracked.
-        tot_s, tot_p, tot_r, tot_atc = _ga4_totals(results)
+    recoverable revenue. Falls back to an add-to-cart signal when organic purchase
+    volume is too thin to benchmark, and explains WHY when neither is available.
+
+    AOV comes from all channels (a business constant), but the per-page CVR
+    benchmark stays ORGANIC — comparing an organic page's CVR to an all-channels
+    average (inflated by paid/direct) would falsely flag it."""
+    bm = site_conversion_and_aov(results, account_totals=account_totals)
+    cvr_by_type = bm.get("cvr_by_type", {}) or {}          # organic, per type
+    organic_cvr = bm.get("site_cvr") if bm.get("cvr_source") == "organic" else None
+    site_aov = bm.get("site_aov")                          # may be all-channels
+    aov_for_est = site_aov or fallback_aov
+    tot_s, tot_p, tot_r, tot_atc = _ga4_totals(results)
+    # Purchase-mode needs a real AOV, an organic CVR benchmark, AND enough organic
+    # conversions that the benchmark isn't noise. A paid-heavy store's organic CVR
+    # is ~0.1%, which can't flag leaks — use the higher-volume add-to-cart signal.
+    _MIN_ORG_PURCHASES = 15
+    if not (site_aov and (cvr_by_type or organic_cvr) and tot_p >= _MIN_ORG_PURCHASES):
         if tot_atc >= 20:
             return _find_cro_leaks_by_cart(results, limit, system_disallow,
-                                           fallback_aov, cart_to_purchase, tot_atc)
-        if tot_s >= 500 and tot_p == 0 and tot_atc == 0:
-            reason = (f"GA4 recorded {tot_s:,} sessions but ZERO purchases and ZERO "
-                      f"add-to-carts in 28 days — your GA4 ecommerce tracking almost "
-                      f"certainly isn't firing (no purchase/add_to_cart events). Fix "
-                      f"GA4 ecommerce tracking to unlock CRO and revenue-based ranking. "
-                      f"Until then, set a manual AOV in config to get ≈ estimates.")
-        elif tot_s >= 500 and tot_p == 0:
-            reason = (f"GA4 has {tot_s:,} sessions and {tot_atc:,} add-to-carts but 0 "
-                      f"purchases recorded — purchase tracking looks broken even though "
-                      f"add-to-cart works. Fix the GA4 purchase event; add-to-cart CRO "
-                      f"will kick in on the next crawl.")
+                                           aov_for_est, cart_to_purchase, tot_atc)
+        acct = account_totals or {}
+        acct_p = acct.get("purchases", 0) or 0
+        acct_r = acct.get("revenue", 0) or 0
+        if acct_p > 0:
+            # Sales DO exist account-wide — the organic slice is just too thin to
+            # benchmark organic CRO by purchases (this store is paid/direct-heavy).
+            reason = (f"GA4 shows {acct_p} purchases / ${acct_r:,.0f} across all "
+                      f"channels, but organic-attributed conversions ({int(tot_p)} in "
+                      f"28 days) are too few to benchmark organic CRO by purchases. "
+                      f"Add-to-cart data was also insufficient for a fallback. AOV is "
+                      f"still taken from your all-channel sales for revenue estimates "
+                      f"elsewhere; organic CRO needs more organic conversion volume.")
+        elif tot_s >= 500 and tot_p == 0 and tot_atc == 0:
+            reason = (f"GA4 recorded {tot_s:,} organic sessions but ZERO purchases and "
+                      f"ZERO add-to-carts — GA4 ecommerce tracking may not be firing on "
+                      f"organic traffic. Verify purchase/add_to_cart events.")
         else:
-            reason = (f"Not enough GA4 purchase data yet ({tot_p} purchases, {tot_s:,} "
-                      f"sessions in 28 days) to benchmark conversion — low volume.")
+            reason = (f"Not enough organic GA4 purchase data yet ({int(tot_p)} purchases, "
+                      f"{tot_s:,} sessions in 28 days) to benchmark conversion — low volume.")
         return {"rows": [], "total_lost_revenue": 0, "pages_affected": 0,
                 "reason_unavailable": reason,
                 "ga4_totals": {"sessions": tot_s, "purchases": tot_p,
                                "revenue": tot_r, "add_to_carts": tot_atc}}
+
+    site_cvr = organic_cvr  # organic benchmark for purchase-mode
 
     # Site bounce baseline (for the diagnosis only).
     b_tot = b_n = 0.0
@@ -213,8 +227,10 @@ def _find_cro_leaks_by_cart(results, limit, system_disallow, fallback_aov,
         "total_lost_revenue": round(sum(x["lost_revenue"] for x in rows), 2),
         "pages_affected": len(rows),
         "mode": "add_to_cart",
-        "note": ("Purchase tracking is unavailable in GA4, so this ranks by "
-                 "ADD-TO-CART rate instead (an earlier conversion signal). "
-                 "'CVR' columns show add-to-cart rate; revenue is a rough estimate."
-                 + ("" if fallback_aov else " Set a manual AOV in config for $ estimates.")),
+        "note": ("Organic purchases are too sparse to benchmark reliably (common for "
+                 "paid-heavy stores), so this ranks by ADD-TO-CART rate instead — a "
+                 "higher-volume, earlier conversion signal. Columns show add-to-cart "
+                 "rate; revenue is a rough estimate"
+                 + (" from your all-channel AOV." if fallback_aov else
+                    " (set a manual AOV in config for $ figures).")),
     }

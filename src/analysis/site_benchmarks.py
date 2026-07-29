@@ -98,10 +98,14 @@ def achievable_ctr(position: float) -> float:
     return max(_fallback_ctr(position), site_expected_ctr(position))
 
 
-def site_conversion_and_aov(results: list) -> dict:
+def site_conversion_and_aov(results: list, account_totals: dict = None) -> dict:
     """Site conversion rate and AOV from GA4 across all pages, plus per
-    asset_type where there's enough volume. Falls back to config-ish defaults
-    when GA4 is too sparse."""
+    asset_type where there's enough volume.
+
+    The per-page numbers are ORGANIC-ONLY (this is an SEO tool), which for a small
+    or paid-heavy store is often too sparse to yield an AOV. AOV is a business
+    constant, so we fall back to the ALL-CHANNELS account totals when the organic
+    slice can't produce one — otherwise revenue features go dark despite real sales."""
     tot_sessions = tot_purchases = tot_revenue = 0.0
     by_type = {}
     for r in results:
@@ -125,6 +129,18 @@ def site_conversion_and_aov(results: list) -> dict:
         if s >= 100 and p > 0:
             type_cvr[t] = round(p / s, 4)
 
+    # Fall back to all-channels account totals for the business constants when the
+    # organic-only slice is too sparse.
+    aov_source = "organic" if aov is not None else None
+    cvr_source = "organic" if cvr is not None else None
+    acct = account_totals or {}
+    if aov is None and acct.get("aov"):
+        aov = acct["aov"]
+        aov_source = "all_channels"
+    if cvr is None and acct.get("sessions", 0) >= 100 and acct.get("purchases", 0) > 0:
+        cvr = acct["purchases"] / acct["sessions"]
+        cvr_source = "all_channels"
+
     return {
         "site_cvr": round(cvr, 4) if cvr is not None else None,
         "site_aov": round(aov, 2) if aov is not None else None,
@@ -132,6 +148,9 @@ def site_conversion_and_aov(results: list) -> dict:
         "sessions": int(tot_sessions),
         "purchases": round(tot_purchases, 1),
         "revenue": round(tot_revenue, 2),
+        "aov_source": aov_source,
+        "cvr_source": cvr_source,
+        "account_totals": acct or None,
     }
 
 
@@ -168,8 +187,11 @@ def compute_site_benchmarks(results: list = None) -> dict:
         if _CACHE["ts"] == ts and _CACHE["data"] is not None:
             return _CACHE["data"]
         results = ev.get("results", [])
+        _acct = ev.get("ga4_account") or {}
+    else:
+        _acct = {}
 
-    conv = site_conversion_and_aov(results)
+    conv = site_conversion_and_aov(results, account_totals=_acct)
     out = {
         "available": True,
         "ctr_by_position": site_ctr_by_position(results),

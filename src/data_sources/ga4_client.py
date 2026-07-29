@@ -267,6 +267,51 @@ class GA4Client:
         except Exception:
             return []
 
+    def get_account_totals(self, days: int = 28) -> dict:
+        """Account-wide ecommerce totals across ALL channels (no landing-page
+        breakdown, no organic filter). Average Order Value is a BUSINESS constant
+        — it must come from all sales, not the organic sliver — so revenue-based
+        features have a reliable AOV even when organic conversions are sparse.
+        Returns {sessions, purchases, revenue, add_to_carts, aov}."""
+        client = self._get_client()
+        if client is None:
+            return {}
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest, DateRange, Metric,
+            )
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+            request = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                       end_date=end_date.isoformat())],
+                metrics=[
+                    Metric(name="sessions"),
+                    Metric(name="ecommercePurchases"),
+                    Metric(name="purchaseRevenue"),
+                    Metric(name="addToCarts"),
+                ],
+            )
+            response = client.run_report(request)
+            if not response.rows:
+                return {"sessions": 0, "purchases": 0, "revenue": 0.0,
+                        "add_to_carts": 0, "aov": None}
+            m = {h.name: response.rows[0].metric_values[i].value
+                 for i, h in enumerate(response.metric_headers)}
+            purchases = int(float(m.get("ecommercePurchases", 0)))
+            revenue = float(m.get("purchaseRevenue", 0))
+            return {
+                "sessions": int(float(m.get("sessions", 0))),
+                "purchases": purchases,
+                "revenue": round(revenue, 2),
+                "add_to_carts": int(float(m.get("addToCarts", 0))),
+                "aov": round(revenue / purchases, 2) if purchases > 0 and revenue > 0 else None,
+            }
+        except Exception as e:
+            print(f"GA4 account-totals error: {e}")
+            return {}
+
     def get_page_data(self, days: int = 28, organic_only: bool = True) -> dict[str, dict]:
         """
         Get page-level data for all landing pages.

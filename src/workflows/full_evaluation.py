@@ -376,6 +376,17 @@ class FullEvaluationWorkflow:
         ga4_data_raw = self.ga4_client.get_page_data(days=days, organic_only=True)
         print(f"  GA4: {len(ga4_data_raw)} URLs (raw)")
 
+        # Account-wide ecommerce totals (ALL channels) — for a reliable AOV and a
+        # fallback CVR when organic conversions are too sparse to benchmark.
+        try:
+            self._ga4_account_totals = self.ga4_client.get_account_totals(days=days) or {}
+            if self._ga4_account_totals.get("aov"):
+                print(f"  GA4 account AOV (all channels): ${self._ga4_account_totals['aov']} "
+                      f"from {self._ga4_account_totals['purchases']} purchases")
+        except Exception as _e:
+            self._ga4_account_totals = {}
+            print(f"  GA4 account totals skipped: {_e}")
+
         # Normalize URLs: strip tracking params, merge duplicates
         gsc_data = self._normalize_url_data(gsc_data_raw)
         ga4_data_normalized = self._normalize_url_data(ga4_data_raw)
@@ -1693,6 +1704,8 @@ class FullEvaluationWorkflow:
             "total_expected_value": round(
                 sum(r.get("expected_value", 0) for r in self._evaluation_results), 2
             ),
+            # All-channels ecommerce totals for a reliable AOV / fallback CVR.
+            "ga4_account": getattr(self, "_ga4_account_totals", {}) or {},
             "results": self._evaluation_results,
         }
 

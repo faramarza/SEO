@@ -6716,7 +6716,8 @@ def api_playbook():
         # Only pass a config AOV as fallback (measured AOV is used inside when present).
         _fallback_aov = _aov if _src != "measured" else None
         out["cro_leaks"] = find_cro_leaks(results, system_disallow=disallow,
-                                          fallback_aov=_fallback_aov)
+                                          fallback_aov=_fallback_aov,
+                                          account_totals=eval_data.get("ga4_account"))
     if section in ("all", "reviews"):
         from src.analysis.reviews_engine import find_review_priorities
         out["reviews"] = find_review_priorities(results, system_disallow=disallow)
