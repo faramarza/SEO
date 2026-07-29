@@ -4270,6 +4270,79 @@ def api_ads_recommendations():
     })
 
 
+def _diagnose_ad_structure(by_type):
+    """When there are no search terms to audit, explain WHY in structural terms
+    and give calibrated recommendations — instead of dead-ending. The common case
+    for a small brand: all spend sits in Performance Max (opaque, un-auditable)
+    while Search/Shopping campaigns are dormant."""
+    if not by_type:
+        return None
+    total = sum(v.get("cost", 0) for v in by_type.values()) or 0.0
+    pmax = by_type.get("pmax", {})
+    pmax_cost = pmax.get("cost", 0)
+    search_cost = by_type.get("search", {}).get("cost", 0)
+    shopping_cost = by_type.get("shopping", {}).get("cost", 0)
+    active_search = (search_cost + shopping_cost) > 1
+    pmax_share = (pmax_cost / total) if total else 0
+
+    findings, recs = [], []
+    if pmax_cost > 0 and pmax_share >= 0.8 and not active_search:
+        findings = [
+            f"All of your ad spend (${pmax_cost:.0f}) is in Performance Max. Your "
+            f"{by_type.get('search', {}).get('count', 0)} Search and "
+            f"{by_type.get('shopping', {}).get('count', 0)} Shopping campaigns spent ~$0 — dormant.",
+            "Performance Max hides its exact search terms, so this auditor can't find "
+            "wasted spend or negative-keyword candidates there — that's a PMax "
+            "visibility limit, NOT a reason you must run Search ads.",
+            "PMax also tends to spend on your own brand searches and cheap Display/"
+            "YouTube placements without showing you — so waste can hide inside it.",
+        ]
+        recs = [
+            {"title": "Add PMax brand exclusions + account-level negatives",
+             "detail": "The single cheapest win: exclude your brand terms from PMax "
+                       "and add obviously-irrelevant negatives at the account level. "
+                       "Stops PMax paying for traffic (especially your own brand) that "
+                       "converts anyway. No new campaign needed."},
+            {"title": "Run a lean branded Search campaign",
+             "detail": "A tiny exact/phrase campaign on your brand name is usually your "
+                       "highest-ROAS spend and gives you real search-term visibility. It "
+                       "also stops competitors (or PMax) from taking credit for brand demand."},
+            {"title": "Check PMax 'search term insights'",
+             "detail": "Google Ads → the PMax campaign → Insights → Search terms. It's "
+                       "aggregated (themes, not exact terms) but it's the only search "
+                       "visibility PMax gives — scan it for irrelevant themes to feed as negatives."},
+            {"title": "Decide why Search/Shopping are at $0",
+             "detail": "Paused, no budget, or outbid by your own PMax? If you want the full "
+                       "relevance audit + negatives this tool provides, a small standard "
+                       "Shopping campaign brings back exact search terms to audit."},
+        ]
+        tradeoff = ("You do NOT have to run Search ads — PMax-only is a valid, low-effort "
+                    "setup. But it trades away visibility and control. The steps above buy "
+                    "both back cheaply; do them only if the management time is worth it to you.")
+    elif active_search:
+        findings = [
+            f"Your Search/Shopping campaigns are active (${search_cost + shopping_cost:.0f}) "
+            "but no individual term cleared the ≥10-impression threshold in 28 days — "
+            "low volume.",
+        ]
+        recs = [
+            {"title": "Lower the impression threshold or widen the window",
+             "detail": "With low volume, there simply aren't many terms yet. Let the "
+                       "campaigns accumulate data, or audit over 90 days."},
+            {"title": "Make sure keywords aren't too narrow",
+             "detail": "Very tight exact-match with low budget can starve impressions. "
+                       "Consider broadening match types with strong negatives."},
+        ]
+        tradeoff = ""
+    else:
+        findings = [f"Account campaign mix: " +
+                    ", ".join(f"{v['count']} {k} (${v['cost']:.0f})" for k, v in by_type.items()) + "."]
+        recs = []
+        tradeoff = ""
+    return {"headline": "Why there's nothing to audit yet — and what to do",
+            "findings": findings, "recommendations": recs, "tradeoff": tradeoff}
+
+
 @app.route("/api/ads/relevance-audit")
 def api_ads_relevance_audit():
     """Paid-search relevance & wasted-spend auditor.
@@ -4335,7 +4408,8 @@ def api_ads_relevance_audit():
             else:
                 msg = (f"Your account runs: {parts}, none of which produce classic search terms "
                        f"(search_term_view is Search/Shopping only).")
-        return jsonify({"error": msg, "terms": [], "campaign_breakdown": by_type})
+        return jsonify({"error": msg, "terms": [], "campaign_breakdown": by_type,
+                        "diagnosis": _diagnose_ad_structure(by_type)})
 
     # Classify the biggest spenders (cost-weighted) to control latency/cost.
     terms.sort(key=lambda q: q.cost, reverse=True)

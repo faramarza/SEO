@@ -1149,7 +1149,26 @@ async function pbRunAdsAudit(btn) {
     try {
         const res = await fetch('/api/ads/relevance-audit');
         const data = await res.json();
-        if (data.error) { body.innerHTML = `<p class="empty-state">${escHtml(data.error)}</p>`; return; }
+        if (data.error) {
+            let html = `<p class="empty-state" style="text-align:left;">${escHtml(data.error)}</p>`;
+            const dg = data.diagnosis;
+            if (dg && (dg.findings||[]).length) {
+                html += `<div class="pb-explain" style="text-align:left;margin-top:14px;"><strong>${escHtml(dg.headline||'')}</strong>`;
+                html += (dg.findings||[]).map(f=>`<div style="margin-top:8px;">• ${escHtml(f)}</div>`).join('');
+                html += `</div>`;
+                if ((dg.recommendations||[]).length) {
+                    html += `<h3 class="pb-subhead" style="margin-top:18px;">What to do</h3>`;
+                    html += (dg.recommendations||[]).map((r,i)=>`
+                        <div class="pb-schema-gap">
+                            <div style="font-weight:700;">${i+1}. ${escHtml(r.title)}</div>
+                            <div class="pb-schema-why">${escHtml(r.detail)}</div>
+                        </div>`).join('');
+                }
+                if (dg.tradeoff) html += `<div class="pb-geo-note" style="margin-top:12px;">⚖️ ${escHtml(dg.tradeoff)}</div>`;
+            }
+            body.innerHTML = html;
+            return;
+        }
         const c = data.counts || {};
         summary.innerHTML = `
             <div class="pb-geo-stat"><span class="pb-geo-stat-val" style="color:#dc2626;">$${(data.wasted_spend||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">wasted spend (28d)</span></div>
