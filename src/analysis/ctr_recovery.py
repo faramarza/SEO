@@ -29,33 +29,56 @@ def _words(text: str) -> set:
             if len(w) > 2 and w not in STOP}
 
 
+def _stem(w: str) -> str:
+    """Crude stem so plural/singular and simple variants match: 'trains'→'train',
+    'guides'→'guide', 'boxes'→'box'. Prevents false 'keyword missing' calls when
+    the title has 'Alphabet Trains' and the query is 'alphabet train'."""
+    for suf in ("ies", "es", "s"):
+        if len(w) > len(suf) + 2 and w.endswith(suf):
+            return w[:-3] + "y" if suf == "ies" else w[:-len(suf)]
+    return w
+
+
 def _query_in_title(query: str, title: str) -> bool:
     """True if the query's meaningful words are substantially present in the
-    title — a grounded signal of whether the title even speaks to the query."""
+    title — a grounded signal of whether the title even speaks to the query.
+    Matches on stems so 'train' counts as present in 'Alphabet Trains'."""
     qw = _words(query)
     if not qw:
         return True
-    tw = _words(title)
-    hit = len(qw & tw)
+    tw = {_stem(w) for w in _words(title)}
+    hit = sum(1 for w in qw if _stem(w) in tw)
     return hit >= max(1, len(qw) - 1)  # allow one missing word
 
 
-def _diagnose(query, title, has_crawl, has_rating_schema, position):
-    """Why is CTR low here? Grounded, specific reasons — in priority order."""
+def _diagnose(query, title, has_crawl, has_rating_schema, position, asset_type="other"):
+    """Why is CTR low here? Grounded, specific reasons — in priority order.
+    Product-review advice only applies to product/category pages; a homepage or
+    blog post can't carry star ratings, so we don't suggest them there."""
     reasons = []
     if not has_crawl:
-        reasons.append("Page not crawled — fetch it to see the live title/meta.")
-        return reasons
-    if not _query_in_title(query, title):
+        return ["Page not crawled — fetch it to see the live title/meta."]
+    title_ok = _query_in_title(query, title)
+    is_shop = asset_type in ("product", "category")
+    if not title_ok:
         reasons.append(f"Your title doesn't clearly match “{query}” — searchers "
                        f"don't see their words, so they skip your result.")
-    if not has_rating_schema:
+    if is_shop and not has_rating_schema:
         reasons.append("No star rating in your result — competitors with stars "
                        "pull the click. Add reviews + AggregateRating schema.")
-    if _query_in_title(query, title) and has_rating_schema:
-        reasons.append("Title matches and stars are present — the meta description "
-                       "or the offer (price/shipping) is likely what's losing the "
-                       "click. Sharpen the value proposition.")
+    if title_ok and not (is_shop and not has_rating_schema):
+        if is_shop:
+            reasons.append("Title matches and stars are present — the meta description "
+                           "or the offer (price/shipping) is likely losing the click. "
+                           "Sharpen the value proposition.")
+        elif (position or 0) > 1.5:
+            reasons.append("Your title already targets this — the real issue is that "
+                           "you only rank #{:.1f}. If it's your brand/name, make sure "
+                           "THIS page owns position 1 (see Playbook → Brand & Merchant) "
+                           "— something is outranking you.".format(position or 0))
+        else:
+            reasons.append("Your title already targets this — sharpen the meta "
+                           "description with a concrete draw and a reason to click.")
     return reasons
 
 
@@ -111,7 +134,7 @@ def find_ctr_recovery(results, min_impressions=100, position_ceiling=10.0,
                 "current_meta": meta,
                 "has_crawl_data": has_crawl,
                 "has_rating_schema": has_rating,
-                "reasons": _diagnose(query, title, has_crawl, has_rating, pos),
+                "reasons": _diagnose(query, title, has_crawl, has_rating, pos, asset_type),
             })
 
     # Keep the single worst query per (url) so we don't list the same page 5×;

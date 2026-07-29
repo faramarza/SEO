@@ -89,22 +89,35 @@ def _task(cat, url, title, steps, benefit, value, reach, metric,
 
 def _from_ctr(ctr, out):
     for r in (ctr.get("rows") or [])[:8]:
-        steps = [
-            f"Open the page and its current title: {r.get('current_title') or '(fetch the page first)'}.",
-            f"Rewrite the <title> so it clearly contains the words “{r.get('query','')}” "
-            f"(that's what searchers type) and leads with one concrete draw — age range, "
-            f"material, free shipping, or a number if it's a list.",
-            "Rewrite the meta description to promise the specific value and end with a nudge to click.",
-            "Use Playbook → CTR Recovery → “Rewrite” to generate grounded options if you want a head start.",
+        reasons = r.get("reasons") or []
+        # Lead with the grounded diagnosis, then a fix that matches it. Only tell
+        # them to ADD the keyword to the title if it's actually missing — not when
+        # the title already contains it (the old bug on the homepage/brand query).
+        title_missing = any("title doesn't clearly match" in rz for rz in reasons)
+        steps = [f"Current title: {r.get('current_title') or '(fetch the page first)'}."]
+        steps += [f"Why it's under-clicked: {rz}" for rz in reasons]
+        if title_missing:
+            steps.append(f"Rewrite the <title> so it clearly contains “{r.get('query','')}” "
+                         f"(what searchers type) and leads with one concrete draw — age, "
+                         f"material, free shipping, or a number if it's a list.")
+        else:
+            steps.append("Your title already targets this query — focus on the meta "
+                         "description: promise the specific value and end with a nudge to "
+                         "click. (If the reason above is about ranking/brand, fix that first.)")
+        steps += [
+            "Use Playbook → CTR Recovery → “Rewrite” to generate grounded title/meta options.",
             "Publish, then request indexing in Google Search Console for this URL.",
         ]
         benefit = (f"This page already ranks #{r.get('position')} for “{r.get('query','')}” "
                    f"but is under-clicked. Earning a normal click-through recovers about "
                    f"{r.get('lost_clicks')} clicks/mo" +
                    (f" (~${r.get('lost_revenue'):,.0f}/mo)" if r.get("lost_revenue") else "") + ".")
+        _title = (f"Rewrite the title for “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked)"
+                  if title_missing else
+                  f"Win back clicks on “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked)")
         out.append(_task(
             "ctr", r.get("url",""),
-            f"Rewrite the title for “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked)",
+            _title,
             steps, benefit, r.get("lost_revenue", 0), r.get("impressions", 0),
             {"type": "query_clicks", "url": r.get("url",""), "query": r.get("query","")},
             {"clicks": r.get("clicks", 0), "ctr": r.get("actual_ctr", 0)},
