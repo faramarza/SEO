@@ -7079,6 +7079,110 @@ def _process_due_reviews(store, results, eval_timestamp=""):
     return reviewed
 
 
+def _gather_strategy_signals(results, eval_data, disallow):
+    """Aggregate the WHOLE picture (not atomic tasks) into a compact, number-rich
+    summary a strategist can reason over: the funnel, the CTR gap, review coverage,
+    schema gaps, top demand gaps, orphans, brand — with real figures."""
+    (ctr, cro, reviews, rich, bm, striking, decay,
+     orphans, pruning, content, geo) = _build_plan_inputs(results, eval_data, disallow)
+    acct = eval_data.get("ga4_account") or {}
+    biz = {"revenue_28d": acct.get("revenue"), "orders_28d": acct.get("purchases"),
+           "sessions_28d": acct.get("sessions"), "add_to_carts_28d": acct.get("add_to_carts"),
+           "aov": acct.get("aov")}
+    def top(rows, keys, n=3):
+        return [{k: r.get(k) for k in keys} for r in (rows or [])[:n]]
+    return {
+        "business": biz,
+        "ctr_recovery": {
+            "total_lost_clicks": ctr.get("total_lost_clicks"),
+            "total_lost_revenue": ctr.get("total_lost_revenue"),
+            "pages_affected": ctr.get("pages_affected"),
+            "top": top(ctr.get("rows"), ["query", "position", "lost_clicks", "asset_type"]),
+        },
+        "cro": {"mode": cro.get("mode"), "total_lost_revenue": cro.get("total_lost_revenue"),
+                "pages_affected": cro.get("pages_affected"),
+                "reason_unavailable": cro.get("reason_unavailable"),
+                "top": top(cro.get("rows"), ["url", "page_cvr", "benchmark_cvr", "lost_revenue"])},
+        "reviews": {"coverage_pct": reviews.get("coverage_pct"),
+                    "missing_count": reviews.get("missing_count"),
+                    "money_pages": reviews.get("money_pages"),
+                    "top_sellers_missing": top(reviews.get("rows"), ["url", "revenue", "units_sold", "impressions"])},
+        "schema": {"actionable": [{"type": g["type"], "count": g["count"]} for g in (rich.get("gaps_actionable") or [])],
+                   "blocked": [{"type": g["type"], "count": g["count"]} for g in (rich.get("gaps_blocked") or [])]},
+        "content_gaps": top([s for s in (content.get("suggestions") or []) if s.get("is_content_gap")],
+                            ["title", "impressions", "ahrefs_volume"], 5),
+        "orphans": {"count": len((orphans or {}).get("orphans") or [])},
+        "brand": {"weak_spots": (bm.get("brand") or {}).get("weak_spots"),
+                  "recommendation": (bm.get("brand") or {}).get("recommendation")},
+    }
+
+
+@app.route("/api/action-plan/strategy")
+def api_action_plan_strategy():
+    """A genuine strategic brief: reads ALL the aggregate signals together and
+    returns the single highest-leverage focus for the next 30 days — grounded in
+    the store's real numbers, with concrete moves and what to skip. Cached per
+    evaluation so it doesn't re-run the model on every page load."""
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if not eval_path.exists():
+        return jsonify({"error": "No evaluation yet."})
+    try:
+        with open(eval_path) as f:
+            eval_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return jsonify({"error": "Could not read evaluation."})
+    ts = eval_data.get("timestamp", "")
+    cache_path = DATA_PATH / "strategy_brief.json"
+    force = request.args.get("refresh") == "1"
+    if not force and cache_path.exists():
+        try:
+            cached = json.load(open(cache_path))
+            if cached.get("timestamp") == ts:
+                return jsonify(cached)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    results = eval_data.get("results", [])
+    signals = _gather_strategy_signals(results, eval_data, _robots_disallow_rules())
+    config = load_config()
+    system_message = (
+        "You are a pragmatic senior ecommerce growth strategist advising a small "
+        "but real brand (alphabet-trains.com — personalized name trains & Montessori "
+        "toys for kids). You are handed the store's ACTUAL measured data. Your job: "
+        "name the SINGLE highest-leverage focus for the next 30 days and the concrete "
+        "moves to execute it. Be brutally specific and cite the real numbers you were "
+        "given. NO generic advice, NO filler, NO listing everything. If the data shows "
+        "a foundational blocker (broken tracking, near-zero reviews, a structural "
+        "issue affecting many pages at once), that is the priority — say so. Prefer "
+        "one structural move that fixes many pages over per-page busywork. Return ONLY JSON."
+    )
+    user_prompt = f"""STORE DATA (28-day, real measured figures):
+{json.dumps(signals, indent=2, default=str)}
+
+TASK
+Decide the ONE focus for the next 30 days that will move revenue/traffic the most
+for THIS store, given these numbers. Ground every claim in the figures above.
+
+Return JSON exactly:
+{{
+  "focus": "one punchy line naming the #1 focus",
+  "why": "2-3 sentences citing the store's actual numbers that make this the priority",
+  "moves": ["concrete move 1 (specific, doable this month)", "move 2", "move 3"],
+  "skip": "the tempting-but-low-value things to NOT spend time on right now, and why",
+  "expected_impact": "a grounded, honest estimate tied to their numbers"
+}}"""
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
+    if err or not isinstance(result, dict):
+        return jsonify({"error": err or "strategy generation failed"}), 502
+    out = {"timestamp": ts, "generated_at": _now_date_iso(), **result}
+    try:
+        with open(cache_path, "w") as f:
+            json.dump(out, f, indent=2)
+    except OSError:
+        pass
+    return jsonify(out)
+
+
 @app.route("/api/action-plan")
 def api_action_plan():
     """The unified 'do this next' plan: every recommendation across the tool,

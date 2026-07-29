@@ -15,6 +15,7 @@
 
     <div id="dn-reviewed" class="dn-reviewed" style="display:none;"></div>
     <div id="dn-datastatus" class="dn-datastatus" style="display:none;"></div>
+    <div id="dn-strategy" class="dn-strategy"><p class="pb-loading" style="margin:0;">Reading your whole picture to find the #1 focus…</p></div>
     <div id="dn-meta" class="playbook-meta"></div>
     <div id="dn-body"><p class="pb-loading">Loading your plan…</p></div>
     <div id="dn-toast" class="pb-toast"></div>
@@ -52,6 +53,28 @@ function dnToast(msg, err){
     const t=document.getElementById('dn-toast');
     t.textContent=msg; t.className='pb-toast show'+(err?' error':'');
     setTimeout(()=>{ t.className='pb-toast'; },3000);
+}
+
+async function loadStrategy(refresh){
+    const box=document.getElementById('dn-strategy');
+    if(refresh) box.innerHTML='<p class="pb-loading" style="margin:0;">Re-reading your whole picture…</p>';
+    try{
+        const res=await fetch('/api/action-plan/strategy'+(refresh?'?refresh=1':''));
+        const d=await res.json();
+        if(d.error || !d.focus){ box.style.display='none'; return; }
+        box.style.display='block';
+        const moves=(d.moves||[]).map(m=>`<li>${esc(m)}</li>`).join('');
+        box.innerHTML=`
+            <div class="dn-strat-head">
+                <span class="dn-strat-badge">🎯 Your #1 focus this month</span>
+                <button class="dn-strat-refresh" onclick="loadStrategy(true)" title="Regenerate">↻</button>
+            </div>
+            <div class="dn-strat-focus">${esc(d.focus)}</div>
+            <div class="dn-strat-why">${esc(d.why)}</div>
+            ${moves?`<div class="dn-strat-label">Do this:</div><ol class="dn-strat-moves">${moves}</ol>`:''}
+            ${d.expected_impact?`<div class="dn-strat-impact">📈 <strong>Expected impact:</strong> ${esc(d.expected_impact)}</div>`:''}
+            ${d.skip?`<div class="dn-strat-skip">🚫 <strong>Skip for now:</strong> ${esc(d.skip)}</div>`:''}`;
+    }catch(e){ box.style.display='none'; }
 }
 
 async function loadPlan(){
@@ -278,5 +301,6 @@ async function dnComplete(key, btn){
 }
 
 loadPlan();
+loadStrategy();
 </script>
 {% endblock %}

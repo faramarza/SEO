@@ -2958,3 +2958,21 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .dn-copy-btn { font-size: 11px; font-weight: 600; padding: 4px 10px; border: none; border-radius: 5px; background: #334155; color: #fff; cursor: pointer; white-space: nowrap; }
 .dn-copy-btn:hover { background: #475569; }
 .dn-note { font-size: 12.5px; color: var(--text-muted); font-style: italic; margin: 6px 0; }
+
+.dn-strategy { background: linear-gradient(135deg, #1e3a8a, #4338ca); color: #fff; border-radius: 14px;
+    padding: 20px 22px; margin-bottom: 18px; box-shadow: 0 8px 24px rgba(30,58,138,.25); }
+.dn-strat-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dn-strat-badge { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    background: rgba(255,255,255,.18); padding: 4px 12px; border-radius: 20px; }
+.dn-strat-refresh { background: rgba(255,255,255,.15); border: none; color: #fff; width: 30px; height: 30px;
+    border-radius: 8px; cursor: pointer; font-size: 15px; }
+.dn-strat-refresh:hover { background: rgba(255,255,255,.3); }
+.dn-strat-focus { font-size: 20px; font-weight: 800; line-height: 1.3; margin-bottom: 8px; }
+.dn-strat-why { font-size: 14px; line-height: 1.55; color: rgba(255,255,255,.9); margin-bottom: 14px; }
+.dn-strat-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: rgba(255,255,255,.7); margin-bottom: 4px; }
+.dn-strat-moves { margin: 0 0 14px; padding-left: 22px; font-size: 14px; line-height: 1.6; }
+.dn-strat-moves li { margin-bottom: 4px; }
+.dn-strat-impact, .dn-strat-skip { font-size: 13px; line-height: 1.5; background: rgba(255,255,255,.1);
+    border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
+.dn-strategy .pb-loading { color: rgba(255,255,255,.85); }
