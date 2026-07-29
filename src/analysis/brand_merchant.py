@@ -31,9 +31,30 @@ def _is_brand_query(query: str, brand_terms: list) -> bool:
     return False
 
 
+# Modifiers that signal DEAL-HUNTER intent, not navigation to your store. These
+# people want a coupon aggregator (Honey, RetailMeNot); they rarely click a
+# store's own page, so a low CTR here is expected and NOT a brand-ownership fix.
+_DEAL_MODIFIERS = ("discount", "coupon", "coupons", "cashback", "promo",
+                   "promo code", "code", "deal", "deals", "voucher", "sale",
+                   "offer", "offers", "free shipping")
+
+
+def _is_homepage(url):
+    try:
+        return (urlparse(url.lower()).path.rstrip("/") or "/") == "/"
+    except Exception:
+        return False
+
+
+def _deal_intent(query):
+    q = (query or "").lower()
+    return any(m in q for m in _DEAL_MODIFIERS)
+
+
 def brand_serp_audit(results, brand_terms, min_impressions=20):
     """Branded queries where you don't clearly own the result. Aggregates brand
-    demand and flags weak spots (not #1, or low CTR for a brand query)."""
+    demand and flags weak spots — separating true navigational brand queries (act
+    on these) from deal-hunter modifier queries (low value, don't chase)."""
     total_brand_impr = 0
     total_brand_clicks = 0
     seen = {}  # query -> aggregated across pages
@@ -59,31 +80,59 @@ def brand_serp_audit(results, brand_terms, min_impressions=20):
                 e["impressions"] = max(e["impressions"], impr)
 
     flags = []
+    homepage_missing = 0
     for q in seen.values():
         if q["impressions"] < min_impressions:
             continue
+        deal = _deal_intent(q["query"])
+        q["deal_intent"] = deal
         issues = []
         if q["position"] > 2.0:
             issues.append(f"You rank #{q['position']} for your own brand query — "
-                          f"something is outranking you (reseller, marketplace, or "
-                          f"an unwanted page). You should own position 1.")
+                          f"something is outranking you (a reseller, marketplace, or a "
+                          f"different '{brand_terms[0]}' entity — the name is generic). "
+                          f"Check the live SERP; you should own position 1.")
         elif q["position"] > 1.3:
-            issues.append(f"Not solidly #1 (avg #{q['position']}) — tighten the "
-                          f"page that should own this brand query.")
-        if q["position"] <= 2.0 and q["ctr"] < 30 and q["impressions"] >= 50:
+            issues.append(f"Not solidly #1 (avg #{q['position']}) — strengthen the page "
+                          f"that should own this brand query.")
+        # The homepage should own brand queries — flag when another page ranks.
+        if not _is_homepage(q["ranking_url"]) and not deal:
+            homepage_missing += 1
+            issues.append("Your HOMEPAGE should own this brand query, but another page "
+                          "ranks for it — strengthen the homepage's brand signals "
+                          "(title, Organization/WebSite schema, internal links).")
+        # Low CTR: a real signal for navigational brand queries, but EXPECTED (and
+        # not actionable) for deal-hunter queries, so we don't flag it there.
+        if not deal and q["position"] <= 2.0 and q["ctr"] < 30 and q["impressions"] >= 50:
             issues.append(f"Low CTR ({q['ctr']}%) for a brand query — your listing "
                           f"(title/sitelinks/rich result) isn't compelling, or ads/"
                           f"others are siphoning the click.")
+        if deal and not issues:
+            # Surface it, but as low-value context, not a weak spot.
+            issues.append("Deal-hunter query (coupon/discount intent) — low value; "
+                          "these searchers rarely click a store. Not worth chasing.")
         if issues:
             flags.append({**q, "issues": issues})
 
-    flags.sort(key=lambda x: -x["impressions"])
+    # Real weak spots exclude deal-only rows.
+    real_weak = [f for f in flags if not (f.get("deal_intent") and
+                 all("Deal-hunter" in i for i in f["issues"]))]
+    flags.sort(key=lambda x: (x.get("deal_intent", False), -x["impressions"]))
     brand_ctr = round(100 * total_brand_clicks / total_brand_impr, 1) if total_brand_impr else 0.0
+
+    recommendation = None
+    if homepage_missing >= 1:
+        recommendation = ("Make your HOMEPAGE own your brand: a clear brand title, "
+                          "Organization + WebSite JSON-LD (enables the sitelinks search "
+                          "box), and brand-anchor internal links to it. Right now other "
+                          "pages (about-us, specials) rank for your name.")
     return {
         "brand_queries": len(seen),
         "brand_impressions": int(total_brand_impr),
         "brand_clicks": int(total_brand_clicks),
         "brand_ctr": brand_ctr,
+        "weak_spots": len(real_weak),
+        "recommendation": recommendation,
         "flags": flags[:50],
     }
 

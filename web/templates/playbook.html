@@ -629,14 +629,18 @@ function renderBrandMerchant(bm) {
         <div class="pb-geo-summary" style="margin-bottom:12px;">
             <div class="pb-geo-stat"><span class="pb-geo-stat-val">${(brand.brand_impressions||0).toLocaleString()}</span><span class="pb-geo-stat-lbl">brand impressions</span></div>
             <div class="pb-geo-stat"><span class="pb-geo-stat-val">${brand.brand_ctr ?? 0}%</span><span class="pb-geo-stat-lbl">brand CTR</span></div>
-            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${(brand.flags||[]).length}</span><span class="pb-geo-stat-lbl">weak spots</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${brand.weak_spots ?? (brand.flags||[]).length}</span><span class="pb-geo-stat-lbl">real weak spots</span></div>
         </div>`;
+    if (brand.recommendation) {
+        html += `<div class="pb-explain" style="text-align:left;margin-bottom:12px;">🎯 <strong>The fix:</strong> ${escHtml(brand.recommendation)}</div>`;
+    }
     if ((brand.flags || []).length) {
         html += `<table class="pb-table"><thead><tr><th>Brand query</th><th>Pos</th><th>Impr</th><th>CTR</th><th>Issue</th></tr></thead><tbody>`;
         brand.flags.forEach(f => {
             const issues = (f.issues || []).map(x => `<div class="pb-geo-fix">${escHtml(x)}</div>`).join('');
-            html += `<tr>
-                <td>“${escHtml(f.query)}”<br><a href="${escHtml(f.ranking_url)}" target="_blank" style="font-size:11px;">${escHtml(fmtUrl(f.ranking_url))}</a></td>
+            const dealTag = f.deal_intent ? ' <span class="pb-badge" style="background:#f1f5f9;color:#64748b;">deal-hunter</span>' : '';
+            html += `<tr${f.deal_intent?' style="opacity:.6;"':''}>
+                <td>“${escHtml(f.query)}”${dealTag}<br><a href="${escHtml(f.ranking_url)}" target="_blank" style="font-size:11px;">${escHtml(fmtUrl(f.ranking_url))}</a></td>
                 <td class="pb-num">${f.position}</td>
                 <td class="pb-num">${(f.impressions||0).toLocaleString()}</td>
                 <td class="pb-num">${f.ctr}%</td>
