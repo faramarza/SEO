@@ -17,7 +17,7 @@ left to the caller so this stays free of the web layer's business params.
 
 from urllib.parse import urlparse
 
-from src.analysis.site_benchmarks import site_expected_ctr
+from src.analysis.site_benchmarks import achievable_ctr
 from src.analysis.growth_playbook import _is_system_page
 
 STOP = {"the", "a", "an", "and", "or", "for", "to", "of", "in", "on", "with",
@@ -88,7 +88,7 @@ def find_ctr_recovery(results, min_impressions=100, position_ceiling=10.0,
             if impr < min_impressions or pos <= 0 or pos > position_ceiling:
                 continue
             actual_ctr = (q.get("ctr", 0) or 0) / 100.0  # stored as percentage
-            expected = site_expected_ctr(pos)
+            expected = achievable_ctr(pos)
             if expected <= 0:
                 continue
             if actual_ctr >= expected * underperformance:

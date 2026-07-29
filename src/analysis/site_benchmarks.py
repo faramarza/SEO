@@ -85,6 +85,19 @@ def site_expected_ctr(position: float) -> float:
     return expected_ctr(position, curve)
 
 
+def achievable_ctr(position: float) -> float:
+    """A HEALTHY, achievable CTR target for a position — for finding CTR-recovery
+    opportunities. The site's own average curve is the WRONG benchmark here: it's
+    depressed by exactly the under-clicked pages we're hunting for, so measuring
+    them against it is circular and hides the opportunity (a page getting 0% at
+    position 4 looks 'fine' if the site averages 1.9% there). Use the industry
+    benchmark as the achievable target, but never below the site's own measured
+    CTR at that position, so we never claim a page underperforms a bar it beats."""
+    if position is None or position <= 0:
+        return 0.0
+    return max(_fallback_ctr(position), site_expected_ctr(position))
+
+
 def site_conversion_and_aov(results: list) -> dict:
     """Site conversion rate and AOV from GA4 across all pages, plus per
     asset_type where there's enough volume. Falls back to config-ish defaults

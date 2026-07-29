@@ -52,12 +52,13 @@
     <section class="pb-panel active" id="pb-ctr">
         <div class="pb-explain">
             <strong>Method: CTR Recovery.</strong> Your biggest measurable leak: pages
-            that <em>already rank on page 1</em> but get clicked below your site's own
-            CTR curve for that position. The ranking and impressions already exist —
-            recovering the clicks needs no new authority, just a title/meta that earns
-            the click (and, where it helps, star ratings showing in the result). Each
-            row shows the lost clicks (and revenue at your measured conversion rate) and
-            a grounded reason. Hit <strong>Rewrite</strong> for title/meta options.
+            that <em>already rank on page 1</em> but get clicked below a <em>healthy,
+            achievable</em> CTR for that position (a normal listing at #3–5 earns
+            7–11%). The ranking and impressions already exist — recovering the clicks
+            needs no new authority, just a title/meta that earns the click (and, where
+            it helps, star ratings showing in the result). Each row shows the lost
+            clicks (and revenue at your measured conversion rate) and a grounded reason.
+            Hit <strong>Rewrite</strong> for title/meta options.
         </div>
         <div id="pb-ctr-summary" class="pb-geo-summary"></div>
         <div id="pb-ctr-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
@@ -391,7 +392,7 @@ function renderCtr(ctr) {
 
     let html = `<table class="pb-table"><thead><tr>
         <th>Page / Query</th><th>Pos</th><th>Impr</th>
-        <th>CTR now → yours</th><th>Lost</th><th>Why it's under-clicked</th><th></th></tr></thead><tbody>`;
+        <th>CTR now → achievable</th><th>Lost</th><th>Why it's under-clicked</th><th></th></tr></thead><tbody>`;
     rows.forEach((r, i) => {
         r._idx = i;
         const reasons = (r.reasons || []).map(x => `<div class="pb-geo-fix">${escHtml(x)}</div>`).join('');
