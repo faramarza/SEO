@@ -24,6 +24,7 @@
             <li><a href="/link-map" class="{% if request.path == '/link-map' %}active{% endif %}">Link Map</a></li>
             <li><a href="/tracking" class="{% if request.path == '/tracking' %}active{% endif %}">Tracking</a></li>
             <li><a href="/admin" class="{% if request.path == '/admin' %}active{% endif %}">Admin</a></li>
+            <li><a href="/logout" style="color:var(--text-muted);">Sign out</a></li>
         </ul>
         <div class="nav-notification" id="notification-bell" onclick="toggleNotifications()" style="padding:8px 16px;cursor:pointer;position:relative;font-size:14px;color:var(--text-secondary);">
             🔔 Notifications <span id="notification-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span>

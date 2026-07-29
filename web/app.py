@@ -18,7 +18,8 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request, Response, stream_with_context
+from flask import (Flask, render_template, jsonify, request, Response,
+                   stream_with_context, session, redirect, url_for)
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -42,6 +43,126 @@ app = Flask(__name__,
 # Load config
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "defaults.json"
 DATA_PATH = Path(__file__).parent.parent / "data"
+
+
+def _load_dotenv():
+    """Minimal .env loader (no dependency): read KEY=VALUE lines from the project
+    root .env into the environment WITHOUT overwriting vars already set (so a
+    systemd EnvironmentFile still wins). Lets secrets like GOVERNOR_PASSWORD live
+    in .env as requested."""
+    env_path = Path(__file__).parent.parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+    except OSError:
+        pass
+
+
+_load_dotenv()
+
+# ── Authentication ──────────────────────────────────────────────────────
+# Single-admin gate. Username is fixed to the configured value; the password is
+# read from the environment (.env), never hardcoded. Session-cookie based.
+import secrets as _secrets  # noqa: E402
+
+AUTH_USERNAME = os.environ.get("GOVERNOR_USERNAME", "AlphabetAdmin")
+AUTH_PASSWORD = os.environ.get("GOVERNOR_PASSWORD", "")
+
+
+def _resolve_secret_key():
+    """A session secret STABLE across all gunicorn workers and restarts — else
+    sessions signed by one worker fail on another and users get logged out at
+    random. Prefer the env var; otherwise persist one shared file (race-safe)."""
+    env = os.environ.get("GOVERNOR_SECRET_KEY")
+    if env:
+        return env
+    key_file = DATA_PATH / ".secret_key"
+    try:
+        DATA_PATH.mkdir(parents=True, exist_ok=True)
+        k = _secrets.token_hex(32)
+        fd = os.open(str(key_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.write(fd, k.encode())
+        os.close(fd)
+        return k
+    except FileExistsError:
+        try:
+            return key_file.read_text().strip() or _secrets.token_hex(32)
+        except OSError:
+            return _secrets.token_hex(32)
+    except OSError:
+        return _secrets.token_hex(32)
+
+
+app.secret_key = _resolve_secret_key()
+# Per-process token so the in-process background scheduler can call endpoints
+# through the auth gate. Not exposed to clients.
+_INTERNAL_TOKEN = _secrets.token_hex(24)
+if not AUTH_PASSWORD:
+    print("[AUTH] WARNING: GOVERNOR_PASSWORD is not set — the login gate is "
+          "DISABLED and the tool is OPEN. Set GOVERNOR_PASSWORD in .env to secure it.",
+          flush=True)
+
+# Paths reachable without a login (the login form itself, its POST, static assets,
+# and the lightweight job-status poll used before some pages authenticate).
+_AUTH_EXEMPT_PREFIXES = ("/login", "/logout", "/static/", "/favicon")
+
+
+@app.before_request
+def _require_login():
+    if not AUTH_PASSWORD:
+        return  # auth disabled (no password configured) — warned at startup
+    p = request.path or "/"
+    if any(p.startswith(pre) for pre in _AUTH_EXEMPT_PREFIXES):
+        return
+    # Allow the in-process scheduler's own calls (same process only).
+    if request.headers.get("X-Internal-Token") == _INTERNAL_TOKEN:
+        return
+    if session.get("authed"):
+        return
+    # Unauthenticated: JSON 401 for API/XHR, login redirect for pages.
+    wants_json = (p.startswith("/api/")
+                  or "application/json" in (request.headers.get("Accept") or "")
+                  or request.headers.get("X-Requested-With") == "XMLHttpRequest")
+    if wants_json:
+        return jsonify({"error": "authentication required", "login": "/login"}), 401
+    return redirect(url_for("login", next=p))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not AUTH_PASSWORD:
+        return redirect("/")
+    error = None
+    if request.method == "POST":
+        user = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        # Constant-time comparison to avoid timing leaks.
+        ok = (_secrets.compare_digest(user, AUTH_USERNAME)
+              and _secrets.compare_digest(pw, AUTH_PASSWORD))
+        if ok:
+            session["authed"] = True
+            session.permanent = True
+            nxt = request.args.get("next") or "/"
+            if not nxt.startswith("/"):
+                nxt = "/"
+            return redirect(nxt)
+        error = "Incorrect username or password."
+    return render_template("login.html", error=error), (401 if error else 200)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 # Global state for background jobs — synced to a JSON file so all gunicorn
 # workers can read the current state via /api/job-status.
@@ -358,7 +479,8 @@ def _run_autoeval_scheduler():
         try:
             if AUTO_EVAL_ENABLED and not job_state.get("running") and _claim_due_autoeval():
                 with app.test_client() as c:
-                    c.post("/api/run-evaluation", json={"crawl": True})
+                    c.post("/api/run-evaluation", json={"crawl": True},
+                           headers={"X-Internal-Token": _INTERNAL_TOKEN})
                 print(f"[AutoEval] Triggered scheduled Run-with-Crawl "
                       f"(every {AUTO_EVAL_INTERVAL_HOURS}h)")
         except Exception as e:
