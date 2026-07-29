@@ -298,6 +298,9 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
     skipped_system = 0
     skipped_no_crawl = 0
 
+    # Aggregate each missing type across pages: count, a representative markup
+    # sample, and whether it's blocked on a prerequisite (reviews).
+    gap_agg = {}
     for r in results:
         if _is_system_page(r.get("url", "")):
             skipped_system += 1
@@ -316,6 +319,11 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
             continue
         for m in audit["missing"]:
             gap_counts[m["type"]] = gap_counts.get(m["type"], 0) + 1
+            g = gap_agg.setdefault(m["type"], {
+                "type": m["type"], "count": 0, "impact": m["impact"],
+                "why": m["why"], "blocked": bool(m.get("requires_data")),
+                "blocker": m.get("requires_data"), "sample_jsonld": m["jsonld"]})
+            g["count"] += 1
         # Rank pages by impact of their biggest gap for the UI.
         top = max((_IMPACT.get(m["type"].lower(), "low") == "high")
                   for m in audit["missing"]) if audit["missing"] else False
@@ -325,6 +333,26 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
     for p in pages:
         p.pop("_priority", None)
 
+    # Split gaps into "do-it-now" (pure template markup, no prerequisites — these
+    # are the useful wins) vs "blocked" (needs reviews first). Most of these are
+    # template-level: one edit covers every page of that type, so we say so.
+    template_hint = {
+        "article": "Add Article/BlogPosting JSON-LD to your blog-post TEMPLATE — one "
+                   "edit covers all of these posts at once.",
+        "breadcrumblist": "Add BreadcrumbList JSON-LD to your page template (or enable "
+                          "it in your Magento SEO/schema extension) — one change covers all these pages.",
+        "itemlist": "Add ItemList JSON-LD to your category template, enumerating the product grid.",
+        "howto": "Add HowTo JSON-LD only to the guide pages that have real numbered steps.",
+        "faqpage": "Add FAQPage JSON-LD where the page has visible Q&A content.",
+    }
+    actionable_now, blocked = [], []
+    for g in gap_agg.values():
+        g = {**g, "template_hint": template_hint.get(g["type"].lower(), "")}
+        (blocked if g["blocked"] else actionable_now).append(g)
+    # Do-it-now first, biggest coverage first.
+    actionable_now.sort(key=lambda g: -g["count"])
+    blocked.sort(key=lambda g: -g["count"])
+
     return {
         "considered": considered,
         "covered": covered,
@@ -332,6 +360,8 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
         "present_counts": dict(sorted(present_counts.items(),
                                       key=lambda kv: -kv[1])),
         "gap_counts": dict(sorted(gap_counts.items(), key=lambda kv: -kv[1])),
+        "gaps_actionable": actionable_now,
+        "gaps_blocked": blocked,
         "pages": pages[:limit],
         # Diagnostics — so an empty audit can explain itself instead of
         # contradicting the "Based on N pages" header.

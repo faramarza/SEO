@@ -994,7 +994,44 @@ function renderRich(rich) {
         return;
     }
 
-    let html = `<table class="pb-table"><thead><tr>
+    let html = '';
+    // Lead with the useful, do-it-now wins (template-level markup, no reviews
+    // needed), and clearly separate the one gap blocked on review collection.
+    const doNow = rich.gaps_actionable || [];
+    const blocked = rich.gaps_blocked || [];
+    if (doNow.length) {
+        html += `<h3 class="pb-subhead" style="margin-top:4px;">✅ Do these now — one template edit each, no reviews needed</h3>`;
+        doNow.forEach((g, gi) => {
+            const color = RICH_IMPACT_COLOR[g.impact] || '#64748b';
+            html += `<div class="pb-schema-gap">
+                <div class="pb-schema-head">
+                    <span style="font-weight:700;color:${color};">${escHtml(g.type)}</span>
+                    <span class="pb-schema-impact" style="color:${color};border-color:${color};">${g.count} pages</span>
+                </div>
+                <div class="pb-schema-why">${escHtml(g.why)}</div>
+                ${g.template_hint ? `<div class="pb-geo-note" style="color:#2563eb;font-style:normal;">🔧 ${escHtml(g.template_hint)}</div>` : ''}
+                <div class="pb-schema-code">
+                    <button class="pb-copy-btn" onclick="pbCopyJsonld(this)">Copy sample</button>
+                    <code>${escHtml(g.sample_jsonld)}</code>
+                </div>
+            </div>`;
+        });
+    }
+    if (blocked.length) {
+        html += `<h3 class="pb-subhead" style="margin-top:18px;">⏸ Blocked on reviews — do the above first</h3>`;
+        blocked.forEach(g => {
+            html += `<div class="pb-schema-gap" style="opacity:.85;">
+                <div class="pb-schema-head">
+                    <span style="font-weight:700;">${escHtml(g.type)}</span>
+                    <span class="pb-schema-impact" style="color:#b45309;border-color:#b45309;">${g.count} pages</span>
+                </div>
+                <div class="pb-geo-note" style="color:#b45309;">⚠ ${escHtml(g.blocker || 'Needs review data first.')}</div>
+                <div class="pb-schema-why">This is the big one by count, but you can't add it honestly until reviews exist. Set up review collection (Playbook → Reviews), then it becomes a template win too.</div>
+            </div>`;
+        });
+    }
+    html += `<h3 class="pb-subhead" style="margin-top:18px;">Per-page detail</h3>`;
+    html += `<table class="pb-table"><thead><tr>
         <th>Page</th><th>Type</th><th>Already has</th><th>Missing — paste-ready JSON-LD</th></tr></thead><tbody>`;
     pages.forEach((p, i) => {
         const has = (p.present || []).length
