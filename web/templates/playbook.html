@@ -558,10 +558,23 @@ function renderReviews(rev) {
         body.innerHTML = '<p class="empty-state">Every crawled money page already has review/rating schema. 🎉</p>';
         return;
     }
-    let html = `<p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">Work top-down — these products draw the most traffic/revenue but have no reviews yet.</p>
+    const anySales = rows.some(r => (r.revenue||0) > 0 || (r.units_sold||0) > 0);
+    const SHOW = 25;
+    const shown = rows.slice(0, SHOW);
+    // Coverage is the real story — this is a SYSTEMIC gap, not N individual chores.
+    let html = `<div class="pb-explain" style="text-align:left;">
+        <strong>Only ${rev.coverage_pct ?? 0}% of your ${rev.money_pages||0} product pages have reviews.</strong>
+        That's a catalog-wide gap — don't collect reviews one product at a time.
+        The high-leverage move is to <strong>turn on automated post-purchase review
+        requests</strong> (email/SMS) for <em>every</em> order, and add
+        AggregateRating schema in your Magento template so it applies site-wide. The
+        list below is just where to <strong>seed first</strong> — the products that
+        ${anySales ? 'actually make you money' : 'get the most demand'} — so the first
+        reviews land where they lift conversion and star-CTR the most.</div>
+        <p style="font-size:13px;color:var(--text-muted);margin:10px 0;">Top ${shown.length} of ${rev.missing_count||0} products missing reviews${anySales?', ranked by real sales':''}:</p>
         <table class="pb-table"><thead><tr>
-        <th>#</th><th>Product</th><th>Impr</th><th>Clicks</th><th>Revenue</th><th></th></tr></thead><tbody>`;
-    rows.forEach((r, i) => {
+        <th>#</th><th>Product</th>${anySales?'<th>Sales (28d)</th><th>Units</th>':''}<th>Impr</th><th></th></tr></thead><tbody>`;
+    shown.forEach((r, i) => {
         r._idx = i;
         const key = pbKey('reviews', r.url, 'reviews');
         const addBtn = pbIsAdded(key)
@@ -570,9 +583,8 @@ function renderReviews(rev) {
         html += `<tr>
             <td class="pb-num">${i + 1}</td>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+            ${anySales?`<td class="pb-num">${r.revenue ? '$' + Math.round(r.revenue).toLocaleString() : '—'}</td><td class="pb-num">${r.units_sold||'—'}</td>`:''}
             <td class="pb-num">${(r.impressions||0).toLocaleString()}</td>
-            <td class="pb-num">${(r.clicks||0).toLocaleString()}</td>
-            <td class="pb-num">${r.revenue ? '$' + Math.round(r.revenue).toLocaleString() : '—'}</td>
             <td>${addBtn}</td>
         </tr>`;
     });

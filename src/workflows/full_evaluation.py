@@ -387,6 +387,20 @@ class FullEvaluationWorkflow:
             self._ga4_account_totals = {}
             print(f"  GA4 account totals skipped: {_e}")
 
+        # Item-scoped ecommerce (which PRODUCTS actually sell) — for prioritizing
+        # reviews/CRO by real revenue, not just impressions. Pre-tokenize names for
+        # fuzzy matching to product URLs.
+        try:
+            item_data = self.ga4_client.get_item_data(days=days) or {}
+            self._ga4_items = [
+                (self._slug_tokens(name), stats) for name, stats in item_data.items()
+            ]
+            if self._ga4_items:
+                print(f"  GA4 items: {len(self._ga4_items)} products with sales data")
+        except Exception as _e:
+            self._ga4_items = []
+            print(f"  GA4 item data skipped: {_e}")
+
         # Normalize URLs: strip tracking params, merge duplicates
         gsc_data = self._normalize_url_data(gsc_data_raw)
         ga4_data_normalized = self._normalize_url_data(ga4_data_raw)
@@ -577,6 +591,41 @@ class FullEvaluationWorkflow:
         "best-sellers", "sale", "clearance", "shop-all", "shop-by",
         "made-in-usa-montessori-toys",
     }
+
+    _ITEM_STOP = {"the", "a", "an", "and", "for", "with", "set", "kids", "kid",
+                  "toy", "toys", "piece", "pcs", "inch", "in", "of", "to"}
+
+    @staticmethod
+    def _slug_tokens(text: str) -> set:
+        toks = "".join(c if c.isalnum() else " " for c in (text or "").lower()).split()
+        return {t for t in toks if len(t) > 1 and t not in FullEvaluationWorkflow._ITEM_STOP}
+
+    def _item_stats_for(self, url: str, title: str = "") -> dict:
+        """Best-matching item-scoped sales stats for a product page, by token
+        overlap of the URL slug (and title) against GA4 item names. Returns {} if
+        no confident match — never guesses."""
+        items = getattr(self, "_ga4_items", None)
+        if not items:
+            return {}
+        try:
+            slug = urlparse(url.lower()).path.rstrip("/").split("/")[-1]
+        except Exception:
+            slug = ""
+        page_tokens = self._slug_tokens(slug.replace(".html", "")) | self._slug_tokens(title)
+        if len(page_tokens) < 2:
+            return {}
+        best, best_j = None, 0.0
+        for item_tokens, stats in items:
+            if not item_tokens:
+                continue
+            inter = len(page_tokens & item_tokens)
+            if inter < 2:
+                continue
+            j = inter / len(page_tokens | item_tokens)
+            if j > best_j:
+                best_j, best = j, stats
+        # Require a solid overlap so we don't attach the wrong product's sales.
+        return dict(best) if best and best_j >= 0.6 else {}
 
     def _classify_asset_type(self, url: str) -> AssetType:
         """
@@ -933,6 +982,12 @@ class FullEvaluationWorkflow:
             "ga4_purchases": asset.ga4.purchases_28d,
             "ga4_add_to_carts": asset.ga4.add_to_carts_28d,
             "ga4_bounce_rate": round(asset.ga4.bounce_rate_28d, 4),
+            # Item-scoped sales (all channels) for this product, matched by name.
+            **({"item_revenue": _it.get("revenue", 0),
+                "item_purchases": _it.get("purchased", 0),
+                "item_added_to_cart": _it.get("added_to_cart", 0)}
+               if (_it := (self._item_stats_for(asset.url, asset.title)
+                           if asset.asset_type == AssetType.PRODUCT else {})) else {}),
             # Core Web Vitals (CrUX) — present only for pages we fetched
             "cwv": getattr(asset, "_cwv", None),
         }

@@ -267,6 +267,52 @@ class GA4Client:
         except Exception:
             return []
 
+    def get_item_data(self, days: int = 28) -> dict:
+        """Item-scoped ecommerce data (which PRODUCTS actually sell), across all
+        channels, by item name. The landing-page pull can't tell you a product's
+        real sales; this can — so review/CRO priority can rank by what makes money.
+        Returns {item_name: {purchased, revenue, added_to_cart, viewed}}."""
+        client = self._get_client()
+        if client is None:
+            return {}
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest, DateRange, Dimension, Metric, OrderBy,
+            )
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+            request = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                       end_date=end_date.isoformat())],
+                dimensions=[Dimension(name="itemName")],
+                metrics=[
+                    Metric(name="itemsViewed"),
+                    Metric(name="itemsAddedToCart"),
+                    Metric(name="itemsPurchased"),
+                    Metric(name="itemRevenue"),
+                ],
+                order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="itemRevenue"),
+                                   desc=True)],
+                limit=10000,
+            )
+            response = client.run_report(request)
+            out = {}
+            for row in response.rows:
+                name = row.dimension_values[0].value
+                m = {h.name: row.metric_values[i].value
+                     for i, h in enumerate(response.metric_headers)}
+                out[name] = {
+                    "viewed": int(float(m.get("itemsViewed", 0))),
+                    "added_to_cart": int(float(m.get("itemsAddedToCart", 0))),
+                    "purchased": int(float(m.get("itemsPurchased", 0))),
+                    "revenue": round(float(m.get("itemRevenue", 0)), 2),
+                }
+            return out
+        except Exception as e:
+            print(f"GA4 item-data error: {e}")
+            return {}
+
     def get_account_totals(self, days: int = 28) -> dict:
         """Account-wide ecommerce totals across ALL channels (no landing-page
         breakdown, no organic filter). Average Order Value is a BUSINESS constant

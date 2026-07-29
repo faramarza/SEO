@@ -58,16 +58,25 @@ def find_review_priorities(results, limit=100, system_disallow=None):
             continue
         candidates.append((r, pm, asset_type))
 
+    # Prefer real product sales (item-scoped, all channels) over organic landing
+    # revenue — reviews matter most on the products that actually sell.
+    def _rev(r):
+        return (r.get("item_revenue") or 0) or (r.get("ga4_revenue", 0) or 0)
+    any_sales = any(_rev(r) > 0 for r, _, _ in candidates)
     max_impr = max((r.get("gsc_impressions", 0) or 0 for r, _, _ in candidates), default=0) or 1
-    max_rev = max((r.get("ga4_revenue", 0) or 0 for r, _, _ in candidates), default=0) or 1
+    max_rev = max((_rev(r) for r, _, _ in candidates), default=0) or 1
 
     for r, pm, asset_type in candidates:
         impr = r.get("gsc_impressions", 0) or 0
-        rev = r.get("ga4_revenue", 0) or 0
+        rev = _rev(r)
         clicks = r.get("gsc_clicks", 0) or 0
-        # Priority: proven money weighted higher than raw demand, both normalized
-        # to the site's own range so the blend is data-driven.
-        score = 0.6 * (rev / max_rev) + 0.4 * (impr / max_impr)
+        purch = r.get("item_purchases") or 0
+        # When we have real sales data, weight it heavily; otherwise fall back to
+        # demand (impressions) so the ranking still means something.
+        if any_sales:
+            score = 0.8 * (rev / max_rev) + 0.2 * (impr / max_impr)
+        else:
+            score = impr / max_impr
         impr_at_stake += impr
         rev_at_stake += rev
         missing.append({
@@ -76,6 +85,7 @@ def find_review_priorities(results, limit=100, system_disallow=None):
             "impressions": impr,
             "clicks": clicks,
             "revenue": round(rev, 2),
+            "units_sold": purch,
             "priority_score": round(score, 4),
         })
 
