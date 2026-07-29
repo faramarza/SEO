@@ -817,6 +817,36 @@ def do_next():
 # API ROUTES
 # ============================================================
 
+def _conversion_snapshot(eval_data):
+    """The funnel at a glance (all channels, 28d): session→purchase conversion,
+    the cart→purchase step (the abandonment leak), and the revenue you'd recover
+    by lifting cart→purchase to a healthier rate. From GA4 account totals."""
+    acct = (eval_data or {}).get("ga4_account") or {}
+    sessions = acct.get("sessions") or 0
+    carts = acct.get("add_to_carts") or 0
+    orders = acct.get("purchases") or 0
+    aov = acct.get("aov") or 0
+    if not sessions or not orders:
+        return {"available": False}
+    cvr = orders / sessions
+    cart_to_purchase = (orders / carts) if carts else None
+    # A conservative healthy cart→purchase target; recover revenue if reached.
+    TARGET = 0.30
+    recover = None
+    if cart_to_purchase is not None and cart_to_purchase < TARGET and aov:
+        extra_orders = (TARGET - cart_to_purchase) * carts
+        recover = round(extra_orders * aov, 0)
+    return {
+        "available": True,
+        "sessions": int(sessions), "add_to_carts": int(carts), "orders": int(orders),
+        "conversion_rate": round(cvr * 100, 2),
+        "cart_to_purchase": round(cart_to_purchase * 100, 1) if cart_to_purchase is not None else None,
+        "cart_target": int(TARGET * 100),
+        "recoverable_revenue": recover,
+        "aov": round(aov, 2),
+    }
+
+
 @app.route("/api/dashboard")
 def api_dashboard():
     """Get dashboard KPIs and posture."""
@@ -990,6 +1020,7 @@ def api_dashboard():
             "remaining": regret_remaining,
         },
         "tier_a_blockers": tier_a_blockers,
+        "conversion": _conversion_snapshot(eval_data),
         "ledger_summary": ledger_summary,
         "task_alerts": task_alerts,
         "config": {

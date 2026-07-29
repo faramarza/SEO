@@ -36,6 +36,12 @@
         </div>
     </div>
 
+    <!-- Conversion funnel -->
+    <div class="card full-width" id="conversion-card" style="display:none; border-left:4px solid #dc2626;">
+        <h3>Conversion — the biggest lever on the traffic you already have</h3>
+        <div id="conversion-body"></div>
+    </div>
+
     <!-- Posture & Config -->
     <div class="section-row">
         <div class="card">
@@ -181,6 +187,38 @@
 
 {% block scripts %}
 <script>
+function renderConversion(c) {
+    const card = document.getElementById('conversion-card');
+    const body = document.getElementById('conversion-body');
+    if (!c || !c.available) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const c2p = c.cart_to_purchase;
+    const leaky = c2p != null && c2p < c.cart_target;
+    const stat = (val, label, color) =>
+        `<div style="text-align:center;padding:0 18px;"><div style="font-size:26px;font-weight:800;color:${color||'inherit'};">${val}</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em;">${label}</div></div>`;
+    let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0 12px;">
+        ${stat((c.sessions||0).toLocaleString(), 'sessions (28d)')}
+        <div style="color:var(--text-muted);">→</div>
+        ${stat((c.add_to_carts||0).toLocaleString(), 'added to cart')}
+        <div style="color:var(--text-muted);">→</div>
+        ${stat((c.orders||0).toLocaleString(), 'purchased', '#059669')}
+        <div style="flex:1;"></div>
+        ${stat(c.conversion_rate + '%', 'visitor → sale')}
+        ${c2p != null ? stat(c2p + '%', 'cart → sale', leaky ? '#dc2626' : '#059669') : ''}
+    </div>`;
+    if (leaky) {
+        html += `<div style="background:rgba(220,38,38,.06);border-radius:8px;padding:12px 14px;font-size:14px;line-height:1.55;">
+            <strong>${(100 - c2p).toFixed(0)}% of people who add to cart don't buy.</strong>
+            Only ${c2p}% of carts become orders (a healthy store is nearer ${c.cart_target}%).
+            ${c.recoverable_revenue ? `Getting there is roughly <strong>$${(c.recoverable_revenue).toLocaleString()}/month</strong> in recovered revenue — from the <em>same</em> traffic.` : ''}
+            <div style="margin-top:8px;color:var(--text-secondary);font-size:13px;">Most likely cause: surprise shipping cost, forced account creation, or too few payment options. Walk your own checkout to find it — or install Microsoft Clarity (free) and watch a few checkout recordings.</div>
+        </div>`;
+    } else if (c2p != null) {
+        html += `<div style="color:#059669;font-size:14px;">Cart → sale is healthy (${c2p}%). Your funnel isn't the bottleneck — focus on traffic and reviews.</div>`;
+    }
+    body.innerHTML = html;
+}
+
 async function loadDashboard() {
     try {
         const res = await fetch('/api/dashboard');
@@ -226,6 +264,8 @@ async function loadDashboard() {
             (rb.remaining ?? data.config?.regret_budget ?? 2) + '/' + (rb.total ?? 2);
         const regretSub = document.getElementById('kpi-regret-sub');
         if (regretSub) regretSub.textContent = (rb.used || 0) + ' high-risk taken (1yr)';
+
+        renderConversion(data.conversion || {});
 
         // Posture — use the server-provided detail (tied to real state)
         const postureEl = document.getElementById('posture-display');
