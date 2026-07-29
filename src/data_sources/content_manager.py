@@ -1464,6 +1464,67 @@ def _score_suggestion_v2(sug):
     return min(100, score)
 
 
+def suggest_articles_for_cluster(cluster_id):
+    """Which articles to WRITE to complete a topic cluster — the missing pieces,
+    not just what exists. Prefers demand-driven ideas (GSC queries / Ahrefs
+    keywords) that fit this cluster's topic and aren't already covered, tops up
+    with cluster templates when demand data is thin, and returns the gap to the
+    target so the operator knows how many more are needed."""
+    data = _load_data()
+    cluster = next((c for c in data.get("clusters", []) if c["id"] == cluster_id), None)
+    if not cluster:
+        return {"error": "cluster not found", "suggestions": []}
+    articles = data.get("articles", [])
+    cl_articles = [a for a in articles if a.get("cluster_id") == cluster_id]
+    published = sum(1 for a in cl_articles if a.get("status") == "published")
+    target = cluster.get("target_articles", 20)
+    gap = max(0, target - published)
+    existing = {(a.get("title") or "").lower().strip() for a in articles if a.get("title")}
+
+    cl_words = {w for w in cluster["name"].lower().split()
+                if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
+    for sc in cluster.get("sub_clusters", []) or []:
+        cl_words |= {w for w in (sc.get("name") or "").lower().split()
+                     if len(w) > 2 and w not in _CLUSTER_MATCH_NOISE}
+
+    all_sug = get_content_suggestions().get("suggestions", [])
+    picks, seen = [], set()
+
+    def _add(s, src):
+        t = (s.get("title") or "").lower().strip()
+        if not t or t in existing or t in seen:
+            return
+        seen.add(t)
+        picks.append({**s, "suggest_source": src})
+
+    # 1) Demand-driven suggestions already matched to THIS cluster.
+    for s in all_sug:
+        if s.get("cluster_id") == cluster_id:
+            _add(s, "demand")
+    # 2) Demand-driven suggestions topically related by name/sub-cluster words.
+    for s in all_sug:
+        title_l = (s.get("title") or "").lower()
+        if cl_words and any(w in title_l for w in cl_words):
+            _add(s, "demand")
+    # 3) Top up with cluster templates if demand data is thin.
+    need = max(gap, 5)  # always offer a few even if the gap is small
+    if len(picks) < need:
+        year = datetime.now().year
+        for tmpl in _CONTENT_TEMPLATES.get(cluster["name"], []):
+            idea = tmpl.replace("{year}", str(year)).replace("{age}", _AGE_GROUPS[0])
+            _add({"title": idea, "type": "topic_gap", "is_content_gap": True,
+                  "reason": "Cluster template idea — run an evaluation for demand-ranked ideas",
+                  "score": 15, "impressions": 0}, "template")
+            if len(picks) >= need:
+                break
+
+    return {
+        "cluster_id": cluster_id, "cluster_name": cluster["name"],
+        "target": target, "published": published, "gap": gap,
+        "suggestions": picks[:need],
+    }
+
+
 def get_content_suggestions(cluster_id=None):
     """Generate data-driven content suggestions using GSC queries,
     Ahrefs keyword data, product catalog, commercial intent, and

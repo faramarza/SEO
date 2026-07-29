@@ -773,12 +773,14 @@ async function showClusterDetail(id) {
     modal.classList.remove('hidden');
 
     try {
-        const [clRes, artRes] = await Promise.all([
+        const [clRes, artRes, sugRes] = await Promise.all([
             fetch('/api/content/clusters'),
-            fetch('/api/content/articles?cluster_id=' + id)
+            fetch('/api/content/articles?cluster_id=' + id),
+            fetch('/api/content/clusters/' + id + '/suggestions')
         ]);
         const clusters = (await clRes.json()).clusters || [];
         const articles = (await artRes.json()).articles || [];
+        const sugData = await sugRes.json().catch(() => ({suggestions: []}));
         const cluster = clusters.find(c => c.id === id);
         if (!cluster) { nameEl.textContent = 'Cluster not found'; return; }
 
@@ -816,6 +818,8 @@ async function showClusterDetail(id) {
                 </div>
             </div>
 
+            ${renderClusterSuggestions(sugData, id)}
+
             <div class="detail-section">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
                     <h4>Articles in this cluster</h4>
@@ -848,6 +852,62 @@ async function showClusterDetail(id) {
     } catch (err) {
         nameEl.textContent = 'Error';
         body.innerHTML = `<p style="color:var(--accent-red);">${escHtml(err.message)}</p>`;
+    }
+}
+
+function renderClusterSuggestions(data, clusterId) {
+    const sugs = (data && data.suggestions) || [];
+    const gap = data && data.gap || 0;
+    if (!sugs.length) {
+        return gap > 0
+            ? `<div class="detail-section"><h4>Suggested articles to complete this cluster</h4>
+                 <div style="padding:12px;color:var(--text-muted);font-size:13px;">Need ${gap} more to hit target, but no data-driven ideas surfaced yet. Run an evaluation (with crawl) and import your Ahrefs keywords so the tool can suggest specific topics from real demand.</div></div>`
+            : '';
+    }
+    window._clusterSugs = sugs;  // index-referenced to avoid inline-quoting bugs
+    const rows = sugs.map((s, i) => {
+        const badge = s.suggest_source === 'demand'
+            ? '<span style="font-size:10px;font-weight:700;color:#059669;background:rgba(5,150,105,.12);padding:1px 6px;border-radius:6px;">DEMAND</span>'
+            : '<span style="font-size:10px;font-weight:700;color:#64748b;background:rgba(100,116,139,.12);padding:1px 6px;border-radius:6px;">TEMPLATE</span>';
+        const why = s.reason ? `<div style="font-size:11px;color:var(--text-muted);">${escHtml(s.reason)}</div>` : '';
+        const impr = s.impressions ? `<span style="font-size:11px;color:var(--text-secondary);white-space:nowrap;">${(s.impressions).toLocaleString()} impr</span>` : '';
+        return `<tr>
+            <td><div style="font-weight:500;">${escHtml(s.title)}</div>${why}</td>
+            <td style="text-align:center;">${badge}</td>
+            <td style="text-align:right;">${impr}</td>
+            <td style="white-space:nowrap;text-align:right;">
+                <button onclick="addSuggestedArticle(${i}, '${clusterId}', this)" style="padding:3px 10px;font-size:12px;font-weight:600;border:none;border-radius:4px;background:var(--accent-blue);color:#fff;cursor:pointer;">+ Add to plan</button>
+            </td>
+        </tr>`;
+    }).join('');
+    return `<div class="detail-section" style="background:rgba(37,99,235,.04);border:1px solid rgba(37,99,235,.15);border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <h4 style="margin:0;">✍️ Write these to complete the cluster</h4>
+            ${gap > 0 ? `<span style="font-size:12px;color:var(--accent-blue);font-weight:600;">${gap} more to hit target</span>` : ''}
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;">Topics with real demand this cluster doesn't cover yet. <strong>DEMAND</strong> = from your GSC/Ahrefs data; <strong>TEMPLATE</strong> = starter idea.</p>
+        <table class="data-table" style="width:100%;"><tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+async function addSuggestedArticle(idx, clusterId, btn) {
+    const sug = (window._clusterSugs || [])[idx];
+    const title = sug && sug.title;
+    if (!title) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/content/articles', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, cluster_id: clusterId, status: 'idea' }) });
+        const data = await res.json();
+        if (data && (data.article || data.id || data.success !== false)) {
+            if (btn) { btn.textContent = '✓ Added'; btn.style.background = 'var(--accent-green)'; }
+            showClusterDetail(clusterId);  // refresh so it moves into the article list
+        } else {
+            if (btn) { btn.disabled = false; btn.textContent = '+ Add to plan'; }
+        }
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ Add to plan'; }
     }
 }
 

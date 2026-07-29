@@ -8027,6 +8027,16 @@ def api_content_clusters():
     return jsonify({"clusters": content_manager.get_clusters()})
 
 
+@app.route("/api/content/clusters/<cluster_id>/suggestions")
+def api_content_cluster_suggestions(cluster_id):
+    """Suggested articles to WRITE to complete this cluster (demand-driven, then
+    template top-up), with the gap to the target."""
+    try:
+        return jsonify(content_manager.suggest_articles_for_cluster(cluster_id))
+    except Exception as e:
+        return jsonify({"error": str(e), "suggestions": []}), 500
+
+
 @app.route("/api/content/clusters", methods=["POST"])
 def api_content_create_cluster():
     """Create a new cluster."""
