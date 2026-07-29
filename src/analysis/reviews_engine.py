@@ -38,11 +38,20 @@ def find_review_priorities(results, limit=100, system_disallow=None):
         if _is_system_page(url, extra_disallow=system_disallow):
             continue
         asset_type = (r.get("asset_type") or "other").lower()
-        if asset_type not in ("product", "category"):
+        # Reviews / AggregateRating belong on INDIVIDUAL PRODUCT pages only.
+        # Star ratings on a category/collection listing violate Google's rules,
+        # so we never recommend them there.
+        if asset_type != "product":
             continue
         pm = r.get("page_metadata", {}) or {}
         if not pm.get("has_crawl_data"):
             continue  # can't claim schema is missing on a page we didn't parse
+        schema = {str(s).lower() for s in (pm.get("schema_types") or [])}
+        # Ground-truth guard: if the page emits ItemList (a collection) and not a
+        # single Product, it's really a category — skip it even if the URL
+        # heuristic mislabeled it a product.
+        if "itemlist" in schema and "product" not in schema:
+            continue
         money_pages += 1
         if _has_reviews(pm):
             have += 1

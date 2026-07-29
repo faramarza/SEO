@@ -6120,6 +6120,31 @@ def api_run_evaluation():
 
                 # Enrich assets
                 total, enriched = crawler.enrich_assets(workflow._assets)
+                # Ground the page-type on what the page ACTUALLY emits: a real
+                # product page carries Product schema; a category/collection page
+                # carries ItemList. On flat Magento URLs (e.g. /pretend-play-toys.html)
+                # the URL heuristic defaults to PRODUCT — so category listings get
+                # wrongly treated as products (and told to add product reviews).
+                # Reclassify from the crawled schema, which is the ground truth.
+                try:
+                    from src.models.page_asset import AssetType as _AT
+                    reclassified = 0
+                    for _asset in workflow._assets:
+                        st = {str(s).lower() for s in (getattr(_asset, "schema_types", []) or [])}
+                        if not st:
+                            continue
+                        is_list = "itemlist" in st
+                        is_product = "product" in st
+                        if _asset.asset_type == _AT.PRODUCT and is_list and not is_product:
+                            _asset.asset_type = _AT.CATEGORY
+                            reclassified += 1
+                        elif _asset.asset_type == _AT.CATEGORY and is_product and not is_list:
+                            _asset.asset_type = _AT.PRODUCT
+                            reclassified += 1
+                    if reclassified:
+                        print(f"  Reclassified {reclassified} page(s) by their JSON-LD schema (Product vs ItemList)")
+                except Exception as _e:
+                    print(f"  Schema reclassification skipped: {_e}")
                 stats = getattr(crawler, "_crawl_stats", {})
                 stats["enriched"] = enriched
                 job_state["message"] = f"Enriched {enriched}/{total} pages with crawl data"

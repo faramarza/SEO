@@ -103,8 +103,12 @@ def merchant_readiness(results, limit=100, system_disallow=None):
         pm = r.get("page_metadata", {}) or {}
         if not pm.get("has_crawl_data"):
             continue
-        products += 1
         schema = {str(s).lower() for s in (pm.get("schema_types") or [])}
+        # Ground truth: an ItemList-only page is a category listing, not a feed
+        # product — don't tell it to become feed-ready as a product.
+        if "itemlist" in schema and "product" not in schema:
+            continue
+        products += 1
         missing = []
         if "product" not in schema:
             missing.append("Product schema")
