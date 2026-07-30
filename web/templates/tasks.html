@@ -406,8 +406,10 @@ function renderTask(task, status) {
                 <span class="task-id">${task.action_id}</span>
                 <span class="action-badge action-${(task.action_type || '').toLowerCase()}" style="font-size: 11px; padding: 1px 6px;">${(task.action_type || '').replace(/_/g, ' ')}</span>
             </div>
-            <div class="task-url" title="${task.url}">
-                <a href="${task.url}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>
+            <div class="task-url" title="${task.url || task.implementation_summary || ''}">
+                ${task.url
+                    ? `<a href="${task.url}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>`
+                    : `<span style="font-weight:600;">${escHtml(task.implementation_summary || '(content task — no page yet)')}</span>`}
             </div>
             ${constraintLabel ? `
             <div style="margin: 4px 0; font-size: 12px; color: var(--text-muted);">
@@ -774,8 +776,10 @@ function showTaskDetail(actionId, status) {
     document.getElementById('task-detail-body').innerHTML = `
         <div class="detail-grid">
             <div class="detail-item">
-                <label>URL</label>
-                <p><a href="${task.url}" target="_blank" class="detail-link">${task.url}</a></p>
+                <label>${task.url ? 'URL' : 'Task'}</label>
+                <p>${task.url
+                    ? `<a href="${task.url}" target="_blank" class="detail-link">${task.url}</a>`
+                    : escHtml(task.implementation_summary || '(content task — no page yet)')}</p>
             </div>
             <div class="detail-item">
                 <label>Capture Class</label>

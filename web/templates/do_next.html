@@ -181,7 +181,14 @@ function renderPlan(plan, extra){
         return;
     }
     const open = plan.filter(t=>!t.adopted);
-    const inProgress = plan.filter(t=>t.adopted && t.status!=='done');
+    // In-progress = every adopted, not-yet-done task — whether it's still in the
+    // freshly ranked plan OR fell off it (extra). Without folding in `extra`, an
+    // adopted task that dropped out of the plan's top-N vanished from "In progress"
+    // and reappeared only in "Tracking" at the very bottom — which read as "it
+    // disappeared" right after you clicked Start.
+    const extraOpen = (extra||[]).filter(t=>t.status!=='done');
+    const extraDone = (extra||[]).filter(t=>t.status==='done');
+    const inProgress = plan.filter(t=>t.adopted && t.status!=='done').concat(extraOpen);
     // "3 best moves" = the GENUINE top 3 by ROI, capped at 2 per category so the
     // headline isn't 3 copies of one bulk task. We do NOT force one-per-category
     // diversity: that used to drag a near-worthless task (e.g. reviews, ROI ~3)
@@ -272,9 +279,9 @@ function renderPlan(plan, extra){
         html += `<div style="display:none;">${rest.map(t=>taskCard(t,false)).join('')}</div>`;
     }
 
-    if(extra.length){
+    if(extraDone.length){
         html += `<h3 class="dn-section">📊 Tracking (auto-checking / done)</h3>`;
-        html += extra.map(t=>taskCard(t,true)).join('');
+        html += extraDone.map(t=>taskCard(t,true)).join('');
     }
     body.innerHTML=html;
 }
@@ -325,7 +332,7 @@ async function dnAdopt(key, btn){
     try{
         const res=await fetch('/api/action-plan/adopt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
         const data=await res.json();
-        if(data.success){ dnToast('Started — auto-check set for '+data.review_date); loadPlan(); }
+        if(data.success){ dnToast('Started — moved to “In progress” at the top. Auto-check set for '+data.review_date); loadPlan(); }
         else { if(btn){btn.disabled=false;btn.textContent='Start this →';} dnToast(data.error||'Failed',true); }
     }catch(e){ if(btn){btn.disabled=false;btn.textContent='Start this →';} dnToast('Failed: '+e.message,true); }
 }
