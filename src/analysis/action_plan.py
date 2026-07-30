@@ -394,10 +394,18 @@ def _score_task(t):
     # Impact in $-equivalent points. Real measured revenue is trusted as-is.
     # Otherwise use a traffic proxy WEIGHTED by the page's commercial intent, so
     # informational reach doesn't masquerade as revenue.
+    w = ASSET_INTENT_WEIGHT.get((t.get("asset_type") or "other").lower(), 0.6)
     if t["expected_value"] > 0:
-        impact = t["expected_value"]
+        # Trust the measured dollars, but discount for commercial intent when
+        # ranking: recovering clicks/conversions on an INFORMATIONAL page (a
+        # clickbait blog post that drives top-of-funnel traffic) is worth less to
+        # a store than the same dollars on a product/category page, because that
+        # traffic rarely completes a purchase. Commercial pages keep full weight
+        # (capped at 1.0 so products don't get artificially inflated); only
+        # informational assets are marked down. The DISPLAYED payoff stays the
+        # honest measured figure — this only affects where it ranks.
+        impact = t["expected_value"] * min(1.0, w)
     else:
-        w = ASSET_INTENT_WEIGHT.get((t.get("asset_type") or "other").lower(), 0.6)
         yld = REACH_YIELD.get(cat, 1.0)
         impact = max(t["reach"] * 0.01 * w, CATEGORY_BASE.get(cat, 5) * w) * yld
     hours = EFFORT_HOURS.get(cat, 2.0)
