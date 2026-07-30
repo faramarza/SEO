@@ -126,12 +126,12 @@ class PageInventory:
         self,
         base_domain: str,
         cache_path: Optional[Path] = None,
-        # Real browser UA — a bot UA can make Magento/WAF/full-page-cache serve a
-        # stripped page (no JSON-LD), so the crawler sees different HTML than
-        # Google/browsers and wrongly reports missing schema.
-        user_agent: str = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/126.0.0.0 Safari/537.36"),
+        # Identifiable, throttleable UA in the standard well-behaved-bot format so
+        # the store can allow-list / rate-limit us on purpose; the Mozilla shell
+        # keeps servers from serving stripped HTML. (The JSON-LD parsing fix, not
+        # the UA, is what fixed schema detection.)
+        user_agent: str = ("Mozilla/5.0 (compatible; AlphabetTrains-SEO-Crawler/1.0; "
+                           "+first-party site audit)"),
     ):
         """
         Initialize page inventory.

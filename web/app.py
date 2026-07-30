@@ -6215,8 +6215,14 @@ def api_run_evaluation():
                 # GSC-only. Fewer concurrent connections + a longer timeout +
                 # one retry let real pages actually come back.
                 CRAWL_TIMEOUT = float(data.get("crawl_timeout", 20.0))
-                CRAWL_CONCURRENCY = int(data.get("crawl_concurrency", 12))
-                crawler = SimpleCrawler(timeout=CRAWL_TIMEOUT, max_concurrent=CRAWL_CONCURRENCY)
+                # Gentle by default — we crawl the client's OWN live store, and a
+                # wide, no-delay crawl (was 12 concurrent) hammered Magento and
+                # caused its slow window. 2 concurrent + a per-request delay keeps
+                # real shoppers unaffected. Overridable per-run if ever needed.
+                CRAWL_CONCURRENCY = int(data.get("crawl_concurrency", 2))
+                CRAWL_DELAY = float(data.get("crawl_delay", 0.5))
+                crawler = SimpleCrawler(timeout=CRAWL_TIMEOUT, max_concurrent=CRAWL_CONCURRENCY,
+                                        request_delay=CRAWL_DELAY)
                 urls = [asset.url for asset in workflow._assets]
 
                 # Fast crawl with progress tracking
@@ -6246,6 +6252,10 @@ def api_run_evaluation():
                     async def fetch_one(client, url):
                         nonlocal completed
                         async with semaphore:
+                            # Space out requests so a full crawl stays gentle on
+                            # the store instead of bursting it.
+                            if CRAWL_DELAY:
+                                await asyncio.sleep(CRAWL_DELAY)
                             try:
                                 response = await _get_with_retry(client, url)
 
@@ -6253,6 +6263,7 @@ def api_run_evaluation():
                                     parser = HTMLMetaParser(base_url=url)
                                     try:
                                         parser.feed(response.text)
+                                        parser.close()
                                     except:
                                         pass
 
@@ -6316,10 +6327,11 @@ def api_run_evaluation():
                             return result
 
                     async with httpx.AsyncClient(
-                        headers={"User-Agent": "AlphabetTrains-SEO-Crawler/1.0"},
+                        headers={"User-Agent": ("Mozilla/5.0 (compatible; "
+                                 "AlphabetTrains-SEO-Crawler/1.0; +first-party site audit)")},
                         follow_redirects=True,
                         limits=httpx.Limits(max_connections=CRAWL_CONCURRENCY,
-                                        max_keepalive_connections=max(4, CRAWL_CONCURRENCY // 2)),
+                                        max_keepalive_connections=max(1, CRAWL_CONCURRENCY)),
                     ) as client:
                         tasks = [fetch_one(client, url) for url in urls]
                         results = await asyncio.gather(*tasks)

@@ -505,13 +505,18 @@ class SimpleCrawler:
     def __init__(
         self,
         timeout: float = 10.0,
-        max_concurrent: int = 10,
-        # Use a real browser UA. A bot UA can make Magento/WAF/full-page-cache
-        # serve a stripped or challenge page (no JSON-LD), so the crawler would
-        # see different HTML than Google or a browser and wrongly report gaps.
-        user_agent: str = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/126.0.0.0 Safari/537.36"),
+        # Gentle by default — this crawls the client's OWN live store. High
+        # concurrency with no delay hammers Magento (each bot hit is a full
+        # uncached PHP render), which caused the store's slow window. 2-wide with
+        # a per-request delay keeps us a good neighbour to real shoppers.
+        max_concurrent: int = 2,
+        request_delay: float = 0.5,
+        # Identifiable, throttleable UA in the standard well-behaved-bot format:
+        # the token lets the store allow-list or rate-limit us on purpose; the
+        # Mozilla/(compatible;...) shell keeps servers from serving stripped HTML.
+        # (The JSON-LD parsing fix — not the UA — is what fixed schema detection.)
+        user_agent: str = ("Mozilla/5.0 (compatible; AlphabetTrains-SEO-Crawler/1.0; "
+                           "+first-party site audit)"),
     ):
         """
         Initialize crawler.
@@ -523,6 +528,7 @@ class SimpleCrawler:
         """
         self.timeout = timeout
         self.max_concurrent = max_concurrent
+        self.request_delay = request_delay
         self.user_agent = user_agent
         self._results: dict[str, CrawlResult] = {}
 
@@ -534,6 +540,9 @@ class SimpleCrawler:
     ) -> CrawlResult:
         """Fetch a single URL and extract metadata."""
         async with semaphore:
+            # Space out requests so even a full crawl stays gentle on the store.
+            if self.request_delay:
+                await asyncio.sleep(self.request_delay)
             try:
                 response = await client.get(
                     url,
