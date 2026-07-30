@@ -7120,10 +7120,28 @@ def _gather_strategy_signals(results, eval_data, disallow):
     biz = {"revenue_28d": acct.get("revenue"), "orders_28d": acct.get("purchases"),
            "sessions_28d": acct.get("sessions"), "add_to_carts_28d": acct.get("add_to_carts"),
            "aov": acct.get("aov")}
+    # The conversion funnel — the single biggest measured-revenue lever when it
+    # leaks. A large add-to-cart -> purchase drop means shoppers WANT to buy but
+    # something (slow/broken checkout, friction, trust) stops them at the register.
+    # This dwarfs any SEO schema/coverage gap, so surface it as a first-class signal.
+    atc = acct.get("add_to_carts")
+    orders = acct.get("purchases")
+    aov = acct.get("aov")
+    funnel = {"add_to_carts_28d": atc, "orders_28d": orders}
+    if atc and orders is not None:
+        abandon = 1 - (orders / atc)
+        funnel["cart_abandonment_pct"] = round(100 * abandon, 1)
+        if aov:
+            # Recovering even a third of abandoned carts, valued at AOV.
+            funnel["revenue_at_stake_if_1_3_recovered"] = round((atc - orders) * aov / 3.0, 0)
+        funnel["read"] = ("High add-to-cart-to-order drop = a checkout/conversion "
+                          "problem, NOT an SEO problem. This is the highest-dollar "
+                          "lever if the abandonment rate is elevated.")
     def top(rows, keys, n=3):
         return [{k: r.get(k) for k in keys} for r in (rows or [])[:n]]
     return {
         "business": biz,
+        "funnel": funnel,
         "ctr_recovery": {
             "total_lost_clicks": ctr.get("total_lost_clicks"),
             "total_lost_revenue": ctr.get("total_lost_revenue"),
@@ -7186,16 +7204,30 @@ def api_action_plan_strategy():
         "toys for kids). You are handed the store's ACTUAL measured data. Your job: "
         "name the SINGLE highest-leverage focus for the next 30 days and the concrete "
         "moves to execute it. Be brutally specific and cite the real numbers you were "
-        "given. NO generic advice, NO filler, NO listing everything. If the data shows "
-        "a foundational blocker (broken tracking, near-zero reviews, a structural "
-        "issue affecting many pages at once), that is the priority — say so. Prefer "
-        "one structural move that fixes many pages over per-page busywork. "
+        "given. NO generic advice, NO filler, NO listing everything.\n\n"
+        "RANK BY DOLLARS AT STAKE, NOT BY PAGE COUNT. This is the most important "
+        "rule. The number of pages that share a gap is NOT a measure of its "
+        "importance. A gap on 768 pages that each add a tiny nudge is worth far LESS "
+        "than fixing one leak that bleeds real revenue. Weight everything by measured "
+        "money, in this order:\n"
+        "  1. THE CONVERSION FUNNEL. If the funnel shows a high cart-abandonment / "
+        "add-to-cart-to-order drop, that is almost always the #1 lever — shoppers "
+        "already want to buy and something at checkout stops them. This is a "
+        "checkout/conversion problem, not an SEO problem, and it usually dwarfs every "
+        "SEO item. Lead with it when the numbers are elevated.\n"
+        "  2. MEASURED lost revenue — CTR recovery on pages that already rank, and "
+        "CRO on money pages converting below benchmark. These have real dollar "
+        "figures; trust them.\n"
+        "  3. Capturing existing demand you rank for but under-click / just miss.\n"
+        "  FAR BELOW THAT: reviews and schema coverage. Reviews are a MODEST trust "
+        "nudge (a small CTR/conversion lift), NOT a growth engine — do NOT crown "
+        "'collect reviews' as the #1 focus just because many products lack them. Treat "
+        "it as a set-once background task. Likewise, schema 'gaps' come from an "
+        "HTML-only crawl that CANNOT see JavaScript-injected schema (this Magento "
+        "theme injects a lot via JS), so coverage counts are UNRELIABLE and often "
+        "phantom — never make schema coverage the headline.\n\n"
         "CRITICAL: do NOT invent technical root causes that aren't in the data. When "
-        "a schema type is 'blocked', its blocker_reason IS the cause — e.g. "
-        "AggregateRating is blocked simply because those products have no reviews yet "
-        "(rendering rating schema without real reviews is a Google penalty, so this is "
-        "correct, not a bug). Don't send the operator to audit theme settings; the "
-        "fix for a review-blocker is to COLLECT REVIEWS. Return ONLY JSON."
+        "a schema type is 'blocked', its blocker_reason IS the cause. Return ONLY JSON."
     )
     user_prompt = f"""STORE DATA (28-day, real measured figures):
 {json.dumps(signals, indent=2, default=str)}
@@ -7203,6 +7235,9 @@ def api_action_plan_strategy():
 TASK
 Decide the ONE focus for the next 30 days that will move revenue/traffic the most
 for THIS store, given these numbers. Ground every claim in the figures above.
+Check the `funnel` block FIRST: if cart abandonment is elevated, the checkout/
+conversion experience is almost certainly the #1 focus and the dollars there
+outrank every SEO item — do not bury it under a reviews or schema recommendation.
 
 Return JSON exactly:
 {{
