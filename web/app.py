@@ -4469,14 +4469,15 @@ def _diagnose_ad_structure(by_type):
              "steps": [
                  "SEE what PMax spends on first: Google Ads → open your PMax campaign → "
                  "Insights and reports → Search terms (may be labelled 'Search categories'). "
-                 "Look for your brand name and any obviously-irrelevant themes.",
+                 "These are aggregated THEMES, not exact queries — the most PMax will show "
+                 "you. Look for your brand name and any obviously-irrelevant themes.",
                  "Create a brand list: top nav Tools (wrench) → Shared library → Brand lists → "
                  "add your brand terms + your domain. (Or type 'brand list' in the top search bar.)",
                  "Apply it: open the PMax campaign → Settings → Additional settings → "
                  "Brand exclusions → add that brand list → Save.",
                  "Add account-level negatives: Tools → search 'Account level negative keywords' → "
-                 "add obvious non-buyers (free, diy, 'how to make', 'coloring pages') plus anything "
-                 "irrelevant you saw in step 1 → Save.",
+                 "add obvious non-buyers (free, diy, 'how to make', 'coloring pages') plus the "
+                 "irrelevant themes you saw in step 1 → Save.",
              ]},
             {"title": "Run a lean branded Search campaign",
              "detail": "A tiny exact/phrase campaign on your brand name is usually your "
@@ -4488,14 +4489,6 @@ def _diagnose_ad_structure(by_type):
                  "Budget: start small, e.g. $5/day.",
                  "Keywords: your brand in phrase + exact match — e.g. \"your brand\" and [your brand].",
                  "Write one ad pointing at your homepage → Save.",
-             ]},
-            {"title": "Check PMax 'search term insights'",
-             "detail": "The only search visibility PMax gives — aggregated themes, not exact terms.",
-             "time": "~5 min", "priority": "Quick diagnostic",
-             "steps": [
-                 "Google Ads → open the PMax campaign → Insights and reports → Search terms.",
-                 "It shows themes, not exact queries — the best PMax will give you.",
-                 "Scan for irrelevant themes and feed them back as account-level negatives (step 1 above).",
              ]},
             {"title": "Decide why Search/Shopping are at $0",
              "detail": "Paused, no budget, or outbid by your own PMax? If you want the full "
