@@ -18,10 +18,32 @@ Reads data/latest_evaluation.json. Read-only. Nothing is modified.
 
 import json
 import sys
+import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 from urllib.parse import urlparse
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "latest_evaluation.json"
+
+
+def _live_status(url: str):
+    """HEAD the URL and return its immediate status ('404' / '301' / '200' / err),
+    WITHOUT following redirects, so we can tell a true 404 from a stale-but-
+    redirecting link from a false positive. Gentle: one request, browser UA."""
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+    opener = urllib.request.build_opener(_NoRedirect)
+    req = urllib.request.Request(url, method="HEAD", headers={
+        "User-Agent": "Mozilla/5.0 (compatible; AlphabetTrains-SEO-Crawler/1.0; +link-audit)"})
+    try:
+        resp = opener.open(req, timeout=15)
+        return str(resp.status)
+    except urllib.error.HTTPError as e:
+        return str(e.code)
+    except Exception as e:
+        return f"err:{type(e).__name__}"
 
 
 def _norm(url: str) -> str:
@@ -36,7 +58,8 @@ def _norm(url: str) -> str:
 
 
 def main():
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else DATA
+    path_args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    path = Path(path_args[0]) if path_args else DATA
     if not path.exists():
         print(f"No evaluation found at {path}. Run an evaluation (with crawl) first.")
         sys.exit(1)
@@ -49,27 +72,40 @@ def main():
     known = {_norm(r.get("url", "")) for r in results if r.get("url")}
 
     # ---- 1. BLOG -> MONEY structural check --------------------------------
+    # Two sets: ANY product/category page (structural funnel), and the subset that
+    # has recorded GA4 revenue. The revenue set is unreliable when attribution is
+    # broken (almost nothing shows revenue), so we report BOTH and lead with the
+    # honest structural signal: does the blog link toward commerce AT ALL?
+    commerce = {_norm(r.get("url", "")) for r in results
+                if (r.get("asset_type") or "").lower() in ("product", "category")}
     money = {_norm(r.get("url", "")) for r in results
              if (r.get("ga4_revenue") or 0) > 0
              and (r.get("asset_type") or "").lower() in ("product", "category")}
     print("=" * 70)
-    print("1. BLOG → MONEY  (does each blog even point at a page that sells?)")
+    print("1. BLOG → MONEY  (does each blog funnel toward commerce at all?)")
     print("=" * 70)
     blogs = [r for r in results
              if (r.get("asset_type") or "").lower() in ("blog", "article", "guide")]
     blogs.sort(key=lambda r: -(r.get("gsc_clicks") or 0))
     if not blogs:
         print("No blog/article pages found in the evaluation.\n")
-    for r in blogs[:20]:
+    for r in blogs[:25]:
         outs = (r.get("page_metadata", {}) or {}).get("internal_outlinks", []) or []
-        links_to_money = sorted({_norm(o.get("target_url", "")) for o in outs
-                                 if _norm(o.get("target_url", "")) in money})
+        tgts = {_norm(o.get("target_url", "")) for o in outs}
+        n_comm = len(tgts & commerce)
+        n_money = len(tgts & money)
         clicks = r.get("gsc_clicks") or 0
-        verdict = ("VANITY (no link to any revenue page)" if not links_to_money
-                   else f"links to {len(links_to_money)} revenue page(s)")
+        if n_comm == 0:
+            verdict = "ORPHAN FROM COMMERCE (links to 0 product/category pages)"
+        elif n_money == 0:
+            verdict = f"links to {n_comm} product/cat page(s), 0 with recorded revenue"
+        else:
+            verdict = f"links to {n_comm} product/cat page(s), {n_money} earning revenue ✓"
         path = urlparse(r.get("url", "")).path
-        print(f"  {clicks:>4} clk/mo  {path[:52]:52}  → {verdict}")
-    print()
+        print(f"  {clicks:>4} clk/mo  {path[:50]:50}  → {verdict}")
+    print("\n  (Revenue counts are unreliable while attribution is broken — treat\n"
+          "   'ORPHAN FROM COMMERCE' as the real signal: those blogs can't assist a\n"
+          "   sale because they link to no product at all.)\n")
 
     # ---- 2. BROKEN INTERNAL LINKS -----------------------------------------
     print("=" * 70)
@@ -90,22 +126,32 @@ def main():
                 continue  # resolves to a crawled 200 page — fine
             d = dead.setdefault(n, {"raw": tgt, "sources": []})
             d["sources"].append((src, (o.get("anchor_text") or "").strip()))
+    verify = "--verify" in sys.argv
     if not dead:
         print("No internal links point to an uncrawled/dead target. ✓\n")
     else:
         ranked = sorted(dead.values(), key=lambda d: -len(d["sources"]))
-        print(f"{len(ranked)} suspected dead internal target(s). Worst first:\n")
-        for d in ranked[:25]:
-            print(f"  ✗ {d['raw']}")
+        print(f"{len(ranked)} suspected dead internal target(s). Worst first"
+              + (" (live-checked):\n" if verify else
+                 " — re-run with --verify to confirm real 404s:\n"))
+        for d in ranked[:30]:
+            status = ""
+            if verify:
+                st = _live_status(d["raw"])
+                time.sleep(0.3)  # gentle on the store
+                label = {"404": "404 DEAD", "301": "301 redirect (stale link)",
+                         "302": "302 redirect (stale link)", "200": "200 OK (false positive)"}.get(st, st)
+                status = f"  [{label}]"
+            print(f"  ✗ {d['raw']}{status}")
             print(f"    linked from {len(d['sources'])} page(s):")
-            for src, anchor in d["sources"][:6]:
+            for src, anchor in d["sources"][:5]:
                 a = f' "{anchor}"' if anchor else ""
                 print(f"      • {urlparse(src).path or src}{a}")
             print()
-        print("Note: a target can be absent because it 404s OR was simply not crawled\n"
-              "(GSC-only URL, param page). Confirm the real 404s in GA4 (page_title =\n"
-              "'Sorry This Page Was Not Found' → switch dimension to Page path), then the\n"
-              "sources above tell you which pages to fix the links on.")
+        if not verify:
+            print("Note: a target can be absent because it 404s OR was simply not crawled.\n"
+                  "Run  python3 scripts/diagnose_blog_and_404.py --verify  to HEAD-check each\n"
+                  "one live (404 DEAD / 301 stale-link / 200 false-positive).")
 
 
 if __name__ == "__main__":
