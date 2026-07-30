@@ -57,6 +57,17 @@ def brand_serp_audit(results, brand_terms, min_impressions=20):
     on these) from deal-hunter modifier queries (low value, don't chase)."""
     total_brand_impr = 0
     total_brand_clicks = 0
+    # What the homepage ALREADY emits — so we never tell them to add brand schema
+    # they already have (Magento/most themes emit Organization + WebSite by
+    # default). Grounds the fix, same 'check first' rule as Rich Results.
+    hp_schema = set()
+    for r in results:
+        if _is_homepage(r.get("url", "")):
+            pm = r.get("page_metadata", {}) or {}
+            hp_schema = {str(s).lower() for s in (pm.get("schema_types") or [])}
+            break
+    hp_has_org = "organization" in hp_schema
+    hp_has_website = "website" in hp_schema
     seen = {}  # query -> aggregated across pages
     for r in results:
         url = r.get("url", "")
@@ -100,7 +111,8 @@ def brand_serp_audit(results, brand_terms, min_impressions=20):
             homepage_missing += 1
             issues.append("Your HOMEPAGE should own this brand query, but another page "
                           "ranks for it — strengthen the homepage's brand signals "
-                          "(title, Organization/WebSite schema, internal links).")
+                          "(a title that leads with your brand + brand-anchor internal "
+                          "links) and check the live SERP to see who's outranking you.")
         # Low CTR: a real signal for navigational brand queries, but EXPECTED (and
         # not actionable) for deal-hunter queries, so we don't flag it there.
         if not deal and q["position"] <= 2.0 and q["ctr"] < 30 and q["impressions"] >= 50:
@@ -122,10 +134,24 @@ def brand_serp_audit(results, brand_terms, min_impressions=20):
 
     recommendation = None
     if homepage_missing >= 1:
-        recommendation = ("Make your HOMEPAGE own your brand: a clear brand title, "
-                          "Organization + WebSite JSON-LD (enables the sitelinks search "
-                          "box), and brand-anchor internal links to it. Right now other "
-                          "pages (about-us, specials) rank for your name.")
+        if hp_has_org and hp_has_website:
+            schema_note = ("Your homepage already emits Organization + WebSite schema "
+                           "(the sitelinks-search-box markup) — that box is checked, "
+                           "don't re-add it. ")
+        else:
+            schema_note = ("First VERIFY your homepage's Organization + WebSite schema "
+                           "in Google's Rich Results Test — Magento/your theme likely "
+                           "already emits it (this scan can miss rendered schema), so "
+                           "don't add a duplicate. ")
+        recommendation = (
+            "Make your HOMEPAGE own your brand. " + schema_note +
+            "The levers that actually move this: (1) a homepage <title> that leads "
+            "with your exact brand name; (2) brand-anchor internal links pointing to "
+            "the homepage from your strongest pages; (3) Google your brand in an "
+            "incognito window and see who's really outranking you — a reseller, a "
+            "marketplace listing of your own products, or a different entity — and act "
+            "on THAT. Note: your brand name doubles as a generic product term, so part "
+            "of this SERP is real competition, not brand theft — don't over-invest.")
     return {
         "brand_queries": len(seen),
         "brand_impressions": int(total_brand_impr),
