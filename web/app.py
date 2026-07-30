@@ -7127,16 +7127,37 @@ def _gather_strategy_signals(results, eval_data, disallow):
     atc = acct.get("add_to_carts")
     orders = acct.get("purchases")
     aov = acct.get("aov")
+    rev = acct.get("revenue")
     funnel = {"add_to_carts_28d": atc, "orders_28d": orders}
     if atc and orders is not None:
         abandon = 1 - (orders / atc)
         funnel["cart_abandonment_pct"] = round(100 * abandon, 1)
+        # HONEST recoverable estimate. ~70% cart abandonment is NORMAL across
+        # ecommerce and is NOT recoverable — most add-to-carts are browsing /
+        # price-checks that never intended to buy. Only abandonment ABOVE that
+        # baseline is plausibly fixable, and a checkout fix recovers only a
+        # fraction of even that. So this is deliberately SMALL — never
+        # abandoned_carts * AOV, which wildly overstates it (and can exceed the
+        # store's entire revenue, which is impossible).
+        NORMAL_ABANDON = 0.70
+        RECOVER_FRACTION = 0.30
+        excess = max(0.0, abandon - NORMAL_ABANDON)
+        recoverable_orders = excess * atc * RECOVER_FRACTION
         if aov:
-            # Recovering even a third of abandoned carts, valued at AOV.
-            funnel["revenue_at_stake_if_1_3_recovered"] = round((atc - orders) * aov / 3.0, 0)
-        funnel["read"] = ("High add-to-cart-to-order drop = a checkout/conversion "
-                          "problem, NOT an SEO problem. This is the highest-dollar "
-                          "lever if the abandonment rate is elevated.")
+            est = recoverable_orders * aov
+            # Sanity cap: a checkout fix cannot realistically add more than ~40%
+            # of current revenue. If the estimate blows past that, the funnel data
+            # is noisy (ad blockers / broken tags under-count orders) — trust the
+            # smaller, sane number rather than a fantasy figure.
+            if rev:
+                est = min(est, 0.40 * rev)
+            funnel["realistic_monthly_recoverable"] = round(est, 0)
+        funnel["note"] = ("~70% abandonment is normal and unrecoverable; only the "
+                          "excess above it is fixable, and only partly. Do NOT value "
+                          "this as abandoned_carts * AOV. If checkout is genuinely "
+                          "slow/broken it's still worth fixing, but the dollar figure "
+                          "is modest and must never exceed a sane fraction of actual "
+                          "revenue.")
     def top(rows, keys, n=3):
         return [{k: r.get(k) for k in keys} for r in (rows or [])[:n]]
     return {
@@ -7226,6 +7247,16 @@ def api_action_plan_strategy():
         "HTML-only crawl that CANNOT see JavaScript-injected schema (this Magento "
         "theme injects a lot via JS), so coverage counts are UNRELIABLE and often "
         "phantom — never make schema coverage the headline.\n\n"
+        "ON CONTENT — be precise, never dismissive. Content DRIVES TRAFFIC and "
+        "builds brand/topical authority even when a given article doesn't directly "
+        "convert; that value is real but shows up long-term, not in 28-day revenue. "
+        "Distinguish two very different things and NEVER lump them: (a) HARVESTING "
+        "existing content — optimizing titles/links on pages you already have — is "
+        "cheap and usually worth doing; (b) WRITING NEW articles from scratch is the "
+        "slow, expensive play (many hours each, 6–12 weeks to rank). If you tell the "
+        "operator to hold off, say specifically 'defer starting NEW articles this "
+        "month while a faster/cheaper lever exists' and acknowledge content's traffic "
+        "value — do NOT say or imply 'content is a waste' or 'skip content'. \n"
         "CRITICAL: do NOT invent technical root causes that aren't in the data. When "
         "a schema type is 'blocked', its blocker_reason IS the cause. Return ONLY JSON."
     )
