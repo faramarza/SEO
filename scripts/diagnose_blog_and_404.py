@@ -127,31 +127,60 @@ def main():
             d = dead.setdefault(n, {"raw": tgt, "sources": []})
             d["sources"].append((src, (o.get("anchor_text") or "").strip()))
     verify = "--verify" in sys.argv
+    ranked = sorted(dead.values(), key=lambda d: -len(d["sources"]))
     if not dead:
         print("No internal links point to an uncrawled/dead target. ✓\n")
+    elif not verify:
+        print(f"{len(ranked)} targets are absent from the crawl's 200-set — but that\n"
+              f"includes pages simply not crawled (the scan caps coverage), NOT just\n"
+              f"real 404s. Do NOT act on this raw list. Re-run with --verify to HEAD-check\n"
+              f"each one live and separate real 404s from redirects and false positives:\n")
+        print("   python3 scripts/diagnose_blog_and_404.py --verify\n")
+        for d in ranked[:15]:
+            print(f"  ? {d['raw']}  (linked from {len(d['sources'])} page(s))")
     else:
-        ranked = sorted(dead.values(), key=lambda d: -len(d["sources"]))
-        print(f"{len(ranked)} suspected dead internal target(s). Worst first"
-              + (" (live-checked):\n" if verify else
-                 " — re-run with --verify to confirm real 404s:\n"))
-        for d in ranked[:30]:
-            status = ""
-            if verify:
-                st = _live_status(d["raw"])
-                time.sleep(0.3)  # gentle on the store
-                label = {"404": "404 DEAD", "301": "301 redirect (stale link)",
-                         "302": "302 redirect (stale link)", "200": "200 OK (false positive)"}.get(st, st)
-                status = f"  [{label}]"
-            print(f"  ✗ {d['raw']}{status}")
-            print(f"    linked from {len(d['sources'])} page(s):")
-            for src, anchor in d["sources"][:5]:
-                a = f' "{anchor}"' if anchor else ""
-                print(f"      • {urlparse(src).path or src}{a}")
+        # Live-check each unique target, bucket by real status. Only CONFIRMED 404s
+        # are real problems; 301s work but waste equity; 200s are false positives.
+        VMAX = 160
+        buckets = {"404": [], "redirect": [], "ok": [], "other": []}
+        for d in ranked[:VMAX]:
+            st = _live_status(d["raw"])
+            time.sleep(0.3)  # gentle on the store
+            d["status"] = st
+            if st == "404" or st == "410":
+                buckets["404"].append(d)
+            elif st in ("301", "302", "307", "308"):
+                buckets["redirect"].append(d)
+            elif st == "200":
+                buckets["ok"].append(d)
+            else:
+                buckets["other"].append(d)
+        print(f"Live-checked {min(len(ranked), VMAX)} of {len(ranked)} targets:\n"
+              f"  {len(buckets['404'])} confirmed 404 DEAD   "
+              f"{len(buckets['redirect'])} redirect (work, but stale links)   "
+              f"{len(buckets['ok'])} false positives (200 OK, live pages)   "
+              f"{len(buckets['other'])} other/error\n")
+
+        if buckets["404"]:
+            print("── CONFIRMED 404s — these are the real problem, fix the links ──")
+            for d in sorted(buckets["404"], key=lambda d: -len(d["sources"])):
+                print(f"  ✗ {d['raw']}  (linked from {len(d['sources'])} page(s))")
+                for src, anchor in d["sources"][:5]:
+                    a = f' "{anchor}"' if anchor else ""
+                    print(f"      • {urlparse(src).path or src}{a}")
+                print()
+        else:
+            print("── No confirmed 404s among the checked targets. ✓ ──\n")
+
+        if buckets["redirect"]:
+            print("── Stale internal links (target 301-redirects; works, but wastes a hop) ──")
+            print("   Nice-to-have: repoint these links at the final URL. Not urgent.")
+            for d in sorted(buckets["redirect"], key=lambda d: -len(d["sources"]))[:15]:
+                print(f"  → {d['raw']}  ({len(d['sources'])} links)")
             print()
-        if not verify:
-            print("Note: a target can be absent because it 404s OR was simply not crawled.\n"
-                  "Run  python3 scripts/diagnose_blog_and_404.py --verify  to HEAD-check each\n"
-                  "one live (404 DEAD / 301 stale-link / 200 false-positive).")
+        print(f"({len(buckets['ok'])} targets returned 200 — live pages the crawl just didn't\n"
+              f"cover, not broken. The real GA 404 page, if any, will show as a CONFIRMED 404\n"
+              f"above; if it doesn't, find its exact URL in GA4 — it may be a URL nothing links to.)")
 
 
 if __name__ == "__main__":
