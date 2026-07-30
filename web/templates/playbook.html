@@ -999,6 +999,13 @@ function renderRich(rich) {
     }
 
     let html = '';
+    // Honesty banner: this scan reads server HTML only, so JS-injected schema
+    // (very common in Magento themes/extensions) can read as "missing" when it's
+    // actually live. Tell the operator to verify before adding anything.
+    if (rich.detection_caveat) {
+        html += `<div class="pb-geo-note" style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-style:normal;margin-bottom:12px;">
+            ⚠ <strong>Verify before you add.</strong> ${escHtml(rich.detection_caveat)}</div>`;
+    }
     // Lead with the useful, do-it-now wins (template-level markup, no reviews
     // needed), and clearly separate the one gap blocked on review collection.
     const doNow = rich.gaps_actionable || [];

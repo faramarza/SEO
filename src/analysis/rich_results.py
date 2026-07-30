@@ -61,6 +61,18 @@ _IMPACT = {
     "howto": "medium", "breadcrumblist": "low",
 }
 
+# The crawler reads SERVER HTML only — it does not execute JavaScript. Magento
+# themes and SEO/schema extensions very commonly inject JSON-LD client-side (via
+# a script or GTM), which a raw-HTML crawl cannot see. So a "not detected" result
+# is NOT proof the schema is absent: Google renders JS and may already see it.
+# Every gap we report carries this caveat and a verify-first instruction, so the
+# tool never again sends the operator to add schema the site already has. The
+# authoritative check is Google's Rich Results Test (it renders JS like Google).
+VERIFY_NOTE = ("Not found in the page's server HTML. This crawler doesn't run "
+               "JavaScript, and Magento themes/extensions often inject schema via "
+               "JS — so this may already be live. VERIFY with Google's Rich "
+               "Results Test before adding anything, to avoid duplicate markup.")
+
 
 def _has_crawl_signal(page: dict) -> bool:
     """True if the page was actually fetched and parsed — so we can honestly say
@@ -261,6 +273,8 @@ def analyze_page_schema(page: dict) -> dict:
             "impact": _IMPACT.get(low, "low"),
             "why": RICH_RESULT_TYPES.get(low, ""),
             "requires_data": None,
+            "verify_first": True,
+            "verify_note": VERIFY_NOTE,
             "jsonld": json.dumps(gen["markup"], indent=2, ensure_ascii=False),
             "note": gen.get("_note", ""),
         })
@@ -273,6 +287,8 @@ def analyze_page_schema(page: dict) -> dict:
             "why": RICH_RESULT_TYPES["aggregaterating"],
             "requires_data": "Needs real reviews — enable review collection first; "
                              "do not publish fabricated ratings.",
+            "verify_first": True,
+            "verify_note": VERIFY_NOTE,
             "jsonld": json.dumps(gen["markup"], indent=2, ensure_ascii=False),
             "note": gen.get("_note", ""),
         })
@@ -322,7 +338,8 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
             g = gap_agg.setdefault(m["type"], {
                 "type": m["type"], "count": 0, "impact": m["impact"],
                 "why": m["why"], "blocked": bool(m.get("requires_data")),
-                "blocker": m.get("requires_data"), "sample_jsonld": m["jsonld"]})
+                "blocker": m.get("requires_data"), "sample_jsonld": m["jsonld"],
+                "verify_first": True, "verify_note": VERIFY_NOTE})
             g["count"] += 1
         # Rank pages by impact of their biggest gap for the UI.
         top = max((_IMPACT.get(m["type"].lower(), "low") == "high")
@@ -362,6 +379,7 @@ def analyze_site_schema(results: list, limit: int = 150) -> dict:
         "gap_counts": dict(sorted(gap_counts.items(), key=lambda kv: -kv[1])),
         "gaps_actionable": actionable_now,
         "gaps_blocked": blocked,
+        "detection_caveat": VERIFY_NOTE,
         "pages": pages[:limit],
         # Diagnostics — so an empty audit can explain itself instead of
         # contradicting the "Based on N pages" header.

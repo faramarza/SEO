@@ -195,17 +195,20 @@ def _from_rich(rich, out):
             continue
         g = gaps[0]
         steps = [
-            f"This page is missing {g['type']} structured data (the crawler confirmed it's not there).",
-            f"Why it matters: {g.get('why','')}",
+            f"VERIFY FIRST: this scan reads server HTML only and can't see schema "
+            f"your theme/extensions add via JavaScript. Open {p.get('url','')} in "
+            f"Google's Rich Results Test — if it already lists {g['type']}, you're "
+            f"done, skip this task. Only continue if it's genuinely absent.",
+            f"Why {g['type']} matters (if missing): {g.get('why','')}",
         ]
         if g.get("requires_data"):
             steps.append(f"⚠ {g['requires_data']}")
-        steps += ["Paste this JSON-LD (fill any UPPER_CASE with the page's real values):",
+        steps += ["If it's truly absent, paste this JSON-LD (fill any UPPER_CASE with the page's real values):",
                   g.get("jsonld",""),
-                  "Validate with Google's Rich Results Test, then watch GSC → Enhancements."]
+                  "Re-run the Rich Results Test to confirm it's valid, then watch GSC → Enhancements."]
         out.append(_task(
             "schema", p.get("url",""),
-            f"Add {g['type']} schema (missing)",
+            f"Verify then add {g['type']} schema (not detected in HTML)",
             steps, f"{g.get('why','')}", 0, 0,
             {"type": "schema_present", "url": p.get("url",""), "schema_type": g["type"]},
             {"present": False},
