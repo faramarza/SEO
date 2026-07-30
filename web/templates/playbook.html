@@ -1221,12 +1221,20 @@ async function pbRunAdsAudit(btn) {
                 html += (dg.findings||[]).map(f=>`<div style="margin-top:8px;">• ${escHtml(f)}</div>`).join('');
                 html += `</div>`;
                 if ((dg.recommendations||[]).length) {
-                    html += `<h3 class="pb-subhead" style="margin-top:18px;">What to do</h3>`;
-                    html += (dg.recommendations||[]).map((r,i)=>`
-                        <div class="pb-schema-gap">
-                            <div style="font-weight:700;">${i+1}. ${escHtml(r.title)}</div>
+                    html += `<h3 class="pb-subhead" style="margin-top:18px;">What to do — step by step</h3>`;
+                    html += (dg.recommendations||[]).map((r,i)=>{
+                        const meta = [r.priority, r.time].filter(Boolean)
+                            .map(m=>`<span class="pb-badge" style="background:#eef2ff;color:#4338ca;">${escHtml(m)}</span>`).join(' ');
+                        const steps = (r.steps||[]).length
+                            ? `<ol class="pb-ad-steps">${(r.steps||[]).map(s=>`<li>${escHtml(s)}</li>`).join('')}</ol>`
+                            : '';
+                        return `<div class="pb-schema-gap">
+                            <div style="font-weight:700;">${i+1}. ${escHtml(r.title)} ${meta}</div>
                             <div class="pb-schema-why">${escHtml(r.detail)}</div>
-                        </div>`).join('');
+                            ${steps}
+                        </div>`;
+                    }).join('');
+                    html += `<div class="pb-geo-note" style="margin-top:6px;">Google Ads moves menu labels around — if a path looks different, type the bolded term into the search bar at the top of Google Ads and it'll jump you there.</div>`;
                 }
                 if (dg.tradeoff) html += `<div class="pb-geo-note" style="margin-top:12px;">⚖️ ${escHtml(dg.tradeoff)}</div>`;
             }

@@ -4464,19 +4464,49 @@ def _diagnose_ad_structure(by_type):
              "detail": "The single cheapest win: exclude your brand terms from PMax "
                        "and add obviously-irrelevant negatives at the account level. "
                        "Stops PMax paying for traffic (especially your own brand) that "
-                       "converts anyway. No new campaign needed."},
+                       "converts anyway. No new campaign needed.",
+             "time": "~25 min", "priority": "Do this first",
+             "steps": [
+                 "SEE what PMax spends on first: Google Ads → open your PMax campaign → "
+                 "Insights and reports → Search terms (may be labelled 'Search categories'). "
+                 "Look for your brand name and any obviously-irrelevant themes.",
+                 "Create a brand list: top nav Tools (wrench) → Shared library → Brand lists → "
+                 "add your brand terms + your domain. (Or type 'brand list' in the top search bar.)",
+                 "Apply it: open the PMax campaign → Settings → Additional settings → "
+                 "Brand exclusions → add that brand list → Save.",
+                 "Add account-level negatives: Tools → search 'Account level negative keywords' → "
+                 "add obvious non-buyers (free, diy, 'how to make', 'coloring pages') plus anything "
+                 "irrelevant you saw in step 1 → Save.",
+             ]},
             {"title": "Run a lean branded Search campaign",
              "detail": "A tiny exact/phrase campaign on your brand name is usually your "
                        "highest-ROAS spend and gives you real search-term visibility. It "
-                       "also stops competitors (or PMax) from taking credit for brand demand."},
+                       "also stops competitors (or PMax) from taking credit for brand demand.",
+             "time": "~20 min", "priority": "Optional but high-ROAS",
+             "steps": [
+                 "+ New campaign → objective Sales → campaign type Search.",
+                 "Budget: start small, e.g. $5/day.",
+                 "Keywords: your brand in phrase + exact match — e.g. \"your brand\" and [your brand].",
+                 "Write one ad pointing at your homepage → Save.",
+             ]},
             {"title": "Check PMax 'search term insights'",
-             "detail": "Google Ads → the PMax campaign → Insights → Search terms. It's "
-                       "aggregated (themes, not exact terms) but it's the only search "
-                       "visibility PMax gives — scan it for irrelevant themes to feed as negatives."},
+             "detail": "The only search visibility PMax gives — aggregated themes, not exact terms.",
+             "time": "~5 min", "priority": "Quick diagnostic",
+             "steps": [
+                 "Google Ads → open the PMax campaign → Insights and reports → Search terms.",
+                 "It shows themes, not exact queries — the best PMax will give you.",
+                 "Scan for irrelevant themes and feed them back as account-level negatives (step 1 above).",
+             ]},
             {"title": "Decide why Search/Shopping are at $0",
              "detail": "Paused, no budget, or outbid by your own PMax? If you want the full "
                        "relevance audit + negatives this tool provides, a small standard "
-                       "Shopping campaign brings back exact search terms to audit."},
+                       "Shopping campaign brings back exact search terms to audit.",
+             "time": "~10 min", "priority": "When you're ready",
+             "steps": [
+                 "Open each Search/Shopping campaign → check its status: Paused? No budget? Ended?",
+                 "To unlock this tool's full relevance audit, launch a small standard Shopping "
+                 "campaign — it returns exact search terms (PMax never will).",
+             ]},
         ]
         tradeoff = ("You do NOT have to run Search ads — PMax-only is a valid, low-effort "
                     "setup. But it trades away visibility and control. The steps above buy "
