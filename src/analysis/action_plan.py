@@ -271,7 +271,13 @@ def _from_decay(decay, out):
 def _from_content(content, out):
     sugs = [s for s in (content.get("suggestions") or []) if s.get("is_content_gap")]
     for s in sugs[:6]:
-        q = s.get("source_query", "")
+        # Not every content-gap suggestion stores its topic under source_query —
+        # some use title/keyword/idea. Fall back through them, and if there's no
+        # topic at all, skip: "Write content for \"\"" is a useless task.
+        q = (s.get("source_query") or s.get("keyword") or s.get("title")
+             or s.get("idea") or s.get("primary_keyword") or "").strip()
+        if not q:
+            continue
         vol = s.get("ahrefs_volume", 0)
         steps = [
             f"Write a dedicated article targeting “{q}” — real demand your site has "
