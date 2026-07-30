@@ -195,21 +195,55 @@ function renderPlan(plan, extra){
     }
     if(thisWeek.length<3){ for(const t of open){ if(thisWeek.length>=3) break; if(!thisWeek.includes(t)) thisWeek.push(t); } }
     const twSet=new Set(thisWeek.map(t=>t.dedup_key));
-    const backlog = open.filter(t=>!twSet.has(t.dedup_key));
+
+    // SECOND LENS — strategic/compounding bets. The "3 best moves" above are the
+    // cheapest near-term wins (high ROI). But ROI structurally buries slow,
+    // compounding plays (new content, structural fixes, brand). So pick the top
+    // tasks by strategic_score that AREN'T already a quick win — the things worth
+    // investing in for durable traffic/brand even though they won't pay this week.
+    const strat=[...open].filter(t=>!twSet.has(t.dedup_key))
+        .sort((a,b)=>(b.strategic_score||0)-(a.strategic_score||0));
+    const stratBets=[]; const stratCats={};
+    for(const t of strat){
+        if(stratBets.length>=3) break;
+        if((t.strategic_score||0) < 8) break;      // nothing meaningfully compounding left
+        const n=stratCats[t.category]||0; if(n>=1) continue;  // one per category — diversity here IS the point
+        stratBets.push(t); stratCats[t.category]=n+1;
+    }
+    const betSet=new Set(stratBets.map(t=>t.dedup_key));
+    const backlog = open.filter(t=>!twSet.has(t.dedup_key) && !betSet.has(t.dedup_key));
 
     let html='';
+
+    // Say the quiet part out loud: how this is ranked, and what it can't see.
+    html += `<div class="dn-lens-note">
+        <strong>How this list is ranked — and what it ignores.</strong>
+        The order below is <em>near-term money per hour of work</em>. That's great for
+        "what's the cheapest win this week," but it is deliberately blind to things
+        it can't measure in your 28-day data: the long-term traffic and brand value
+        of content, the compounding of topical authority, and anything happening off
+        the SEO surface (your ads, email, and checkout live elsewhere). Treat this as
+        <em>spare-time polish</em>, not the whole strategy. The compounding bets that
+        ROI buries are pulled out separately below.
+    </div>`;
 
     if(inProgress.length){
         html += `<h3 class="dn-section">🚧 In progress (${inProgress.length})</h3>`;
         html += inProgress.map(t=>taskCard(t,false)).join('');
     }
 
-    html += `<h3 class="dn-section">⭐ This week — your 3 best moves</h3>`;
+    html += `<h3 class="dn-section">⭐ This week — quick wins</h3>`;
     if(thisWeek.length){
-        html += `<p class="dn-section-sub">Ranked by ROI. Do these first; the rest are below.</p>`;
+        html += `<p class="dn-section-sub">Highest near-term $ for the least effort. Cheap and fast — not necessarily the biggest levers.</p>`;
         html += thisWeek.map(t=>taskCard(t,false)).join('');
     } else {
         html += `<p class="empty-state" style="text-align:left;">Nothing new to start — you're on top of it. 🎉</p>`;
+    }
+
+    if(stratBets.length){
+        html += `<h3 class="dn-section">🌱 Strategic bets — compounding plays ROI buries</h3>`;
+        html += `<p class="dn-section-sub">Slower and harder to measure, but they build durable traffic, authority, or a structural fix that lifts everything. Low "ROI this week" is expected — that's not a reason to skip them.</p>`;
+        html += stratBets.map(t=>taskCard(t,false)).join('');
     }
 
     // Batches: group same-type quick wins in the backlog into one session.

@@ -2938,6 +2938,8 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .dn-tip-critical { background: rgba(220,38,38,.1); color: #b91c1c; }
 .dn-tip-warn { background: rgba(217,119,6,.1); color: #b45309; }
 .dn-tip-info { background: rgba(37,99,235,.08); color: #2563eb; }
+.dn-lens-note { font-size: 12.5px; line-height: 1.55; color: var(--text-secondary); background: rgba(100,116,139,.06); border: 1px solid rgba(100,116,139,.2); border-left: 3px solid #64748b; border-radius: 8px; padding: 11px 14px; margin: 4px 0 8px; }
+.dn-lens-note strong { color: var(--text-primary); }
 .dn-section { font-size: 15px; font-weight: 800; margin: 24px 0 4px; }
 .dn-section-sub { font-size: 12.5px; color: var(--text-muted); margin: 0 0 12px; }
 .dn-collapsible { cursor: pointer; color: var(--text-secondary); }

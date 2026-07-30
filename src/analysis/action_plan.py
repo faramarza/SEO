@@ -385,6 +385,30 @@ ASSET_INTENT_WEIGHT = {
     "blog": 0.3, "article": 0.3, "other": 0.6,
 }
 
+# THE SECOND LENS. ROI above measures near-term money efficiency — it structurally
+# undervalues anything slow or indirect (new content, brand, site structure) even
+# when it builds durable, compounding value. This weight captures that missing
+# dimension: how much a task builds a lasting asset — traffic, brand equity,
+# topical authority, audience, or a structural fix that benefits ALL future
+# traffic. High = compounds over time; low = a one-time harvest. A task can be a
+# poor near-term ROI and an excellent strategic bet (that's the whole point), so
+# these are reported side by side and the plan is split into two horizons rather
+# than collapsed into one misleading number.
+STRATEGIC_WEIGHT = {
+    "content": 1.0,    # new traffic + topical authority — the classic compounding asset
+    "cro": 0.85,       # a structural conversion fix lifts EVERY future visitor
+    "striking": 0.7,   # capture demand that's already rising
+    "brand": 0.7,      # own your brand equity long-term
+    "decay": 0.6,      # recover a compounding asset that's slipping
+    "orphan": 0.6,     # site structure — helps the whole domain, not one page
+    "geo": 0.6,        # the emerging AI-answer discovery channel
+    "reviews": 0.4,    # trust that accrues slowly
+    "merchant": 0.4,
+    "schema": 0.3,
+    "pruning": 0.3,
+    "ctr": 0.2,        # a one-time click harvest — real money, but it doesn't compound
+}
+
 
 def _score_task(t):
     """ROI = value per hour of work per week until it pays off. So a quick,
@@ -413,6 +437,13 @@ def _score_task(t):
     roi = impact / (hours * weeks)
     t["roi"] = round(roi, 2)
     t["is_quick"] = cat in QUICK_CATS
+    # Second lens: strategic/compounding value. Scales with the AUDIENCE a task
+    # builds or unlocks (sqrt-damped so a huge page doesn't dominate), weighted by
+    # how durable that value is. Deliberately independent of near-term ROI so a
+    # slow-but-compounding play (new content, a structural fix) can score high here
+    # while scoring low on ROI — which is exactly the signal ROI alone misses.
+    sw = STRATEGIC_WEIGHT.get(cat, 0.4)
+    t["strategic_score"] = round(sw * (max(t["reach"], 1) ** 0.5), 1)
     # A one-line, honest "why this rank".
     fast = t["time_to_impact_days"] <= 21
     cheap = hours <= 0.6
