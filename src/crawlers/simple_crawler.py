@@ -23,6 +23,40 @@ import httpx
 from src.models.page_asset import PageAsset
 
 
+# --- Robust JSON-LD @type extraction -----------------------------------------
+# Real sites wrap JSON-LD in CDATA / HTML comments, leave trailing commas, or put
+# several objects in one <script>. Strict json.loads throws on all of these and
+# the whole block — every @type in it — gets silently dropped, so the tool wrongly
+# reports schema as "missing" (breadcrumbs, Organization, WebSite, etc. that are
+# plainly in the page source). We sanitize first, and if it STILL won't parse we
+# regex the @type values straight out of the raw text, so a malformed block can
+# never again hide its schema.
+_JSONLD_TYPE_RE = re.compile(r'"@type"\s*:\s*("(?:[^"\\]|\\.)*"|\[[^\]]*\])')
+
+
+def _sanitize_jsonld(raw: str) -> str:
+    """Strip the wrappers/typos that break strict JSON but are common in the wild."""
+    s = raw.strip()
+    s = re.sub(r'^﻿', '', s)                       # BOM
+    s = re.sub(r'^\s*<!--', '', s); s = re.sub(r'-->\s*$', '', s)   # HTML comments
+    s = re.sub(r'^\s*//?\s*<!\[CDATA\[', '', s)         # //<![CDATA[
+    s = re.sub(r'//?\s*\]\]>\s*$', '', s)               # //]]>
+    s = re.sub(r',\s*([}\]])', r'\1', s)                # trailing commas
+    return s.strip()
+
+
+def _types_via_regex(raw: str) -> list:
+    """Last-resort: pull every @type value out of a block regardless of validity."""
+    out = []
+    for m in _JSONLD_TYPE_RE.finditer(raw or ""):
+        val = m.group(1)
+        if val.startswith('['):
+            out += re.findall(r'"((?:[^"\\]|\\.)*)"', val)
+        else:
+            out.append(val.strip('"'))
+    return out
+
+
 @dataclass
 class CrawlResult:
     """Result from crawling a single URL."""
@@ -224,12 +258,13 @@ class HTMLMetaParser(HTMLParser):
         if tag == "script" and self._in_jsonld:
             self._in_jsonld = False
             import json as _json
+            raw = "".join(self._jsonld_parts)
             try:
-                raw = "".join(self._jsonld_parts)
-                schema = _json.loads(raw)
-                self._collect_schema_types(schema)
+                self._collect_schema_types(_json.loads(_sanitize_jsonld(raw)))
             except (ValueError, TypeError):
-                pass
+                # Malformed even after sanitizing — recover the @types anyway so a
+                # single bad block never hides real schema from the audit.
+                self._schema_types.extend(_types_via_regex(raw))
             self._jsonld_parts = []
 
         if tag in self._SKIP_TAGS and self._skip_depth > 0:
@@ -471,7 +506,12 @@ class SimpleCrawler:
         self,
         timeout: float = 10.0,
         max_concurrent: int = 10,
-        user_agent: str = "AlphabetTrains-SEO-Crawler/1.0",
+        # Use a real browser UA. A bot UA can make Magento/WAF/full-page-cache
+        # serve a stripped or challenge page (no JSON-LD), so the crawler would
+        # see different HTML than Google or a browser and wrongly report gaps.
+        user_agent: str = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/126.0.0.0 Safari/537.36"),
     ):
         """
         Initialize crawler.
@@ -517,6 +557,7 @@ class SimpleCrawler:
                 parser = HTMLMetaParser(base_url=url)
                 try:
                     parser.feed(response.text)
+                    parser.close()  # flush any buffered trailing data
                 except Exception:
                     pass  # Best effort parsing
 

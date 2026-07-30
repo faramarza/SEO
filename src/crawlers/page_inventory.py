@@ -49,6 +49,42 @@ def _collect_schema_types(node, out: list) -> None:
             _collect_schema_types(item, out)
 
 
+# Real sites wrap JSON-LD in CDATA/HTML comments, leave trailing commas, or pack
+# several objects in one <script>. Strict json.loads throws on all of these and
+# the whole block is silently dropped, so the tool wrongly reports schema as
+# "missing". Sanitize first; if it still won't parse, regex the @types out of the
+# raw text so a single malformed block can never hide real schema.
+_JSONLD_TYPE_RE = re.compile(r'"@type"\s*:\s*("(?:[^"\\]|\\.)*"|\[[^\]]*\])')
+
+
+def _sanitize_jsonld(raw: str) -> str:
+    s = (raw or "").strip()
+    s = re.sub(r'^﻿', '', s)
+    s = re.sub(r'^\s*<!--', '', s); s = re.sub(r'-->\s*$', '', s)
+    s = re.sub(r'^\s*//?\s*<!\[CDATA\[', '', s)
+    s = re.sub(r'//?\s*\]\]>\s*$', '', s)
+    s = re.sub(r',\s*([}\]])', r'\1', s)
+    return s.strip()
+
+
+def _schema_types_from_script(raw: str) -> list:
+    """Robust extraction from one <script> block: sanitize -> json.loads -> walk;
+    on failure, regex the @type values straight out of the raw text."""
+    out = []
+    try:
+        _collect_schema_types(json.loads(_sanitize_jsonld(raw)), out)
+        return out
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    for m in _JSONLD_TYPE_RE.finditer(raw or ""):
+        val = m.group(1)
+        if val.startswith('['):
+            out += re.findall(r'"((?:[^"\\]|\\.)*)"', val)
+        else:
+            out.append(val.strip('"'))
+    return out
+
+
 @dataclass
 class PageCrawlData:
     """Data extracted from a single page crawl."""
@@ -90,7 +126,12 @@ class PageInventory:
         self,
         base_domain: str,
         cache_path: Optional[Path] = None,
-        user_agent: str = "AlphabetTrains-SEO-Governor/1.0",
+        # Real browser UA — a bot UA can make Magento/WAF/full-page-cache serve a
+        # stripped page (no JSON-LD), so the crawler sees different HTML than
+        # Google/browsers and wrongly reports missing schema.
+        user_agent: str = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/126.0.0.0 Safari/537.36"),
     ):
         """
         Initialize page inventory.
@@ -218,11 +259,7 @@ class PageInventory:
             has_schema_markup = len(schema_scripts) > 0
             schema_types = []
             for script in schema_scripts:
-                try:
-                    schema_data = json.loads(script.string)
-                    _collect_schema_types(schema_data, schema_types)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                schema_types.extend(_schema_types_from_script(script.string))
             schema_types = list(set(schema_types))
 
             # Extract links
