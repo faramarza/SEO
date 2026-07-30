@@ -53,8 +53,23 @@ EFFORT_HOURS = {
 # measured revenue and little/no reach, so a quick 30-min schema fix still ranks
 # sensibly instead of sinking to zero.
 CATEGORY_BASE = {
-    "reviews": 15, "merchant": 8, "schema": 8, "brand": 8, "geo": 6,
-    "decay": 6, "orphan": 5, "striking": 5, "content": 4, "pruning": 3,
+    "merchant": 8, "schema": 8, "brand": 8, "geo": 6,
+    "decay": 6, "orphan": 5, "striking": 5, "reviews": 4, "content": 4,
+    "pruning": 3,
+}
+
+# When a task has NO measured revenue we fall back to a reach proxy (a slice of
+# its impressions). But not all reach converts to money at the same rate. A CTR
+# or CRO fix acts on a click/session you've ALREADY earned; a review or other
+# trust-signal only nudges a small fraction of viewers by a small amount. This
+# factor discounts the reach proxy by how much of it realistically becomes
+# revenue — so an unmeasured trust-signal (reviews especially) stops ranking as
+# if it were top-line money. 1.0 = full credit; 0.15 = a real but modest lever.
+REACH_YIELD = {
+    "reviews": 0.15,   # stars are a real but small CTR/CVR nudge — not a growth engine
+    "geo": 0.30, "brand": 0.55, "schema": 0.55, "pruning": 0.45,
+    "merchant": 0.60, "orphan": 0.60, "content": 0.55,
+    "striking": 0.75, "decay": 0.80,
 }
 # Is this a "knock it out now" quick win? Used for batching + the weekly view.
 QUICK_CATS = {"ctr", "schema", "merchant", "orphan", "pruning"}
@@ -151,12 +166,15 @@ def _from_reviews(reviews, out):
             "(copy it from Playbook → Rich Results).",
             "Never publish a rating you can't back with real reviews.",
         ]
-        benefit = (f"Reviews here touch {r.get('impressions'):,} impressions" +
-                   (f" and ${r.get('revenue'):,.0f} revenue" if r.get("revenue") else "") +
-                   ". Stars lift click-through in search and conversion on the page.")
+        benefit = (f"Stars are a modest but real trust nudge — a small CTR/conversion "
+                   f"lift, not a growth lever. Best treated as a set-once, run-in-the-"
+                   f"background task (e.g. an automatic post-purchase request). This "
+                   f"product sees {r.get('impressions'):,} impressions" +
+                   (f" / ${r.get('revenue'):,.0f} revenue" if r.get("revenue") else "") +
+                   ", so it's the one worth having stars on first.")
         out.append(_task(
             "reviews", r.get("url",""),
-            "Collect reviews for a high-traffic product that has none",
+            "Set up background review collection for a top product (supporting task)",
             steps, benefit, 0, r.get("impressions", 0),
             {"type": "has_rating_schema", "url": r.get("url","")},
             {"has_rating_schema": False},
@@ -377,7 +395,8 @@ def _score_task(t):
         impact = t["expected_value"]
     else:
         w = ASSET_INTENT_WEIGHT.get((t.get("asset_type") or "other").lower(), 0.6)
-        impact = max(t["reach"] * 0.01 * w, CATEGORY_BASE.get(cat, 5) * w)
+        yld = REACH_YIELD.get(cat, 1.0)
+        impact = max(t["reach"] * 0.01 * w, CATEGORY_BASE.get(cat, 5) * w) * yld
     hours = EFFORT_HOURS.get(cat, 2.0)
     weeks = max(1.0, t["time_to_impact_days"] / 7.0)
     roi = impact / (hours * weeks)
