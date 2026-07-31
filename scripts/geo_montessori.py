@@ -66,29 +66,33 @@ def main():
             continue
         sc = _score(r)
         if sc and sc.get("score") is not None:
-            scored.append((r, sc))
-    scored.sort(key=lambda x: x[1].get("score", 100))
+            impr = r.get("gsc_impressions", 0) or 0
+            # Priority = how much traffic is at stake × how big the GEO gap is.
+            priority = impr * (100 - sc.get("score", 100)) / 100.0
+            scored.append((r, sc, impr, priority))
 
-    print(f"{len(scored)} Montessori pages scored for GEO / AI-citation readiness. "
-          f"Lowest (weakest) first — these are the ones AI engines are least likely "
-          f"to cite:\n")
-    for r, sc in scored[:20]:
+    # PRIORITIZED worklist: high traffic × low score first — fix these, don't
+    # waste effort GEO-tuning a page nobody lands on.
+    by_priority = sorted(scored, key=lambda x: -x[3])
+    print(f"{len(scored)} Montessori pages scored for GEO / AI-citation readiness "
+          f"(avg {round(sum(s[1]['score'] for s in scored)/len(scored),1) if scored else 0}/100).\n")
+    print("── FIX THESE FIRST (high traffic × low GEO score) ──")
+    print(f"{'impr/mo':>8}  {'GEO':>4}  page")
+    for r, sc, impr, _ in by_priority[:20]:
+        p = urlparse(r.get("url", "")).path or r.get("url", "")
+        print(f"{impr:>8}  {sc.get('score','?'):>3}/100  {p}")
+
+    print("\n── DETAIL: weakest pages + exact fixes ──\n")
+    for r, sc, impr, _ in sorted(scored, key=lambda x: x[1].get("score", 100))[:20]:
         p = urlparse(r.get("url", "")).path or r.get("url", "")
         print("=" * 72)
-        print(f"{sc.get('score', '?')}/100 ({sc.get('grade', '?')})   {p}")
-        if sc.get("verdict"):
-            print(f"   {sc['verdict']}")
+        print(f"{sc.get('score', '?')}/100 ({sc.get('grade', '?')})   {impr} impr/mo   {p}")
         findings = sorted(sc.get("findings", []), key=lambda f: -(f.get("points", 0)))
         for f in findings[:5]:
             print(f"   ✗ [{f.get('dimension', '')}] {f.get('label', '')}")
             if f.get("fix"):
                 print(f"       FIX: {f['fix']}")
         print()
-
-    if scored:
-        avg = round(sum(s.get("score", 0) for _, s in scored) / len(scored), 1)
-        print(f"Average Montessori-page GEO score: {avg}/100. "
-              f"Fix the lowest scorers first; the FIX lines are the exact to-dos.")
 
 
 if __name__ == "__main__":
