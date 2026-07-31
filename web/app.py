@@ -8887,6 +8887,29 @@ def api_content_generate_article():
     else:
         user_prompt_parts.append(f"Write an article titled: {title}")
 
+    # If the title promises "N <qualifier> …" (a numbered listicle with a real
+    # qualifier like "personalized"), the number is NOT a hard target. Filling it
+    # by padding with off-qualifier items — or relabelling a non-matching product
+    # and hedging — is a hard failure. State this right next to the title, where
+    # the model weights it most; a system-prompt line alone lost to the explicit
+    # number in the title.
+    import re as _re_num
+    _m = _re_num.match(r"\s*(\d+)\s+([A-Za-z][A-Za-z-]+)", (title or writing_prompt or ""))
+    if _m:
+        _num, _qual = _m.group(1), _m.group(2)
+        user_prompt_parts.append(
+            f"CRITICAL LIST-INTEGRITY CONSTRAINT: this title promises {_num} items of a "
+            f"specific kind (\"{_qual} …\"). Every one of the {_num} items MUST genuinely "
+            f"match that premise — the qualifying attribute integral to the product, not "
+            f"loosely attachable. Do NOT pad with items that don't truly fit just to reach "
+            f"{_num}, and NEVER include an item you have to hedge about (e.g. \"while this "
+            f"isn't {_qual}…\", \"can be paired with a {_qual}…\", or a relabel like "
+            f"\"({_qual} gift set)\" on a product that isn't {_qual}). If the catalog has "
+            f"fewer than {_num} genuinely-{_qual} products, you MUST LOWER the number in the "
+            f"H1 to the honest count (e.g. write \"10 {_qual} …\" and list 10). A shorter "
+            f"truthful list is REQUIRED; padding or hedging is a hard failure of the task."
+        )
+
     # Latent-demand coverage brief (MindReader): feed the DIAGNOSIS into
     # creation. Prefer explicit facets passed by the caller (e.g. from the
     # Demand Coverage tool's uncovered facets); otherwise derive them from the
