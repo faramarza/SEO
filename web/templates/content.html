@@ -1922,6 +1922,12 @@ function _onGenComplete(usage) {
     _genArticleHtml = parsed.article;
     _genSeoFields = parsed.fields;
     _renderSeoFields(_genSeoFields);
+    // Sync the article title to the generated H1/Meta Title so the page title,
+    // breadcrumb and URL match the body — otherwise the title keeps the original
+    // topic ("20 …") while the body honestly says "12 …".
+    const genTitle = parsed.fields['H1'] || parsed.fields['Meta Title'];
+    const titleInput = document.getElementById('article-title');
+    if (genTitle && titleInput) titleInput.value = genTitle;
     document.getElementById('gen-status').textContent = 'Generation complete.';
     document.getElementById('gen-actions').classList.remove('hidden');
     document.getElementById('gen-view-tabs').classList.remove('hidden');
