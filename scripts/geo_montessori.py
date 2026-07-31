@@ -8,13 +8,20 @@ top concrete fixes to raise it. Prefers the scorecard computed during evaluation
 recomputes from the crawl if absent. Read-only; reads data/latest_evaluation.json.
 """
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from src.evaluators.geo_scorecard import evaluate_geo_readiness
+# Load geo_scorecard.py DIRECTLY by path (it only needs stdlib `re`). Importing it
+# via the package (src.evaluators) would drag in pydantic-backed models through
+# __init__.py and fail under the system Python — this way the script runs anywhere.
+_geo_path = Path(__file__).resolve().parent.parent / "src" / "evaluators" / "geo_scorecard.py"
+_spec = importlib.util.spec_from_file_location("geo_scorecard_standalone", _geo_path)
+_gsc = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_gsc)
+evaluate_geo_readiness = _gsc.evaluate_geo_readiness
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "latest_evaluation.json"
 
