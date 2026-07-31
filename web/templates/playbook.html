@@ -913,11 +913,20 @@ const RICH_IMPACT_COLOR = { high: '#dc2626', medium: '#d97706', low: '#64748b' }
 function pbCopyJsonld(btn) {
     const pre = btn.parentElement.querySelector('code');
     if (!pre) return;
-    navigator.clipboard.writeText(pre.textContent).then(() => {
-        const old = btn.textContent;
-        btn.textContent = '✓ Copied';
-        setTimeout(() => { btn.textContent = old; }, 1600);
-    }).catch(() => pbToast('Copy failed — select and copy manually', true));
+    const text = pre.textContent;
+    const done = () => { const old = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = old; }, 1600); };
+    // navigator.clipboard is unavailable over plain HTTP — fall back to execCommand.
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done).catch(() => pbFallbackCopy(text, done));
+    } else { pbFallbackCopy(text, done); }
+}
+function pbFallbackCopy(text, done) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    ok ? done() : pbToast('Copy failed — select and copy manually', true);
 }
 
 function renderRich(rich) {

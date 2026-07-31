@@ -288,9 +288,22 @@ function renderPlan(plan, extra){
 
 function dnCopy(btn){
     const box=btn.parentElement.querySelector('.dn-dv-text');
-    navigator.clipboard.writeText(box.textContent).then(()=>{
-        const o=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=o,1500);
-    }).catch(()=>dnToast('Copy failed',true));
+    if(!box) return;
+    const text=box.textContent;
+    const done=()=>{ const o=btn.textContent; btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=o,1500); };
+    // navigator.clipboard only exists in a secure context (HTTPS/localhost). The
+    // tool is served over plain HTTP, so fall back to execCommand there.
+    if(navigator.clipboard && window.isSecureContext){
+        navigator.clipboard.writeText(text).then(done).catch(()=>dnFallbackCopy(text,done));
+    } else { dnFallbackCopy(text,done); }
+}
+function dnFallbackCopy(text,done){
+    const ta=document.createElement('textarea');
+    ta.value=text; ta.style.cssText='position:fixed;left:-9999px';
+    document.body.appendChild(ta); ta.select();
+    let ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta);
+    ok?done():dnToast('Copy failed — select the text and copy manually',true);
 }
 
 async function dnGenerate(key, domId, btn){
