@@ -296,8 +296,12 @@ function dnCopy(btn){
 async function dnGenerate(key, domId, btn){
     const t=[...(DN.plan||[]),...(DN.adopted_extra||[])].find(x=>x.dedup_key===key); if(!t) return;
     const box=document.getElementById(domId);
-    box.innerHTML='<p class="pb-loading" style="margin:8px 0;">Writing it, grounded in your page…</p>';
     if(btn) btn.disabled=true;
+    // Content tasks: write the FULL article using the same 12-phase generator as
+    // the Content page — so "Write it for me" means the same thing everywhere,
+    // not a lightweight brief here and a full draft there.
+    if((t.category||'').toLowerCase()==='content'){ return dnGenerateArticle(t, box, btn); }
+    box.innerHTML='<p class="pb-loading" style="margin:8px 0;">Writing it, grounded in your page…</p>';
     try{
         const res=await fetch('/api/action-plan/deliverable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
         const data=await res.json();
@@ -311,6 +315,36 @@ async function dnGenerate(key, domId, btn){
                 <button class="dn-copy-btn" onclick="dnCopy(this)">Copy</button></div>
             </div>`).join('');
     }catch(e){ if(btn) btn.disabled=false; box.innerHTML=`<p class="empty-state">Failed: ${esc(e.message)}</p>`; }
+}
+
+// Stream the full article for a content task via the same generator the Content
+// page uses (12-phase framework, latent-demand facets). Renders the draft as it
+// streams; adds a Copy button when done.
+async function dnGenerateArticle(t, box, btn){
+    const topic=(t.metric && t.metric.query) || t.query || '';
+    if(!topic){ box.innerHTML='<p class="empty-state" style="text-align:left;">No topic on this task to write from.</p>'; if(btn) btn.disabled=false; return; }
+    box.innerHTML='<p class="pb-loading" style="margin:8px 0;">Writing the full article — this takes 2–4 minutes…</p>';
+    let content='';
+    try{
+        const resp=await fetch('/api/content/generate-article',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:topic})});
+        if(!resp.ok){ const j=await resp.json().catch(()=>({})); box.innerHTML=`<p class="empty-state" style="text-align:left;">${esc(j.error||('HTTP '+resp.status))}</p>`; if(btn) btn.disabled=false; return; }
+        const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
+        while(true){
+            const {done,value}=await reader.read();
+            if(done) break;
+            buf+=dec.decode(value,{stream:true});
+            const lines=buf.split('\n'); buf=lines.pop();
+            for(const line of lines){
+                if(!line.startsWith('data: ')) continue;
+                try{ const evt=JSON.parse(line.slice(6));
+                    if(evt.error){ box.innerHTML=`<p class="empty-state" style="text-align:left;">${esc(evt.error)}</p>`; if(btn) btn.disabled=false; return; }
+                    if(evt.text){ content+=evt.text; box.innerHTML=`<pre class="dn-article" style="white-space:pre-wrap;max-height:360px;overflow:auto;font-size:12.5px;line-height:1.5;">${esc(content)}</pre>`; box.querySelector('pre').scrollTop=1e9; }
+                }catch(e){}
+            }
+        }
+        box.innerHTML=`<div class="dn-dv-block"><div class="dn-dv-label">Full article draft</div><div class="dn-dv-row" style="align-items:flex-start;"><pre class="dn-dv-text dn-article" style="white-space:pre-wrap;max-height:420px;overflow:auto;font-size:12.5px;line-height:1.5;">${esc(content||'(empty)')}</pre><button class="dn-copy-btn" onclick="dnCopy(this)">Copy</button></div></div>`;
+    }catch(e){ box.innerHTML=`<p class="empty-state" style="text-align:left;">Failed: ${esc(e.message)}</p>`; }
+    if(btn) btn.disabled=false;
 }
 
 async function dnAdoptBatch(cat, btn){
