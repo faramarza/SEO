@@ -1771,7 +1771,16 @@ function _parseGenOutput(raw) {
     article = article.replace(/\/blog\/post\//g, '/blog/');
     // Strip HTML comments the model might sneak in
     article = article.replace(/<!--[\s\S]*?-->/g, '');
+    article = _fixHeadingLineHeight(article);
     return { article: article.trim(), fields };
+}
+
+// Styled headings (esp. the large hero h2) often omit line-height, so a title
+// that wraps to two lines overlaps. Inject a safe line-height where missing.
+function _fixHeadingLineHeight(html) {
+    return html.replace(/<(h[1-4])\b([^>]*?)style="([^"]*)"/gi, (m, tag, pre, style) =>
+        /line-height/i.test(style) ? m
+            : `<${tag}${pre}style="${style}${style.trim().endsWith(';') ? '' : ';'}line-height:1.3"`);
 }
 
 function _renderSeoFields(fields) {

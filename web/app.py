@@ -8521,6 +8521,8 @@ _ARTICLE_SYSTEM_PROMPT = """You are an expert SEO content writer for Alphabet Tr
 
 You must follow every phase below IN ORDER. Do not skip any phase. Do not show the phase headings in the final output — they are your internal checklist. The output must be a complete, publish-ready HTML article for Magento.
 
+HTML STYLING RULE: any heading you give an inline font-size to (especially the large hero <h2>) MUST also include line-height:1.2–1.3 in its style — otherwise a title that wraps to two lines overlaps. Always pair a big font-size with a line-height.
+
 ═══════════════════════════════════════
 PHASE 1: INTENT & AUDIENCE
 ═══════════════════════════════════════
