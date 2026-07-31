@@ -8561,6 +8561,17 @@ engines lift numbered lists directly):
   one concrete detail — age/material/price/skill).
 - The number in the H1/title MUST equal the number of items you actually write
   (if you list 11, the title says 11, not a rounder "12").
+- PREMISE FIDELITY (critical): every item MUST genuinely satisfy the QUALIFIER in
+  the title. If the title says "20 PERSONALIZED baby gifts", all 20 must be truly
+  personalized products (a name/initials/birthdate is integral to the product) —
+  NOT generic toys with a name loosely attached. Do NOT pad the list with items
+  that don't fit just to hit the number, and NEVER write hedges like "not
+  personalized in the traditional sense" or "can be paired with a personalized
+  card" — that is an admission the item does not belong. If the catalog genuinely
+  has fewer qualifying products than the requested number, REDUCE the number in
+  the H1 to the real count (e.g. write "10 Personalized …" and list 10) rather
+  than padding. A shorter, honest list beats a padded one — and a padded list
+  destroys reader trust and the article's credibility with AI answer engines.
 - Include a short comparison table summarizing the items where it helps.
 
 ═══════════════════════════════════════
