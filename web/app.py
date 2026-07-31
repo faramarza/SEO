@@ -8865,6 +8865,41 @@ def _derive_demand_facets(topic, config):
         return []
 
 
+def _qualifying_products(qualifier):
+    """Products in the latest crawl that genuinely match a listicle qualifier
+    (e.g. 'personalized'), so a 'N <qualifier>' listicle's number is DATA-DRIVEN —
+    the real count of matching products in the catalog, not a made-up round number.
+    Returns [{title, url}]. For personalization qualifiers, name-based items
+    (name train/puzzle/stool) count too, since those ARE personalized."""
+    q = (qualifier or "").lower().strip()
+    if not q:
+        return []
+    signals = {q}
+    if q.startswith("personal") or q in ("custom", "monogram", "monogrammed", "engraved", "named"):
+        signals |= {"personaliz", "personalis", "custom", "monogram", "engrav",
+                    "name train", "name-train", "name puzzle", "name-puzzle",
+                    "name stool", "name-stool", "name-train", "letter name"}
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            eval_data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    out, seen = [], set()
+    for r in eval_data.get("results", []):
+        if (r.get("asset_type") or "").lower() != "product":
+            continue
+        url = r.get("url", "")
+        title = ((r.get("page_metadata", {}) or {}).get("title") or "").strip()
+        hay = (title + " " + url).lower()
+        if any(s in hay for s in signals):
+            key = url.lower().rstrip("/")
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"title": title or url, "url": url})
+    return out
+
+
 @app.route("/api/content/generate-article", methods=["POST"])
 def api_content_generate_article():
     """Stream-generate an article using Claude API with the 12-phase framework."""
@@ -8901,18 +8936,28 @@ def api_content_generate_article():
 
     if _m:
         _num, _qual = _m.group(1), _m.group(2)
-        user_prompt_parts.append(
-            f"FORMAT — numbered listicle, but the count is YOURS to set honestly. The "
-            f"original topic said “{_num} {_qual} …”, but that {_num} is an arbitrary "
-            f"auto-generated number, NOT a target and NOT a real count of the catalog. "
-            f"List ONLY products that are genuinely {_qual} — the {_qual} attribute "
-            f"integral to the product, not loosely attachable — and set the number in the "
-            f"H1 to EXACTLY how many you list (likely far fewer than {_num}, e.g. 8–12). "
-            f"Do NOT pad to reach {_num}. NEVER include an item you must hedge about "
-            f"(“while this isn't {_qual}…”, “can be paired with a {_qual}…”, or a relabel "
-            f"like “({_qual} gift set)” on a product that isn't {_qual}). A short, fully "
-            f"honest list is REQUIRED and is the correct outcome — padding is a failure."
-        )
+        _prods = _qualifying_products(_qual)
+        if len(_prods) >= 3:
+            # DATA-DRIVEN: the number comes from the catalog, not a round guess.
+            _lst = "\n".join(f"- {p['title']} — {p['url']}" for p in _prods[:60])
+            user_prompt_parts.append(
+                f"DATA-DRIVEN PRODUCT LIST — the listicle number MUST come from the catalog, "
+                f"not the arbitrary “{_num}” in the topic. The live crawl found these "
+                f"{len(_prods)} genuinely-{_qual} products. Build the listicle from ONLY the "
+                f"ones relevant to this article’s topic (“{_title_line}”), one numbered item "
+                f"per product, and set the H1 number to EXACTLY how many you actually feature "
+                f"(e.g. if 12 are relevant, the title is “12 {_qual} …”). Do NOT invent, add, "
+                f"or pad with any product not in this list. Products:\n{_lst}"
+            )
+        else:
+            # No catalog data — strip the arbitrary number and let it self-count honestly.
+            user_prompt_parts.append(
+                f"FORMAT — numbered listicle. The topic said “{_num} {_qual} …”, but that "
+                f"{_num} is an arbitrary auto-generated number, NOT a target. List ONLY "
+                f"products that are genuinely {_qual}, set the H1 number to exactly how many "
+                f"you list, and NEVER pad or hedge (“while this isn't {_qual}…”, “({_qual} "
+                f"set)” on a non-{_qual} product). A short honest list is REQUIRED."
+            )
 
     # Latent-demand coverage brief (MindReader): feed the DIAGNOSIS into
     # creation. Prefer explicit facets passed by the caller (e.g. from the
