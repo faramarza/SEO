@@ -8938,16 +8938,25 @@ def api_content_generate_article():
         _num, _qual = _m.group(1), _m.group(2)
         _prods = _qualifying_products(_qual)
         if len(_prods) >= 3:
-            # DATA-DRIVEN: the number comes from the catalog, not a round guess.
-            _lst = "\n".join(f"- {p['title']} — {p['url']}" for p in _prods[:60])
+            # DATA-DRIVEN: the number comes from the catalog — but as distinct gift
+            # IDEAS (grouping variants), not one entry per SKU.
+            _lst = "\n".join(f"- {p['title']} — {p['url']}" for p in _prods[:80])
             user_prompt_parts.append(
-                f"DATA-DRIVEN PRODUCT LIST — the listicle number MUST come from the catalog, "
-                f"not the arbitrary “{_num}” in the topic. The live crawl found these "
-                f"{len(_prods)} genuinely-{_qual} products. Build the listicle from ONLY the "
-                f"ones relevant to this article’s topic (“{_title_line}”), one numbered item "
-                f"per product, and set the H1 number to EXACTLY how many you actually feature "
-                f"(e.g. if 12 are relevant, the title is “12 {_qual} …”). Do NOT invent, add, "
-                f"or pad with any product not in this list. Products:\n{_lst}"
+                f"DATA-DRIVEN PRODUCT LIST — the listicle number comes from the catalog, not "
+                f"the arbitrary “{_num}” in the topic. The live crawl found these {len(_prods)} "
+                f"genuinely-{_qual} products. Use ONLY products from this list — never invent "
+                f"or add anything not here.\n"
+                f"CRITICAL — DISTINCT IDEAS, NOT VARIANTS: this is a list of gift IDEAS, so each "
+                f"numbered item must be a DISTINCT KIND of gift. GROUP mere size/theme variants "
+                f"of the same product into ONE numbered entry — do NOT list them separately. "
+                f"E.g. a 4-letter, 5-letter, 7-letter, 10-letter name train are the SAME idea: "
+                f"feature them as ONE item (“Personalized Name Train”) and note the range inside "
+                f"it (“available from 3 to 12 letters”, linking two or three sizes). Likewise, "
+                f"do NOT list 19 personalized storybooks as 19 items — group them into a few "
+                f"themed entries (e.g. name/keepsake books, adventure books, sibling books) with "
+                f"standout examples linked. Aim for however many are GENUINELY distinct — "
+                f"typically ~8–12 for this catalog. Set the H1 number to that count of distinct "
+                f"ideas (a realistic “10 {_qual} …”, not “{len(_prods)}”). Products:\n{_lst}"
             )
         else:
             # No catalog data — strip the arbitrary number and let it self-count honestly.
