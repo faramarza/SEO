@@ -8880,34 +8880,38 @@ def api_content_generate_article():
     if not writing_prompt and not title:
         return jsonify({"error": "Writing prompt or title is required."}), 400
 
-    # Build contextual user prompt
+    # Build contextual user prompt.
+    # If the topic promises "N <qualifier> …" (e.g. "20 Personalized …"), that N is
+    # an ARBITRARY auto-generated number, not a real catalog count — and leaving it
+    # in the title anchors the writer, which then pads to N with off-qualifier items
+    # and hedges ("can be paired with a personalized …"). So STRIP the number from
+    # the title the writer sees, and tell it to set the H1 to the honest count of
+    # products that genuinely match the qualifier.
+    import re as _re_num
+    _m = _re_num.match(r"\s*(\d+)\s+([A-Za-z][A-Za-z-]+)", (title or writing_prompt or ""))
+    _title_line = title
+    if _m and title:
+        _title_line = _re_num.sub(r"^\s*\d+\s+", "", title).strip()
+
     user_prompt_parts = []
     if writing_prompt:
         user_prompt_parts.append(f"WRITING PROMPT:\n{writing_prompt}")
     else:
-        user_prompt_parts.append(f"Write an article titled: {title}")
+        user_prompt_parts.append(f"Write an article about: {_title_line}")
 
-    # If the title promises "N <qualifier> …" (a numbered listicle with a real
-    # qualifier like "personalized"), the number is NOT a hard target. Filling it
-    # by padding with off-qualifier items — or relabelling a non-matching product
-    # and hedging — is a hard failure. State this right next to the title, where
-    # the model weights it most; a system-prompt line alone lost to the explicit
-    # number in the title.
-    import re as _re_num
-    _m = _re_num.match(r"\s*(\d+)\s+([A-Za-z][A-Za-z-]+)", (title or writing_prompt or ""))
     if _m:
         _num, _qual = _m.group(1), _m.group(2)
         user_prompt_parts.append(
-            f"CRITICAL LIST-INTEGRITY CONSTRAINT: this title promises {_num} items of a "
-            f"specific kind (\"{_qual} …\"). Every one of the {_num} items MUST genuinely "
-            f"match that premise — the qualifying attribute integral to the product, not "
-            f"loosely attachable. Do NOT pad with items that don't truly fit just to reach "
-            f"{_num}, and NEVER include an item you have to hedge about (e.g. \"while this "
-            f"isn't {_qual}…\", \"can be paired with a {_qual}…\", or a relabel like "
-            f"\"({_qual} gift set)\" on a product that isn't {_qual}). If the catalog has "
-            f"fewer than {_num} genuinely-{_qual} products, you MUST LOWER the number in the "
-            f"H1 to the honest count (e.g. write \"10 {_qual} …\" and list 10). A shorter "
-            f"truthful list is REQUIRED; padding or hedging is a hard failure of the task."
+            f"FORMAT — numbered listicle, but the count is YOURS to set honestly. The "
+            f"original topic said “{_num} {_qual} …”, but that {_num} is an arbitrary "
+            f"auto-generated number, NOT a target and NOT a real count of the catalog. "
+            f"List ONLY products that are genuinely {_qual} — the {_qual} attribute "
+            f"integral to the product, not loosely attachable — and set the number in the "
+            f"H1 to EXACTLY how many you list (likely far fewer than {_num}, e.g. 8–12). "
+            f"Do NOT pad to reach {_num}. NEVER include an item you must hedge about "
+            f"(“while this isn't {_qual}…”, “can be paired with a {_qual}…”, or a relabel "
+            f"like “({_qual} gift set)” on a product that isn't {_qual}). A short, fully "
+            f"honest list is REQUIRED and is the correct outcome — padding is a failure."
         )
 
     # Latent-demand coverage brief (MindReader): feed the DIAGNOSIS into
