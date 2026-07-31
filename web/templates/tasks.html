@@ -802,14 +802,14 @@ function showTaskDetail(actionId, status) {
                 <p><span class="risk-badge risk-${task.risk_level || 'low'}">${task.risk_level || 'low'}</span></p>
             </div>
         </div>
-        ${buildOpportunitySummary(task)}
-        ${buildTaskMetrics(task)}
-        ${constraintScoresHtml}
-        ${constraintsHtml}
-        ${queriesHtml}
+        ${task.url ? buildOpportunitySummary(task) : ''}
+        ${task.url ? buildTaskMetrics(task) : ''}
+        ${task.url ? constraintScoresHtml : ''}
+        ${task.url ? constraintsHtml : ''}
+        ${task.url ? queriesHtml : ''}
         ${issuesHtml}
         <div class="detail-section">
-            <h4>Implementation Steps</h4>
+            <h4>${task.url ? 'Implementation Steps' : 'What to do'}</h4>
             ${stepsHtml}
         </div>
         ${task.rollback_plan ? `
