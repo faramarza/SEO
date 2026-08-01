@@ -702,7 +702,27 @@ async function pbAddMerchantTask(idx, btn) {
     }
 }
 
-const PB_STRIKING = { filter: 'all', sort: 'lever' };
+const PB_STRIKING = { filter: 'all', sort: 'lever', col: null, dir: 'desc' };
+// Column key -> accessor + type, for clickable-header sorting.
+const PB_STRIKING_COLS = {
+    query:   { get: r => (r.query || '').toLowerCase(),  type: 'str' },
+    url:     { get: r => (r.url || '').toLowerCase(),     type: 'str' },
+    position:{ get: r => r.position,                      type: 'num' },
+    impressions:{ get: r => r.impressions,               type: 'num' },
+    clicks:  { get: r => r.clicks,                        type: 'num' },
+    ctr:     { get: r => r.ctr,                           type: 'num' },
+    upside_clicks:{ get: r => r.upside_clicks,            type: 'num' },
+};
+function pbStrikingColSort(col) {
+    if (PB_STRIKING.col === col) {
+        PB_STRIKING.dir = PB_STRIKING.dir === 'desc' ? 'asc' : 'desc';
+    } else {
+        PB_STRIKING.col = col;
+        // Sensible default direction: text ascending, numbers descending.
+        PB_STRIKING.dir = PB_STRIKING_COLS[col].type === 'str' ? 'asc' : 'desc';
+    }
+    renderStrikingTable(_pbStrikingRows || (PB_DATA.striking_distance || []));
+}
 const PB_LEVER_META = {
     internal: { label: 'Quick win: internal links', color: '#059669', order: 0,
                 note: 'cheapest, do first — add internal links, no backlinks needed' },
@@ -756,10 +776,20 @@ function pbStrikingSort(key) {
     renderStriking(PB_DATA.striking_distance || []);
 }
 
+let _pbStrikingRows = null;
 function renderStrikingTable(rows) {
+    _pbStrikingRows = rows;
     let view = rows.slice();
     if (PB_STRIKING.filter !== 'all') view = view.filter(r => r.lever === PB_STRIKING.filter);
-    if (PB_STRIKING.sort === 'lever') {
+    if (PB_STRIKING.col && PB_STRIKING_COLS[PB_STRIKING.col]) {
+        // Clicking a column header overrides the lever/upside sort.
+        const c = PB_STRIKING_COLS[PB_STRIKING.col], mul = PB_STRIKING.dir === 'asc' ? 1 : -1;
+        view.sort((a, b) => {
+            const va = c.get(a), vb = c.get(b);
+            if (c.type === 'str') return mul * String(va).localeCompare(String(vb));
+            return mul * ((va || 0) - (vb || 0));
+        });
+    } else if (PB_STRIKING.sort === 'lever') {
         view.sort((a, b) => (PB_LEVER_META[a.lever].order - PB_LEVER_META[b.lever].order)
             || (b.upside_clicks - a.upside_clicks));
     } else {
@@ -767,9 +797,12 @@ function renderStrikingTable(rows) {
     }
     const cont = document.getElementById('pb-striking-table');
     if (!view.length) { cont.innerHTML = '<p class="empty-state">No queries in this category.</p>'; return; }
+    const arrow = k => PB_STRIKING.col === k ? (PB_STRIKING.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    const hcell = (k, label, title) =>
+        `<th class="pb-sortable" style="cursor:pointer;user-select:none;" ${title ? `title="${title}"` : ''} onclick="pbStrikingColSort('${k}')">${label}${arrow(k)}</th>`;
     let html = `<table class="pb-table"><thead><tr>
-        <th>Query</th><th>Page</th><th>Pos</th><th>Impr</th>
-        <th>Clicks</th><th>CTR</th><th title="Clicks available if this query reached position 5">Upside</th><th></th></tr></thead><tbody>`;
+        ${hcell('query','Query')}${hcell('url','Page')}${hcell('position','Pos')}${hcell('impressions','Impr')}
+        ${hcell('clicks','Clicks')}${hcell('ctr','CTR')}${hcell('upside_clicks','Upside','Clicks available if this query reached position 5')}<th></th></tr></thead><tbody>`;
     view.forEach(r => {
         html += `<tr>
             <td><strong>${escHtml(r.query)}</strong>
