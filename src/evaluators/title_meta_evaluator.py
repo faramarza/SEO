@@ -139,7 +139,7 @@ class TitleMetaEvaluator:
             return variants
 
         # Variant 1: Query-focused (front-load the primary query)
-        variant1_title = self._create_query_focused_title(primary_query, intent, asset.asset_type)
+        variant1_title = self._create_query_focused_title(primary_query, intent, asset.asset_type, current_title)
         if variant1_title and variant1_title != current_title:
             variants.append(TitleVariant(
                 title=variant1_title,
@@ -173,48 +173,43 @@ class TitleMetaEvaluator:
         query: str,
         intent: QueryIntent,
         asset_type: AssetType,
+        current_title: str = "",
     ) -> Optional[str]:
-        """Create a query-focused title."""
-        # Capitalize properly
-        title = query.title()
-
-        # Add suffix based on asset type
-        if asset_type == AssetType.PRODUCT:
-            suffix = " for Kids"
-        elif asset_type == AssetType.CATEGORY:
-            suffix = " Collection"
-        elif asset_type == AssetType.BLOG:
-            suffix = " Guide"
+        """Front-load the REAL under-clicked query onto the page's ACTUAL title —
+        do NOT fabricate store-specific suffixes ('for Kids', 'Collection') or
+        invent claims. The genuine CTR fix here is: get the searcher's words into
+        the title while keeping the page's own identity. If the title already
+        contains the query, the title isn't the problem — return None (the fix is
+        the meta description, and the grounded CTR-Recovery→Rewrite tool handles
+        nuanced rewrites)."""
+        q = (query or "").strip()
+        cur = (current_title or "").strip()
+        if not q:
+            return None
+        if cur and q.lower() in cur.lower():
+            return None  # query already present — no honest deterministic improvement
+        if cur:
+            # Keep the page's real words; just lead with the query.
+            merged = f"{q.title()}: {cur}"
+            title = merged if len(merged) <= self.MAX_TITLE_LENGTH else q.title()
         else:
-            suffix = ""
-
-        title = title + suffix
-
-        # Truncate if too long
+            title = q.title()
         if len(title) > self.MAX_TITLE_LENGTH:
-            title = title[:self.MAX_TITLE_LENGTH - 3] + "..."
-
-        return title if len(title) <= self.MAX_TITLE_LENGTH else None
+            title = title[:self.MAX_TITLE_LENGTH - 1].rstrip() + "…"
+        return title if title and title != current_title else None
 
     def _create_benefit_focused_title(
         self,
         query: str,
         asset_type: AssetType,
     ) -> Optional[str]:
-        """Create a benefit-focused title."""
-        query_title = query.title()
-
-        if asset_type == AssetType.PRODUCT:
-            title = f"Shop {query_title} for Kids"
-        elif asset_type == AssetType.CATEGORY:
-            title = f"Best {query_title} for Learning"
-        else:
-            title = f"{query_title} That Kids Love"
-
-        if len(title) > self.MAX_TITLE_LENGTH:
-            title = title[:self.MAX_TITLE_LENGTH - 3] + "..."
-
-        return title if len(title) <= self.MAX_TITLE_LENGTH else None
+        """Deliberately returns None. A benefit-led title requires a REAL,
+        page-specific value prop (age, material, free shipping, a number) — which
+        can't be produced deterministically without inventing claims like 'That
+        Kids Love' or 'for Learning'. Benefit-led rewrites are handled by the
+        grounded CTR-Recovery→Rewrite LLM, which reads the actual page. So we emit
+        no fabricated benefit variant here."""
+        return None
 
     def evaluate(
         self,

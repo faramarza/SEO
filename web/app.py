@@ -4496,10 +4496,11 @@ def _diagnose_ad_structure(by_type, break_even_roas=4.0):
             {"title": "Stop PMax paying for your brand — and defend it with a tiny branded Search "
                       "campaign (do these TOGETHER)",
              "detail": "PMax quietly spends on people already searching your brand. Excluding brand "
-                       "from PMax is right — but you don't own your brand results organically (you "
-                       "rank ~#4 for your own name, resellers above you), so excluding brand from "
-                       "PMax WITHOUT a branded Search campaign would leak brand buyers to a reseller. "
-                       "That's why these are paired, not optional.",
+                       "from PMax is right — BUT only pair-safe if you own your brand results "
+                       "organically. Check Playbook → Brand & Merchant for your real brand-query "
+                       "position: if a reseller or marketplace outranks you for your own name (common "
+                       "for small stores), then excluding brand from PMax WITHOUT a branded Search "
+                       "campaign leaks brand buyers to them. That's why these are paired, not optional.",
              "time": "~25 min", "priority": "High — pair them",
              "steps": [
                  "Create a brand list: Tools (wrench) → Shared library → Brand lists → add your brand "
