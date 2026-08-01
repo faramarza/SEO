@@ -7764,9 +7764,24 @@ def _playbook_add_task_impl(body):
         # they don't need.
         if lever == "internal":
             summary = f"Quick win — internal links to '{query}' (pos {pos})"
+            # Name the ACTUAL source pages to link FROM — don't punt to another screen.
+            _srcs = []
+            try:
+                from src.analysis.growth_playbook import suggest_link_sources
+                with open(DATA_PATH / "latest_evaluation.json") as _f:
+                    _ev = json.load(_f)
+                _srcs = suggest_link_sources(url, _ev.get("results", []), _robots_disallow_rules(), n=5)
+            except Exception:
+                pass
             steps = [
                 f"'{query}' is already in the title/H1 (position {pos}, {impr:,} impressions) and this page has only {inlinks} internal inbound link(s) — do NOT re-add the keyword or chase backlinks yet.",
-                "Add contextual internal links to this page from your strongest, most topically-related pages (see Playbook → Orphans/Clusters and Link Map for which).",
+            ]
+            if _srcs:
+                steps.append("Add contextual internal links to this page from these related pages that share its topics:")
+                steps += [f"• {s.get('title') or s.get('url')} ({s.get('url')})" for s in _srcs]
+            else:
+                steps.append("Add contextual internal links to this page from your strongest, most topically-related pages (Playbook → Orphans/Clusters and Link Map list candidates).")
+            steps += [
                 "Use anchor text that describes THIS page.",
                 "Re-check the query's position in GSC after 3-4 weeks — internal linking alone may lift it.",
             ]

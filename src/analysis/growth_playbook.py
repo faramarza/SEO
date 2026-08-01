@@ -322,6 +322,32 @@ def _union_find_clusters(graph, min_shared=3):
     return [members for members in clusters.values() if len(members) >= 3]
 
 
+def suggest_link_sources(target_url, results, system_disallow=None, n=5):
+    """Name the ACTUAL existing pages that should link to `target_url` — the ones
+    sharing the most query terms that don't already link to it. Returns a list of
+    {url, title, shared_terms}. Same topical-overlap logic the orphan finder uses,
+    so 'add internal links' advice can be specific inline instead of punting the
+    operator to another screen."""
+    if not target_url:
+        return []
+    graph = _build_graph(results)
+    t_path = urlparse(target_url.lower()).path.rstrip("/")
+    tnorm = next((norm for norm, p in graph.items()
+                  if urlparse(p["url"].lower()).path.rstrip("/") == t_path), None)
+    if tnorm is None:
+        return []
+    page = graph[tnorm]
+    candidates = []
+    for onorm, other in graph.items():
+        if onorm == tnorm or _is_system_page(other["url"], system_disallow):
+            continue
+        overlap = len(page["query_words"] & other["query_words"])
+        if overlap >= 2 and tnorm not in other["outlink_norms"]:
+            candidates.append((overlap, other["gsc_impressions"], other["url"], other["title"]))
+    candidates.sort(reverse=True)
+    return [{"url": c[2], "title": c[3], "shared_terms": c[0]} for c in candidates[:n]]
+
+
 def find_orphans_and_clusters(results, orphan_min_impressions=20,
                               system_disallow=None):
     """Orphan pages (no internal inlinks) with demand, plus topic clusters
