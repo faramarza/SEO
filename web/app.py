@@ -7448,6 +7448,18 @@ def api_action_plan_deliverable():
           (f"current meta: {pm.get('meta_description','')}\n" if pm.get("meta_description") else "") + \
           (f"page topic: {(pm.get('content_preview','') or '')[:400]}\n" if pm.get("content_preview") else "")
 
+    # GEO block is page-type aware: a "Last updated" date is natural on a blog/
+    # article/guide but unnatural (and mildly misleading) on a commerce category/
+    # product page — so only content pages get the date instruction.
+    _geo_asset = (t.get("asset_type") or "other").lower()
+    _geo_is_content = _geo_asset in ("blog", "article", "guide")
+    _geo_date_rule = ("Start the block with a '<p style=\"color:#888;font-size:0.9em;\">Last "
+                      "updated: <current month and year></p>' line."
+                      if _geo_is_content else
+                      "Do NOT add a 'Last updated' date — this is a commerce page, where a "
+                      "stamped date is unnatural; instead weave the current year into the lead "
+                      "sentence naturally only if it fits.")
+
     PROMPTS = {
         "ctr": ("You write SERP titles/metas that earn the click without clickbait.",
                 f"{ctx}\nThe page ranks for “{query}” but is under-clicked. Write 3 titles "
@@ -7458,10 +7470,21 @@ def api_action_plan_deliverable():
                 f"H1 title (put a NUMBER if it's a best/top listicle), a 1-paragraph intro "
                 f"that answers the query directly (quotable), and 6-8 H2 section headings. "
                 f"JSON: {{\"blocks\":[{{\"label\":\"Title\",\"text\":\"...\"}},{{\"label\":\"Intro\",\"text\":\"...\"}},{{\"label\":\"Outline\",\"text\":\"H2 ...\\nH2 ...\"}}]}}"),
-        "geo": ("You are a GEO strategist writing quotable FAQ content.",
-                f"{ctx}\nWrite 5 question-form FAQ entries this page should answer so AI "
-                f"engines cite it, each answer <=45 words and factual. JSON: "
-                f"{{\"blocks\":[{{\"label\":\"Q: ...\",\"text\":\"A: ...\"}},...]}}"),
+        "geo": ("You are a GEO (generative-engine-optimization) strategist. You output "
+                "paste-ready HTML that makes a page citable by AI answer engines: a direct "
+                "quotable answer, concrete evidence with a credible source, a scannable list, "
+                "and an FAQ with FAQPage schema. Ground everything in the page's real topic; "
+                "invent no product names, prices, or fake statistics.",
+                f"{ctx}\nProduce ONE paste-ready HTML GEO block for this page, containing IN ORDER: "
+                f"(1) a 1-2 sentence LEAD ANSWER that directly, quotably answers what this page "
+                f"is about; (2) an <h2> then a <ul> of 3-4 bullets on what to look for / why it "
+                f"matters, each with a CONCRETE fact (age range, material, a safety standard such "
+                f"as ASTM F963, or a sourced stat e.g. 'according to the CDC' / 'NAEYC') — real, "
+                f"not invented; (3) '<h2>Frequently Asked Questions</h2>' with 3-4 <h3> questions "
+                f"real shoppers ask, each followed by a factual 2-3 sentence <p> answer (no "
+                f"fabricated numbers); (4) a <script type=\"application/ld+json\"> FAQPage block "
+                f"matching those exact Q&As. {_geo_date_rule} "
+                f"JSON: {{\"blocks\":[{{\"label\":\"Paste-ready GEO block — add near the bottom of the page\",\"text\":\"<full HTML here>\"}}]}}"),
         "reviews": ("You write concise post-purchase review-request messages.",
                 f"{ctx}\nWrite a short post-purchase review-request email (subject + body) "
                 f"and a 1-line SMS, asking buyers of this product to leave a review. Warm, "
