@@ -53,3 +53,63 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add any global initialization here
     console.log('Governor Dashboard initialized');
 });
+
+/* ── Generic clickable-header table sorting ───────────────────────────────
+   Makes any data table (a <table> with <thead> and <tbody>) sortable by
+   clicking its column headers — across ALL screens, via event delegation, so
+   dynamically-rendered tables work too. Click to sort; click again to flip.
+   Numeric columns sort high→low first, text A→Z. Opt out: data-nosort on the
+   table or a <th>. Headers with their own onclick (e.g. Playbook's custom
+   Striking sort) are left alone. */
+(function () {
+  function cellVal(td) {
+    var t = (td.textContent || '').trim();
+    if (t === '') return { t: '', n: 0, num: false };
+    var cleaned = t.replace(/[,$%]/g, '').replace(/\/mo\b/gi, '').replace(/[▲▼→].*/, '').trim();
+    var n = parseFloat(cleaned);
+    var num = /\d/.test(t) && !isNaN(n) &&
+              /^[-+]?[\d.,]+\s*[%$]?(\/mo)?$/i.test(t.replace(/[▲▼]/g, '').trim());
+    return { t: t.toLowerCase(), n: n, num: num };
+  }
+  function sortTable(table, idx, th) {
+    var tbody = table.tBodies[0];
+    if (!tbody) return;
+    var rows = Array.prototype.slice.call(tbody.rows).filter(function (r) { return r.cells.length > idx; });
+    if (rows.length < 2) return;
+    var keys = rows.map(function (r) { return cellVal(r.cells[idx]); });
+    var allNum = keys.every(function (k) { return k.num || k.t === ''; }) &&
+                 keys.some(function (k) { return k.num; });
+    var dir = table.getAttribute('data-sort-col') === String(idx)
+      ? (table.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc')
+      : (allNum ? 'desc' : 'asc');
+    var mul = dir === 'asc' ? 1 : -1;
+    var order = rows.map(function (r, i) { return i; });
+    order.sort(function (a, b) {
+      return allNum ? mul * ((keys[a].n || 0) - (keys[b].n || 0))
+                    : mul * keys[a].t.localeCompare(keys[b].t);
+    });
+    order.forEach(function (i) { tbody.appendChild(rows[i]); });
+    table.setAttribute('data-sort-col', idx);
+    table.setAttribute('data-sort-dir', dir);
+    Array.prototype.slice.call(th.parentElement.children).forEach(function (h) {
+      var a = h.querySelector('.tbl-sort-arrow'); if (a) a.remove();
+    });
+    var arrow = document.createElement('span');
+    arrow.className = 'tbl-sort-arrow';
+    arrow.textContent = dir === 'asc' ? ' ▲' : ' ▼';
+    arrow.style.opacity = '0.65';
+    th.appendChild(arrow);
+  }
+  document.addEventListener('click', function (e) {
+    var th = e.target.closest && e.target.closest('th');
+    if (!th || th.hasAttribute('data-nosort') || th.getAttribute('onclick')) return;
+    if (!th.closest('thead') || !th.textContent.trim()) return;
+    var table = th.closest('table');
+    if (!table || table.hasAttribute('data-nosort') || !table.tBodies || !table.tBodies[0]) return;
+    var idx = Array.prototype.slice.call(th.parentElement.children).indexOf(th);
+    if (idx >= 0) sortTable(table, idx, th);
+  });
+  var st = document.createElement('style');
+  st.textContent = 'table thead th:not([data-nosort]){cursor:pointer;user-select:none;}.tbl-sort-arrow{font-size:.85em;}';
+  (document.head || document.documentElement).appendChild(st);
+})();
