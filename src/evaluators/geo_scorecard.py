@@ -162,16 +162,30 @@ def evaluate_geo_readiness(
                  "Open the page (or each section) with a direct 1-2 sentence answer before the detail — the 'inverted pyramid' AI engines quote.")
 
     # ── FRESHNESS ───────────────────────────────────────────────
+    # A literal "Last updated" date is a blog/article convention — natural on a
+    # guide, but unnatural and mildly misleading on a commerce category/product
+    # page (the products change, not an "article"). So the check is page-type
+    # aware: content pages should carry an update date; commerce pages only need
+    # to not read as stale (a natural current-year reference), never a fake date.
     fresh = bool(_YEAR_RE.search(text_blob) or _YEAR_RE.search(title) or _YEAR_RE.search(heading_text))
     dated = bool(_UPDATED_RE.search(text_blob)) or _has_schema(schema_types, "Article", "BlogPosting")
-    if not fresh and not dated:
-        penalize(8, "freshness", "medium", "No freshness signal",
-                 "No current-year reference or 'last updated' signal. Generative engines discount stale-looking sources.",
-                 "Add a visible 'Last updated: <current month/year>' and current-year references; keep facts current.")
-    elif not dated:
-        penalize(3, "freshness", "low", "No explicit update date",
-                 "Content mentions the current year but shows no explicit update date.",
-                 "Surface a 'Last updated' date (and dateModified in Article schema).")
+    is_content_page = asset_type in ("blog", "article", "guide")
+    if is_content_page:
+        if not fresh and not dated:
+            penalize(8, "freshness", "medium", "No freshness signal",
+                     "No current-year reference or 'last updated' signal. Generative engines discount stale-looking sources.",
+                     "Add a visible 'Last updated: <current month/year>' and current-year references; keep facts current.")
+        elif not dated:
+            penalize(3, "freshness", "low", "No explicit update date",
+                     "Content mentions the current year but shows no explicit update date.",
+                     "Surface a 'Last updated' date (and dateModified in Article schema).")
+    else:
+        # Commerce page: no article-style date needed — only a light nudge if the
+        # copy reads undated. Never recommend stamping a fake 'Last updated' date.
+        if not fresh:
+            penalize(3, "freshness", "low", "No current-year reference",
+                     "The copy has no current-year reference, so it can read as stale to AI engines.",
+                     "Weave the current year into the description naturally (e.g. 'our 2026 Montessori collection') and keep the product selection current — do NOT stamp a 'Last updated' date on a category page.")
 
     # ── AUTHORITY (optional — only if Moz data supplied) ────────
     if page_authority is not None:
