@@ -4526,18 +4526,47 @@ def _diagnose_ad_structure(by_type, break_even_roas=4.0):
                     f"{pmax_cost:.0f}/mo the real question is whether PMax is profitable (rec #1), "
                     "not micro-optimizing negatives. Fix tracking → measure → then decide.")
     elif active_search:
+        ss_cost = search_cost + shopping_cost
+        ss_conv = ((by_type.get("search", {}).get("conversions", 0) or 0)
+                   + (by_type.get("shopping", {}).get("conversions", 0) or 0))
+        ss_value = ((by_type.get("search", {}).get("conversion_value", 0) or 0)
+                    + (by_type.get("shopping", {}).get("conversion_value", 0) or 0))
+        ss_roas = (ss_value / ss_cost) if ss_cost > 0 else 0
+        if ss_conv < 1 or ss_value <= 0:
+            roas_line = (f"They show ~0 tracked conversions on ${ss_cost:.0f} spend — likely a conversion-"
+                         f"tracking gap (verify your tags), not zero sales. Fix tracking before judging them.")
+        elif ss_roas < be:
+            roas_line = (f"They drove {ss_conv:.0f} conversions worth ${ss_value:.0f} on ${ss_cost:.0f} = "
+                         f"{ss_roas:.1f}x ROAS, below your ~{be:.0f}x break-even. Trim the worst campaigns/"
+                         f"terms; if tracking was recently fixed, confirm on clean data first.")
+        else:
+            roas_line = (f"They drove {ss_conv:.0f} conversions worth ${ss_value:.0f} on ${ss_cost:.0f} = "
+                         f"{ss_roas:.1f}x ROAS, at/above your ~{be:.0f}x break-even — healthy; find more volume.")
         findings = [
-            f"Your Search/Shopping campaigns are active (${search_cost + shopping_cost:.0f}) "
-            "but no individual term cleared the ≥10-impression threshold in 28 days — "
-            "low volume.",
+            f"Your Search/Shopping campaigns are active (${ss_cost:.0f}) but no individual term "
+            f"cleared the ≥10-impression threshold in 28 days, so there are no terms to relevance-"
+            f"audit yet — low volume.",
+            roas_line,
         ]
         recs = [
-            {"title": "Lower the impression threshold or widen the window",
-             "detail": "With low volume, there simply aren't many terms yet. Let the "
-                       "campaigns accumulate data, or audit over 90 days."},
-            {"title": "Make sure keywords aren't too narrow",
-             "detail": "Very tight exact-match with low budget can starve impressions. "
-                       "Consider broadening match types with strong negatives."},
+            {"title": "Judge each campaign by its ROAS first",
+             "detail": f"The per-campaign recommender on the Growth tab scores each of these against your "
+                       f"~{be:.0f}x break-even and tells you scale / trim / verify-tracking. That's the "
+                       f"profitability decision; start there, not with term-tuning.",
+             "time": "~10 min", "priority": "Do this first",
+             "steps": [
+                 "Open the Growth tab → Paid actions — it lists each campaign's ROAS and the recommended move.",
+                 "Scale campaigns above break-even that are losing impressions to budget; trim ones well below.",
+                 "Any campaign at 0 conversions: VERIFY conversion tracking before pausing — it may just be untracked.",
+             ]},
+            {"title": "Get more terms to audit",
+             "detail": "Low volume means few auditable terms. Let the campaigns accumulate data (re-audit over "
+                       "90 days), and if impressions are starved, widen very-tight exact match with strong negatives.",
+             "time": "ongoing", "priority": "When you're ready",
+             "steps": [
+                 "Re-run this audit over a 90-day window once volume builds.",
+                 "If impressions are starved, broaden match types and add negatives.",
+             ]},
         ]
         tradeoff = ""
     else:

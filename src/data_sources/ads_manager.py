@@ -37,14 +37,23 @@ def recommend_paid_actions(
         roas = c.get("roas", 0) or 0
         name = c.get("name") or c.get("campaign_name") or c.get("campaign_id")
 
-        # 1. Pause zero-converting spenders — clearest waste
+        # 1. Zero-converting spenders. CRITICAL: 0 tracked conversions can mean
+        #    broken conversion tracking, NOT zero sales — recommending a hard PAUSE
+        #    there can kill a genuinely profitable campaign (exactly the trap when
+        #    tags are misconfigured). So this is a NON-executable "verify tracking
+        #    first" advisory, not an auto-appliable PAUSE.
         if cost >= min_spend_pause and conv == 0:
             recs.append({
-                "type": "PAUSE_CAMPAIGN",
+                "type": "VERIFY_TRACKING",
                 "campaign_id": str(c.get("campaign_id")),
                 "campaign_name": name,
-                "rationale": f"${cost:,.0f} spent with 0 conversions — pure loss.",
-                "risk": "medium",
+                "rationale": (f"${cost:,.0f} spent with 0 TRACKED conversions. Do NOT pause yet — "
+                              f"0 conversions is just as often broken conversion tracking as it is "
+                              f"real waste. First confirm the conversion tag fires (Google Ads → "
+                              f"Goals/Conversions, and test a purchase). Only if tracking is verified "
+                              f"working AND it's still 0 after ~2 weeks of clean data is this true "
+                              f"waste worth pausing."),
+                "risk": "low",
                 "params": {},
             })
             continue
