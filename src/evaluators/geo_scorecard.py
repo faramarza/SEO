@@ -80,6 +80,7 @@ def evaluate_geo_readiness(
     domain_authority=None,
     page_authority=None,
     has_crawl_data=True,
+    top_queries=None,
 ):
     """Return a GEO scorecard: score, grade, findings[] (each with a concrete
     action), by_dimension counts, and a plain-English verdict.
@@ -144,12 +145,23 @@ def evaluate_geo_readiness(
 
     # ── ANSWERABILITY ───────────────────────────────────────────
     question_headings = [h for h in headings if h.strip().endswith("?")]
+    # Real question-intent queries this page already ranks for — so the FAQ fix can
+    # name the ACTUAL questions to answer, not a generic "questions shoppers ask".
+    _q_words = ("what", "how", "why", "when", "which", "who", "is", "are", "can", "do", "does", "best")
+    _real_qs = []
+    for _q in (top_queries or []):
+        _qt = (_q.get("query") if isinstance(_q, dict) else str(_q)) or ""
+        if _qt and (_qt.lower().split()[:1] and _qt.lower().split()[0] in _q_words):
+            _real_qs.append(_qt.strip())
+    _faq_examples = ("; try: " + ", ".join(f'"{q}?"'.replace('??', '?') for q in _real_qs[:3])
+                     if _real_qs else "")
     has_faq_schema = _has_schema(schema_types, "FAQPage", "QAPage")
     has_howto = _has_schema(schema_types, "HowTo")
     if not question_headings and not has_faq_schema:
         penalize(11, "answerability", "high", "No question-form content / FAQ",
                  "No question-style headings and no FAQ markup. AI answers map user questions to pages that pose and answer those questions directly.",
-                 "Add an FAQ section (or question-form H2s) that answers the real questions shoppers ask, each followed by a concise 2-3 sentence answer.")
+                 "Add an FAQ section (or question-form H2s) that answers the real questions shoppers ask, "
+                 "each followed by a concise 2-3 sentence answer" + _faq_examples + ".")
     if not _has_schema(schema_types, "FAQPage", "QAPage", "HowTo", "Article", "BlogPosting"):
         penalize(6, "answerability", "medium", "No answer-oriented schema",
                  "No FAQPage / HowTo / Article structured data. This schema helps engines parse and attribute your content.",

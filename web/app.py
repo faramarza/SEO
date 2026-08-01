@@ -4976,6 +4976,7 @@ def _compute_geo(match, page_authority=None):
         schema_types=pm.get("schema_types", []),
         page_authority=page_authority,
         has_crawl_data=pm.get("has_crawl_data", False),
+        top_queries=match.get("top_queries", []),
     )
 
 

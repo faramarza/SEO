@@ -258,7 +258,11 @@ def _from_decay(decay, out):
             r.get("action_hint") or "Update the content to match what currently ranks, refresh facts and the date, and re-link internally.",
             "Republish with an updated date; watch clicks recover over ~2 weeks.",
         ]
-        benefit = f"Refreshing decaying content is one of the highest-ROI SEO moves — recover lost clicks fast."
+        _lost = (r.get("peak_clicks") or 0) - (r.get("current_clicks") or 0)
+        benefit = (f"This page lost ~{_lost} clicks/mo (from {r.get('peak_clicks')} to "
+                   f"{r.get('current_clicks')})" +
+                   (f", likely from {r.get('cause')}" if r.get('cause') else "") +
+                   ". A refresh to match what now ranks is one of the fastest-recovering SEO fixes.")
         out.append(_task(
             "decay", r.get("url",""),
             f"Refresh a decaying page (down {r.get('drop_pct')}% from peak)",
@@ -318,7 +322,8 @@ def _from_orphans(oc, out):
         out.append(_task(
             "orphan", r.get("url",""),
             "Rescue an orphan page (has demand, no internal links)",
-            steps, "Internal links let this page rank and get discovered — orphaned pages wither.",
+            steps, (f"This page has {r.get('impressions',0):,} impressions of demand but no internal "
+                    f"links, so it can't rank well or be discovered — a few contextual links unlock it."),
             0, r.get("impressions", 0),
             {"type": "page_clicks", "url": r.get("url","")},
             {"clicks": r.get("clicks", 0)},
@@ -340,7 +345,9 @@ def _from_pruning(pruning, out):
             title = "Prune a dead-weight page"
         out.append(_task(
             "pruning", r.get("url",""), title, steps,
-            "Removing/merging dead-weight pages concentrates your topical authority.",
+            (f"This dead-weight page ({r.get('impressions',0)} impr, {r.get('word_count',0)} words) "
+             f"dilutes your topical authority — removing or merging it concentrates ranking signals "
+             f"on your strong pages."),
             0, r.get("impressions", 0),
             {"type": "manual"}, {}, r.get("asset_type","other"), auto_review=False))
 
@@ -356,7 +363,9 @@ def _from_geo(geo, out):
         out.append(_task(
             "geo", p.get("url",""),
             f"Make a page AI-citable (GEO {p.get('score')}/100)",
-            steps, "AI answer engines cite well-structured, evidence-rich pages — this is where discovery is heading.",
+            steps, (f"This page scores {p.get('score')}/100 for AI-citation readiness on "
+                    f"{p.get('gsc_impressions',0):,} impressions of demand — raising it makes "
+                    f"ChatGPT/Gemini/AI Overviews far likelier to cite you, where discovery is heading."),
             0, p.get("gsc_impressions", 0),
             {"type": "geo_score", "url": p.get("url","")},
             {"score": p.get("score", 0)},
@@ -375,7 +384,9 @@ def _from_brand(bm, out):
         out.append(_task(
             "brand", f.get("ranking_url",""),
             f"Reclaim your brand query “{f.get('query','')}”",
-            steps, "Branded searches are your highest-intent traffic — you should own them, not leak them to resellers or ads.",
+            steps, (f"“{f.get('query','')}” is a search for your own brand ({f.get('impressions',0):,} "
+                    f"impressions, you rank #{f.get('position','?')}) — your highest-intent traffic. "
+                    f"Owning it stops leaking those buyers to resellers or ads."),
             0, f.get("impressions", 0),
             {"type": "query_position", "url": f.get("ranking_url",""), "query": f.get("query","")},
             {"position": f.get("position", 0)},

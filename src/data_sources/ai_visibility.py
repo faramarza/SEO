@@ -653,6 +653,15 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
             "priority": "high",
             "action": ai_advice,
         })
+        # Name the store's OWN matching page to strengthen — the LLM advice above
+        # only sees competitor responses, so it can't point at your existing page.
+        if has_page:
+            recs.append({
+                "priority": "medium",
+                "action": f'Apply that to your existing page {matching_pages[0]["url"]} — it already '
+                          f'targets this query, so strengthening it (direct answer up top, evidence '
+                          f'with sources, an FAQ) is the fastest path to earning the citation.',
+            })
     elif tier == "invisible":
         if has_page:
             pg = matching_pages[0]

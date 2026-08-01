@@ -521,14 +521,24 @@ class InternalLinkEvaluator:
 
             # Add routing fix opportunities from assessment
             for addition in routing_assessment.recommended_additions:
+                _tgt = addition.split(": ")[-1] if ": " in addition else ""
+                # Descriptive anchor from the target's own slug (real data) — beats a
+                # generic "Shop now", which is poor anchor text for SEO and for the user.
+                _slug = _tgt.rstrip("/").split("/")[-1]
+                for _ext in (".html", ".htm"):
+                    if _slug.endswith(_ext):
+                        _slug = _slug[: -len(_ext)]
+                _anchor = " ".join(w.capitalize() for w in _slug.replace("_", "-").split("-") if w)[:60]
+                if not _anchor:
+                    _anchor = "See our collection" if "category" in addition.lower() else "Shop now"
                 opportunities.append(LinkOpportunity(
                     source_url=asset.url,
-                    target_url=addition.split(": ")[-1] if ": " in addition else "",
+                    target_url=_tgt,
                     opportunity_type="routing_fix",
                     source_authority=asset.link_authority_score,
                     target_authority=0.0,
                     expected_value=asset.gsc.impressions_28d * 0.005,
-                    anchor_text_suggestion="See our collection" if "category" in addition.lower() else "Shop now",
+                    anchor_text_suggestion=_anchor,
                     placement_suggestion="As primary 'next step' block after main content",
                 ))
 

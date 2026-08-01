@@ -1031,6 +1031,7 @@ class FullEvaluationWorkflow:
                 word_count=asset.word_count,
                 schema_types=getattr(asset, "schema_types", []),
                 has_crawl_data=asset.has_crawl_data,
+                top_queries=[{"query": q.query} for q in (getattr(asset.gsc, "top_queries", []) or [])],
             )
 
         candidates = []
