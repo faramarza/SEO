@@ -4432,7 +4432,7 @@ def api_ads_recommendations():
     })
 
 
-def _diagnose_ad_structure(by_type):
+def _diagnose_ad_structure(by_type, break_even_roas=4.0):
     """When there are no search terms to audit, explain WHY in structural terms
     and give calibrated recommendations — instead of dead-ending. The common case
     for a small brand: all spend sits in Performance Max (opaque, un-auditable)
@@ -4447,63 +4447,84 @@ def _diagnose_ad_structure(by_type):
     active_search = (search_cost + shopping_cost) > 1
     pmax_share = (pmax_cost / total) if total else 0
 
+    # Real ROAS from the account's own conversion tracking — so the advice leads
+    # with "is this profitable?" instead of generic hygiene.
+    pmax_conv = pmax.get("conversions", 0) or 0
+    pmax_value = pmax.get("conversion_value", 0) or 0
+    pmax_roas = (pmax_value / pmax_cost) if pmax_cost > 0 else 0
+    be = break_even_roas or 4.0
+
     findings, recs = [], []
     if pmax_cost > 0 and pmax_share >= 0.8 and not active_search:
+        s_count = by_type.get("search", {}).get("count", 0)
+        sh_count = by_type.get("shopping", {}).get("count", 0)
+        if pmax_conv < 1 or pmax_value <= 0:
+            roas_line = (f"PMax shows ~0 tracked conversions on ${pmax_cost:.0f} spend — which "
+                         f"almost certainly means conversion tracking wasn't firing (a known "
+                         f"issue you've recently repaired), NOT that PMax made no sales. Its "
+                         f"TRUE ROAS is unknown until clean data accumulates.")
+        elif pmax_roas < be:
+            roas_line = (f"PMax drove {pmax_conv:.0f} conversions worth ${pmax_value:.0f} on "
+                         f"${pmax_cost:.0f} = {pmax_roas:.1f}x ROAS, below your ~{be:.0f}x "
+                         f"break-even. BUT if tracking was broken until recently this is likely "
+                         f"under-counted — confirm over 2–4 weeks of clean data before cutting.")
+        else:
+            roas_line = (f"PMax drove {pmax_conv:.0f} conversions worth ${pmax_value:.0f} on "
+                         f"${pmax_cost:.0f} = {pmax_roas:.1f}x ROAS, at/above your ~{be:.0f}x "
+                         f"break-even. It's working — protect it and consider scaling.")
         findings = [
-            f"All of your ad spend (${pmax_cost:.0f}) is in Performance Max. Your "
-            f"{by_type.get('search', {}).get('count', 0)} Search and "
-            f"{by_type.get('shopping', {}).get('count', 0)} Shopping campaigns spent ~$0 — dormant.",
-            "Performance Max hides its exact search terms, so this auditor can't find "
-            "wasted spend or negative-keyword candidates there — that's a PMax "
-            "visibility limit, NOT a reason you must run Search ads.",
-            "PMax also tends to spend on your own brand searches and cheap Display/"
-            "YouTube placements without showing you — so waste can hide inside it.",
+            f"All ${pmax_cost:.0f} of your ad spend is in Performance Max; your {s_count} Search "
+            f"and {sh_count} Shopping campaigns are dormant (~$0).",
+            roas_line,
+            "PMax hides exact search terms (only aggregated 'search categories'), so per-term "
+            "relevance auditing isn't possible there — a visibility limit, not a reason to run Search.",
         ]
         recs = [
-            {"title": "Add PMax brand exclusions + account-level negatives",
-             "detail": "The single cheapest win: exclude your brand terms from PMax "
-                       "and add obviously-irrelevant negatives at the account level. "
-                       "Stops PMax paying for traffic (especially your own brand) that "
-                       "converts anyway. No new campaign needed.",
-             "time": "~25 min", "priority": "Do this first",
+            {"title": "First: confirm PMax is actually profitable",
+             "detail": "Don't optimize a campaign you can't yet measure. Your conversion tracking "
+                       "was just repaired, so read PMax's TRUE ROAS on clean data before changing "
+                       "anything — cutting or scaling a $" + f"{pmax_cost:.0f}" + "/mo campaign is the "
+                       "real decision here, not shaving negatives.",
+             "time": "review now, decide in 2–4 wks", "priority": "Do this first",
              "steps": [
-                 "SEE what PMax spends on first: Google Ads → open your PMax campaign → "
-                 "Insights and reports → Search terms (may be labelled 'Search categories'). "
-                 "These are aggregated THEMES, not exact queries — the most PMax will show "
-                 "you. Look for your brand name and any obviously-irrelevant themes.",
-                 "Create a brand list: top nav Tools (wrench) → Shared library → Brand lists → "
-                 "add your brand terms + your domain. (Or type 'brand list' in the top search bar.)",
-                 "Apply it: open the PMax campaign → Settings → Additional settings → "
-                 "Brand exclusions → add that brand list → Save.",
-                 "Add account-level negatives: Tools → search 'Account level negative keywords' → "
-                 "add obvious non-buyers (free, diy, 'how to make', 'coloring pages') plus the "
-                 "irrelevant themes you saw in step 1 → Save.",
+                 "Google Ads → Campaigns → add the 'Conv. value / cost' (ROAS) column and check "
+                 "your PMax row.",
+                 "Confirm conversions are now recording (they should be, post-tracking-fix).",
+                 f"After 2–4 weeks of clean data: ROAS above ~{be:.0f}x → keep or scale budget; "
+                 f"well below → cut or restructure. THIS is the decision that matters at your spend.",
              ]},
-            {"title": "Run a lean branded Search campaign",
-             "detail": "A tiny exact/phrase campaign on your brand name is usually your "
-                       "highest-ROAS spend and gives you real search-term visibility. It "
-                       "also stops competitors (or PMax) from taking credit for brand demand.",
-             "time": "~20 min", "priority": "Optional but high-ROAS",
+            {"title": "Stop PMax paying for your brand — and defend it with a tiny branded Search "
+                      "campaign (do these TOGETHER)",
+             "detail": "PMax quietly spends on people already searching your brand. Excluding brand "
+                       "from PMax is right — but you don't own your brand results organically (you "
+                       "rank ~#4 for your own name, resellers above you), so excluding brand from "
+                       "PMax WITHOUT a branded Search campaign would leak brand buyers to a reseller. "
+                       "That's why these are paired, not optional.",
+             "time": "~25 min", "priority": "High — pair them",
              "steps": [
-                 "+ New campaign → objective Sales → campaign type Search.",
-                 "Budget: start small, e.g. $5/day.",
-                 "Keywords: your brand in phrase + exact match — e.g. \"your brand\" and [your brand].",
-                 "Write one ad pointing at your homepage → Save.",
+                 "Create a brand list: Tools (wrench) → Shared library → Brand lists → add your brand "
+                 "terms + your domain.",
+                 "Apply it: open the PMax campaign → Settings → Additional settings → Brand exclusions "
+                 "→ add the list → Save.",
+                 "Immediately launch a tiny branded Search campaign: + New campaign → Sales → Search → "
+                 "$5/day → keywords \"your brand\" and [your brand] → one ad to your homepage.",
+                 "(Minor) You can add a few account-level negatives for obvious non-buyers, but don't "
+                 "expect much — PMax spends mostly on Shopping/Display/YouTube, so text negatives "
+                 "barely touch it. Brand exclusion is the lever that works.",
              ]},
             {"title": "Decide why Search/Shopping are at $0",
-             "detail": "Paused, no budget, or outbid by your own PMax? If you want the full "
-                       "relevance audit + negatives this tool provides, a small standard "
-                       "Shopping campaign brings back exact search terms to audit.",
+             "detail": "Paused, no budget, or outbid by your own PMax? A small standard Shopping "
+                       "campaign also unlocks this tool's exact-search-term relevance audit (PMax never will).",
              "time": "~10 min", "priority": "When you're ready",
              "steps": [
                  "Open each Search/Shopping campaign → check its status: Paused? No budget? Ended?",
-                 "To unlock this tool's full relevance audit, launch a small standard Shopping "
-                 "campaign — it returns exact search terms (PMax never will).",
+                 "If you want the full relevance audit, launch a small standard Shopping campaign — "
+                 "it returns exact search terms.",
              ]},
         ]
-        tradeoff = ("You do NOT have to run Search ads — PMax-only is a valid, low-effort "
-                    "setup. But it trades away visibility and control. The steps above buy "
-                    "both back cheaply; do them only if the management time is worth it to you.")
+        tradeoff = ("You do NOT have to run Search ads — PMax-only is valid. But at $"
+                    f"{pmax_cost:.0f}/mo the real question is whether PMax is profitable (rec #1), "
+                    "not micro-optimizing negatives. Fix tracking → measure → then decide.")
     elif active_search:
         findings = [
             f"Your Search/Shopping campaigns are active (${search_cost + shopping_cost:.0f}) "
@@ -4570,9 +4591,12 @@ def api_ads_relevance_audit():
         by_type = {}
         for c in camps.values():
             t = c.campaign_type.value
-            e = by_type.setdefault(t, {"count": 0, "cost": 0.0})
+            e = by_type.setdefault(t, {"count": 0, "cost": 0.0,
+                                       "conversions": 0.0, "conversion_value": 0.0})
             e["count"] += 1
             e["cost"] += c.cost
+            e["conversions"] += (c.conversions or 0)
+            e["conversion_value"] += (c.conversion_value or 0)
         if not camps:
             msg = ("No campaigns found on this Ads account. Check that the account ID "
                    "points to the CHILD account that runs the ads (not the manager), "
@@ -4593,8 +4617,9 @@ def api_ads_relevance_audit():
             else:
                 msg = (f"Your account runs: {parts}, none of which produce classic search terms "
                        f"(search_term_view is Search/Shopping only).")
+        _be = config.get("business_context", {}).get("break_even_roas", 4.0)
         return jsonify({"error": msg, "terms": [], "campaign_breakdown": by_type,
-                        "diagnosis": _diagnose_ad_structure(by_type)})
+                        "diagnosis": _diagnose_ad_structure(by_type, break_even_roas=_be)})
 
     # Classify the biggest spenders (cost-weighted) to control latency/cost.
     terms.sort(key=lambda q: q.cost, reverse=True)
