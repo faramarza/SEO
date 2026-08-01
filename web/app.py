@@ -5057,6 +5057,21 @@ def api_rich_results_page():
     return jsonify(audit)
 
 
+# Shared content-integrity rule injected into every LLM prompt that writes
+# publishable copy. The tool must NEVER hand the operator a fabricated statistic.
+_NO_FABRICATION_RULE = (
+    " CONTENT INTEGRITY (critical): NEVER invent statistics, percentages, study "
+    "findings, dates, or any specific number. A concrete, CITED statistic is a "
+    "great hook and is encouraged — but ONLY if it is real and you provide a "
+    "verifiable, linkable source. If a stat would strengthen the copy but you have "
+    "no source you can verify, output the literal placeholder "
+    "'[VERIFY: <the stat to find> — add source]' instead of a number. A fabricated "
+    "statistic (e.g. an unsourced '92% of toys...') is a hard failure. Likewise, "
+    "only promise what the page's ACTUAL content delivers — never claim coverage, "
+    "materials, comparisons, or a 'complete guide' the content doesn't contain."
+)
+
+
 @app.route("/api/ctr/rewrite", methods=["POST"])
 def api_ctr_rewrite():
     """Generate title + meta-description options for a page that ranks well but is
@@ -5082,10 +5097,16 @@ def api_ctr_rewrite():
         for q in queries) or "  (no query data)"
 
     system_message = (
-        "You are a senior ecommerce SEO copywriter. You write SERP titles and meta "
-        "descriptions that earn the click WITHOUT clickbait or false claims. You "
-        "ground every option in the page's real topic and the searcher's actual "
-        "query. Titles <= 60 chars, metas <= 155 chars. Return ONLY valid JSON."
+        "You are a senior ecommerce SEO copywriter and content strategist. You write "
+        "SERP titles/metas that earn the click WITHOUT clickbait or false claims, "
+        "grounded in the page's REAL content and the searcher's actual query. FIRST "
+        "judge whether the page's content genuinely serves the query's intent — a "
+        "title can only promise what the content delivers. If the content does NOT "
+        "fit the query but the topic IS relevant to this store, do not force a "
+        "mismatched title; instead explain exactly how to reshape the content so it "
+        "genuinely answers the query while still leading to the store's products. "
+        "Titles <= 60 chars, metas <= 155 chars." + _NO_FABRICATION_RULE +
+        " Return ONLY valid JSON."
     )
     user_prompt = f"""PAGE
 url: {url}
@@ -5093,28 +5114,36 @@ type: {match.get('asset_type','')}
 current title: {pm.get('title','')}
 current meta: {pm.get('meta_description','')}
 h1: {pm.get('h1','')}
-topic/summary: {(pm.get('content_preview','') or '')[:500]}
+ACTUAL CONTENT (what the page really covers — judge fit against THIS):
+{(pm.get('content_preview','') or '')[:900]}
 
 PRIMARY QUERY LOSING CLICKS: "{query}"
 
-ALL QUERIES THIS PAGE RANKS FOR (write titles that cover the strongest intents):
+ALL QUERIES THIS PAGE RANKS FOR:
 {q_lines}
 
 TASK
-This page ranks on page 1 but is clicked below the site's own average — the
-title/meta aren't earning the click. Write 3 title options and 2 meta options
-that (a) clearly contain the searcher's words for "{query}", (b) lead with a
-concrete benefit/differentiator (e.g. age range, material, free shipping, made
-for), and (c) never overpromise. Note if a number/listicle framing fits.
+This page ranks on page 1 but is clicked below the site's own average.
+1. content_fit: does the ACTUAL CONTENT above genuinely satisfy what a searcher
+   for "{query}" wants? Answer "good", "partial", or "mismatch".
+2. If good/partial: write 3 titles + 2 metas that contain the searcher's words,
+   lead with a concrete real benefit, and promise ONLY what the content delivers.
+3. If partial/mismatch: fill "realignment" with the specific content changes that
+   would make the page HIGHLY relevant to "{query}" while staying relevant to the
+   store (exact sections to add/rewrite, in order) — and note that a title alone
+   won't fix it. A well-sourced opening statistic (WITH a citation) is encouraged.
 
 Return JSON exactly:
 {{
-  "titles": [{{"text": "...", "why": "one phrase on why it earns the click"}}],
+  "content_fit": "good|partial|mismatch",
+  "fit_note": "one sentence: does the content serve this query, and if not, why",
+  "titles": [{{"text": "...", "why": "..."}}],
   "metas": [{{"text": "...", "why": "..."}}],
-  "tip": "one sentence on the single highest-impact change to make"
+  "realignment": "if partial/mismatch: the exact content changes to become highly relevant; else empty",
+  "tip": "the single highest-impact change to make"
 }}"""
 
-    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1100)
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
     if err:
         print(f"[CTR-REWRITE] {url} error: {err}", flush=True)
         return jsonify({"error": err}), 502
@@ -7560,7 +7589,7 @@ def api_action_plan_deliverable():
         return jsonify({"blocks": [], "note": "This task's deliverable is already in "
                         "the steps above (copy the markup/instructions)."})
     system_message, user_prompt = PROMPTS[cat]
-    system_message += " Return ONLY valid JSON."
+    system_message += _NO_FABRICATION_RULE + " Return ONLY valid JSON."
     if url and not pm.get("has_crawl_data") and cat in ("ctr", "brand", "striking"):
         return jsonify({"blocks": [], "note": "Crawl this page first (Run with Crawl) so "
                         "the rewrite is grounded in the real title."})
@@ -8601,6 +8630,8 @@ _ARTICLE_SYSTEM_PROMPT = """You are an expert SEO content writer for Alphabet Tr
 You must follow every phase below IN ORDER. Do not skip any phase. Do not show the phase headings in the final output — they are your internal checklist. The output must be a complete, publish-ready HTML article for Magento.
 
 HTML STYLING RULE: any heading you give an inline font-size to (especially the large hero <h2>) MUST also include line-height:1.2–1.3 in its style — otherwise a title that wraps to two lines overlaps. Always pair a big font-size with a line-height.
+
+CONTENT INTEGRITY & STATISTICS (critical): A compelling, specific statistic near the top is one of the strongest hooks AND the biggest driver of AI-engine citations — USE one when you can. But it MUST be REAL and CITED: link a verifiable, authoritative source (NAEYC, CDC, CPSC, EU Safety Gate, a named journal study, an industry report). NEVER invent a statistic, percentage, study finding, or number — an unsourced figure like "92% of toys..." is a hard failure that destroys credibility and gets penalized. If you want a stat but cannot verify a source, write the literal placeholder [VERIFY: <the stat to find> — add source] instead of a number, so the operator sources it before publishing. Only claim what is true; never over-promise coverage the article doesn't contain.
 
 ═══════════════════════════════════════
 PHASE 1: INTENT & AUDIENCE

@@ -463,8 +463,17 @@ async function pbCtrRewrite(idx, btn) {
         const metas = (data.metas || []).map(t =>
             `<div class="pb-schema-gap"><div>${escHtml(t.text)}</div>
              <div class="pb-schema-why">${escHtml(t.why||'')}</div></div>`).join('');
+        const fit = (data.content_fit || 'good').toLowerCase();
+        const fitColor = fit === 'good' ? '#059669' : fit === 'partial' ? '#d97706' : '#dc2626';
+        const fitLabel = fit === 'good' ? 'Content fits this query ✓'
+            : fit === 'partial' ? 'Content only partially fits this query'
+            : 'Content doesn’t match this query';
+        const fitBanner = `<div class="pb-geo-note" style="color:${fitColor};background:${fitColor}12;border:1px solid ${fitColor}44;border-radius:8px;padding:9px 12px;font-style:normal;margin-bottom:10px;"><strong>${fitLabel}.</strong> ${escHtml(data.fit_note||'')}</div>`;
+        const realign = data.realignment ? `<div class="pb-explain" style="text-align:left;border-left:3px solid ${fitColor};margin-bottom:12px;"><strong>🔧 Make this page highly relevant to “${escHtml(r.query)}”:</strong><div style="margin-top:6px;white-space:pre-wrap;">${escHtml(data.realignment)}</div><div style="margin-top:8px;color:var(--text-muted);font-size:12px;">A title change alone won’t fix a content mismatch — reshape the content first, then apply a title below.</div></div>` : '';
         bodyEl.innerHTML = `
             <p style="font-size:13px;color:var(--text-muted);">For “${escHtml(r.query)}” — current title: <code>${escHtml(r.current_title||'(none)')}</code></p>
+            ${fitBanner}
+            ${realign}
             ${data.tip ? `<div class="pb-explain" style="text-align:left;">💡 ${escHtml(data.tip)}</div>` : ''}
             <h4 style="margin:14px 0 6px;">Title options</h4>${titles}
             <h4 style="margin:14px 0 6px;">Meta description options</h4>${metas}
