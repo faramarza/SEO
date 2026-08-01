@@ -262,13 +262,21 @@ class TitleMetaEvaluator:
             variants = self.generate_variants(asset, current_title)
             recommended = next((v for v in variants if v.is_recommended), None)
 
-            # Estimate CTR lift (conservative)
-            if "LOW_CTR" in str(issues):
-                expected_lift = 0.15  # 15% relative CTR improvement
-            elif "INTENT_MISMATCH" in str(issues):
-                expected_lift = 0.10
-            else:
-                expected_lift = 0.05
+            # Data-driven CTR lift: the REAL relative gap between the site's
+            # achievable CTR at this page's actual position and its actual CTR —
+            # not a fixed 15/10/5%. Capped at 30% (conservative) and floored so a
+            # page already near its achievable CTR shows a small, honest lift.
+            expected_lift = 0.10  # fallback if we can't compute the gap
+            try:
+                from src.analysis.site_benchmarks import achievable_ctr
+                actual = asset.gsc.ctr_28d or 0.0
+                target = achievable_ctr(asset.gsc.avg_position_28d)
+                if actual > 0 and target > actual:
+                    expected_lift = min(0.30, (target - actual) / actual)
+                elif actual > 0:
+                    expected_lift = 0.03  # already at/above achievable — little to gain
+            except Exception:
+                pass
 
         # Confidence based on data quality
         if asset.gsc.impressions_28d >= 5000:

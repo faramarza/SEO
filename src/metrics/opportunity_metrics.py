@@ -48,14 +48,34 @@ POSITION_CTR = {
 }
 
 
+def _measured_econ():
+    """The store's OWN measured AOV/CVR (cached per evaluation), so value estimates
+    use real economics instead of the hardcoded 53.19 / 2%. Falls back to those
+    constants only when no evaluation exists yet."""
+    try:
+        from src.analysis.site_benchmarks import compute_site_benchmarks
+        bm = compute_site_benchmarks()
+        if bm.get("available"):
+            return (bm.get("site_aov") or 53.19, bm.get("site_cvr") or 0.02)
+    except Exception:
+        pass
+    return (53.19, 0.02)
+
+
 def get_expected_ctr(position: float) -> float:
     """
-    Get expected CTR for a given position.
-
-    Interpolates between known positions.
+    Get expected CTR for a given position — from the SITE'S OWN measured CTR curve
+    when available (via site_benchmarks), falling back to the industry curve below.
     """
     if position <= 0:
         return 0.0
+    try:
+        from src.analysis.site_benchmarks import site_expected_ctr
+        v = site_expected_ctr(position)
+        if v and v > 0:
+            return v
+    except Exception:
+        pass
     if position <= 1:
         return POSITION_CTR[1]
 
@@ -267,9 +287,11 @@ class ConversionProxy:
 
 def calculate_conversion_proxy(
     asset: PageAsset,
-    site_avg_purchase_rate: float = 0.02,  # 2% site average
+    site_avg_purchase_rate: float = None,  # None -> the store's MEASURED CVR
     site_avg_revenue_per_session: float = 1.50,
 ) -> ConversionProxy:
+    if site_avg_purchase_rate is None:
+        site_avg_purchase_rate = _measured_econ()[1]
     """
     Calculate conversion proxy for pages without direct conversions.
 
@@ -352,12 +374,17 @@ class EVUVResult:
 
 def calculate_evuv(
     asset: PageAsset,
-    aov: float = 53.19,
+    aov: float = None,                    # None -> the store's MEASURED AOV
     gross_margin: float = 0.27,
-    site_avg_purchase_rate: float = 0.02,
+    site_avg_purchase_rate: float = None,  # None -> the store's MEASURED CVR
     target_position: float = 5.0,  # Conservative target: top 5
     risk_multiplier: float = 1.0,
 ) -> EVUVResult:
+    _m_aov, _m_cvr = _measured_econ()
+    if aov is None:
+        aov = _m_aov
+    if site_avg_purchase_rate is None:
+        site_avg_purchase_rate = _m_cvr
     """
     Calculate Expected Visibility Uplift Value.
 
@@ -469,10 +496,10 @@ def calculate_assist_value(
     internal_links_to_products: int = 0,
     internal_links_to_categories: int = 0,
     avg_product_conversion_rate: float = 0.03,
-    avg_product_aov: float = 53.19,
+    avg_product_aov: float = None,             # None -> the store's MEASURED AOV
     gross_margin: float = 0.27,
     destination_conversion_rates: Optional[list[float]] = None,
-    site_baseline_conversion_rate: float = 0.02,
+    site_baseline_conversion_rate: float = None,  # None -> the store's MEASURED CVR
 ) -> AssistValueResult:
     """
     Calculate Assist Value for blogs/guides.
@@ -499,6 +526,11 @@ def calculate_assist_value(
         destination_conversion_rates: Conversion rates of linked destination pages
         site_baseline_conversion_rate: Site-wide baseline conversion rate
     """
+    _m_aov, _m_cvr = _measured_econ()
+    if avg_product_aov is None:
+        avg_product_aov = _m_aov
+    if site_baseline_conversion_rate is None:
+        site_baseline_conversion_rate = _m_cvr
     # 1. Demand Exposure — use IMPRESSIONS, not sessions
     # Traffic (sessions) alone must never create value for blogs
     impressions = asset.gsc.impressions_28d
