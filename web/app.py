@@ -7760,12 +7760,10 @@ def _playbook_add_task_impl(body):
         upside = body.get("upside_clicks", 0)
         lever = body.get("lever", "on_page")
         inlinks = body.get("internal_inlinks", 0)
-        # Grounded steps by lever: don't tell them to add a keyword or backlinks
-        # they don't need.
-        if lever == "internal":
-            summary = f"Quick win — internal links to '{query}' (pos {pos})"
-            # Name the ACTUAL source pages to link FROM — don't punt to another screen.
-            _srcs = []
+        # Name the ACTUAL source pages to link FROM (shared here by the internal +
+        # on_page levers) — don't punt the operator to another screen.
+        _srcs = []
+        if lever in ("internal", "on_page"):
             try:
                 from src.analysis.growth_playbook import suggest_link_sources
                 with open(DATA_PATH / "latest_evaluation.json") as _f:
@@ -7773,12 +7771,17 @@ def _playbook_add_task_impl(body):
                 _srcs = suggest_link_sources(url, _ev.get("results", []), _robots_disallow_rules(), n=5)
             except Exception:
                 pass
+        _src_lines = [f"• {s.get('title') or s.get('url')} ({s.get('url')})" for s in _srcs]
+        # Grounded steps by lever: don't tell them to add a keyword or backlinks
+        # they don't need.
+        if lever == "internal":
+            summary = f"Quick win — internal links to '{query}' (pos {pos})"
             steps = [
                 f"'{query}' is already in the title/H1 (position {pos}, {impr:,} impressions) and this page has only {inlinks} internal inbound link(s) — do NOT re-add the keyword or chase backlinks yet.",
             ]
             if _srcs:
                 steps.append("Add contextual internal links to this page from these related pages that share its topics:")
-                steps += [f"• {s.get('title') or s.get('url')} ({s.get('url')})" for s in _srcs]
+                steps += _src_lines
             else:
                 steps.append("Add contextual internal links to this page from your strongest, most topically-related pages (Playbook → Orphans/Clusters and Link Map list candidates).")
             steps += [
@@ -7798,9 +7801,13 @@ def _playbook_add_task_impl(body):
             steps = [
                 f"'{query}' is NOT in this page's title/H1 yet (position {pos}, {impr:,} impressions) — work the query and close variants into the title, H1, and first 100 words.",
                 f"Add a section that directly answers '{query}'.",
-                "Then add internal links from strong, topically-related pages using anchor text that describes THIS page.",
-                "Re-check the query's position in GSC after 3-4 weeks.",
             ]
+            if _srcs:
+                steps.append("Then add internal links to this page from these topically-related pages (anchor text describing THIS page):")
+                steps += _src_lines
+            else:
+                steps.append("Then add internal links from strong, topically-related pages using anchor text that describes THIS page.")
+            steps.append("Re-check the query's position in GSC after 3-4 weeks.")
         data.update({
             "action": "VISIBILITY_FIX",
             "primary_constraint": "Visibility",
