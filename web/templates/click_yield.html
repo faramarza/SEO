@@ -76,7 +76,7 @@ function cyTiles(cy){
 function cyFix(w){
   let parts=[];
   if(w.title_rewrite){
-    parts.push(`<span class="cy-tag title">TITLE</span> rewrite to <code>${esc(w.title_rewrite)}</code>`);
+    parts.push(`<span class="cy-tag title">TITLE</span> reword naturally to <code>${esc(w.title_rewrite)}</code> <span class="cy-src">(no pipes/dashes — weave your brand in)</span>`);
   }else{
     parts.push(`<span class="cy-tag ok">TITLE OK</span> query already in title — fix position, not the title`);
   }

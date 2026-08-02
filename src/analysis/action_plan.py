@@ -294,8 +294,11 @@ def _from_winnable(winnable, out):
             f"real, non-brand demand you already rank for, just below the click zone.",
         ]
         if r.get("title_rewrite"):
-            steps.append(f"Rewrite the <title> to: “{r['title_rewrite']}” "
-                         f"(front-loads the searcher's exact words onto your real title).")
+            steps.append(f"Reword the <title> to read naturally and lead with the "
+                         f"searcher's words — e.g. “{r['title_rewrite']}”. Keep it "
+                         f"natural: no “|” pipes or bolted-on separators (Google "
+                         f"rewrites over-templated titles), and weave your brand in "
+                         f"if it fits.")
         else:
             cur = r.get("current_title") or ""
             steps.append("Your <title> already targets this query" +

@@ -98,26 +98,49 @@ def _is_junk_query(query: str, self_forms: set) -> bool:
     return any(f in ql for f in self_forms)
 
 
+_TITLE_SMALL = {"a", "an", "and", "the", "for", "to", "of", "with", "in", "on",
+                "or", "by", "your"}
+
+
+def _title_case(s: str) -> str:
+    """Natural title case: capitalize significant words, keep small joining words
+    lowercase (except first). No forced ALL-CAPS, no separators."""
+    words = (s or "").split()
+    out = []
+    for i, w in enumerate(words):
+        out.append(w if (i and w.lower() in _TITLE_SMALL) else (w[:1].upper() + w[1:]))
+    return " ".join(out)
+
+
 def _title_rewrite(query: str, current_title: str) -> Optional[str]:
-    """Front-load the searcher's exact words onto the page's REAL title. Return
-    None if the query is already present (retitle won't help — fix position)."""
+    """Decide whether the page's <title> genuinely needs to change to capture this
+    query — and if so, propose a NATURAL, readable title, never a mechanical
+    "Query | Old Title" mash-up.
+
+    Two honest cases:
+      • The title ALREADY carries the query's meaningful words (ignoring stopwords
+        like kids/toys/best and word order/hyphenation) → return None. The title
+        isn't the problem; the gap is position/authority, so the fix is internal
+        links, not a retitle. (This is the "Montessori Problem-Solving Toys" vs
+        "kids problem solving toys" case — the title is fine.)
+      • The title truly MISSES the query's core words → suggest a clean, natural
+        title that leads with the searcher's phrase, Title-Cased, with NO pipes/
+        dashes/colons (Google rewrites over-templated titles and they read as
+        boilerplate), no mid-word truncation, and no fabricated brand suffix. The
+        operator can weave their brand in naturally; if even the bare phrase won't
+        fit in 60 chars, defer to the grounded CTR-rewrite tool (return None)."""
     q = (query or "").strip()
     cur = (current_title or "").strip()
     if not q:
         return None
-    if cur and q.lower() in cur.lower():
+    # Meaningful-token overlap (stopwords excluded, so "kids"/"toys"/"best" don't
+    # force a rewrite, and "problem-solving" == "problem solving").
+    if cur and not (_tokens(q) - _tokens(cur)):
         return None
-    lead = q[:1].upper() + q[1:]
-    merged = f"{lead} | {cur}" if cur else lead
-    if len(merged) <= MAX_TITLE:
-        return merged
-    room = MAX_TITLE - len(lead) - 3
-    if room <= 8:
-        return lead[:MAX_TITLE].rstrip()
-    tail = cur[:room]
-    if " " in tail and not cur[room:room + 1].isspace():
-        tail = tail.rsplit(" ", 1)[0]
-    return f"{lead} | {tail.rstrip()}".rstrip(" |")
+    natural = _title_case(q)
+    if len(natural) <= MAX_TITLE:
+        return natural
+    return None  # can't fit a natural title deterministically — defer to the LLM tool
 
 
 def _fetch(url: str, timeout: int = 18) -> str:
