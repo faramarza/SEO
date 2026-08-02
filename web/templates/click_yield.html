@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Click Yield{% endblock %}
+{% block header %}📈 Click Yield{% endblock %}
+
+{% block content %}
+<div class="cy-page">
+    <p class="playbook-intro">
+        The full-site view the regular evaluation can't show. It only builds from your
+        <strong>top 100 pages by impressions</strong>, so it's blind to the long tail.
+        This pulls <strong>every</strong> page Google shows you and answers two things:
+        how much of your huge impression volume actually turns into <strong>clicks</strong>,
+        and which <strong>non-brand category pages</strong> rank just below the click zone
+        (position 4–20) and are <strong>winnable</strong> — with the exact title and
+        internal-link fix for each. These winnable pages also flow into
+        <a href="/do-next">✅ Do This Next</a> as ranked tasks.
+    </p>
+
+    <div class="cy-toolbar">
+        <button id="cy-refresh" class="cy-btn" onclick="cyRefresh()">↻ Refresh from GSC</button>
+        <span id="cy-generated" class="cy-muted"></span>
+    </div>
+
+    <div id="cy-body"><p class="pb-loading">Loading…</p></div>
+</div>
+
+<style>
+.cy-toolbar{display:flex;align-items:center;gap:12px;margin:4px 0 18px;}
+.cy-btn{background:var(--accent,#2563eb);color:#fff;border:none;border-radius:6px;
+    padding:8px 14px;font-weight:600;cursor:pointer;font-size:13px;}
+.cy-btn:disabled{opacity:.55;cursor:default;}
+.cy-muted{color:var(--text-muted,#6b7280);font-size:12px;}
+.cy-tiles{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:22px;}
+.cy-tile{flex:1 1 150px;min-width:150px;background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);
+    border-radius:10px;padding:14px 16px;}
+.cy-tile .n{font-size:24px;font-weight:800;line-height:1.1;}
+.cy-tile .l{font-size:12px;color:var(--text-muted,#6b7280);margin-top:4px;}
+.cy-tile.good .n{color:#16a34a;} .cy-tile.warn .n{color:#d97706;} .cy-tile.bad .n{color:#dc2626;}
+.cy-note{font-size:13px;color:var(--text-secondary,#374151);margin:-8px 0 20px;}
+.cy-h{font-size:16px;font-weight:700;margin:26px 0 10px;}
+table.cy-table{width:100%;border-collapse:collapse;font-size:13px;}
+table.cy-table th,table.cy-table td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border,#eee);vertical-align:top;}
+table.cy-table th{background:var(--card-alt,#f9fafb);font-weight:700;white-space:nowrap;}
+.cy-num{text-align:right;font-variant-numeric:tabular-nums;}
+.cy-q{font-weight:600;}
+.cy-fix{font-size:12.5px;color:var(--text-secondary,#374151);}
+.cy-fix code{background:var(--card-alt,#f3f4f6);padding:1px 5px;border-radius:4px;}
+.cy-tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;margin-right:5px;}
+.cy-tag.title{background:#dbeafe;color:#1e40af;} .cy-tag.meta{background:#fef3c7;color:#92400e;}
+.cy-tag.link{background:#dcfce7;color:#166534;} .cy-tag.ok{background:#e5e7eb;color:#374151;}
+.cy-src{color:var(--text-muted,#6b7280);}
+.cy-empty{padding:20px;background:var(--card-alt,#f9fafb);border-radius:8px;color:var(--text-secondary,#374151);}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+function cyTiles(cy){
+  const t=cy.totals||{}, b=cy.buckets||{};
+  const ctr=t.sitewide_ctr;
+  const ctrClass = ctr>=1.5?'good':(ctr>=0.8?'warn':'bad');
+  return `<div class="cy-tiles">
+    <div class="cy-tile"><div class="n">${(t.pages_with_impressions||0).toLocaleString()}</div><div class="l">pages shown by Google</div></div>
+    <div class="cy-tile"><div class="n">${(t.impressions||0).toLocaleString()}</div><div class="l">impressions / ${cy.days}d</div></div>
+    <div class="cy-tile"><div class="n">${(t.clicks||0).toLocaleString()}</div><div class="l">clicks / ${cy.days}d</div></div>
+    <div class="cy-tile ${ctrClass}"><div class="n">${ctr}%</div><div class="l">sitewide CTR</div></div>
+  </div>
+  <div class="cy-tiles">
+    <div class="cy-tile good"><div class="n">${(b.productive||0).toLocaleString()}</div><div class="l">productive (≥1 click)</div></div>
+    <div class="cy-tile warn"><div class="n">${(b.ranking_no_click||0).toLocaleString()}</div><div class="l">ranking · 0 clicks (fix title/intent)</div></div>
+    <div class="cy-tile"><div class="n">${(b.barely_visible||0).toLocaleString()}</div><div class="l">barely visible (&lt;30 impr)</div></div>
+  </div>`;
+}
+
+function cyFix(w){
+  let parts=[];
+  if(w.title_rewrite){
+    parts.push(`<span class="cy-tag title">TITLE</span> rewrite to <code>${esc(w.title_rewrite)}</code>`);
+  }else{
+    parts.push(`<span class="cy-tag ok">TITLE OK</span> query already in title — fix position, not the title`);
+  }
+  if(w.meta_missing){ parts.push(`<span class="cy-tag meta">META</span> add a description leading with the query`); }
+  else if(w.meta_needs_query){ parts.push(`<span class="cy-tag meta">META</span> front-load the query into your description`); }
+  const srcs=(w.link_sources||[]);
+  if(srcs.length){
+    const names=srcs.map(s=>`<span class="cy-src">${esc(s.path)}</span>`).join(', ');
+    parts.push(`<span class="cy-tag link">LINKS</span> add anchor “${esc(w.query)}” from: ${names}`);
+  }else{
+    parts.push(`<span class="cy-tag link">LINKS</span> link from homepage + nearest hub, anchor “${esc(w.query)}”`);
+  }
+  return parts.map(p=>`<div>${p}</div>`).join('');
+}
+
+function cyWinnable(cy){
+  const w=cy.winnable||[];
+  if(!w.length) return `<div class="cy-empty">No winnable pages found (non-brand query, position 4–20, real demand, ~0 clicks). That's unusual — try Refresh, or your winnable demand may be outside the 4–20 band.</div>`;
+  const rows=w.map((x,i)=>`<tr>
+    <td class="cy-num">${i+1}</td>
+    <td><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.path)}</a></td>
+    <td class="cy-q">${esc(x.query)}</td>
+    <td class="cy-num">${(x.impressions||0).toLocaleString()}</td>
+    <td class="cy-num">${x.position}</td>
+    <td class="cy-fix">${cyFix(x)}</td>
+  </tr>`).join('');
+  return `<div class="cy-h">Winnable pages — non-brand demand you already rank for (position 4–20, ~0 clicks)</div>
+  <p class="cy-note">These are the reseller-winnable queries: no brand owns them, and you're one SERP-page away.
+  Do the <strong>internal links first</strong> — they move the page up using authority you already have, no new backlinks.
+  Brand / exact-product-name pages (where the brand or Amazon wins the click) are deliberately excluded.</p>
+  <table class="cy-table"><thead><tr>
+    <th data-nosort>#</th><th>Page</th><th>Target query</th><th class="cy-num">Impr</th>
+    <th class="cy-num">Pos</th><th data-nosort>The fix</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function cyRender(cy){
+  const el=document.getElementById('cy-body');
+  const gen=document.getElementById('cy-generated');
+  if(cy.available===false && cy.needs_refresh){
+    el.innerHTML=`<div class="cy-empty">${esc(cy.message||'No analysis yet.')} It pulls your full GSC page set and fetches ~15 page titles, so it takes a moment.</div>`;
+    gen.textContent='';
+    return;
+  }
+  if(cy.available===false){
+    el.innerHTML=`<div class="cy-empty">Couldn't build the analysis: ${esc(cy.error||cy.reason||'unknown')}.</div>`;
+    return;
+  }
+  gen.textContent = cy.generated_at ? `Generated ${cy.generated_at.replace('T',' ')} · last ${cy.days} days` : '';
+  el.innerHTML = cyTiles(cy) + cyWinnable(cy);
+}
+
+async function cyLoad(){
+  try{ const r=await fetch('/api/click-yield'); cyRender(await r.json()); }
+  catch(e){ document.getElementById('cy-body').innerHTML=`<div class="cy-empty">Failed to load.</div>`; }
+}
+
+async function cyRefresh(){
+  const btn=document.getElementById('cy-refresh');
+  btn.disabled=true; const old=btn.textContent; btn.textContent='↻ Building… (pulling full GSC set)';
+  document.getElementById('cy-body').innerHTML=`<p class="pb-loading">Pulling every page from GSC and fetching winnable-page titles…</p>`;
+  try{
+    const r=await fetch('/api/click-yield/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    cyRender(await r.json());
+  }catch(e){
+    document.getElementById('cy-body').innerHTML=`<div class="cy-empty">Refresh failed: ${esc(e.message||e)}.</div>`;
+  }finally{ btn.disabled=false; btn.textContent=old; }
+}
+
+cyLoad();
+</script>
+{% endblock %}

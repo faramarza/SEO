@@ -813,6 +813,14 @@ def do_next():
     return render_template("do_next.html")
 
 
+@app.route("/click-yield")
+def click_yield():
+    """Click-Yield — the full-site view the top-100 evaluation can't show: how many
+    of ALL your pages convert impressions to clicks, and the winnable non-brand
+    category pages ranking 4–20 with ~0 clicks (with their title + internal-link fix)."""
+    return render_template("click_yield.html")
+
+
 # ============================================================
 # API ROUTES
 # ============================================================
@@ -7410,6 +7418,49 @@ Return JSON exactly:
     return jsonify(out)
 
 
+@app.route("/api/click-yield")
+def api_click_yield():
+    """Serve the cached click-yield analysis (full GSC page set). If none exists
+    yet, tell the UI to trigger a refresh."""
+    from src.metrics.click_yield import load_click_yield
+    cy = load_click_yield()
+    if not cy:
+        return jsonify({"available": False, "needs_refresh": True,
+                        "message": "No click-yield analysis yet — click Refresh to build it."})
+    return jsonify(cy)
+
+
+@app.route("/api/click-yield/refresh", methods=["POST"])
+def api_click_yield_refresh():
+    """Recompute click-yield from live GSC (full page set) + live title fetches for
+    the winnable pages, and cache it. Slower (pulls all pages, fetches ~15 titles),
+    so it's an explicit action, not on every page load."""
+    from src.metrics.click_yield import compute_click_yield, save_click_yield
+    config = load_config()
+    body = request.get_json(silent=True) or {}
+    days = int(body.get("days", 90))
+    try:
+        cy = compute_click_yield(config, days=days)
+    except Exception as e:
+        return jsonify({"available": False, "error": f"{type(e).__name__}: {e}"}), 500
+    if cy.get("available"):
+        try:
+            save_click_yield(cy)
+        except Exception:
+            pass
+    return jsonify(cy)
+
+
+def _winnable_plan_input():
+    """Winnable pages from the cached click-yield analysis (full GSC set). Empty
+    if not computed yet — the plan degrades gracefully. Never raises."""
+    try:
+        from src.metrics.click_yield import load_click_yield, winnable_plan_input
+        return winnable_plan_input(load_click_yield())
+    except Exception:
+        return []
+
+
 @app.route("/api/action-plan")
 def api_action_plan():
     """The unified 'do this next' plan: every recommendation across the tool,
@@ -7434,7 +7485,8 @@ def api_action_plan():
      orphans, pruning, content, geo) = _build_plan_inputs(results, eval_data, disallow)
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
                              brand_merchant=bm, striking=striking, decay=decay,
-                             content=content, orphans=orphans, pruning=pruning, geo=geo)
+                             content=content, orphans=orphans, pruning=pruning, geo=geo,
+                             winnable=_winnable_plan_input())
 
     adopted = store.get("adopted", {})
     for t in plan:
@@ -7670,7 +7722,8 @@ def _compose_weekly_digest():
      orphans, pruning, content, geo) = _build_plan_inputs(results, eval_data, disallow)
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
                              brand_merchant=bm, striking=striking, decay=decay,
-                             content=content, orphans=orphans, pruning=pruning, geo=geo)
+                             content=content, orphans=orphans, pruning=pruning, geo=geo,
+                             winnable=_winnable_plan_input())
     adopted = store.get("adopted", {})
     top3 = [t for t in plan if t["dedup_key"] not in adopted][:3]
 

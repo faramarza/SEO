@@ -32,6 +32,7 @@ TIME_TO_IMPACT = {
     "content":   (70, "6–12 weeks"),
     "geo":       (28, "3–6 weeks"),
     "brand":     (21, "2–4 weeks"),
+    "winnable":  (28, "3–6 weeks"),
 }
 
 EFFORT = {
@@ -41,21 +42,22 @@ EFFORT = {
     "decay": "Medium (a few hours)", "orphan": "Quick (~20 min)",
     "pruning": "Quick (review + act)", "content": "Large (write an article)",
     "geo": "Medium (a few hours)", "brand": "Medium (~1 hour)",
+    "winnable": "Medium (~1 hour)",
 }
 
 # Hours of hands-on work, used for the ROI ranking (value per hour per week).
 EFFORT_HOURS = {
     "ctr": 0.35, "schema": 0.5, "merchant": 0.5, "orphan": 0.35, "pruning": 0.5,
     "reviews": 1.0, "brand": 1.0, "striking": 1.0, "geo": 3.0, "cro": 3.0,
-    "decay": 3.0, "content": 8.0,
+    "decay": 3.0, "content": 8.0, "winnable": 1.0,
 }
 # Baseline impact (in $-equivalent points) for foundational tasks that have no
 # measured revenue and little/no reach, so a quick 30-min schema fix still ranks
 # sensibly instead of sinking to zero.
 CATEGORY_BASE = {
     "merchant": 8, "schema": 8, "brand": 8, "geo": 6,
-    "decay": 6, "orphan": 5, "striking": 5, "reviews": 4, "content": 4,
-    "pruning": 3,
+    "decay": 6, "winnable": 6, "orphan": 5, "striking": 5, "reviews": 4,
+    "content": 4, "pruning": 3,
 }
 
 # When a task has NO measured revenue we fall back to a reach proxy (a slice of
@@ -69,7 +71,7 @@ REACH_YIELD = {
     "reviews": 0.15,   # stars are a real but small CTR/CVR nudge — not a growth engine
     "geo": 0.30, "brand": 0.55, "schema": 0.55, "pruning": 0.45,
     "merchant": 0.60, "orphan": 0.60, "content": 0.55,
-    "striking": 0.75, "decay": 0.80,
+    "striking": 0.75, "winnable": 0.75, "decay": 0.80,
 }
 # Is this a "knock it out now" quick win? Used for batching + the weekly view.
 QUICK_CATS = {"ctr", "schema", "merchant", "orphan", "pruning"}
@@ -250,6 +252,60 @@ def _from_striking(striking, out):
             r.get("asset_type","other"), r.get("query","")))
 
 
+def _from_winnable(winnable, out):
+    """Category pages that rank position 4–20 for GENERIC (non-brand) demand and
+    earn ~0 clicks — the reseller-winnable queries (no brand incumbent) that are
+    one SERP-page from real clicks. Comes from the FULL GSC page set, not the
+    top-100 evaluation, so it surfaces pages the rest of the plan can't see. Each
+    carries a grounded title/meta fix AND the specific internal-link sources that
+    move it up — using authority the site already has, no new backlinks."""
+    for r in (winnable or [])[:12]:
+        q = r.get("query", "")
+        pos = r.get("position", 0)
+        try:
+            pos = int(pos) if float(pos).is_integer() else round(float(pos), 1)
+        except (TypeError, ValueError):
+            pos = r.get("position", 0)
+        steps = [
+            f"“{q}” ranks #{pos} with {r.get('impressions', 0)} impressions but ~0 clicks — "
+            f"real, non-brand demand you already rank for, just below the click zone.",
+        ]
+        if r.get("title_rewrite"):
+            steps.append(f"Rewrite the <title> to: “{r['title_rewrite']}” "
+                         f"(front-loads the searcher's exact words onto your real title).")
+        else:
+            cur = r.get("current_title") or ""
+            steps.append("Your <title> already targets this query" +
+                         (f" ({cur})" if cur else "") + " — do NOT retitle. The gap is "
+                         "position/authority; the internal links below are the fix.")
+        if r.get("meta_missing"):
+            steps.append(f"Add a meta description that leads with “{q}” + one real, specific "
+                         "hook (selection, age fit, your curation) — no invented stats.")
+        elif r.get("meta_needs_query"):
+            steps.append(f"Front-load “{q}” into your existing meta description.")
+        srcs = r.get("link_sources") or []
+        if srcs:
+            names = "; ".join(s.get("path", "") for s in srcs)
+            steps.append(f"Add internal links with anchor “{q}” from your related pages: {names}. "
+                         "This is the real lever — it channels authority you already have into "
+                         "this page and pushes it toward the top 5.")
+        else:
+            steps.append(f"Add internal links with anchor “{q}” from your homepage and the "
+                         "closest hub/category page.")
+        steps.append("Re-check the query's position in GSC in 3–6 weeks.")
+        benefit = (f"This page ranks #{pos} for “{q}” ({r.get('impressions', 0)} impressions/window) "
+                   "but earns almost no clicks because position 4–20 gets ~1% CTR. It's non-brand "
+                   "category demand — winnable for a reseller (no brand owns it). Getting it into "
+                   "the top 5 turns impressions you ALREADY earn into clicks, with no new backlinks.")
+        out.append(_task(
+            "winnable", r.get("url", ""),
+            f"Win clicks on “{q}” (ranks #{pos}, non-brand demand, ~0 clicks)",
+            steps, benefit, 0, r.get("impressions", 0),
+            {"type": "query_position", "url": r.get("url", ""), "query": q},
+            {"position": pos},
+            r.get("asset_type", "category"), q))
+
+
 def _from_decay(decay, out):
     for r in ((decay or {}).get("decaying") or [])[:4]:
         steps = [
@@ -415,6 +471,7 @@ STRATEGIC_WEIGHT = {
     "content": 1.0,    # new traffic + topical authority — the classic compounding asset
     "cro": 0.85,       # a structural conversion fix lifts EVERY future visitor
     "striking": 0.7,   # capture demand that's already rising
+    "winnable": 0.7,   # convert impressions you already earn — non-brand demand
     "brand": 0.7,      # own your brand equity long-term
     "decay": 0.6,      # recover a compounding asset that's slipping
     "orphan": 0.6,     # site structure — helps the whole domain, not one page
@@ -480,7 +537,8 @@ def _score_task(t):
 
 def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
                       brand_merchant=None, striking=None, decay=None,
-                      content=None, orphans=None, pruning=None, geo=None, limit=60):
+                      content=None, orphans=None, pruning=None, geo=None,
+                      winnable=None, limit=60):
     """Aggregate EVERY subsystem into one ranked, do-this-next list."""
     out = []
     if ctr: _from_ctr(ctr, out)
@@ -489,6 +547,7 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
     if rich: _from_rich(rich, out)
     if brand_merchant: _from_merchant(brand_merchant, out)
     if striking: _from_striking(striking, out)
+    if winnable: _from_winnable(winnable, out)
     if decay: _from_decay(decay, out)
     if content: _from_content(content, out)
     if orphans: _from_orphans(orphans, out)
