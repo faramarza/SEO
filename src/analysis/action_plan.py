@@ -542,7 +542,7 @@ def _score_task(t):
     # reach (a page at pos 8-14 moved into the top 5 realistically converts ~2% of
     # its impressions to clicks) — otherwise a $10 CTR harvest outranks a
     # 1,000-impression winnable page, which is exactly the bug we're fixing.
-    if cat in ("winnable", "striking", "content"):
+    if cat in ("winnable", "striking", "content", "orphan"):
         t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02), 1)
     else:
         t["lever_score"] = round(impact, 1)
@@ -596,7 +596,11 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
 
     for t in out:
         _score_task(t)
-    out.sort(key=lambda t: -t["roi"])
+    # Order the whole plan the way the page reads it: genuine levers first (by real
+    # impact), trivial "minor" harvests last — so the #N badge on each card ascends
+    # with importance instead of the old ROI order (which put a #54 content gap at
+    # the very top of "your biggest levers").
+    out.sort(key=lambda t: (t.get("minor", False), -(t.get("lever_score") or 0)))
     for i, t in enumerate(out, start=1):
         t["rank"] = i
     return out[:limit]

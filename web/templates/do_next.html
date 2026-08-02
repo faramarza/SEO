@@ -34,6 +34,7 @@ const CAT_META = {
     schema:   { icon:'⭐', label:'Schema' },
     merchant: { icon:'🏷️', label:'Merchant' },
     striking: { icon:'🎯', label:'Ranking' },
+    winnable: { icon:'🧲', label:'Winnable' },
     decay:    { icon:'📉', label:'Refresh' },
     orphan:   { icon:'🕸️', label:'Links' },
     pruning:  { icon:'✂️', label:'Prune' },
@@ -86,7 +87,7 @@ async function loadPlan(){
         renderReviewed(data.reviewed_now||[]);
         renderDataStatus(data.data_status||{});
         const d=data.timestamp?new Date(data.timestamp).toLocaleString():'—';
-        document.getElementById('dn-meta').innerHTML=`Ranked by ROI (value ÷ effort ÷ time) from your latest evaluation · ${esc(d)}`;
+        document.getElementById('dn-meta').innerHTML=`Ranked by genuine impact — real levers first, trivial harvests last · from your latest evaluation · ${esc(d)}`;
         renderPlan(data.plan||[], data.adopted_extra||[]);
     }catch(e){
         document.getElementById('dn-body').innerHTML=`<p class="empty-state">Failed to load: ${esc(e.message)}</p>`;
@@ -107,7 +108,7 @@ function taskCard(t, off){
     const c=CAT_META[t.category]||{icon:'•',label:t.category};
     const val = t.expected_value>0 ? `$${Math.round(t.expected_value).toLocaleString()}/mo` :
                 (t.reach? `${(t.reach).toLocaleString()} impr reach` : 'Foundational');
-    const steps=(t.steps||[]).map(s=>{
+    const steps=(t.steps||[]).filter(s=>s && String(s).trim()).map(s=>{
         // Render JSON-LD-ish blocks as code.
         if(/^\s*[\[{]/.test(s)) return `<pre class="dn-code">${esc(s)}</pre>`;
         return `<li>${esc(s)}</li>`;
@@ -144,7 +145,7 @@ function taskCard(t, off){
             </div>
         </div>
         <div class="dn-benefit">🎁 <strong>Benefit:</strong> ${esc(t.benefit)}</div>
-        <details ${off?'':'open'}><summary>Exact steps</summary><ol class="dn-steps">${steps}</ol></details>
+        ${steps?`<details ${off?'':'open'}><summary>Exact steps</summary><ol class="dn-steps">${steps}</ol></details>`:''}
         ${statusBadge}
         ${(t.adopted && t.auto_review!==false && t.review_date && t.status!=='done') ? `<div class="dn-when">⏳ Auto-check on <strong>${esc(t.review_date)}</strong> — the tool will re-measure and tell you if it worked.</div>`:''}
         ${(t.adopted && t.auto_review===false && t.status!=='done') ? `<div class="dn-when">✋ Self-report — mark this done once you've actioned it (the tool can't auto-measure removals).</div>`:''}
