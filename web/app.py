@@ -7694,15 +7694,12 @@ def api_action_plan_deliverable():
     return jsonify(result if isinstance(result, dict) else {"blocks": []})
 
 
-@app.route("/api/action-plan/adopt", methods=["POST"])
-def api_action_plan_adopt():
-    """Adopt a plan task: persist it with a review date + baseline so the tool can
-    auto-check whether it worked. Also files it to the Task Board."""
+def _adopt_task(task):
+    """Persist a plan task with a review date + baseline so the tool can auto-check
+    whether it worked, and mirror it onto the Task Board. Shared by the Do This Next
+    adopt endpoint and the Click Yield 'track' button. Returns the review date."""
     from src.analysis.action_plan import review_date_for
-    task = request.json or {}
     key = task.get("dedup_key")
-    if not key:
-        return jsonify({"success": False, "error": "dedup_key required"}), 400
     store = _load_action_plan_store()
     task["adopted_on"] = _now_date_iso()
     task["review_date"] = review_date_for(task.get("category", "ctr"))
@@ -7710,8 +7707,6 @@ def api_action_plan_adopt():
     task.setdefault("reviews", [])
     store["adopted"][key] = task
     _save_action_plan_store(store)
-
-    # Mirror onto the Task Board so it lives with everything else.
     try:
         data = {
             "url": task.get("url", ""), "asset_type": task.get("asset_type", "other"),
@@ -7728,7 +7723,51 @@ def api_action_plan_adopt():
             _persist_action(data)
     except Exception:
         pass
-    return jsonify({"success": True, "review_date": task["review_date"]})
+    return task["review_date"]
+
+
+@app.route("/api/action-plan/adopt", methods=["POST"])
+def api_action_plan_adopt():
+    """Adopt a plan task: persist it with a review date + baseline so the tool can
+    auto-check whether it worked. Also files it to the Task Board."""
+    task = request.json or {}
+    if not task.get("dedup_key"):
+        return jsonify({"success": False, "error": "dedup_key required"}), 400
+    review_date = _adopt_task(task)
+    return jsonify({"success": True, "review_date": review_date})
+
+
+@app.route("/api/click-yield/track", methods=["POST"])
+def api_click_yield_track():
+    """Adopt a winnable page straight from the Click Yield screen — builds the exact
+    same task Do This Next would (via _from_winnable) and monitors it identically
+    (auto-re-checks the query's position in a few weeks). Idempotent: re-tracking an
+    already-tracked page just returns its existing review date."""
+    from src.analysis.action_plan import _from_winnable, _score_task
+    body = request.get_json(silent=True) or {}
+    url, query = body.get("url"), body.get("query")
+    if not url or not query:
+        return jsonify({"success": False, "error": "url and query required"}), 400
+    from src.metrics.click_yield import load_click_yield
+    cy = load_click_yield()
+    items = [w for w in ((cy or {}).get("winnable") or [])
+             if w.get("url") == url and w.get("query") == query]
+    if not items:
+        return jsonify({"success": False,
+                        "error": "Winnable page not found — refresh Click Yield first."}), 404
+    out = []
+    _from_winnable(items, out)
+    if not out:
+        return jsonify({"success": False, "error": "Could not build task."}), 500
+    task = out[0]
+    _score_task(task)
+    store = _load_action_plan_store()
+    existing = store.get("adopted", {}).get(task["dedup_key"])
+    if existing:
+        return jsonify({"success": True, "already": True,
+                        "review_date": existing.get("review_date")})
+    review_date = _adopt_task(task)
+    return jsonify({"success": True, "review_date": review_date})
 
 
 @app.route("/api/action-plan/complete", methods=["POST"])

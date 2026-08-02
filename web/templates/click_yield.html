@@ -49,6 +49,10 @@ table.cy-table th{background:var(--card-alt,#f9fafb);font-weight:700;white-space
 .cy-tag.link{background:#dcfce7;color:#166534;} .cy-tag.ok{background:#e5e7eb;color:#374151;}
 .cy-src{color:var(--text-muted,#6b7280);}
 .cy-empty{padding:20px;background:var(--card-alt,#f9fafb);border-radius:8px;color:var(--text-secondary,#374151);}
+.cy-trackrow{margin-top:8px;}
+.cy-track{background:var(--accent,#2563eb);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;}
+.cy-track:disabled{cursor:default;}
+.cy-track.cy-tracked{background:#16a34a;}
 </style>
 {% endblock %}
 
@@ -101,7 +105,9 @@ function cyWinnable(cy){
     <td class="cy-q">${esc(x.query)}</td>
     <td class="cy-num">${(x.impressions||0).toLocaleString()}</td>
     <td class="cy-num">${x.position}</td>
-    <td class="cy-fix">${cyFix(x)}</td>
+    <td class="cy-fix">${cyFix(x)}
+      <div class="cy-trackrow"><button class="cy-track" data-url="${esc(x.url)}" data-query="${esc(x.query)}" onclick="cyTrack(this)">＋ Track &amp; monitor</button></div>
+    </td>
   </tr>`).join('');
   return `<div class="cy-h">Winnable pages — non-brand demand you already rank for (position 4–20, ~0 clicks)</div>
   <p class="cy-note">These are the reseller-winnable queries: no brand owns them, and you're one SERP-page away.
@@ -127,6 +133,19 @@ function cyRender(cy){
   }
   gen.textContent = cy.generated_at ? `Generated ${cy.generated_at.replace('T',' ')} · last ${cy.days} days` : '';
   el.innerHTML = cyTiles(cy) + cyWinnable(cy);
+}
+
+async function cyTrack(btn){
+  const url=btn.dataset.url, query=btn.dataset.query;
+  btn.disabled=true; btn.textContent='Tracking…';
+  try{
+    const r=await fetch('/api/click-yield/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,query})});
+    const d=await r.json();
+    if(d.success){
+      btn.classList.add('cy-tracked');
+      btn.textContent = d.already ? '✓ Already tracked' : `✓ Tracking — auto-check ${d.review_date||'soon'}`;
+    } else { btn.textContent='✗ '+esc(d.error||'failed'); btn.disabled=false; }
+  }catch(e){ btn.textContent='✗ error'; btn.disabled=false; }
 }
 
 async function cyLoad(){
