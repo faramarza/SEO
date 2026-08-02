@@ -67,6 +67,37 @@ def _is_brand(query: str, extra: Optional[set] = None) -> bool:
     return any(b in ql for b in toks)
 
 
+# Search operators (site:, inurl:, …) and bare domains aren't demand — they're
+# diagnostic/navigational noise. A page "ranks" for `site:yourdomain.com` because
+# the operator lists the whole site, not because anyone wants that page.
+_OPERATOR_RE = re.compile(
+    r"\b(site|inurl|intitle|intext|allintitle|allinurl|cache|related|filetype|link)\s*:",
+    re.I)
+_URLISH_RE = re.compile(r"https?://|www\.|\.(com|net|org|io|co|shop|store)\b", re.I)
+
+
+def _site_identity(config: dict):
+    """Return (domain, {self/brand forms}) derived from the GSC property so we can
+    exclude the store's OWN domain and brand name — those are navigational, not
+    winnable category demand."""
+    prop = (config or {}).get("data_sources", {}).get("gsc", {}).get("property_url", "") or ""
+    dom = re.sub(r"^sc-domain:", "", prop)
+    dom = re.sub(r"^https?://", "", dom).replace("www.", "").strip("/").lower()
+    name = dom.rsplit(".", 1)[0] if "." in dom else dom  # e.g. "alphabet-trains"
+    forms = {dom, name, name.replace("-", " "), name.replace("-", "")}
+    return dom, {f for f in forms if f and len(f) > 2}
+
+
+def _is_junk_query(query: str, self_forms: set) -> bool:
+    """Operator/navigational/self-referential — never a winnable demand query."""
+    ql = (query or "").strip().lower()
+    if not ql:
+        return True
+    if _OPERATOR_RE.search(ql) or _URLISH_RE.search(ql):
+        return True
+    return any(f in ql for f in self_forms)
+
+
 def _title_rewrite(query: str, current_title: str) -> Optional[str]:
     """Front-load the searcher's exact words onto the page's REAL title. Return
     None if the query is already present (retitle won't help — fix position)."""
@@ -121,6 +152,7 @@ def compute_click_yield(config: dict, days: int = 90, max_winnable: int = 15,
     """Pull the full GSC page set, compute yield buckets + enriched winnable pages.
     Returns a JSON-serializable dict (also written to CACHE_PATH by save())."""
     extra_brand = {t.lower() for t in (extra_brand_tokens or [])}
+    _site_dom, self_forms = _site_identity(config)
     client = _client_from_config(config)
     pages = client.get_page_data(days=days)  # {url: {clicks,impressions,ctr,position,queries[:10]}}
 
@@ -149,7 +181,7 @@ def compute_click_yield(config: dict, days: int = 90, max_winnable: int = 15,
             continue
         best = None
         for q in p.get("queries", []):
-            if _is_brand(q["query"], extra_brand):
+            if _is_brand(q["query"], extra_brand) or _is_junk_query(q["query"], self_forms):
                 continue
             if q["impressions"] < WINNABLE_MIN_IMPR or not (lo <= q["position"] <= hi):
                 continue
