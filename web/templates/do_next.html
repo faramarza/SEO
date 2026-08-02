@@ -189,26 +189,25 @@ function renderPlan(plan, extra){
     const extraOpen = (extra||[]).filter(t=>t.status!=='done');
     const extraDone = (extra||[]).filter(t=>t.status==='done');
     const inProgress = plan.filter(t=>t.adopted && t.status!=='done').concat(extraOpen);
-    // "3 best moves" = the GENUINE top 3 by ROI, capped at 2 per category so the
-    // headline isn't 3 copies of one bulk task. We do NOT force one-per-category
-    // diversity: that used to drag a near-worthless task (e.g. reviews, ROI ~3)
-    // into the headline just because it was a different flavor. Value first.
-    const thisWeek=[]; const catCount={};
-    for(const t of open){
-        if(thisWeek.length>=3) break;
-        const n=catCount[t.category]||0;
-        if(n>=2) continue;                 // avoid 3 identical bulk tasks, nothing more
-        thisWeek.push(t); catCount[t.category]=n+1;
+    // HEADLINE = your biggest GENUINE levers. Ranked by lever_score — which credits
+    // a position play by the traffic it could capture, NOT by how cheap it is to
+    // touch — with `minor` tasks (trivial brand/commodity CTR harvests) excluded
+    // entirely, so a $4/mo nudge on a term you already own can never sit at the top
+    // of "do this next". Capped at 2 per category so one bulk type can't fill it.
+    const levers=[...open].filter(t=>!t.minor)
+        .sort((a,b)=>(b.lever_score||0)-(a.lever_score||0));
+    const headline=[]; const hlCats={};
+    for(const t of levers){
+        if(headline.length>=6) break;
+        const n=hlCats[t.category]||0;
+        if(n>=2) continue;
+        headline.push(t); hlCats[t.category]=n+1;
     }
-    if(thisWeek.length<3){ for(const t of open){ if(thisWeek.length>=3) break; if(!thisWeek.includes(t)) thisWeek.push(t); } }
-    const twSet=new Set(thisWeek.map(t=>t.dedup_key));
+    const hlSet=new Set(headline.map(t=>t.dedup_key));
 
-    // SECOND LENS — strategic/compounding bets. The "3 best moves" above are the
-    // cheapest near-term wins (high ROI). But ROI structurally buries slow,
-    // compounding plays (new content, structural fixes, brand). So pick the top
-    // tasks by strategic_score that AREN'T already a quick win — the things worth
-    // investing in for durable traffic/brand even though they won't pay this week.
-    const strat=[...open].filter(t=>!twSet.has(t.dedup_key))
+    // SECOND LENS — strategic/compounding bets: top strategic_score tasks not
+    // already headlined (slow plays that lever_score can still under-rank).
+    const strat=[...open].filter(t=>!t.minor && !hlSet.has(t.dedup_key))
         .sort((a,b)=>(b.strategic_score||0)-(a.strategic_score||0));
     const stratBets=[]; const stratCats={};
     for(const t of strat){
@@ -218,20 +217,23 @@ function renderPlan(plan, extra){
         stratBets.push(t); stratCats[t.category]=n+1;
     }
     const betSet=new Set(stratBets.map(t=>t.dedup_key));
-    const backlog = open.filter(t=>!twSet.has(t.dedup_key) && !betSet.has(t.dedup_key));
+    // MINOR — real but trivial cheap harvests (brand/commodity CTR, tiny fixes).
+    // Shown compact at the end so they can never crowd out the real levers.
+    const minorTasks = open.filter(t=>t.minor && !hlSet.has(t.dedup_key) && !betSet.has(t.dedup_key));
+    const backlog = open.filter(t=>!t.minor && !hlSet.has(t.dedup_key) && !betSet.has(t.dedup_key));
 
     let html='';
 
     // Say the quiet part out loud: how this is ranked, and what it can't see.
     html += `<div class="dn-lens-note">
-        <strong>How this list is ranked — and what it ignores.</strong>
-        The order below is <em>near-term money per hour of work</em>. That's great for
-        "what's the cheapest win this week," but it is deliberately blind to things
-        it can't measure in your 28-day data: the long-term traffic and brand value
-        of content, the compounding of topical authority, and anything happening off
-        the SEO surface (your ads, email, and checkout live elsewhere). Treat this as
-        <em>spare-time polish</em>, not the whole strategy. The compounding bets that
-        ROI buries are pulled out separately below.
+        <strong>How this list is ranked.</strong>
+        The top section is your <em>biggest genuine levers</em> — ranked by real impact,
+        where a page ranking just below the click zone is credited for the traffic it
+        could capture, not for how cheap it is to touch. Trivial-but-instant harvests
+        (a nudge on a brand term you already own, a page already at #1) are pulled OUT
+        of the headline into "small wins" so they can't crowd out what actually moves
+        the needle. Slow, compounding plays are called out as strategic bets. Anything
+        off the SEO surface — ads, email, checkout — lives on its own screen.
     </div>`;
 
     if(inProgress.length){
@@ -239,17 +241,17 @@ function renderPlan(plan, extra){
         html += inProgress.map(t=>taskCard(t,false)).join('');
     }
 
-    html += `<h3 class="dn-section">⭐ This week — quick wins</h3>`;
-    if(thisWeek.length){
-        html += `<p class="dn-section-sub">Highest near-term $ for the least effort. Cheap and fast — not necessarily the biggest levers.</p>`;
-        html += thisWeek.map(t=>taskCard(t,false)).join('');
+    html += `<h3 class="dn-section">🎯 Your biggest levers</h3>`;
+    if(headline.length){
+        html += `<p class="dn-section-sub">Ranked by genuine impact — the pages and fixes that actually move traffic, not the cheapest tasks. Do these first, top to bottom.</p>`;
+        html += headline.map(t=>taskCard(t,false)).join('');
     } else {
         html += `<p class="empty-state" style="text-align:left;">Nothing new to start — you're on top of it. 🎉</p>`;
     }
 
     if(stratBets.length){
-        html += `<h3 class="dn-section">🌱 Strategic bets — compounding plays ROI buries</h3>`;
-        html += `<p class="dn-section-sub">Slower and harder to measure, but they build durable traffic, authority, or a structural fix that lifts everything. Low "ROI this week" is expected — that's not a reason to skip them.</p>`;
+        html += `<h3 class="dn-section">🌱 Strategic bets — compounding plays impact buries</h3>`;
+        html += `<p class="dn-section-sub">Slower and harder to measure, but they build durable traffic, authority, or a structural fix that lifts everything. Low near-term impact is expected — that's not a reason to skip them.</p>`;
         html += stratBets.map(t=>taskCard(t,false)).join('');
     }
 
@@ -271,6 +273,15 @@ function renderPlan(plan, extra){
                 <div class="dn-batch-items">${items.map(t=>taskCard(t,false)).join('')}</div>
             </div>`;
         });
+    }
+
+    // Trivial cheap harvests — real, but a few dollars each. Compact, clearly framed
+    // as optional so they never masquerade as the main focus.
+    if(minorTasks.length){
+        html += `<h3 class="dn-section">✨ While you're at it — small, cheap wins</h3>`;
+        html += `<p class="dn-section-sub">Real but minor — worth a few dollars each (brand terms you already own, pages already at #1, tiny fixes). Worth 5 minutes when you're already in that page, but never your main focus.</p>`;
+        html += minorTasks.slice(0,8).map(t=>taskCard(t,false)).join('');
+        if(minorTasks.length>8){ html += `<p class="dn-section-sub" style="opacity:.7;">…and ${minorTasks.length-8} more minor items.</p>`; }
     }
 
     const rest=backlog.filter(t=>!batched.has(t.dedup_key));

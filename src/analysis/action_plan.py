@@ -76,6 +76,23 @@ REACH_YIELD = {
 # Is this a "knock it out now" quick win? Used for batching + the weekly view.
 QUICK_CATS = {"ctr", "schema", "merchant", "orphan", "pruning"}
 
+# Categories that are ALWAYS genuine growth levers — they can never be demoted to
+# the "while you're at it" strip no matter how small their measured value, because
+# their value is future traffic/structure that 28-day money can't see.
+NEVER_MINOR = {"winnable", "striking", "content", "cro", "decay", "orphan", "geo"}
+# Below this $-equivalent impact, a NON-lever task (a cheap CTR/schema/reviews
+# harvest) is "minor" — real, but it must never headline "do this next". A $10/mo
+# brand-CTR fix lands here; a $200/mo money-page fix does not.
+MINOR_IMPACT_FLOOR = 15.0
+# The store's own brand — CTR "fixes" on these are navigational noise (you already
+# own them) and must never be a headline lever.
+BRAND_HINTS = ("alphabet train", "alphabet-trains", "alphabettrains")
+
+
+def _is_brand_query(q):
+    ql = (q or "").lower()
+    return any(b in ql for b in BRAND_HINTS)
+
 
 def _tti(cat):
     days, label = TIME_TO_IMPACT.get(cat, (28, "3–6 weeks"))
@@ -132,13 +149,19 @@ def _from_ctr(ctr, out):
         _title = (f"Rewrite the title for “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked)"
                   if title_missing else
                   f"Win back clicks on “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked)")
-        out.append(_task(
+        _t = _task(
             "ctr", r.get("url",""),
             _title,
             steps, benefit, r.get("lost_revenue", 0), r.get("impressions", 0),
             {"type": "query_clicks", "url": r.get("url",""), "query": r.get("query","")},
             {"clicks": r.get("clicks", 0), "ctr": r.get("actual_ctr", 0)},
-            r.get("asset_type","other"), r.get("query","")))
+            r.get("asset_type","other"), r.get("query",""))
+        # A CTR "fix" on the store's own brand term, or on a page already at the top
+        # (nothing to gain from position, and the click is a commodity toss-up), is
+        # a trivial harvest — flag it so it can never headline the plan.
+        if _is_brand_query(r.get("query", "")) or (r.get("position") or 99) <= 2.0:
+            _t["is_brand_ctr"] = True
+        out.append(_t)
 
 
 def _from_cro(cro, out):
@@ -511,6 +534,22 @@ def _score_task(t):
     roi = impact / (hours * weeks)
     t["roi"] = round(roi, 2)
     t["is_quick"] = cat in QUICK_CATS
+    # Absolute impact ($-equivalent), independent of how cheap/fast it is — so a
+    # trivial-but-instant task can't masquerade as a top priority.
+    t["impact"] = round(impact, 1)
+    # LEVER score = how the headline list is ranked. For position/traffic plays the
+    # value is future clicks, not this month's dollars, so credit them by their
+    # reach (a page at pos 8-14 moved into the top 5 realistically converts ~2% of
+    # its impressions to clicks) — otherwise a $10 CTR harvest outranks a
+    # 1,000-impression winnable page, which is exactly the bug we're fixing.
+    if cat in ("winnable", "striking", "content"):
+        t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02), 1)
+    else:
+        t["lever_score"] = round(impact, 1)
+    # MINOR = a real but trivial cheap harvest (a $10 brand-CTR nudge, a phantom
+    # schema count) that must never headline. Genuine levers are exempt.
+    t["minor"] = (cat not in NEVER_MINOR) and (
+        impact < MINOR_IMPACT_FLOOR or t.get("is_brand_ctr", False))
     # Second lens: strategic/compounding value. Scales with the AUDIENCE a task
     # builds or unlocks (sqrt-damped so a huge page doesn't dominate), weighted by
     # how durable that value is. Deliberately independent of near-term ROI so a

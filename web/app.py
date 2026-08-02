@@ -7286,11 +7286,34 @@ def _gather_strategy_signals(results, eval_data, disallow):
                           "slow/broken it's still worth fixing, but the dollar figure "
                           "is modest and must never exceed a sane fraction of actual "
                           "revenue.")
+    # The full-site click-yield picture + the winnable non-brand head-term plays —
+    # the genuine ORGANIC growth lever the top-100 evaluation is structurally blind
+    # to. This is what lets the brief name "rank the head cluster" over "fix checkout"
+    # when that's the honest call.
+    click_yield = {}
+    try:
+        from src.metrics.click_yield import load_click_yield
+        cy = load_click_yield()
+        if cy and cy.get("available"):
+            tot = cy.get("totals", {})
+            click_yield = {
+                "sitewide_ctr_pct": tot.get("sitewide_ctr"),
+                "pages_with_impressions": tot.get("pages_with_impressions"),
+                "impressions": tot.get("impressions"),
+                "clicks": tot.get("clicks"),
+                "ranking_no_click_pages": cy.get("buckets", {}).get("ranking_no_click"),
+                "winnable_top": [{"query": w.get("query"), "position": w.get("position"),
+                                  "impressions": w.get("impressions"), "path": w.get("path")}
+                                 for w in (cy.get("winnable") or [])[:6]],
+            }
+    except Exception:
+        click_yield = {}
     def top(rows, keys, n=3):
         return [{k: r.get(k) for k in keys} for r in (rows or [])[:n]]
     return {
         "business": biz,
         "funnel": funnel,
+        "click_yield": click_yield,
         "ctr_recovery": {
             "total_lost_clicks": ctr.get("total_lost_clicks"),
             "total_lost_revenue": ctr.get("total_lost_revenue"),
@@ -7354,27 +7377,37 @@ def api_action_plan_strategy():
         "name the SINGLE highest-leverage focus for the next 30 days and the concrete "
         "moves to execute it. Be brutally specific and cite the real numbers you were "
         "given. NO generic advice, NO filler, NO listing everything.\n\n"
-        "RANK BY DOLLARS AT STAKE, NOT BY PAGE COUNT. This is the most important "
-        "rule. The number of pages that share a gap is NOT a measure of its "
-        "importance. A gap on 768 pages that each add a tiny nudge is worth far LESS "
-        "than fixing one leak that bleeds real revenue. Weight everything by measured "
-        "money, in this order:\n"
-        "  1. THE CONVERSION FUNNEL. If the funnel shows a high cart-abandonment / "
-        "add-to-cart-to-order drop, that is almost always the #1 lever — shoppers "
-        "already want to buy and something at checkout stops them. This is a "
-        "checkout/conversion problem, not an SEO problem, and it usually dwarfs every "
-        "SEO item. Lead with it when the numbers are elevated.\n"
-        "  2. MEASURED lost revenue — CTR recovery on pages that already rank, and "
-        "CRO on money pages converting below benchmark. These have real dollar "
-        "figures; trust them.\n"
-        "  3. Capturing existing demand you rank for but under-click / just miss.\n"
+        "RANK BY DOLLARS/TRAFFIC AT STAKE, NOT BY PAGE COUNT, and do NOT reflexively "
+        "crown any one channel. The number of pages that share a gap is NOT a measure "
+        "of its importance. Weigh these candidates honestly against each other on the "
+        "REAL numbers you were given, and pick whichever is genuinely biggest for THIS "
+        "store right now:\n"
+        "  • ORGANIC POSITION / CLICK-YIELD. Look at `click_yield`: this store gets a "
+        "large impression volume but converts almost none to clicks, and has a set of "
+        "`winnable_top` non-brand category pages ranking position 4-20 (real demand, "
+        "no brand incumbent) that are one SERP-page from real traffic. Moving these "
+        "into the top 5 — via internal links + a matching title — is usually the "
+        "single biggest DURABLE lever for a store like this, and it needs no new "
+        "backlinks. Take it seriously; it is often the right #1.\n"
+        "  • THE CONVERSION FUNNEL. If `funnel` shows elevated cart abandonment, a "
+        "checkout fix can help — BUT use ONLY funnel.realistic_monthly_recoverable as "
+        "its value (it is deliberately small and sanity-capped). NEVER value it as "
+        "abandoned_carts * AOV, and NEVER claim it exceeds a sane fraction of actual "
+        "revenue. It is one candidate, not an automatic winner — for a small store the "
+        "honest recoverable is often modest and the organic lever is bigger.\n"
+        "  • MEASURED lost revenue — CTR recovery on pages that already rank and CRO "
+        "on money pages below benchmark. Trust the real dollar figures. But IGNORE "
+        "trivial ones and brand terms: a CTR 'fix' worth a few dollars a month, or on "
+        "the store's own brand name (alphabet train/s), is NOT a strategic focus.\n"
         "  FAR BELOW THAT: reviews and schema coverage. Reviews are a MODEST trust "
-        "nudge (a small CTR/conversion lift), NOT a growth engine — do NOT crown "
-        "'collect reviews' as the #1 focus just because many products lack them. Treat "
-        "it as a set-once background task. Likewise, schema 'gaps' come from an "
-        "HTML-only crawl that CANNOT see JavaScript-injected schema (this Magento "
-        "theme injects a lot via JS), so coverage counts are UNRELIABLE and often "
-        "phantom — never make schema coverage the headline.\n\n"
+        "nudge, NOT a growth engine — never crown 'collect reviews' as #1. Schema "
+        "'gaps' come from an HTML-only crawl that can't see JS-injected schema, so "
+        "counts are unreliable — never headline schema.\n"
+        "CLAIM DISCIPLINE: every dollar/traffic figure must trace to a number you were "
+        "given. No figure may exceed the store's actual 28-day revenue. If you cite a "
+        "recoverable amount, prefer a conservative range and say it assumes good "
+        "execution. Honesty over hype — this operator has explicitly rejected fantasy "
+        "math before.\n\n"
         "ON CONTENT — be precise, never dismissive. Content DRIVES TRAFFIC and "
         "builds brand/topical authority even when a given article doesn't directly "
         "convert; that value is real but shows up long-term, not in 28-day revenue. "
@@ -7394,9 +7427,12 @@ def api_action_plan_strategy():
 TASK
 Decide the ONE focus for the next 30 days that will move revenue/traffic the most
 for THIS store, given these numbers. Ground every claim in the figures above.
-Check the `funnel` block FIRST: if cart abandonment is elevated, the checkout/
-conversion experience is almost certainly the #1 focus and the dollars there
-outrank every SEO item — do not bury it under a reviews or schema recommendation.
+Weigh the candidates honestly against each other — the ORGANIC click-yield / winnable
+head-term plays (`click_yield`), the checkout funnel (valued ONLY at
+funnel.realistic_monthly_recoverable), and measured CTR/CRO lost revenue — and pick
+whichever is genuinely biggest for a store THIS size. Do not reflexively crown
+checkout; for a small store the durable organic lever is often the bigger play.
+Never headline reviews or schema. Keep every figure within the store's real revenue.
 
 Return JSON exactly:
 {{
