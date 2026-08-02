@@ -7359,10 +7359,16 @@ def api_action_plan_strategy():
     ts = eval_data.get("timestamp", "")
     cache_path = DATA_PATH / "strategy_brief.json"
     force = request.args.get("refresh") == "1"
+    # Bump when the strategy PROMPT changes so an improved brief auto-regenerates on
+    # the next load instead of serving a stale one keyed only on the eval timestamp
+    # (which is why the checkout-fantasy hero survived a prompt fix). v2 = balanced
+    # organic-vs-funnel weighting + claim discipline.
+    STRATEGY_PROMPT_VERSION = "2"
     if not force and cache_path.exists():
         try:
             cached = json.load(open(cache_path))
-            if cached.get("timestamp") == ts:
+            if (cached.get("timestamp") == ts
+                    and cached.get("prompt_version") == STRATEGY_PROMPT_VERSION):
                 return jsonify(cached)
         except (json.JSONDecodeError, OSError):
             pass
@@ -7445,7 +7451,8 @@ Return JSON exactly:
     result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
     if err or not isinstance(result, dict):
         return jsonify({"error": err or "strategy generation failed"}), 502
-    out = {"timestamp": ts, "generated_at": _now_date_iso(), **result}
+    out = {"timestamp": ts, "generated_at": _now_date_iso(),
+           "prompt_version": STRATEGY_PROMPT_VERSION, **result}
     try:
         with open(cache_path, "w") as f:
             json.dump(out, f, indent=2)

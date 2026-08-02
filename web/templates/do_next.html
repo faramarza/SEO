@@ -108,7 +108,7 @@ function taskCard(t, off){
     const c=CAT_META[t.category]||{icon:'•',label:t.category};
     const val = t.expected_value>0 ? `$${Math.round(t.expected_value).toLocaleString()}/mo` :
                 (t.reach? `${(t.reach).toLocaleString()} impr reach` : 'Foundational');
-    const steps=(t.steps||[]).filter(s=>s && String(s).trim()).map(s=>{
+    const steps=(t.steps||[]).filter(s=>s!=null && String(s).replace(/[\s​ ]+/g,'')!=='').map(s=>{
         // Render JSON-LD-ish blocks as code.
         if(/^\s*[\[{]/.test(s)) return `<pre class="dn-code">${esc(s)}</pre>`;
         return `<li>${esc(s)}</li>`;
