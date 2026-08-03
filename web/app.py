@@ -240,6 +240,10 @@ job_state = _SyncDict(
 NOTIFICATIONS_PATH = DATA_PATH / "notifications.json"
 SCHEDULER_CHECK_INTERVAL = 3600  # 1 hour
 SERP_COLLECT_INTERVAL = 3600  # 1 hour (checks quota, collects if available)
+# Only build SERP coverage for the top-N pages by value. A small store doesn't need
+# live SERPs on its entire long tail; bounding the query universe (top N pages × 3
+# queries) keeps Serper spend low and leaves headroom for on-demand features.
+SERP_COLLECT_MAX_PAGES = int(os.environ.get("SERP_COLLECT_MAX_PAGES", "100"))
 
 
 def _load_notifications():
@@ -368,7 +372,7 @@ def _run_serp_collector():
             results.sort(key=lambda r: r.get("expected_value", 0), reverse=True)
 
             queries_fetched = 0
-            for opp in results:
+            for opp in results[:SERP_COLLECT_MAX_PAGES]:
                 if remaining <= 0:
                     break
                 top_queries = opp.get("top_queries", [])

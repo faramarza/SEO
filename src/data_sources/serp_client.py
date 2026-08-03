@@ -23,6 +23,11 @@ SERP_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "serp_cache.jso
 # Configurable now so it can match your actual Serper plan — set SERPER_DAILY_LIMIT
 # in the environment (a paid Serper plan is thousands/day, so 100 was far too low).
 DAILY_LIMIT = int(os.environ.get("SERPER_DAILY_LIMIT", "100"))
+# How long a cached SERP stays "fresh" before it's re-fetched. The old behavior
+# cached forever, so SERP data went permanently stale (positions never updated).
+# A TTL keeps it current at a bounded, predictable cost. Longer = cheaper + staler;
+# 14 days is plenty for a small store's position tracking.
+SERP_CACHE_DAYS = int(os.environ.get("SERP_CACHE_DAYS", "14"))
 
 
 def _load_cache() -> dict:
@@ -51,6 +56,21 @@ def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _is_fresh(entry: dict, days: int = None) -> bool:
+    """Is a cached SERP entry still within its TTL? Missing/unparseable timestamp
+    counts as fresh so we never trigger a surprise refetch-storm on old entries."""
+    if days is None:
+        days = SERP_CACHE_DAYS
+    ts = (entry or {}).get("fetched_at")
+    if not ts:
+        return True
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - dt).total_seconds() < days * 86400
+    except Exception:
+        return True
+
+
 def get_daily_usage() -> int:
     cache = _load_cache()
     return cache.get("daily_usage", {}).get(_today(), 0)
@@ -62,7 +82,8 @@ def get_remaining_quota() -> int:
 
 def get_cached_serp(query: str) -> Optional[dict]:
     cache = _load_cache()
-    return cache.get("queries", {}).get(query.lower().strip())
+    entry = cache.get("queries", {}).get(query.lower().strip())
+    return entry if (entry and _is_fresh(entry)) else None
 
 
 def get_cached_query_set() -> set:
@@ -98,8 +119,9 @@ def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
 
     query_key = query.lower().strip()
     existing = cache.get("queries", {}).get(query_key)
-    if existing:
+    if existing and _is_fresh(existing):
         return existing
+    # stale (or absent) → fall through and re-fetch, overwriting the cache entry
 
     try:
         resp = httpx.post(
