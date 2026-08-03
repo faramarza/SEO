@@ -97,10 +97,30 @@ def main():
         rows = []
     order_rows = [r for r in rows if r["ecommercePurchases"] > 0]
     if order_rows:
-        print(f"  {'orders':>6} {'sess':>7} {'revenue':>10}  landing page")
+        print(f"  {'orders':>6} {'sess':>7} {'revenue':>10}  landing page (full)")
         for r in order_rows[:20]:
             print(f"  {r['ecommercePurchases']:>6,.0f} {r['sessions']:>7,.0f} "
-                  f"${r['purchaseRevenue']:>9,.0f}  {r['landingPagePlusQueryString'][:52]}")
+                  f"${r['purchaseRevenue']:>9,.0f}  {r['landingPagePlusQueryString'][:120]}")
+        # Does the gclid actually survive to the landing page? (auto-tagging is on,
+        # so if it's MISSING here, a redirect/tracking-template ate it → ads-attrib
+        # fix. If PRESENT here, gclid arrives but GA4 doesn't attribute → consent/
+        # cross-domain. Also: are ORGANIC-intent pages landing in (not set)? → the
+        # loss is site-wide (consent), not ads-only.)
+        with_gclid = sum(1 for r in order_rows if "gclid=" in r["landingPagePlusQueryString"].lower())
+        with_hsa = sum(1 for r in order_rows if "hsa_" in r["landingPagePlusQueryString"].lower())
+        clean = sum(1 for r in order_rows
+                    if "gclid=" not in r["landingPagePlusQueryString"].lower()
+                    and "hsa_" not in r["landingPagePlusQueryString"].lower()
+                    and "utm_" not in r["landingPagePlusQueryString"].lower())
+        print(f"\n  Of these '(not set)' order-landing URLs: {with_gclid} keep a gclid, "
+              f"{with_hsa} carry hsa_ (ad template), {clean} have NO tracking param at all.")
+        if with_hsa and not with_gclid:
+            print("  → Ad clicks arrive with hsa_ but the GCLID IS GONE. A redirect / tracking")
+            print("    template is stripping it before GA4 reads it. Fix the ad tracking template.")
+        if clean:
+            print("  → Some orders land on CLEAN URLs (no ad params) yet still can't be sourced")
+            print("    → site-wide attribution loss (cookie-consent / Consent Mode denying")
+            print("    storage, or a landing redirect dropping the referrer) — affects ALL channels.")
         # verdict hint
         checkoutish = sum(r["ecommercePurchases"] for r in order_rows
                           if any(k in r["landingPagePlusQueryString"].lower()
