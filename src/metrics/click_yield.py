@@ -41,6 +41,8 @@ CACHE_PATH = PROJECT_ROOT / "data" / "click_yield.json"
 RANKING_MIN_IMPR = 30          # floor to call a page "ranking but not clicked"
 WINNABLE_POS = (4.0, 20.0)     # position band where a push actually pays
 WINNABLE_MIN_IMPR = 150        # a winnable query needs real demand
+TREND_DAYS = 28                # momentum window: recent 28d vs prior 28d
+TREND_MIN_DELTA = 3.0          # ignore sub-3-position wobble (GSC position is noisy)
 MAX_TITLE = 60
 UA = "Mozilla/5.0 (compatible; AlphabetTrains-SEO-Crawler/1.0; +click-yield)"
 
@@ -250,7 +252,32 @@ def compute_click_yield(config: dict, days: int = 90, max_winnable: int = 15,
             "link_sources": [{"path": urlparse(s[1]).path or s[1], "shares": s[2]}
                              for s in srcs[:4]],
             "asset_type": _asset_type_of(url),
+            "trend": "unknown",  # filled below from two GSC windows
         })
+
+    # POSITION MOMENTUM — the one thing a single snapshot can't show: is each
+    # winnable page rising toward the click zone or falling away? Diff a recent
+    # 28-day window against the prior 28 days. A page that's SLIPPING is urgent to
+    # defend (it may fall off page 2); a RISING one needs only a light push. Only
+    # moves past TREND_MIN_DELTA count, so we react to real movement, not GSC noise.
+    try:
+        cur28 = client.positions_for_window(end_offset_days=0, days=TREND_DAYS)
+        prev28 = client.positions_for_window(end_offset_days=TREND_DAYS, days=TREND_DAYS)
+        for w in winnable:
+            key = (w["url"], w["query"])
+            c, p = cur28.get(key), prev28.get(key)
+            if c is None or p is None:
+                w["trend"] = "new"  # not enough history to judge
+                continue
+            delta = round(p - c, 1)          # + = rose (position number fell), - = dropped
+            w["position_delta"] = delta
+            w["position_now28"] = round(c, 1)
+            w["position_prev28"] = round(p, 1)
+            w["trend"] = ("down" if delta <= -TREND_MIN_DELTA
+                          else "up" if delta >= TREND_MIN_DELTA else "flat")
+    except Exception:
+        for w in winnable:
+            w["trend"] = "unknown"
 
     return {
         "available": True,

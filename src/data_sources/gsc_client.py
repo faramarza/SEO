@@ -228,6 +228,32 @@ class GSCClient:
 
         return entropy / max_entropy if max_entropy > 0 else 0.0
 
+    def positions_for_window(self, end_offset_days: int = 0, days: int = 28) -> dict:
+        """Return {(page_url, query): avg_position} for a window `days` long ending
+        (today - 3 - end_offset_days). Used to compute position MOMENTUM by diffing a
+        recent window against the prior one — the one thing GSC gives that a single
+        snapshot can't: which queries are rising vs falling."""
+        service = self._get_service()
+        if service is None:
+            return {}
+        end_date = date.today() - timedelta(days=3 + end_offset_days)
+        start_date = end_date - timedelta(days=days)
+        try:
+            body = {
+                'startDate': start_date.isoformat(),
+                'endDate': end_date.isoformat(),
+                'dimensions': ['page', 'query'],
+                'rowLimit': 25000,
+            }
+            resp = service.searchanalytics().query(siteUrl=self.site_url, body=body).execute()
+            out = {}
+            for r in resp.get('rows', []):
+                out[(r['keys'][0], r['keys'][1])] = float(r.get('position', 0.0))
+            return out
+        except Exception as e:
+            print(f"GSC positions_for_window error: {e}")
+            return {}
+
     def get_page_data(self, days: int = 28) -> dict[str, dict]:
         """
         Get page-level data for all pages in the property.

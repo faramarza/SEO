@@ -289,10 +289,21 @@ def _from_winnable(winnable, out):
             pos = int(pos) if float(pos).is_integer() else round(float(pos), 1)
         except (TypeError, ValueError):
             pos = r.get("position", 0)
+        trend = r.get("trend")
+        delta = r.get("position_delta")
+        declining = trend == "down" and delta is not None
         steps = [
             f"“{q}” ranks #{pos} with {r.get('impressions', 0)} impressions but ~0 clicks — "
             f"real, non-brand demand you already rank for, just below the click zone.",
         ]
+        if declining:
+            steps.insert(0, f"⚠️ DROPPING: this query fell ~{abs(delta):.0f} positions in the "
+                            f"last 28 days (from ~#{r.get('position_prev28')} to #{r.get('position_now28')}). "
+                            f"Defend it NOW — likely a lost internal link, stale content, or a "
+                            f"competitor overtook you. If it keeps sliding it leaves page 2 entirely.")
+        elif trend == "up" and delta is not None:
+            steps.insert(0, f"↗ RISING: this query gained ~{delta:.0f} positions in 28 days — it's "
+                            f"already climbing toward the click zone, so a light push finishes the job.")
         if r.get("title_rewrite"):
             steps.append(f"Reword the <title> to read naturally and lead with the "
                          f"searcher's words — e.g. “{r['title_rewrite']}”. Keep it "
@@ -323,13 +334,20 @@ def _from_winnable(winnable, out):
                    "but earns almost no clicks because position 4–20 gets ~1% CTR. It's non-brand "
                    "category demand — winnable for a reseller (no brand owns it). Getting it into "
                    "the top 5 turns impressions you ALREADY earn into clicks, with no new backlinks.")
-        out.append(_task(
+        title = (f"🛡️ Defend “{q}” — dropped ~{abs(delta):.0f} spots to #{pos} (non-brand demand)"
+                 if declining else
+                 f"Win clicks on “{q}” (ranks #{pos}, non-brand demand, ~0 clicks)")
+        _t = _task(
             "winnable", r.get("url", ""),
-            f"Win clicks on “{q}” (ranks #{pos}, non-brand demand, ~0 clicks)",
+            title,
             steps, benefit, 0, r.get("impressions", 0),
             {"type": "query_position", "url": r.get("url", ""), "query": q},
             {"position": pos},
-            r.get("asset_type", "category"), q))
+            r.get("asset_type", "category"), q)
+        _t["trend"] = trend
+        if delta is not None:
+            _t["position_delta"] = delta
+        out.append(_t)
 
 
 def _from_decay(decay, out):
@@ -549,6 +567,13 @@ def _score_task(t):
         t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02), 1)
     else:
         t["lever_score"] = round(impact, 1)
+    # URGENCY: a page that's actively SLIPPING (position momentum down) is more
+    # time-sensitive than a static one — defend it before it falls off page 2. Scale
+    # the bump by HOW FAR it dropped: a 3-position wobble is a nudge (~1.3x), a
+    # 12-position crash is a real alarm (~2.2x), capped so it can't run away.
+    if t.get("trend") == "down":
+        drop = abs(t.get("position_delta") or 3)
+        t["lever_score"] = round(t["lever_score"] * (1.0 + min(1.2, drop / 10.0)), 1)
     # MINOR = a real but trivial cheap harvest (a $10 brand-CTR nudge, a phantom
     # schema count) that must never headline. Genuine levers are exempt.
     t["minor"] = (cat not in NEVER_MINOR) and (

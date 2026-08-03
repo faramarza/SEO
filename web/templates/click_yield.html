@@ -53,6 +53,9 @@ table.cy-table th{background:var(--card-alt,#f9fafb);font-weight:700;white-space
 .cy-track{background:var(--accent,#2563eb);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;}
 .cy-track:disabled{cursor:default;}
 .cy-track.cy-tracked{background:#16a34a;}
+.cy-tr{font-weight:700;font-size:12px;white-space:nowrap;}
+.cy-tr.cy-down{color:#dc2626;} .cy-tr.cy-up{color:#16a34a;} .cy-tr.cy-flat{color:#9ca3af;} .cy-tr.cy-new{color:#cbd5e1;}
+.cy-row-defend{background:rgba(220,38,38,0.05);}
 </style>
 {% endblock %}
 
@@ -96,26 +99,43 @@ function cyFix(w){
   return parts.map(p=>`<div>${p}</div>`).join('');
 }
 
+function cyTrend(x){
+  if(x.trend==='down') return `<span class="cy-tr cy-down" title="Fell ~${Math.abs(x.position_delta)} positions in 28 days (${x.position_prev28}→${x.position_now28})">▼ ${Math.abs(x.position_delta)}</span>`;
+  if(x.trend==='up')   return `<span class="cy-tr cy-up" title="Rose ~${x.position_delta} positions in 28 days">▲ ${x.position_delta}</span>`;
+  if(x.trend==='flat') return `<span class="cy-tr cy-flat" title="Stable in the last 28 days">▬</span>`;
+  return `<span class="cy-tr cy-new" title="Not enough history to judge momentum">–</span>`;
+}
+
 function cyWinnable(cy){
-  const w=cy.winnable||[];
+  let w=(cy.winnable||[]).slice();
   if(!w.length) return `<div class="cy-empty">No winnable pages found (non-brand query, position 4–20, real demand, ~0 clicks). That's unusual — try Refresh, or your winnable demand may be outside the 4–20 band.</div>`;
-  const rows=w.map((x,i)=>`<tr>
+  // Slipping pages first (defend before they fall off page 2), then by impressions.
+  const rank={down:0,flat:1,up:1,new:2,unknown:2};
+  w.sort((a,b)=>(rank[a.trend]??2)-(rank[b.trend]??2) || (b.impressions||0)-(a.impressions||0));
+  const dropping=w.filter(x=>x.trend==='down').length;
+  const rows=w.map((x,i)=>`<tr class="${x.trend==='down'?'cy-row-defend':''}">
     <td class="cy-num">${i+1}</td>
     <td><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.path)}</a></td>
     <td class="cy-q">${esc(x.query)}</td>
     <td class="cy-num">${(x.impressions||0).toLocaleString()}</td>
     <td class="cy-num">${x.position}</td>
+    <td>${cyTrend(x)}</td>
     <td class="cy-fix">${cyFix(x)}
       <div class="cy-trackrow"><button class="cy-track" data-url="${esc(x.url)}" data-query="${esc(x.query)}" onclick="cyTrack(this)">＋ Track &amp; monitor</button></div>
     </td>
   </tr>`).join('');
+  const defendNote = dropping
+    ? `<p class="cy-note" style="color:#b91c1c;font-weight:600;">🛡️ ${dropping} winnable ${dropping===1?'page is':'pages are'} SLIPPING (▼ ≥3 positions in 28 days) — shown first. Defend these before they fall off page 2.</p>`
+    : '';
   return `<div class="cy-h">Winnable pages — non-brand demand you already rank for (position 4–20, ~0 clicks)</div>
   <p class="cy-note">These are the reseller-winnable queries: no brand owns them, and you're one SERP-page away.
   Do the <strong>internal links first</strong> — they move the page up using authority you already have, no new backlinks.
-  Brand / exact-product-name pages (where the brand or Amazon wins the click) are deliberately excluded.</p>
+  Brand / exact-product-name pages (where the brand or Amazon wins the click) are deliberately excluded.
+  <strong>Trend</strong> = position momentum over the last 28 days vs the prior 28.</p>
+  ${defendNote}
   <table class="cy-table"><thead><tr>
     <th data-nosort>#</th><th>Page</th><th>Target query</th><th class="cy-num">Impr</th>
-    <th class="cy-num">Pos</th><th data-nosort>The fix</th>
+    <th class="cy-num">Pos</th><th data-nosort>Trend</th><th data-nosort>The fix</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
 

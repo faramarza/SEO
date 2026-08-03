@@ -7303,8 +7303,11 @@ def _gather_strategy_signals(results, eval_data, disallow):
                 "clicks": tot.get("clicks"),
                 "ranking_no_click_pages": cy.get("buckets", {}).get("ranking_no_click"),
                 "winnable_top": [{"query": w.get("query"), "position": w.get("position"),
-                                  "impressions": w.get("impressions"), "path": w.get("path")}
-                                 for w in (cy.get("winnable") or [])[:6]],
+                                  "impressions": w.get("impressions"), "path": w.get("path"),
+                                  "trend": w.get("trend"), "position_delta": w.get("position_delta")}
+                                 for w in (cy.get("winnable") or [])[:8]],
+                "declining_winnable_count": sum(
+                    1 for w in (cy.get("winnable") or []) if w.get("trend") == "down"),
             }
     except Exception:
         click_yield = {}
@@ -7363,7 +7366,7 @@ def api_action_plan_strategy():
     # the next load instead of serving a stale one keyed only on the eval timestamp
     # (which is why the checkout-fantasy hero survived a prompt fix). v2 = balanced
     # organic-vs-funnel weighting + claim discipline.
-    STRATEGY_PROMPT_VERSION = "2"
+    STRATEGY_PROMPT_VERSION = "3"
     if not force and cache_path.exists():
         try:
             cached = json.load(open(cache_path))
@@ -7394,7 +7397,11 @@ def api_action_plan_strategy():
         "no brand incumbent) that are one SERP-page from real traffic. Moving these "
         "into the top 5 — via internal links + a matching title — is usually the "
         "single biggest DURABLE lever for a store like this, and it needs no new "
-        "backlinks. Take it seriously; it is often the right #1.\n"
+        "backlinks. Take it seriously; it is often the right #1. CRITICAL: check "
+        "`declining_winnable_count` and each winnable page's `trend`/`position_delta` "
+        "— if pages are SLIPPING (trend 'down'), DEFENDING the money cluster before it "
+        "falls off page 2 is more urgent than chasing a static gain, and the focus "
+        "should say so explicitly and name the biggest droppers.\n"
         "  • THE CONVERSION FUNNEL. If `funnel` shows elevated cart abandonment, a "
         "checkout fix can help — BUT use ONLY funnel.realistic_monthly_recoverable as "
         "its value (it is deliberately small and sanity-capped). NEVER value it as "
