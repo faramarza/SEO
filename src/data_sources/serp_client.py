@@ -18,7 +18,11 @@ from typing import Optional
 
 
 SERP_CACHE_PATH = Path(__file__).parent.parent.parent / "data" / "serp_cache.json"
-DAILY_LIMIT = 100
+# Shared daily Serper budget. Hardcoded 100 was starving user-initiated features
+# (Click Yield SERP intel) because a scheduled job consumed the whole cap first.
+# Configurable now so it can match your actual Serper plan — set SERPER_DAILY_LIMIT
+# in the environment (a paid Serper plan is thousands/day, so 100 was far too low).
+DAILY_LIMIT = int(os.environ.get("SERPER_DAILY_LIMIT", "100"))
 
 
 def _load_cache() -> dict:
