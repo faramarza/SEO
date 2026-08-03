@@ -173,7 +173,8 @@ def _client_from_config(config: dict):
 
 # ----------------------------------------------------------------- computation
 def compute_click_yield(config: dict, days: int = 90, max_winnable: int = 15,
-                        fetch_titles: bool = True, extra_brand_tokens=None) -> dict:
+                        fetch_titles: bool = True, extra_brand_tokens=None,
+                        fetch_serp_intel: bool = True) -> dict:
     """Pull the full GSC page set, compute yield buckets + enriched winnable pages.
     Returns a JSON-serializable dict (also written to CACHE_PATH by save())."""
     extra_brand = {t.lower() for t in (extra_brand_tokens or [])}
@@ -254,6 +255,25 @@ def compute_click_yield(config: dict, days: int = 90, max_winnable: int = 15,
             "asset_type": _asset_type_of(url),
             "trend": "unknown",  # filled below from two GSC windows
         })
+
+    # LIVE SERP INTEL (Serper) — who actually outranks each winnable page + what
+    # SERP feature is siphoning the click. Best-effort and quota-aware: no key /
+    # quota out → the winnable list just shows without it.
+    if fetch_serp_intel:
+        try:
+            from src.data_sources.serp_client import fetch_serp, get_remaining_quota
+            from src.metrics.serp_intel import analyze_query
+            remaining = get_remaining_quota()
+            for w in winnable:
+                if isinstance(remaining, int) and remaining <= 0:
+                    break
+                intel = analyze_query(w["query"], _site_dom, fetch_serp)
+                if intel:
+                    w["serp"] = intel
+                    if isinstance(remaining, int):
+                        remaining -= 1
+        except Exception:
+            pass
 
     # POSITION MOMENTUM — the one thing a single snapshot can't show: is each
     # winnable page rising toward the click zone or falling away? Diff a recent

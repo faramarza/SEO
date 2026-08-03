@@ -56,6 +56,10 @@ table.cy-table th{background:var(--card-alt,#f9fafb);font-weight:700;white-space
 .cy-tr{font-weight:700;font-size:12px;white-space:nowrap;}
 .cy-tr.cy-down{color:#dc2626;} .cy-tr.cy-up{color:#16a34a;} .cy-tr.cy-flat{color:#9ca3af;} .cy-tr.cy-new{color:#cbd5e1;}
 .cy-row-defend{background:rgba(220,38,38,0.05);}
+.cy-serp{margin-top:7px;padding-top:6px;border-top:1px dashed var(--border,#e5e7eb);}
+.cy-vbadge{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:9px;letter-spacing:.02em;}
+.cy-v-beat{background:#dcfce7;color:#166534;} .cy-v-hard{background:#fee2e2;color:#991b1b;} .cy-v-mix{background:#fef3c7;color:#92400e;}
+.cy-siphon{color:#b45309;font-size:12px;margin-top:2px;}
 </style>
 {% endblock %}
 
@@ -99,6 +103,17 @@ function cyFix(w){
   return parts.map(p=>`<div>${p}</div>`).join('');
 }
 
+function cySerp(x){
+  const s=x.serp; if(!s) return '';
+  const vcls={beatable:'cy-v-beat',hard:'cy-v-hard',mixed:'cy-v-mix'}[s.verdict]||'cy-v-mix';
+  const vlbl={beatable:'BEATABLE',hard:'HARD',mixed:'MIXED'}[s.verdict]||'';
+  const top=(s.top_domains||[]).slice(0,3).map(esc).join(', ');
+  const own=s.own_position_serp?` · <strong>you: #${s.own_position_serp}</strong>`:'';
+  const siph=(s.siphons||[]).length?`<div class="cy-siphon">⚠ click siphon: ${(s.siphons||[]).map(esc).join('; ')}</div>`:'';
+  return `<div class="cy-serp"><span class="cy-vbadge ${vcls}">${vlbl}</span> <span class="cy-src">${esc(s.verdict_note)}</span>
+    <div class="cy-src">live top 3: ${top||'—'}${own}</div>${siph}</div>`;
+}
+
 function cyTrend(x){
   if(x.trend==='down') return `<span class="cy-tr cy-down" title="Fell ~${Math.abs(x.position_delta)} positions in 28 days (${x.position_prev28}→${x.position_now28})">▼ ${Math.abs(x.position_delta)}</span>`;
   if(x.trend==='up')   return `<span class="cy-tr cy-up" title="Rose ~${x.position_delta} positions in 28 days">▲ ${x.position_delta}</span>`;
@@ -120,7 +135,7 @@ function cyWinnable(cy){
     <td class="cy-num">${(x.impressions||0).toLocaleString()}</td>
     <td class="cy-num">${x.position}</td>
     <td>${cyTrend(x)}</td>
-    <td class="cy-fix">${cyFix(x)}
+    <td class="cy-fix">${cyFix(x)}${cySerp(x)}
       <div class="cy-trackrow"><button class="cy-track" data-url="${esc(x.url)}" data-query="${esc(x.query)}" onclick="cyTrack(this)">＋ Track &amp; monitor</button></div>
     </td>
   </tr>`).join('');

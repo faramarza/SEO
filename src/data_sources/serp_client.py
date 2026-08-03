@@ -152,6 +152,11 @@ def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
         serp_features.append("images")
     if data.get("peopleAlsoAsk"):
         serp_features.append("people_also_ask")
+    # Opportunistic: Serper's AIO parsing is partial (Google loads it async), but if
+    # it IS present we flag it. For reliable AI-Overview citation data, a purpose-
+    # built API (DataForSEO Google Organic SERP) is the phase-2 source.
+    if data.get("aiOverview") or data.get("ai_overview"):
+        serp_features.append("ai_overview")
     if data.get("relatedSearches"):
         serp_features.append("related_searches")
 

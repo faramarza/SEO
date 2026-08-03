@@ -329,6 +329,18 @@ def _from_winnable(winnable, out):
         else:
             steps.append(f"Add internal links with anchor “{q}” from your homepage and the "
                          "closest hub/category page.")
+        serp = r.get("serp") or {}
+        if serp:
+            bits = []
+            who = ", ".join((serp.get("top_domains") or [])[:3])
+            if who:
+                bits.append(f"Live SERP top 3: {who}.")
+            if serp.get("verdict_note"):
+                bits.append(serp["verdict_note"][:1].upper() + serp["verdict_note"][1:] + ".")
+            if serp.get("siphons"):
+                bits.append("Click siphon above organic: " + "; ".join(serp["siphons"]) + ".")
+            if bits:
+                steps.append("🔎 " + " ".join(bits))
         steps.append("Re-check the query's position in GSC in 3–6 weeks.")
         benefit = (f"This page ranks #{pos} for “{q}” ({r.get('impressions', 0)} impressions/window) "
                    "but earns almost no clicks because position 4–20 gets ~1% CTR. It's non-brand "
@@ -347,6 +359,7 @@ def _from_winnable(winnable, out):
         _t["trend"] = trend
         if delta is not None:
             _t["position_delta"] = delta
+        _t["serp_verdict"] = (r.get("serp") or {}).get("verdict")
         out.append(_t)
 
 
@@ -574,6 +587,11 @@ def _score_task(t):
     if t.get("trend") == "down":
         drop = abs(t.get("position_delta") or 3)
         t["lever_score"] = round(t["lever_score"] * (1.0 + min(1.2, drop / 10.0)), 1)
+    # WINNABILITY: if the live SERP shows marketplaces (Amazon/Etsy) own the top 3,
+    # organic displacement is unrealistic — deprioritize so effort goes to beatable
+    # queries. (Only demotes; a "beatable" verdict is left at full weight.)
+    if t.get("serp_verdict") == "hard":
+        t["lever_score"] = round(t["lever_score"] * 0.6, 1)
     # MINOR = a real but trivial cheap harvest (a $10 brand-CTR nudge, a phantom
     # schema count) that must never headline. Genuine levers are exempt.
     t["minor"] = (cat not in NEVER_MINOR) and (
