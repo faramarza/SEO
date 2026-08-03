@@ -55,6 +55,7 @@ table.cy-table th{background:var(--card-alt,#f9fafb);font-weight:700;white-space
 .cy-track.cy-tracked{background:#16a34a;}
 .cy-tr{font-weight:700;font-size:12px;white-space:nowrap;}
 .cy-tr.cy-down{color:#dc2626;} .cy-tr.cy-up{color:#16a34a;} .cy-tr.cy-flat{color:#9ca3af;} .cy-tr.cy-new{color:#cbd5e1;}
+.cy-tr.cy-down::after{content:" ▼";} .cy-tr.cy-up::after{content:" ▲";} .cy-tr.cy-flat::after{content:" ▬";} .cy-tr.cy-new::after{content:"–";}
 .cy-row-defend{background:rgba(220,38,38,0.05);}
 .cy-serp{margin-top:7px;padding-top:6px;border-top:1px dashed var(--border,#e5e7eb);}
 .cy-vbadge{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:9px;letter-spacing:.02em;}
@@ -115,10 +116,13 @@ function cySerp(x){
 }
 
 function cyTrend(x){
-  if(x.trend==='down') return `<span class="cy-tr cy-down" title="Fell ~${Math.abs(x.position_delta)} positions in 28 days (${x.position_prev28}→${x.position_now28})">▼ ${Math.abs(x.position_delta)}</span>`;
-  if(x.trend==='up')   return `<span class="cy-tr cy-up" title="Rose ~${x.position_delta} positions in 28 days">▲ ${x.position_delta}</span>`;
-  if(x.trend==='flat') return `<span class="cy-tr cy-flat" title="Stable in the last 28 days">▬</span>`;
-  return `<span class="cy-tr cy-new" title="Not enough history to judge momentum">–</span>`;
+  // Cell text is a signed number (sortable by momentum: most-negative = most-
+  // declining); the ▲/▼ glyph is a CSS ::after so it doesn't break numeric sort.
+  const d=x.position_delta;
+  if(x.trend==='down') return `<span class="cy-tr cy-down" title="Fell ~${Math.abs(d)} positions in 28 days (${x.position_prev28}→${x.position_now28})">${d}</span>`;
+  if(x.trend==='up')   return `<span class="cy-tr cy-up" title="Rose ~${d} positions in 28 days">+${d}</span>`;
+  if(x.trend==='flat') return `<span class="cy-tr cy-flat" title="Stable (${d>0?'+':''}${d}) in 28 days">${d>0?'+':''}${d}</span>`;
+  return `<span class="cy-tr cy-new" title="Not enough history to judge momentum"></span>`;
 }
 
 function cyWinnable(cy){
@@ -134,7 +138,7 @@ function cyWinnable(cy){
     <td class="cy-q">${esc(x.query)}</td>
     <td class="cy-num">${(x.impressions||0).toLocaleString()}</td>
     <td class="cy-num">${x.position}</td>
-    <td>${cyTrend(x)}</td>
+    <td class="cy-num">${cyTrend(x)}</td>
     <td class="cy-fix">${cyFix(x)}${cySerp(x)}
       <div class="cy-trackrow"><button class="cy-track" data-url="${esc(x.url)}" data-query="${esc(x.query)}" onclick="cyTrack(this)">＋ Track &amp; monitor</button></div>
     </td>
@@ -150,7 +154,7 @@ function cyWinnable(cy){
   ${defendNote}
   <table class="cy-table"><thead><tr>
     <th data-nosort>#</th><th>Page</th><th>Target query</th><th class="cy-num">Impr</th>
-    <th class="cy-num">Pos</th><th data-nosort>Trend</th><th data-nosort>The fix</th>
+    <th class="cy-num">Pos</th><th class="cy-num">Trend</th><th data-nosort>The fix</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
