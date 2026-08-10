@@ -1349,9 +1349,14 @@ def api_tasks():
     return jsonify(tasks_by_status)
 
 
-def _persist_action(data):
-    """Create a proposed ActionRecord from an opportunity/task payload and add
-    it to the ledger (Task Board). Returns the new action_id.
+def _persist_action(data, status=None):
+    """Create an ActionRecord from an opportunity/task payload and add it to the
+    ledger (Task Board). Returns the new action_id.
+
+    status defaults to PROPOSED (an opportunity awaiting a human decision). Pass
+    ActionStatus.APPROVED for tasks the operator DELIBERATELY adopted (Do This Next
+    "Start", Click Yield "Track & monitor") so they land in the In-Progress column
+    instead of sitting in Proposed demanding a redundant second approval.
 
     Shared by /api/opportunities/approve and /api/playbook/add-task so both
     produce identically-shaped task records with the same fingerprint logic.
@@ -1461,6 +1466,7 @@ def _persist_action(data):
             "cwv": data.get("cwv"),
             "trend": data.get("trend"),
         },
+        status=status or ActionStatus.PROPOSED,
     )
 
     # Add to ledger
@@ -7731,7 +7737,7 @@ def _adopt_task(task):
                 f"the tool will auto-check on {task.get('review_date','')}."],
         }
         if not _find_duplicate_proposed(data):
-            _persist_action(data)
+            _persist_action(data, status=ActionStatus.APPROVED)
     except Exception:
         pass
     return task["review_date"]
@@ -8262,7 +8268,10 @@ def _find_duplicate_proposed(data):
     try:
         ledger = ActionLedger()
         for a in ledger.get_all_actions():
-            if a.status.value != "proposed":
+            # Dedupe against any STILL-ACTIVE board entry (proposed OR approved/
+            # implemented), not just proposed — otherwise re-tracking a task that
+            # was adopted straight to "in progress" would create a duplicate card.
+            if a.status.value in ("closed", "measured"):
                 continue
             rec = a.recommendation_json or {}
             if key and rec.get("dedup_key") == key:

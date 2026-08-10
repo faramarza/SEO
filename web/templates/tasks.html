@@ -304,14 +304,14 @@ function renderTask(task, status) {
             <div style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
                 <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Implementation Steps</label>
                 <ol style="margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
-                    ${steps.map(s => `<li style="margin-bottom: 2px;">${s}</li>`).join('')}
+                    ${steps.map(s => `<li style="margin-bottom: 2px;">${escHtml(s)}</li>`).join('')}
                 </ol>
             </div>`;
     } else if (summaryText) {
         stepsHtml = `
             <div style="margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 8px;">
                 <label style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Summary</label>
-                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4; margin: 0;">${summaryText}</p>
+                <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.4; margin: 0;">${escHtml(summaryText)}</p>
             </div>`;
     }
 
@@ -590,7 +590,7 @@ function showTaskDetail(actionId, status) {
     // Implementation steps
     const steps = task.implementation_steps || [];
     const stepsHtml = steps.length > 0
-        ? '<ol class="impl-steps">' + steps.map(s => `<li>${s}</li>`).join('') + '</ol>'
+        ? '<ol class="impl-steps">' + steps.map(s => `<li>${escHtml(s)}</li>`).join('') + '</ol>'
         : '<p class="no-steps">No implementation steps specified.</p>';
 
     // Constraint scores bars — only when actually computed (constraint
@@ -815,13 +815,13 @@ function showTaskDetail(actionId, status) {
         ${task.rollback_plan ? `
         <div class="detail-section rollback-section">
             <h4>Rollback Plan</h4>
-            <p>${task.rollback_plan}</p>
+            <p>${escHtml(task.rollback_plan)}</p>
         </div>
         ` : ''}
         ${task.learning_reference ? `
         <div class="detail-section learning-ref">
             <h4>Learning Reference</h4>
-            <p>${task.learning_reference}</p>
+            <p>${escHtml(task.learning_reference)}</p>
         </div>
         ` : ''}
         ${pageContextHtml}
