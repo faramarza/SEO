@@ -3767,7 +3767,20 @@ def api_reject_task(action_id):
         return jsonify({"error": "Action not found"}), 404
 
     url = action.url
+    dedup_key = (action.recommendation_json or {}).get("dedup_key")
     ledger.delete_action(action_id)
+
+    # Also clear the adopted-store entry so the task FULLY un-tracks. Reject used to
+    # delete only the board card, leaving the adopted entry behind — a zombie where
+    # Click Yield / Do This Next still thought it was "tracked" with no card, so
+    # re-tracking silently no-op'd. Removing both keeps the two stores consistent.
+    if dedup_key:
+        try:
+            store = _load_action_plan_store()
+            if store.get("adopted", {}).pop(dedup_key, None) is not None:
+                _save_action_plan_store(store)
+        except Exception:
+            pass
 
     return jsonify({
         "success": True,
