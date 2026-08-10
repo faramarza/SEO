@@ -181,8 +181,9 @@ async function cyTrack(btn){
     const r=await fetch('/api/click-yield/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,query})});
     const d=await r.json();
     if(d.success){
+      if(d.board_error){ btn.textContent='⚠ board card failed: '+esc(d.board_error); btn.disabled=false; return; }
       btn.classList.add('cy-tracked');
-      btn.textContent = d.already ? '✓ Already tracked' : `✓ Tracking — auto-check ${d.review_date||'soon'}`;
+      btn.textContent = d.already ? '✓ Tracked · on board' : `✓ Tracking — auto-check ${d.review_date||'soon'}`;
     } else { btn.textContent='✗ '+esc(d.error||'failed'); btn.disabled=false; }
   }catch(e){ btn.textContent='✗ error'; btn.disabled=false; }
 }

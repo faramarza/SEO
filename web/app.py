@@ -7711,6 +7711,31 @@ def api_action_plan_deliverable():
     return jsonify(result if isinstance(result, dict) else {"blocks": []})
 
 
+def _mirror_task_to_board(task):
+    """Create the Task Board card for an adopted task, if one doesn't already exist.
+    Returns (created: bool, error: str|None) and never raises — so a failure here is
+    reportable instead of silently leaving a task 'tracked' but absent from the board
+    (the exact bug on alphabet-themed-carpets)."""
+    try:
+        data = {
+            "url": task.get("url", ""), "asset_type": task.get("asset_type", "other"),
+            "action": "OBSERVE_ONLY", "primary_constraint": f"Action Plan · {task.get('category','')}",
+            "expected_value": task.get("expected_value", 0), "confidence": 0.6, "risk_level": "low",
+            "source": "action_plan", "dedup_key": task.get("dedup_key"),
+            "implementation_summary": task.get("title", ""),
+            "implementation_steps": (task.get("steps", []) or []) + [
+                f"Benefit: {task.get('benefit','')}",
+                f"Typically shows results in {task.get('time_to_impact_label','')} — "
+                f"the tool will auto-check on {task.get('review_date','')}."],
+        }
+        if _find_duplicate_proposed(data):
+            return (False, None)  # already on the board — nothing to do
+        _persist_action(data, status=ActionStatus.APPROVED)
+        return (True, None)
+    except Exception as e:
+        return (False, f"{type(e).__name__}: {e}")
+
+
 def _adopt_task(task):
     """Persist a plan task with a review date + baseline so the tool can auto-check
     whether it worked, and mirror it onto the Task Board. Shared by the Do This Next
@@ -7724,22 +7749,7 @@ def _adopt_task(task):
     task.setdefault("reviews", [])
     store["adopted"][key] = task
     _save_action_plan_store(store)
-    try:
-        data = {
-            "url": task.get("url", ""), "asset_type": task.get("asset_type", "other"),
-            "action": "OBSERVE_ONLY", "primary_constraint": f"Action Plan · {task.get('category','')}",
-            "expected_value": task.get("expected_value", 0), "confidence": 0.6, "risk_level": "low",
-            "source": "action_plan", "dedup_key": key,
-            "implementation_summary": task.get("title", ""),
-            "implementation_steps": (task.get("steps", []) or []) + [
-                f"Benefit: {task.get('benefit','')}",
-                f"Typically shows results in {task.get('time_to_impact_label','')} — "
-                f"the tool will auto-check on {task.get('review_date','')}."],
-        }
-        if not _find_duplicate_proposed(data):
-            _persist_action(data, status=ActionStatus.APPROVED)
-    except Exception:
-        pass
+    _mirror_task_to_board(task)
     return task["review_date"]
 
 
@@ -7781,10 +7791,17 @@ def api_click_yield_track():
     store = _load_action_plan_store()
     existing = store.get("adopted", {}).get(task["dedup_key"])
     if existing:
+        # Already in the adopted store — but the Task Board card may have failed to
+        # create the first time, leaving it "tracked" yet absent from the board.
+        # Ensure it exists now (this is what was broken on alphabet-themed-carpets).
+        task["review_date"] = existing.get("review_date") or task.get("review_date")
+        created, err = _mirror_task_to_board(task)
         return jsonify({"success": True, "already": True,
-                        "review_date": existing.get("review_date")})
+                        "review_date": existing.get("review_date"),
+                        "board_created": created, "board_error": err})
     review_date = _adopt_task(task)
-    return jsonify({"success": True, "review_date": review_date})
+    created, err = _mirror_task_to_board(task)
+    return jsonify({"success": True, "review_date": review_date, "board_error": err})
 
 
 @app.route("/api/action-plan/complete", methods=["POST"])
