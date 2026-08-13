@@ -1412,12 +1412,21 @@ def process_batch_results():
         if key not in latest or r.get("timestamp", "") > latest[key].get("timestamp", ""):
             latest[key] = r
 
+    # Results are recorded under the natural-question PROMPT TEXT
+    # (keyword_to_prompt), not the raw keyword. Link each active keyword to its
+    # prompt text via the prompt_id stored at activation — otherwise the match
+    # below never succeeds and every batch silently processes 0 (retaining nothing,
+    # archiving nothing, leaving keywords stuck "active" forever). Fall back to
+    # re-deriving the prompt text for older keywords that predate prompt_id.
+    prompt_text_by_id = {p.get("id"): p.get("text", "") for p in vis_data.get("prompts", [])}
+
     processed = 0
     retained = 0
     archived = 0
 
     for kw in active_keywords:
-        kw_results = [r for r in latest.values() if r.get("prompt") == kw["keyword"]]
+        kw_prompt_text = prompt_text_by_id.get(kw.get("prompt_id")) or keyword_to_prompt(kw["keyword"])
+        kw_results = [r for r in latest.values() if r.get("prompt") == kw_prompt_text]
         if not kw_results:
             continue
 

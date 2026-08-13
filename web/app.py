@@ -161,7 +161,11 @@ def login():
             session["authed"] = True
             session.permanent = True
             nxt = request.args.get("next") or "/"
-            if not nxt.startswith("/"):
+            # Only allow same-site relative paths. A bare "/path" is fine, but
+            # "//evil.com" and "/\evil.com" start with "/" yet browsers resolve
+            # them to an external host (protocol-relative) — reject those so the
+            # post-login redirect can't be turned into an open redirect.
+            if not nxt.startswith("/") or nxt.startswith("//") or nxt.startswith("/\\"):
                 nxt = "/"
             return redirect(nxt)
         error = "Incorrect username or password."
@@ -601,6 +605,22 @@ def load_config():
         with open(CONFIG_PATH) as f:
             return json.load(f)
     return {}
+
+
+def _site_base_url(config=None):
+    """Derive the store's base URL ('https://domain/') from config so URL
+    normalization isn't pinned to one hardcoded domain. Prefers the GSC property
+    (the authoritative site), then business_context.domain / site_url; strips the
+    'sc-domain:' prefix and adds a scheme. Falls back to alphabet-trains only if
+    config carries nothing."""
+    cfg = config or {}
+    raw = ((cfg.get("data_sources", {}).get("gsc", {}) or {}).get("property_url")
+           or cfg.get("business_context", {}).get("domain")
+           or cfg.get("site_url") or "alphabet-trains.com")
+    raw = re.sub(r"^sc-domain:", "", raw).strip()
+    if not raw.startswith(("http://", "https://")):
+        raw = "https://" + raw
+    return raw.rstrip("/") + "/"
 
 
 def _biz_params(config, asset_type=None):
@@ -1952,7 +1972,7 @@ def api_ai_recommend():
                     if base_url:
                         u = urljoin(base_url, u)
                     else:
-                        u = urljoin("https://alphabet-trains.com/", u)
+                        u = urljoin(_site_base_url(config), u)
                 parsed = urlparse(u.lower())
                 netloc = parsed.netloc.replace("www.", "")
                 path = parsed.path.rstrip("/") or "/"
@@ -8412,6 +8432,7 @@ def api_internal_link_map():
 
     # ── URL normalization (same logic used in AI recommend) ──
     from urllib.parse import urlparse, urljoin
+    _default_base = _site_base_url(load_config())
 
     def _norm(u, base_url=""):
         if not u:
@@ -8420,7 +8441,7 @@ def api_internal_link_map():
             if base_url:
                 u = urljoin(base_url, u)
             else:
-                u = urljoin("https://alphabet-trains.com/", u)
+                u = urljoin(_default_base, u)
         parsed = urlparse(u.lower())
         netloc = parsed.netloc.replace("www.", "")
         path = parsed.path.rstrip("/") or "/"
