@@ -26,6 +26,7 @@ crawl). Results are cached to data/click_yield.json.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from datetime import datetime
@@ -38,9 +39,28 @@ import urllib.request
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CACHE_PATH = PROJECT_ROOT / "data" / "click_yield.json"
 
-RANKING_MIN_IMPR = 30          # floor to call a page "ranking but not clicked"
-WINNABLE_POS = (4.0, 20.0)     # position band where a push actually pays
-WINNABLE_MIN_IMPR = 150        # a winnable query needs real demand
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "").strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "").strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
+# Long-tail caps — all env-tunable so the thresholds can be sized to the store
+# without editing code. Defaults are the values validated for alphabet-trains.
+RANKING_MIN_IMPR = _env_int("CLICK_YIELD_RANKING_MIN_IMPR", 30)      # floor to call a page "ranking but not clicked"
+WINNABLE_POS = (_env_float("CLICK_YIELD_WINNABLE_POS_LO", 4.0),      # position band where a push actually pays
+                _env_float("CLICK_YIELD_WINNABLE_POS_HI", 20.0))
+WINNABLE_MIN_IMPR = _env_int("CLICK_YIELD_WINNABLE_MIN_IMPR", 150)   # a winnable query needs real demand
+MAX_WINNABLE_DEFAULT = _env_int("CLICK_YIELD_MAX_WINNABLE", 15)      # how many winnable pages to enrich/surface
 TREND_DAYS = 28                # momentum window: recent 28d vs prior 28d
 TREND_MIN_DELTA = 3.0          # ignore sub-3-position wobble (GSC position is noisy)
 MAX_TITLE = 60
@@ -172,11 +192,13 @@ def _client_from_config(config: dict):
 
 
 # ----------------------------------------------------------------- computation
-def compute_click_yield(config: dict, days: int = 90, max_winnable: int = 15,
+def compute_click_yield(config: dict, days: int = 90, max_winnable: Optional[int] = None,
                         fetch_titles: bool = True, extra_brand_tokens=None,
                         fetch_serp_intel: bool = True) -> dict:
     """Pull the full GSC page set, compute yield buckets + enriched winnable pages.
     Returns a JSON-serializable dict (also written to CACHE_PATH by save())."""
+    if max_winnable is None:
+        max_winnable = MAX_WINNABLE_DEFAULT
     extra_brand = {t.lower() for t in (extra_brand_tokens or [])}
     _site_dom, self_forms = _site_identity(config)
     client = _client_from_config(config)

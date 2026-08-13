@@ -4,10 +4,21 @@ Google Search Console client.
 Stub implementation - requires credentials configuration.
 """
 
+import os
 from datetime import date, timedelta
 from typing import Any, Optional
 
 from ..models.page_asset import GSCMetrics, TopQuery
+
+
+def _queries_per_page() -> int:
+    """How many top queries to retain per page in get_page_data — env-tunable
+    (GSC_QUERIES_PER_PAGE, default 10) so a larger store can widen the long-tail
+    query universe fed to click-yield without editing code."""
+    try:
+        return max(1, int(os.environ.get("GSC_QUERIES_PER_PAGE", "").strip() or 10))
+    except (TypeError, ValueError):
+        return 10
 
 
 class GSCClient:
@@ -334,13 +345,15 @@ class GSCClient:
                             'position': float(row.get('position', 0.0)),
                         })
 
-                # Sort queries by impressions (descending) and keep top 10
+                # Sort queries by impressions (descending) and keep the top N
+                # (GSC_QUERIES_PER_PAGE, default 10).
+                keep = _queries_per_page()
                 for url in result:
                     result[url]['queries'] = sorted(
                         result[url]['queries'],
                         key=lambda x: x['impressions'],
                         reverse=True
-                    )[:10]
+                    )[:keep]
 
             return result
 

@@ -239,11 +239,12 @@ job_state = _SyncDict(
 
 NOTIFICATIONS_PATH = DATA_PATH / "notifications.json"
 SCHEDULER_CHECK_INTERVAL = 3600  # 1 hour
-SERP_COLLECT_INTERVAL = 3600  # 1 hour (checks quota, collects if available)
+SERP_COLLECT_INTERVAL = int(os.environ.get("SERP_COLLECT_INTERVAL", "3600"))  # seconds between collection passes
 # Only build SERP coverage for the top-N pages by value. A small store doesn't need
-# live SERPs on its entire long tail; bounding the query universe (top N pages × 3
-# queries) keeps Serper spend low and leaves headroom for on-demand features.
+# live SERPs on its entire long tail; bounding the query universe (top N pages ×
+# queries-per-page) keeps Serper spend low and leaves headroom for on-demand features.
 SERP_COLLECT_MAX_PAGES = int(os.environ.get("SERP_COLLECT_MAX_PAGES", "100"))
+SERP_COLLECT_QUERIES_PER_PAGE = int(os.environ.get("SERP_COLLECT_QUERIES_PER_PAGE", "3"))
 
 
 def _load_notifications():
@@ -344,9 +345,39 @@ def _run_scheduled_measurement():
             print(f"[Scheduler] Error in auto-measure: {e}")
 
 
+def _claim_serp_collection():
+    """Claim the current SERP-collection window across gunicorn workers. Every
+    worker runs its own scheduler thread, so without this each worker would race
+    to fetch the same queries — N workers × the same query = N× Serper spend
+    (the per-query cache only dedups AFTER the first fetch lands, so the startup
+    race still multiplied cost). Buckets time into SERP_COLLECT_INTERVAL windows;
+    the first worker to create the bucket marker collects, the rest skip. Race-
+    free via O_EXCL, matching the auto-eval/auto-review claim pattern."""
+    from datetime import datetime
+    try:
+        DATA_PATH.mkdir(parents=True, exist_ok=True)
+        window = max(1, SERP_COLLECT_INTERVAL)
+        bucket = int(datetime.now().timestamp() // window)
+        marker = DATA_PATH / f".serpcollect_{bucket}"
+        fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.close(fd)
+        for old in DATA_PATH.glob(".serpcollect_*"):
+            if old.name != marker.name:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+
+
 def _run_serp_collector():
     """Background thread: collect SERP data for top opportunities, respecting daily quota.
-    Only runs when SERP_AUTO_COLLECT=true is set in environment.
+    Only runs when SERP_AUTO_COLLECT=true is set in environment. Deduped across
+    gunicorn workers via a per-window marker so only one worker collects per pass.
     """
     if not os.environ.get("SERP_AUTO_COLLECT", "").lower() in ("true", "1", "yes"):
         print("[SERP Collector] Auto-collection disabled. Set SERP_AUTO_COLLECT=true in .env to enable.")
@@ -354,6 +385,11 @@ def _run_serp_collector():
     time.sleep(30)  # Wait for app to be fully ready
     while True:
         try:
+            # Only one worker collects per window — the rest skip this pass.
+            if not _claim_serp_collection():
+                time.sleep(SERP_COLLECT_INTERVAL)
+                continue
+
             remaining = serp_client.get_remaining_quota()
             if remaining <= 0:
                 time.sleep(SERP_COLLECT_INTERVAL)
@@ -376,7 +412,7 @@ def _run_serp_collector():
                 if remaining <= 0:
                     break
                 top_queries = opp.get("top_queries", [])
-                for q in top_queries[:3]:  # Top 3 queries per opportunity
+                for q in top_queries[:SERP_COLLECT_QUERIES_PER_PAGE]:  # top queries per opportunity (env-tunable)
                     query_text = q.get("query", "")
                     if not query_text:
                         continue
