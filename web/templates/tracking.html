@@ -214,6 +214,7 @@
 
 {% block scripts %}
 <script>
+function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 // ============================================================
 // Tab switching
 // ============================================================
@@ -474,7 +475,7 @@ function renderIssue(issue, tier) {
     if (issue.failures && issue.failures.length > 1) {
         additionalFailures = issue.failures.slice(1).map(f => `
             <div class="additional-failure">
-                <span class="failure-code">${f.code}</span>: ${f.interpretation}
+                <span class="failure-code">${f.code}</span>: ${escHtml(f.interpretation)}
             </div>
         `).join('');
     }
@@ -485,10 +486,10 @@ function renderIssue(issue, tier) {
                 <span class="issue-type">${issueType.replace(/_/g, ' ')}</span>
                 <span class="issue-tier">Tier ${tier}</span>
             </div>
-            <div class="issue-url">${issue.url || 'Multiple URLs'}</div>
-            <div class="issue-details">${details}</div>
+            <div class="issue-url">${escHtml(issue.url) || 'Multiple URLs'}</div>
+            <div class="issue-details">${escHtml(details)}</div>
             ${additionalFailures}
-            ${fix ? `<div class="issue-fix"><strong>Fix:</strong><pre>${fix}</pre></div>` : ''}
+            ${fix ? `<div class="issue-fix"><strong>Fix:</strong><pre>${escHtml(fix)}</pre></div>` : ''}
         </div>
     `;
 }

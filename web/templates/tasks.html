@@ -371,7 +371,7 @@ function renderTask(task, status) {
             const m = task.outcome_metrics;
             metricsSnippet = ` | Clicks: ${m.baseline_clicks} → ${m.current_clicks}, Impr: ${m.baseline_impressions} → ${m.current_impressions}`;
         }
-        outcomeHtml = `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + task.notes.slice(0, 100) : ''}${metricsSnippet}</div>`;
+        outcomeHtml = `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + escHtml(task.notes.slice(0, 100)) : ''}${metricsSnippet}</div>`;
     }
 
     // Actions per column
@@ -406,9 +406,9 @@ function renderTask(task, status) {
                 <span class="task-id">${task.action_id}</span>
                 <span class="action-badge action-${(task.action_type || '').toLowerCase()}" style="font-size: 11px; padding: 1px 6px;">${(task.action_type || '').replace(/_/g, ' ')}</span>
             </div>
-            <div class="task-url" title="${task.url || task.implementation_summary || ''}">
+            <div class="task-url" title="${escHtml(task.url || task.implementation_summary || '')}">
                 ${task.url
-                    ? `<a href="${task.url}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>`
+                    ? `<a href="${escHtml(task.url)}" target="_blank" onclick="event.stopPropagation();">${formatUrl(task.url)}</a>`
                     : `<span style="font-weight:600;">${escHtml(task.implementation_summary || '(content task — no page yet)')}</span>`}
             </div>
             ${constraintLabel ? `
@@ -436,7 +436,7 @@ function buildAIHtml(rec, reproducibility) {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     };
     if (rec.no_action) {
-        return `<div class="ai-recommendation"><div class="rec-item critical"><h5>No Action</h5><p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>${rec.missing_context ? '<p><strong>Missing:</strong> ' + rec.missing_context.join(', ') + '</p>' : ''}</div></div>`;
+        return `<div class="ai-recommendation"><div class="rec-item critical"><h5>No Action</h5><p>${escHtml(rec.reason) || 'Insufficient context for safe recommendation.'}</p>${rec.missing_context ? '<p><strong>Missing:</strong> ' + escHtml(rec.missing_context.join(', ')) + '</p>' : ''}</div></div>`;
     }
     if (rec.raw_response) {
         try {
@@ -778,7 +778,7 @@ function showTaskDetail(actionId, status) {
             <div class="detail-item">
                 <label>${task.url ? 'URL' : 'Task'}</label>
                 <p>${task.url
-                    ? `<a href="${task.url}" target="_blank" class="detail-link">${task.url}</a>`
+                    ? `<a href="${escHtml(task.url)}" target="_blank" class="detail-link">${escHtml(task.url)}</a>`
                     : escHtml(task.implementation_summary || '(content task — no page yet)')}</p>
             </div>
             <div class="detail-item">
@@ -835,7 +835,7 @@ function showTaskDetail(actionId, status) {
         ${task.outcome ? `
         <div style="margin-bottom: 16px; padding: 12px; border-radius: 6px; background: ${task.outcome === 'positive' ? '#f0fdf4' : task.outcome === 'negative' ? '#fef2f2' : '#f9fafb'};">
             <h4 style="margin-bottom: 4px;">Outcome: ${task.outcome.toUpperCase()}</h4>
-            ${task.notes ? `<p style="margin: 0; color: var(--text-secondary);">${task.notes}</p>` : ''}
+            ${task.notes ? `<p style="margin: 0; color: var(--text-secondary);">${escHtml(task.notes)}</p>` : ''}
         </div>
         ` : ''}
         <div class="detail-actions">

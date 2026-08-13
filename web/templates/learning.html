@@ -82,6 +82,7 @@
 
 {% block scripts %}
 <script>
+function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 async function loadLearning() {
     const res = await fetch('/api/learning');
     const data = await res.json();
@@ -103,10 +104,10 @@ async function loadLearning() {
         tbody.innerHTML = data.fingerprints.map(fp => `
             <tr class="row-${fp.status.toLowerCase()}">
                 <td><span class="status-badge status-${fp.status_color}">${fp.status}</span></td>
-                <td>${fp.fingerprint.page_type}</td>
-                <td>${fp.fingerprint.intent_cluster}</td>
-                <td>${fp.fingerprint.action_surface}</td>
-                <td>${fp.fingerprint.action_type}</td>
+                <td>${escHtml(fp.fingerprint.page_type)}</td>
+                <td>${escHtml(fp.fingerprint.intent_cluster)}</td>
+                <td>${escHtml(fp.fingerprint.action_surface)}</td>
+                <td>${escHtml(fp.fingerprint.action_type)}</td>
                 <td>${fp.total}</td>
                 <td class="positive">${fp.positive}</td>
                 <td class="negative">${fp.negative}</td>

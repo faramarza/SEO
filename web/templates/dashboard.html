@@ -187,6 +187,7 @@
 
 {% block scripts %}
 <script>
+function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function renderConversion(c) {
     const card = document.getElementById('conversion-card');
     const body = document.getElementById('conversion-body');
@@ -227,7 +228,6 @@ async function loadDashboard() {
             return;
         }
         const data = await res.json();
-        console.log('Dashboard data:', data);
 
         // KPIs - handle numbers properly
         const pages = data.kpis?.content_pages;
@@ -484,7 +484,7 @@ async function loadAdsData() {
                 const tbody = document.getElementById('ads-tbody');
                 tbody.innerHTML = activeCampaigns.map(c => `
                     <tr>
-                        <td>${c.name}</td>
+                        <td>${escHtml(c.name)}</td>
                         <td><span class="badge badge-${c.type}">${c.type.toUpperCase()}</span></td>
                         <td>${c.impressions.toLocaleString()}</td>
                         <td>${c.clicks.toLocaleString()}</td>

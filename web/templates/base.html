@@ -57,6 +57,7 @@
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>
     <script>
+    function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
     // Check for tasks ready for measurement and notifications (runs on every page)
     fetch('/api/dashboard').then(r => r.json()).then(data => {
         const alerts = data.task_alerts || [];
@@ -94,7 +95,7 @@
                     return `<div class="notification-item" style="background:${bg};">
                         <span>${icon}</span>
                         <div style="flex:1;">
-                            <div style="font-size:13px;">${n.message}</div>
+                            <div style="font-size:13px;">${escHtml(n.message)}</div>
                             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${ts}</div>
                         </div>
                     </div>`;

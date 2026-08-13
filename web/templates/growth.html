@@ -485,12 +485,12 @@ function moverRow(m, isGain) {
         : '';
 
     return `<tr>
-        <td title="${m.url}"><a href="${m.url}" target="_blank">${truncUrl(m.url)}</a></td>
+        <td title="${escHtml(m.url)}"><a href="${escHtml(m.url)}" target="_blank">${truncUrl(m.url)}</a></td>
         <td>${typeBadge}</td>
         <td class="${clicksClass}">${clicksPct > 0 ? '+' : ''}${clicksPct}%</td>
         <td>${imprPct > 0 ? '+' : ''}${imprPct}%</td>
         <td class="${posClass}">${parseFloat(posDelta) > 0 ? '+' : ''}${posDelta}</td>
-        <td class="why-cell">${m.why || '—'}</td>
+        <td class="why-cell">${escHtml(m.why) || '—'}</td>
     </tr>`;
 }
 
@@ -541,7 +541,7 @@ function renderVisibilityGrid(vis) {
         const tier = data.tier || {};
         const recs = data.recommendation || [];
 
-        html += `<tr><td title="${p.text}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.text}</td>`;
+        html += `<tr><td title="${escHtml(p.text)}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(p.text)}</td>`;
 
         for (const eng of engines) {
             const d = data.engines[eng];
@@ -549,13 +549,13 @@ function renderVisibilityGrid(vis) {
                 html += `<td class="text-muted">—</td>`;
             } else if (d.error) {
                 const short = d.error.length > 40 ? d.error.substring(0, 40) + '…' : d.error;
-                html += `<td style="color:var(--accent-red);font-size:0.75rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${d.error}">${short}</td>`;
+                html += `<td style="color:var(--accent-red);font-size:0.75rem;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(d.error)}">${escHtml(short)}</td>`;
             } else if (d.url_cited) {
-                html += `<td title="URL cited: ${(d.urls_cited || []).join(', ')}\n\n${d.context || ''}" style="cursor:help;">
+                html += `<td title="URL cited: ${escHtml((d.urls_cited || []).join(', '))}\n\n${escHtml(d.context || '')}" style="cursor:help;">
                     <span class="vis-badge vis-cited">Cited</span>
                 </td>`;
             } else if (d.mentioned) {
-                html += `<td title="${d.context || ''}" style="cursor:help;">
+                html += `<td title="${escHtml(d.context || '')}" style="cursor:help;">
                     <span class="vis-badge vis-named">Named</span>
                 </td>`;
             } else {
@@ -563,7 +563,7 @@ function renderVisibilityGrid(vis) {
                 const compTip = compBrands.length > 0
                     ? `Instead recommends: ${compBrands.join(', ')}`
                     : 'Not mentioned';
-                html += `<td title="${compTip}" style="cursor:help;"><span class="vis-badge vis-absent">No</span></td>`;
+                html += `<td title="${escHtml(compTip)}" style="cursor:help;"><span class="vis-badge vis-absent">No</span></td>`;
             }
         }
 
@@ -835,7 +835,7 @@ async function uploadCSV(e) {
                 const tr = document.createElement('tr');
                 tr.style.borderBottom = '1px solid #eee';
                 const samples = info.samples.map(s => `${s.keyword} (vol:${s.volume})`).join(', ');
-                tr.innerHTML = `<td style="padding:4px 8px;">${reason}</td><td style="padding:4px 8px;">${info.count}</td><td style="padding:4px 8px;color:#666;">${samples}</td>`;
+                tr.innerHTML = `<td style="padding:4px 8px;">${escHtml(reason)}</td><td style="padding:4px 8px;">${info.count}</td><td style="padding:4px 8px;color:#666;">${escHtml(samples)}</td>`;
                 tbody.appendChild(tr);
             }
             table.appendChild(tbody);
@@ -928,7 +928,7 @@ function renderQueue(data) {
         html += `<tr>
             <td><input type="checkbox" class="queue-kw-cb" value="${kw.keyword.replace(/"/g, '&quot;')}" onchange="updateQueueSelection()" ${isQueued ? '' : 'disabled'}></td>
             <td class="text-muted">${kw.batch}</td>
-            <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${kw.keyword}">${kw.keyword}</td>
+            <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(kw.keyword)}">${escHtml(kw.keyword)}</td>
             <td>${kw.volume.toLocaleString()}</td>
             <td>${kw.kd}</td>
             <td>${kw.cpc > 0 ? '$' + kw.cpc.toFixed(2) : '<span class="text-muted">—</span>'}</td>

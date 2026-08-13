@@ -244,10 +244,10 @@ function renderOpportunities(opportunities) {
             : opp.recommended_action === 'OBSERVE_ONLY' ? 'row-observe-only' : '';
         return `
         <tr class="opportunity-row ${rowClass}" data-idx="${globalIdx}">
-            <td><input type="checkbox" class="row-select-cb" data-url="${opp.url}" onchange="updateSelectionUI()"></td>
+            <td><input type="checkbox" class="row-select-cb" data-url="${escHtml(opp.url)}" onchange="updateSelectionUI()"></td>
             <td class="row-number">${globalIdx + 1}</td>
-            <td class="url-cell" title="${opp.url}">
-                <a href="${opp.url}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
+            <td class="url-cell" title="${escHtml(opp.url)}">
+                <a href="${escHtml(opp.url)}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
                 ${demandSignalBadge(opp)}
             </td>
             <td><span class="type-badge type-${opp.asset_type || 'other'}">${formatAssetType(opp.asset_type)}</span></td>
@@ -769,7 +769,7 @@ function showDetail(idx) {
                 <tbody>
                     ${topQueries.map(q => `
                         <tr class="${q.position <= 10 ? 'page-one' : q.position <= 20 ? 'page-two' : 'page-three-plus'}">
-                            <td class="query-text">${q.query}</td>
+                            <td class="query-text">${escHtml(q.query)}</td>
                             <td class="number">${q.impressions.toLocaleString()}</td>
                             <td class="number">${q.clicks.toLocaleString()}</td>
                             <td class="number position-cell">${q.position}</td>
@@ -791,7 +791,7 @@ function showDetail(idx) {
         <div class="detail-grid">
             <div class="detail-item">
                 <label>URL</label>
-                <p><a href="${opp.url}" target="_blank" class="detail-link">${opp.url}</a></p>
+                <p><a href="${escHtml(opp.url)}" target="_blank" class="detail-link">${escHtml(opp.url)}</a></p>
             </div>
             <div class="detail-item">
                 <label>Capture Class</label>
@@ -862,19 +862,19 @@ function showDetail(idx) {
             <table class="page-context-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 120px; vertical-align: top; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}">${pm.has_crawl_data ? `<code>${pm.title || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-title-${idx}">${pm.has_crawl_data ? `<code>${escHtml(pm.title) || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}">${pm.has_crawl_data ? `<code>${pm.h1 || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-h1-${idx}">${pm.has_crawl_data ? `<code>${escHtml(pm.h1) || '[Not found]'}</code>` : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}">${pm.has_crawl_data ? (pm.meta_description || '<em style="color:#999;">[Not found]</em>') : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-meta-${idx}">${pm.has_crawl_data ? (escHtml(pm.meta_description) || '<em style="color:#999;">[Not found]</em>') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Canonical</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}">${pm.has_crawl_data ? (pm.canonical_url || '<em style="color:#999;">[Not set]</em>') : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-canonical-${idx}">${pm.has_crawl_data ? (escHtml(pm.canonical_url) || '<em style="color:#999;">[Not set]</em>') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Word Count</td>
@@ -882,15 +882,15 @@ function showDetail(idx) {
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Content Preview</td>
-                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); border-bottom: 1px solid #eee;" id="page-ctx-preview-${idx}">${pm.has_crawl_data ? (pm.content_preview || '[Not available]') : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); border-bottom: 1px solid #eee;" id="page-ctx-preview-${idx}">${pm.has_crawl_data ? (escHtml(pm.content_preview) || '[Not available]') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Robots Meta</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-robots-${idx}">${pm.has_crawl_data ? `<code>${pm.robots_meta || '[None]'}</code>` : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;" id="page-ctx-robots-${idx}">${pm.has_crawl_data ? `<code>${escHtml(pm.robots_meta) || '[None]'}</code>` : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top; border-bottom: 1px solid #eee;">Internal Outlinks</td>
-                    <td style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #eee;" id="page-ctx-outlinks-${idx}">${pm.has_crawl_data && pm.internal_outlinks && pm.internal_outlinks.length > 0 ? pm.internal_outlinks.slice(0,15).map(l => `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${l.anchor_text}</span> → <code style="font-size:11px;">${l.target_url}</code></div>`).join('') : '<em style="color:#999;">—</em>'}</td>
+                    <td style="padding: 6px 10px; font-size: 12px; border-bottom: 1px solid #eee;" id="page-ctx-outlinks-${idx}">${pm.has_crawl_data && pm.internal_outlinks && pm.internal_outlinks.length > 0 ? pm.internal_outlinks.slice(0,15).map(l => `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${escHtml(l.anchor_text)}</span> → <code style="font-size:11px;">${escHtml(l.target_url)}</code></div>`).join('') : '<em style="color:#999;">—</em>'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; vertical-align: top;">Above Fold</td>
@@ -1043,24 +1043,24 @@ async function fetchPageContext(idx, url) {
         if (resp.ok && data.has_crawl_data) {
             const el = (id) => document.getElementById(id);
             const titleEl = el(`page-ctx-title-${idx}`);
-            if (titleEl) titleEl.innerHTML = `<code>${data.title || '[Not found]'}</code>`;
+            if (titleEl) titleEl.innerHTML = `<code>${escHtml(data.title) || '[Not found]'}</code>`;
             const h1El = el(`page-ctx-h1-${idx}`);
-            if (h1El) h1El.innerHTML = `<code>${data.h1 || '[Not found]'}</code>`;
+            if (h1El) h1El.innerHTML = `<code>${escHtml(data.h1) || '[Not found]'}</code>`;
             const metaEl = el(`page-ctx-meta-${idx}`);
-            if (metaEl) metaEl.innerHTML = data.meta_description || '<em style="color:#999;">[Not found]</em>';
+            if (metaEl) metaEl.innerHTML = escHtml(data.meta_description) || '<em style="color:#999;">[Not found]</em>';
             const canEl = el(`page-ctx-canonical-${idx}`);
-            if (canEl) canEl.innerHTML = data.canonical_url || '<em style="color:#999;">[Not set]</em>';
+            if (canEl) canEl.innerHTML = escHtml(data.canonical_url) || '<em style="color:#999;">[Not set]</em>';
             const wcEl = el(`page-ctx-wordcount-${idx}`);
             if (wcEl) wcEl.textContent = data.word_count || '—';
             const prevEl = el(`page-ctx-preview-${idx}`);
             if (prevEl) prevEl.textContent = data.content_preview || '[Not available]';
             const robotsEl = el(`page-ctx-robots-${idx}`);
-            if (robotsEl) robotsEl.innerHTML = `<code>${data.robots_meta || '[None]'}</code>`;
+            if (robotsEl) robotsEl.innerHTML = `<code>${escHtml(data.robots_meta) || '[None]'}</code>`;
             const outlinksEl = el(`page-ctx-outlinks-${idx}`);
             if (outlinksEl) {
                 if (data.internal_outlinks && data.internal_outlinks.length > 0) {
                     outlinksEl.innerHTML = data.internal_outlinks.slice(0,15).map(l =>
-                        `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${l.anchor_text}</span> → <code style="font-size:11px;">${l.target_url}</code></div>`
+                        `<div style="margin-bottom:2px;"><span style="color:#6b7280;">${escHtml(l.anchor_text)}</span> → <code style="font-size:11px;">${escHtml(l.target_url)}</code></div>`
                     ).join('');
                 } else {
                     outlinksEl.innerHTML = '—';
@@ -1137,8 +1137,8 @@ function buildAIHtml(rec, reproducibility) {
         return `<div class="ai-recommendation">
             <div class="rec-item critical">
                 <h5>No Action</h5>
-                <p>${rec.reason || 'Insufficient context for safe recommendation.'}</p>
-                ${rec.missing_context ? `<p><strong>Missing:</strong> ${rec.missing_context.join(', ')}</p>` : ''}
+                <p>${escHtml(rec.reason) || 'Insufficient context for safe recommendation.'}</p>
+                ${rec.missing_context ? `<p><strong>Missing:</strong> ${escHtml(rec.missing_context.join(', '))}</p>` : ''}
             </div>
         </div>`;
     }
@@ -1166,7 +1166,7 @@ function buildAIHtml(rec, reproducibility) {
         return `<div class="ai-recommendation">
             <div class="rec-item">
                 <h5>AI Response</h5>
-                <pre style="white-space: pre-wrap;">${rec.raw_response}</pre>
+                <pre style="white-space: pre-wrap;">${escHtml(rec.raw_response)}</pre>
             </div>
         </div>`;
     }
@@ -1201,28 +1201,28 @@ function buildAIHtml(rec, reproducibility) {
         <div class="rec-item" style="margin-top: 8px;">
             <h5 style="margin: 0 0 8px 0;">Step 2: Funnel Analysis</h5>
             <table style="width:100%;font-size:12px;border-collapse:collapse;">
-                <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.entry_intent || '—'}</td></tr>
-                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.current_paths || '—'}</td></tr>
-                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.ideal_paths || '—'}</td></tr>
-                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${fa.routing_diagnosis || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;width:140px;border-bottom:1px solid #f0f0f0;vertical-align:top;">Entry Intent</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${esc(fa.entry_intent) || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Current Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${esc(fa.current_paths) || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Ideal Paths</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${esc(fa.ideal_paths) || '—'}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;border-bottom:1px solid #f0f0f0;vertical-align:top;">Routing Diagnosis</td><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${esc(fa.routing_diagnosis) || '—'}</td></tr>
                 <tr><td style="padding:4px 8px;font-weight:bold;vertical-align:top;">Opportunity Est.</td><td style="padding:4px 8px;font-weight:600;color:#4f46e5;">${(() => {
                     const oe = fa.opportunity_estimate;
                     if (!oe) return '—';
                     if (typeof oe === 'string') return oe;
                     // Structured object with low/base/high scenarios
                     let parts = [];
-                    if (oe.summary) parts.push(oe.summary);
+                    if (oe.summary) parts.push(esc(oe.summary));
                     else {
                         const lo = oe.low?.total ?? '?', ba = oe.base?.total ?? '?', hi = oe.high?.total ?? '?';
                         const loR = oe.low?.routing_pct ?? '?', baR = oe.base?.routing_pct ?? '?', hiR = oe.high?.routing_pct ?? '?';
                         parts.push('$' + lo + ' / $' + ba + ' / $' + hi + ' (low/base/high @ ' + loR + '%/' + baR + '%/' + hiR + '% routing)');
                     }
-                    if (oe.base?.math) parts.push('<br><small style="font-weight:400;color:#6b7280;">Base: ' + oe.base.math + '</small>');
-                    if (oe.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.routing_evidence + '</small>');
-                    else if (oe.base?.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + oe.base.routing_evidence + '</small>');
+                    if (oe.base?.math) parts.push('<br><small style="font-weight:400;color:#6b7280;">Base: ' + esc(oe.base.math) + '</small>');
+                    if (oe.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + esc(oe.routing_evidence) + '</small>');
+                    else if (oe.base?.routing_evidence) parts.push('<br><small style="font-weight:400;color:#6b7280;">Routing: ' + esc(oe.base.routing_evidence) + '</small>');
                     return parts.join('');
                 })()}</td></tr>
-                ${fa.pipeline_reconciliation ? '<tr><td style="padding:4px 8px;font-weight:bold;border-top:1px solid #f0f0f0;vertical-align:top;">Pipeline Check</td><td style="padding:4px 8px;border-top:1px solid #f0f0f0;font-size:11px;color:#6b7280;">' + fa.pipeline_reconciliation + '</td></tr>' : ''}
+                ${fa.pipeline_reconciliation ? '<tr><td style="padding:4px 8px;font-weight:bold;border-top:1px solid #f0f0f0;vertical-align:top;">Pipeline Check</td><td style="padding:4px 8px;border-top:1px solid #f0f0f0;font-size:11px;color:#6b7280;">' + esc(fa.pipeline_reconciliation) + '</td></tr>' : ''}
             </table>
         </div>`;
     }
@@ -1246,7 +1246,7 @@ function buildAIHtml(rec, reproducibility) {
                 ${Object.entries(ca).map(([k, v]) => `<tr>
                     <td style="padding:4px 8px;font-weight:bold;text-transform:capitalize;border-bottom:1px solid #f0f0f0;">${k.replace(/_/g, ' ')}</td>
                     <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;">${dispBadge(v.disposition)}${v.action_ref ? ` <span style="font-size:11px;color:#6b7280;">(→ #${v.action_ref})</span>` : ''}</td>
-                    <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">${v.reasoning || '—'}</td>
+                    <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#374151;">${esc(v.reasoning) || '—'}</td>
                 </tr>`).join('')}
             </table>
         </div>`;
@@ -1266,7 +1266,7 @@ function buildAIHtml(rec, reproducibility) {
                     </span>
                 </div>
                 ${a.diagnosed_constraint ? `<p style="margin: 4px 0; font-size: 12px; color: #6b7280;"><strong>Constraint:</strong> ${esc(a.diagnosed_constraint)}</p>` : ''}
-                ${a.target_urls && a.target_urls.length ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Target URLs:</strong> ${a.target_urls.map(u => '<code style="background:#e8f4fd;padding:1px 4px;border-radius:3px;font-size:11px;">' + u + '</code>').join(', ')}</p>` : ''}
+                ${a.target_urls && a.target_urls.length ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Target URLs:</strong> ${a.target_urls.map(u => '<code style="background:#e8f4fd;padding:1px 4px;border-radius:3px;font-size:11px;">' + esc(u) + '</code>').join(', ')}</p>` : ''}
                 <div style="margin: 8px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border-left: 3px solid #4f46e5;">
                     <p style="margin: 0 0 4px 0;"><strong>Exact Changes:</strong></p>
                     <pre style="white-space: pre-wrap; margin: 0; font-size: 13px; line-height: 1.5;">${esc(a.exact_changes) || 'N/A'}</pre>
@@ -1288,15 +1288,15 @@ function buildAIHtml(rec, reproducibility) {
                 <table style="width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 6px; background: #f9fafb; border-radius: 4px;">
                     <tr>
                         <td style="padding: 3px 8px; font-weight: bold;">Metric</td>
-                        <td style="padding: 3px 8px;">${a.measurement.primary_metric || '—'}</td>
+                        <td style="padding: 3px 8px;">${esc(a.measurement.primary_metric) || '—'}</td>
                         <td style="padding: 3px 8px; font-weight: bold;">Direction</td>
-                        <td style="padding: 3px 8px;">${a.measurement.expected_direction || '—'}</td>
+                        <td style="padding: 3px 8px;">${esc(a.measurement.expected_direction) || '—'}</td>
                     </tr>
                     <tr>
                         <td style="padding: 3px 8px; font-weight: bold;">Window</td>
-                        <td style="padding: 3px 8px;">${a.measurement.evaluation_window || '—'}</td>
+                        <td style="padding: 3px 8px;">${esc(a.measurement.evaluation_window) || '—'}</td>
                         <td style="padding: 3px 8px; font-weight: bold;">Stop if</td>
-                        <td style="padding: 3px 8px; color: #dc2626;">${a.measurement.stop_threshold || '—'}</td>
+                        <td style="padding: 3px 8px; color: #dc2626;">${esc(a.measurement.stop_threshold) || '—'}</td>
                     </tr>
                 </table>
                 ` : ''}
@@ -1585,19 +1585,19 @@ function exportToPDF(idx) {
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px;">
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; width: 100px; border-bottom: 1px solid #eee;">Title</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${pm.title || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${escHtml(pm.title) || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">H1</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${pm.h1 || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace;">${escHtml(pm.h1) || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Meta Desc</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.meta_description || '[Not found]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${escHtml(pm.meta_description) || '[Not found]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Canonical</td>
-                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${pm.canonical_url || '[Not set]'}</td>
+                    <td style="padding: 6px 10px; border-bottom: 1px solid #eee;">${escHtml(pm.canonical_url) || '[Not set]'}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-bottom: 1px solid #eee;">Word Count</td>
@@ -1605,11 +1605,11 @@ function exportToPDF(idx) {
                 </tr>
                 <tr>
                     <td style="padding: 6px 10px; font-weight: bold;">Content Preview</td>
-                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5;">${pm.content_preview || '[Not available]'}</td>
+                    <td style="padding: 6px 10px; font-size: 12px; line-height: 1.5;">${escHtml(pm.content_preview) || '[Not available]'}</td>
                 </tr>
                 ${pm.robots_meta ? `<tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee;">Robots</td>
-                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-family: monospace;">${pm.robots_meta}</td>
+                    <td style="padding: 6px 10px; border-top: 1px solid #eee; font-family: monospace;">${escHtml(pm.robots_meta)}</td>
                 </tr>` : ''}
                 ${pm.above_fold_html ? `<tr>
                     <td style="padding: 6px 10px; font-weight: bold; border-top: 1px solid #eee; vertical-align: top;">Above Fold</td>
@@ -1665,7 +1665,7 @@ function exportToPDF(idx) {
                 </tr>
                 ${opp.top_queries.map(q => `
                 <tr>
-                    <td style="padding: 8px; border: 1px solid #ddd;">${q.query}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">${escHtml(q.query)}</td>
                     <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${q.impressions.toLocaleString()}</td>
                     <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${q.clicks.toLocaleString()}</td>
                     <td style="padding: 8px; border: 1px solid #ddd; text-align: right; color: ${q.position <= 10 ? '#059669' : q.position <= 20 ? '#ca8a04' : '#dc2626'};">${q.position}</td>
