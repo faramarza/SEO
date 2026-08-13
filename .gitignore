@@ -48,3 +48,4 @@ data/.autoreview_*
 data/.autoeval_*
 data/.digest_*
 data/.secret_key
+data/*.lock
