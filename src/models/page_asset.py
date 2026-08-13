@@ -100,6 +100,7 @@ class PageAsset(BaseModel):
     internal_outlinks: list = Field(default_factory=list, description="Detailed outlinks: [{target_url, anchor_text, location}]")
     breadcrumb_links: list = Field(default_factory=list, description="Breadcrumb nav links: [{target_url, anchor_text}]")
     schema_types: list = Field(default_factory=list, description="JSON-LD @type values found on page")
+    schema_facts: dict = Field(default_factory=dict, description="Per-type key-field presence from JSON-LD (Product/Offer/BreadcrumbList/FAQ/Article)")
     link_authority_score: float = Field(
         default=0.0,
         ge=0.0,

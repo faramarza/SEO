@@ -5102,6 +5102,7 @@ def _compute_geo(match, page_authority=None):
         above_fold_html=pm.get("above_fold_html", ""),
         word_count=pm.get("word_count", 0),
         schema_types=pm.get("schema_types", []),
+        schema_facts=pm.get("schema_facts", {}),
         page_authority=page_authority,
         has_crawl_data=pm.get("has_crawl_data", False),
         top_queries=match.get("top_queries", []),
@@ -5130,6 +5131,40 @@ def api_geo_scorecard():
     return jsonify(_compute_geo(match, page_authority=pa))
 
 
+@app.route("/api/aio-citations")
+def api_aio_citations():
+    """AI-Overview citation detection via DataForSEO (phase-2 GEO signal). For the
+    queries where an AI Overview answers on-SERP, reports whether Google's answer
+    cites YOU and which competitors it cites instead. Dormant until DataForSEO
+    credentials are configured — returns available:False with a reason otherwise,
+    so the UI can show a clear 'configure to enable' state instead of erroring."""
+    from src.data_sources import dataforseo_client as dfs
+    if not dfs.is_configured():
+        return jsonify({"available": False,
+                        "reason": "DataForSEO not configured. Set DATAFORSEO_LOGIN and "
+                                  "DATAFORSEO_PASSWORD in the environment to enable real "
+                                  "AI-Overview citation detection."})
+    config = load_config()
+    own_domain = re.sub(r"^https?://", "", _site_base_url(config)).strip("/").replace("www.", "")
+
+    # Prioritize the queries most worth checking: the winnable set (real non-brand
+    # demand we rank for), falling back to the evaluation's top queries.
+    queries, seen = [], set()
+    try:
+        from src.metrics.click_yield import load_click_yield
+        cy = load_click_yield()
+        for w in (cy or {}).get("winnable", []):
+            q = w.get("query")
+            if q and q.lower() not in seen:
+                seen.add(q.lower()); queries.append(q)
+    except Exception:
+        pass
+    limit = min(int(request.args.get("limit", "15") or 15), dfs.get_remaining_quota() or 0)
+    summary = dfs.check_aio_batch(queries[:max(0, limit)], own_domain)
+    summary["quota_remaining"] = dfs.get_remaining_quota()
+    return jsonify(summary)
+
+
 def _schema_page_view(match):
     """Flatten an eval result into the shape rich_results expects: url/asset_type
     are top-level, but the crawled schema fields live under page_metadata."""
@@ -5139,6 +5174,7 @@ def _schema_page_view(match):
         "asset_type": match.get("asset_type", "other"),
         "has_crawl_data": pm.get("has_crawl_data", False),
         "schema_types": pm.get("schema_types", []) or [],
+        "schema_facts": pm.get("schema_facts", {}) or {},
         "word_count": pm.get("word_count", 0) or 0,
         "title": pm.get("title", ""),
         "h1": pm.get("h1", ""),
@@ -5155,6 +5191,7 @@ def api_rich_results():
     page ALREADY emits (crawler now parses @graph + nested Offer/Rating), confirms
     coverage, and surfaces only the genuine gaps with ready-to-paste JSON-LD."""
     from src.analysis.rich_results import analyze_site_schema
+    from src.analysis.schema_validator import summarize_validation
     eval_path = DATA_PATH / "latest_evaluation.json"
     if not eval_path.exists():
         return jsonify({"error": "no evaluation available"}), 404
@@ -5164,7 +5201,11 @@ def api_rich_results():
     except (json.JSONDecodeError, OSError):
         return jsonify({"error": "could not read evaluation"}), 500
     views = [_schema_page_view(r) for r in results]
-    return jsonify(analyze_site_schema(views))
+    out = analyze_site_schema(views)
+    # Validate the FACTS in the schema pages already emit (present-but-incomplete),
+    # alongside the missing-type coverage above.
+    out["validation"] = summarize_validation(views)
+    return jsonify(out)
 
 
 @app.route("/api/rich-results/page")
@@ -5172,16 +5213,20 @@ def api_rich_results_page():
     """Per-page schema audit: what the page already has vs. the missing rich-
     result types, each with grounded JSON-LD to paste."""
     from src.analysis.rich_results import analyze_page_schema
+    from src.analysis.schema_validator import validate_schema_facts
     url = request.args.get("url")
     if not url:
         return jsonify({"error": "url required"}), 400
     match = _find_eval_result(url)
     if not match:
         return jsonify({"error": "page not found in latest evaluation"}), 404
-    audit = analyze_page_schema(_schema_page_view(match))
+    view = _schema_page_view(match)
+    audit = analyze_page_schema(view)
     if audit is None:
         return jsonify({"error": "page has no crawl data or is a system/asset URL",
                         "covered": True, "missing": []}), 200
+    # Validate the facts in the schema the page already emits.
+    audit["validation"] = validate_schema_facts(view.get("schema_facts"))
     return jsonify(audit)
 
 
@@ -6530,6 +6575,7 @@ def api_run_evaluation():
                                         internal_outlinks=parser.get_internal_outlinks(),
                                         breadcrumb_links=parser.get_breadcrumb_links(),
                                         schema_types=parser.get_schema_types(),
+                                        schema_facts=parser.get_schema_facts(),
                                     )
                                 else:
                                     result = CrawlResult(

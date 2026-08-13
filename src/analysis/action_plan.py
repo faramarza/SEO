@@ -94,6 +94,31 @@ def _is_brand_query(q):
     return any(b in ql for b in BRAND_HINTS)
 
 
+# SERP-feature CTR suppression. When a feature sits above/around organic, winning
+# a better organic position yields FEWER clicks than the raw CTR curve predicts —
+# the feature siphons them. Multipliers are deliberately conservative (they only
+# demote), applied multiplicatively and floored so a stacked SERP can't zero a
+# task out entirely. AI Overviews are the heaviest suppressor; PAA/knowledge-graph
+# the lightest. Used to haircut the reach/impact of position-play tasks.
+_SERP_FEATURE_SUPPRESSION = {
+    "ai_overview": 0.55,
+    "featured_snippet": 0.72,
+    "shopping": 0.78,
+    "top_stories": 0.85,
+    "knowledge_graph": 0.9,
+    "people_also_ask": 0.9,
+}
+
+
+def _serp_ctr_haircut(features) -> float:
+    """Combined CTR-suppression multiplier (≤1.0) for the SERP features present.
+    1.0 = no suppression; floored at 0.4 so it demotes without erasing."""
+    mult = 1.0
+    for f in (features or []):
+        mult *= _SERP_FEATURE_SUPPRESSION.get(f, 1.0)
+    return max(0.4, round(mult, 3))
+
+
 def _tti(cat):
     days, label = TIME_TO_IMPACT.get(cat, (28, "3–6 weeks"))
     return days, label
@@ -360,6 +385,7 @@ def _from_winnable(winnable, out):
         if delta is not None:
             _t["position_delta"] = delta
         _t["serp_verdict"] = (r.get("serp") or {}).get("verdict")
+        _t["serp_features"] = (r.get("serp") or {}).get("features") or []
         out.append(_t)
 
 
@@ -592,6 +618,18 @@ def _score_task(t):
     # queries. (Only demotes; a "beatable" verdict is left at full weight.)
     if t.get("serp_verdict") == "hard":
         t["lever_score"] = round(t["lever_score"] * 0.6, 1)
+    # CTR HAIRCUT: SERP features above organic (AI Overview, featured snippet,
+    # shopping pack…) siphon clicks a better position would otherwise earn, so the
+    # realistic payoff of a position play is lower than the reach implies. Haircut
+    # the lever score by the combined suppression, and record the factor + why so
+    # the UI can explain the demotion honestly. Only applies to position/traffic
+    # plays that carry live SERP data.
+    _feat = t.get("serp_features") or []
+    if _feat and cat in ("winnable", "striking", "content", "orphan"):
+        _hc = _serp_ctr_haircut(_feat)
+        if _hc < 1.0:
+            t["serp_ctr_haircut"] = _hc
+            t["lever_score"] = round(t["lever_score"] * _hc, 1)
     # MINOR = a real but trivial cheap harvest (a $10 brand-CTR nudge, a phantom
     # schema count) that must never headline. Genuine levers are exempt.
     t["minor"] = (cat not in NEVER_MINOR) and (

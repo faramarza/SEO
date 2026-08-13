@@ -75,6 +75,7 @@ class CrawlResult:
     headings: list = None  # Ordered section headings (h2/h3/h4 text)
     breadcrumb_links: list = None  # List of {target_url, anchor_text} from breadcrumb nav
     schema_types: list = None  # List of JSON-LD @type values found on the page
+    schema_facts: dict = None  # Per-type key-field presence (see _record_schema_facts)
     error: Optional[str] = None
 
     def __post_init__(self):
@@ -86,6 +87,8 @@ class CrawlResult:
             self.breadcrumb_links = []
         if self.schema_types is None:
             self.schema_types = []
+        if self.schema_facts is None:
+            self.schema_facts = {}
 
 
 class HTMLMetaParser(HTMLParser):
@@ -147,6 +150,7 @@ class HTMLMetaParser(HTMLParser):
 
         # Schema/structured data (JSON-LD)
         self._schema_types: list[str] = []
+        self._schema_facts: dict = {}
         self._in_jsonld = False
         self._jsonld_parts: list[str] = []
 
@@ -469,12 +473,11 @@ class HTMLMetaParser(HTMLParser):
         a list (e.g. ["Product", "Offer"])."""
         if isinstance(node, dict):
             t = node.get("@type")
-            if isinstance(t, str):
-                self._schema_types.append(t)
-            elif isinstance(t, list):
-                for tv in t:
-                    if isinstance(tv, str):
-                        self._schema_types.append(tv)
+            types = [t] if isinstance(t, str) else (t if isinstance(t, list) else [])
+            for tv in types:
+                if isinstance(tv, str):
+                    self._schema_types.append(tv)
+                    self._record_schema_facts(node, tv.lower())
             for v in node.values():
                 if isinstance(v, (dict, list)):
                     self._collect_schema_types(v)
@@ -482,9 +485,81 @@ class HTMLMetaParser(HTMLParser):
             for item in node:
                 self._collect_schema_types(item)
 
+    @staticmethod
+    def _len_of(v) -> int:
+        """Length of an itemListElement/mainEntity that may be a list or a single
+        object (schema.org allows either)."""
+        if isinstance(v, list):
+            return len(v)
+        if isinstance(v, dict):
+            return 1
+        return 0
+
+    def _record_schema_facts(self, node: dict, type_lower: str) -> None:
+        """Record presence of the key fields Google validates / AI engines read,
+        per money-type, from THIS JSON-LD node. Booleans = 'field present with a
+        non-empty value'. Accumulates across nodes (OR for bools, max for counts)
+        so a page with several Product blocks reports its best coverage. Values are
+        never stored — only presence — so nothing sensitive/large is persisted."""
+        def has(*keys):
+            return any(node.get(k) not in (None, "", [], {}) for k in keys)
+
+        facts = self._schema_facts
+        if type_lower == "product":
+            cur = facts.setdefault("product", {})
+            for k, present in {
+                "name": has("name"), "sku": has("sku", "mpn", "gtin", "gtin13"),
+                "brand": has("brand"), "image": has("image"),
+                "description": has("description"),
+                "has_offer": has("offers"),
+                "has_aggregate_rating": has("aggregateRating"),
+                "has_review": has("review", "reviews"),
+            }.items():
+                cur[k] = cur.get(k, False) or present
+        elif type_lower == "offer":
+            cur = facts.setdefault("offer", {})
+            for k, present in {
+                "price": has("price", "lowPrice", "highPrice"),
+                "priceCurrency": has("priceCurrency"),
+                "availability": has("availability"),
+            }.items():
+                cur[k] = cur.get(k, False) or present
+        elif type_lower == "aggregaterating":
+            cur = facts.setdefault("aggregaterating", {})
+            for k, present in {"ratingValue": has("ratingValue"),
+                               "reviewCount": has("reviewCount", "ratingCount")}.items():
+                cur[k] = cur.get(k, False) or present
+        elif type_lower == "breadcrumblist":
+            cur = facts.setdefault("breadcrumblist", {})
+            cur["item_count"] = max(cur.get("item_count", 0),
+                                    self._len_of(node.get("itemListElement")))
+        elif type_lower == "itemlist":
+            cur = facts.setdefault("itemlist", {})
+            cur["item_count"] = max(cur.get("item_count", 0),
+                                    self._len_of(node.get("itemListElement")))
+        elif type_lower in ("faqpage", "qapage"):
+            cur = facts.setdefault("faqpage", {})
+            cur["question_count"] = max(cur.get("question_count", 0),
+                                        self._len_of(node.get("mainEntity")))
+        elif type_lower in ("article", "blogposting", "newsarticle"):
+            cur = facts.setdefault("article", {})
+            for k, present in {
+                "headline": has("headline", "name"),
+                "datePublished": has("datePublished"),
+                "dateModified": has("dateModified"),
+                "author": has("author"),
+            }.items():
+                cur[k] = cur.get(k, False) or present
+        elif type_lower == "organization":
+            facts.setdefault("organization", {})["present"] = True
+
     def get_schema_types(self) -> list[str]:
         """Get JSON-LD schema @type values found on the page."""
         return list(set(self._schema_types))
+
+    def get_schema_facts(self) -> dict:
+        """Per-type key-field presence captured during the schema walk."""
+        return self._schema_facts
 
     @property
     def is_indexable(self) -> bool:
@@ -598,6 +673,7 @@ class SimpleCrawler:
                     headings=parser.get_headings(),
                     breadcrumb_links=parser.get_breadcrumb_links(),
                     schema_types=parser.get_schema_types(),
+                    schema_facts=parser.get_schema_facts(),
                 )
 
             except httpx.TimeoutException:
@@ -704,6 +780,8 @@ class SimpleCrawler:
                 asset.breadcrumb_links = result.breadcrumb_links
             if result.schema_types:
                 asset.schema_types = result.schema_types
+            if result.schema_facts:
+                asset.schema_facts = result.schema_facts
 
         return asset
 

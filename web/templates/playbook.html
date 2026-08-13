@@ -178,6 +178,15 @@
         </div>
         <div id="pb-geo-summary" class="pb-geo-summary"></div>
         <div id="pb-geo-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+        <h3 class="pb-subhead" style="margin-top:20px;">AI Overview Citations
+            <button class="pb-task-btn pb-task-btn-alt" style="margin-left:8px;" onclick="pbLoadAio(this)">Check now</button></h3>
+        <div class="pb-explain" style="margin-top:6px;">
+            For queries where a Google <strong>AI Overview</strong> answers on-SERP, this shows whether
+            the AI answer <em>cites you</em> — and which competitors it cites instead. Uses DataForSEO
+            (more reliable AIO parsing than Serper). Dormant until <code>DATAFORSEO_LOGIN</code> /
+            <code>DATAFORSEO_PASSWORD</code> are set.
+        </div>
+        <div id="pb-aio-body" class="pb-body"></div>
     </section>
 
     <!-- Brand SERP + Merchant readiness -->
@@ -1044,12 +1053,47 @@ function renderRich(rich) {
             <div>${gapChips}</div>
         </div>`;
 
+    // ── Validation of PRESENT schema (item: structured-data validation) ──
+    // Distinct from missing-type gaps above: these are pages that DO emit a type
+    // but the markup is incomplete, so Google drops the rich result. Build the
+    // block first so it can lead the body even when there are no missing-type gaps.
+    let validationHtml = '';
+    const val = rich.validation || {};
+    if (val.considered) {
+        const byField = Object.entries(val.by_field || {});
+        if (byField.length) {
+            const fieldChips = byField.map(([k, n]) =>
+                `<span class="geo-pill geo-grade-d" title="${n} page(s) missing ${escHtml(k)}">${escHtml(k)}: ${n}</span>`).join(' ');
+            validationHtml += `<div class="pb-geo-note" style="color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;font-style:normal;margin-bottom:12px;">
+                ⚠ <strong>Invalid markup (present but incomplete).</strong>
+                ${val.pages_with_errors} page(s) emit schema that's missing a REQUIRED field, so Google won't show the rich result;
+                ${val.pages_with_warnings_only} more have recommended-field warnings. ${escHtml(val.verify_note || '')}
+                <div style="margin-top:8px;">${fieldChips}</div></div>`;
+            const badPages = (val.error_pages || []).concat(val.warning_pages || []).slice(0, 30);
+            if (badPages.length) {
+                validationHtml += `<table class="pb-table" style="margin-bottom:8px;"><thead><tr>
+                    <th>Page</th><th>Schema field issues</th></tr></thead><tbody>`;
+                badPages.forEach(p => {
+                    const rows = (p.issues || []).map(i => {
+                        const c = i.severity === 'error' ? '#dc2626' : '#b45309';
+                        const tag = i.severity === 'error' ? 'ERROR' : 'warn';
+                        return `<div class="pb-geo-fix"><span style="color:${c};font-weight:600;">[${tag}] ${escHtml(i.type)}.${escHtml(i.field)}</span> — ${escHtml(i.message)}</div>`;
+                    }).join('');
+                    validationHtml += `<tr><td><a href="${escHtml(p.url)}" target="_blank">${escHtml(p.url)}</a></td><td>${rows}</td></tr>`;
+                });
+                validationHtml += `</tbody></table>`;
+            }
+        }
+    }
+
     if (!pages.length) {
-        body.innerHTML = '<p class="empty-state">Every crawled page already carries the structured data expected for its type. 🎉 Nothing to add.</p>';
+        body.innerHTML = validationHtml
+            ? (validationHtml + '<p class="empty-state" style="margin-top:8px;">No MISSING-type gaps — but fix the invalid markup above so the rich results actually show. 🎉</p>')
+            : '<p class="empty-state">Every crawled page already carries the structured data expected for its type. 🎉 Nothing to add.</p>';
         return;
     }
 
-    let html = '';
+    let html = validationHtml;
     // Honesty banner: this scan reads server HTML only, so JS-injected schema
     // (very common in Magento themes/extensions) can read as "missing" when it's
     // actually live. Tell the operator to verify before adding anything.
@@ -1206,6 +1250,46 @@ function renderGeo(geo) {
     });
     html += '</tbody></table>';
     body.innerHTML = html;
+}
+
+async function pbLoadAio(btn) {
+    const body = document.getElementById('pb-aio-body');
+    body.innerHTML = '<p class="pb-loading">Checking AI Overview citations…</p>';
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/aio-citations');
+        const d = await res.json();
+        if (!d.available) {
+            body.innerHTML = `<div class="pb-geo-note" style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-style:normal;">
+                ${escHtml(d.reason || 'AI-Overview citation detection is not available.')}</div>`;
+            return;
+        }
+        const comp = Object.entries(d.top_cited_competitors || {});
+        let html = `<div class="pb-geo-summary" style="margin-bottom:10px;">
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${d.with_ai_overview||0}</span><span class="pb-geo-stat-lbl">queries with an AI Overview</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${d.you_cited||0}</span><span class="pb-geo-stat-lbl">cite you ✓</span></div>
+            <div class="pb-geo-stat"><span class="pb-geo-stat-val">${d.you_absent||0}</span><span class="pb-geo-stat-lbl">omit you</span></div>
+        </div>`;
+        if (comp.length) {
+            html += `<div style="font-size:12px;color:var(--text-muted);margin-bottom:3px;">Competitors the AI cites instead:</div><div style="margin-bottom:10px;">`
+                + comp.map(([dom, n]) => `<span class="geo-pill geo-grade-d">${escHtml(dom)}: ${n}</span>`).join(' ') + `</div>`;
+        }
+        const rows = (d.results || []).filter(r => r.ai_overview_present);
+        if (rows.length) {
+            html += `<table class="pb-table"><thead><tr><th>Query</th><th>Cites you?</th><th>Cited sources</th></tr></thead><tbody>`;
+            rows.forEach(r => {
+                const you = r.own_cited ? '<span class="geo-pill geo-grade-a">Yes ✓</span>' : '<span class="geo-pill geo-grade-d">No</span>';
+                const src = (r.cited_domains || []).slice(0, 6).map(x => escHtml(x)).join(', ') || '—';
+                html += `<tr><td>${escHtml(r.query)}</td><td>${you}</td><td style="font-size:12px;">${src}</td></tr>`;
+            });
+            html += `</tbody></table>`;
+        } else {
+            html += `<p class="empty-state">No AI Overview detected for the checked queries.</p>`;
+        }
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
+    } finally { if (btn) btn.disabled = false; }
 }
 
 async function pbAddGeoTask(idx, btn) {

@@ -31,6 +31,10 @@ _EVIDENCE_LANG_RE = re.compile(
     r"\b(accord(?:ing|s) to|study|studies|research|survey|data|statistic|report|"
     r"according|evidence|based on|found that|shows that|experts?|source[:\s]|"
     r"cited|reference|clinical|tested|reviewed by)\b", re.IGNORECASE)
+_UNIT_WORDS_RE = re.compile(
+    r"\b(percent|kg|lbs?|oz|ounces?|pounds?|inch(?:es)?|cm|mm|ft|feet|foot|"
+    r"months?|years?|weeks?|days?|hours?|minutes?|ages?|reviews?|ratings?|stars?|"
+    r"pieces?|pcs|pack|count|out of)\b", re.IGNORECASE)
 _LIST_RE = re.compile(r"<(ul|ol)\b", re.IGNORECASE)
 _LI_RE = re.compile(r"<li\b", re.IGNORECASE)
 _TABLE_RE = re.compile(r"<table\b", re.IGNORECASE)
@@ -57,12 +61,25 @@ def _grade(score):
 
 
 def _count_stats(text):
-    """Rough count of quantitative facts (numbers, %, prices, measures)."""
+    """Count QUALIFIED quantitative facts — the specifics AI engines actually
+    quote — not every digit on the page. A bare number (a year, a list count, a
+    phone fragment, a SKU) is not evidence; a number is counted only when it
+    carries a unit/percent, or sits next to a currency symbol, a measurement word,
+    or sourcing language. This stops thin pages from scoring 'evidence-rich' on
+    nav/boilerplate digits (the old count-every-number bug)."""
     if not text:
         return 0
-    nums = len(_NUM_RE.findall(text))
-    symbols = len(_PCT_MONEY_RE.findall(text))
-    return nums + symbols
+    qualified = 0
+    for m in _NUM_RE.finditer(text):
+        if (m.group(2) or "").strip():        # number already carries %/unit
+            qualified += 1
+            continue
+        s, e = max(0, m.start() - 20), min(len(text), m.end() + 20)
+        window = text[s:e]
+        if (_PCT_MONEY_RE.search(window) or _UNIT_WORDS_RE.search(window)
+                or _EVIDENCE_LANG_RE.search(window)):
+            qualified += 1
+    return qualified
 
 
 def evaluate_geo_readiness(
@@ -77,6 +94,7 @@ def evaluate_geo_readiness(
     above_fold_html="",
     word_count=0,
     schema_types=None,
+    schema_facts=None,
     domain_authority=None,
     page_authority=None,
     has_crawl_data=True,
@@ -88,6 +106,7 @@ def evaluate_geo_readiness(
     asset_type = (asset_type or "other").lower()
     headings = headings or []
     schema_types = schema_types or []
+    schema_facts = schema_facts or {}
     title = title or ""
     # Prefer full body text; fall back to the preview/above-fold snippet.
     text_blob = " ".join(filter(None, [content_preview, _strip_tags(body_html), _strip_tags(above_fold_html)]))
@@ -209,6 +228,37 @@ def evaluate_geo_readiness(
                          "Build internal links from strong pages and earn a few relevant external links (see Playbook → Orphans/Clusters).")
         except (TypeError, ValueError):
             pass
+
+    # ── MACHINE-READABLE FACTS (JSON-LD field completeness) ─────
+    # Type-presence is scored elsewhere (rich_results). Here we score whether the
+    # schema the page DOES emit carries the machine-readable FACTS an AI answer
+    # quotes — a price, an availability state, a breadcrumb trail placing the page
+    # in its category. Gated on schema_facts being present, so pages evaluated
+    # before facts were captured (or with genuinely no schema — handled by the
+    # answerability/rich-results checks) are never falsely penalized here.
+    if schema_facts:
+        product = schema_facts.get("product") or {}
+        offer = schema_facts.get("offer") or {}
+        bc = schema_facts.get("breadcrumblist") or {}
+        article = schema_facts.get("article") or {}
+        if asset_type in ("product", "category"):
+            if product and not offer:
+                penalize(7, "machine_readable", "medium", "Product schema without an Offer",
+                         "The page emits Product schema but no Offer node, so price and availability aren't machine-readable. AI shopping answers quote price/availability directly.",
+                         "Nest an Offer inside the Product node with price, priceCurrency, and availability (must match the visible price).")
+            elif offer and not (offer.get("price") and offer.get("availability")):
+                _missing = ", ".join(k for k in ("price", "priceCurrency", "availability") if not offer.get(k))
+                penalize(5, "machine_readable", "medium", "Incomplete Offer facts",
+                         f"Offer schema is present but missing: {_missing}. Partial offers don't qualify for price/availability rich results or AI shopping citations.",
+                         "Complete the Offer with price, priceCurrency (e.g. USD), and availability (e.g. https://schema.org/InStock).")
+            if not bc.get("item_count"):
+                penalize(3, "machine_readable", "low", "No breadcrumb trail in schema",
+                         "No BreadcrumbList detected in the page's schema. AI engines and the SERP use breadcrumb structure to place the page in its category hierarchy.",
+                         "Add BreadcrumbList JSON-LD reflecting the real nav trail (most Magento SEO extensions can emit this site-wide).")
+        if asset_type in ("blog", "article", "guide") and article and not article.get("dateModified"):
+            penalize(3, "machine_readable", "low", "Article schema without dateModified",
+                     "Article/BlogPosting schema is present but carries no dateModified, so engines can't read a freshness date from the markup.",
+                     "Add dateModified (and datePublished) to the Article JSON-LD, set to the real last-updated date.")
 
     # ── FORMAT NOTE (Török: product/pricing pages cite low) ─────
     format_note = None
