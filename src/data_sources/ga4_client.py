@@ -137,6 +137,9 @@ class GA4Client:
                     Metric(name="engagementRate"),
                     Metric(name="ecommercePurchases"),
                     Metric(name="purchaseRevenue"),
+                    Metric(name="totalUsers"),
+                    Metric(name="addToCarts"),
+                    Metric(name="bounceRate"),
                 ],
                 dimension_filter=FilterExpression(
                     filter=Filter(
@@ -221,6 +224,9 @@ class GA4Client:
                     Metric(name="engagementRate"),
                     Metric(name="ecommercePurchases"),
                     Metric(name="purchaseRevenue"),
+                    Metric(name="totalUsers"),
+                    Metric(name="addToCarts"),
+                    Metric(name="bounceRate"),
                 ],
                 order_bys=[OrderBy(
                     metric=OrderBy.MetricOrderBy(metric_name="sessions"),

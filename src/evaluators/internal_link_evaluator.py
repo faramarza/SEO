@@ -325,6 +325,12 @@ class InternalLinkEvaluator:
         revenue_pages = [a for a in all_assets
                          if a.asset_type in (AssetType.PRODUCT, AssetType.CATEGORY)]
 
+        # Use the store's MEASURED AOV (not the hardcoded 53.19) so funnel-flow value
+        # is computed against real economics, consistent with the rest of the tool.
+        from src.metrics.opportunity_metrics import _measured_econ
+        _aov, _cvr = _measured_econ()
+        _margin = 0.275  # mid of config profit_model gross_margin range (0.25–0.30)
+
         # Separate and score products vs categories
         product_opps = []
         category_opps = []
@@ -343,7 +349,7 @@ class InternalLinkEvaluator:
             estimated_sessions = source_asset.ga4.sessions_28d or (
                 source_asset.gsc.impressions_28d * 0.02)
             expected_click_through = estimated_sessions * 0.10 * relevance
-            expected_value = expected_click_through * target.ga4.purchase_rate_28d * 53.19 * 0.27
+            expected_value = expected_click_through * target.ga4.purchase_rate_28d * _aov * _margin
 
             opp = LinkOpportunity(
                 source_url=source_asset.url,

@@ -11,12 +11,20 @@ Every non-NO-ACTION recommendation creates an Action record.
 """
 
 import json
+import os
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 import hashlib
+
+try:
+    import fcntl  # POSIX advisory file locking (server is Linux)
+except ImportError:  # pragma: no cover — non-POSIX fallback
+    fcntl = None
 
 
 # Per-action-type evaluation windows (days).
@@ -213,26 +221,67 @@ class ActionLedger:
             ledger_path = Path(__file__).parent.parent.parent / "data" / "action_ledger.json"
 
         self.ledger_path = ledger_path
+        self._lock_path = ledger_path.with_suffix(ledger_path.suffix + ".lock")
         self._actions: dict[str, ActionRecord] = {}
         self._load()
 
-    def _load(self) -> None:
-        """Load ledger from disk."""
-        if self.ledger_path.exists():
+    @contextmanager
+    def _locked(self):
+        """Cross-process exclusive lock. Multiple gunicorn workers each construct
+        their own ActionLedger, so a threading.Lock is not enough — we take an
+        advisory OS lock on a sidecar file so concurrent request threads AND the
+        per-worker schedulers can't interleave read-modify-write and clobber each
+        other (which previously lost updates and, on a torn read, wiped the board)."""
+        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        if fcntl is None:
+            yield  # no locking available (non-POSIX) — degrade rather than fail
+            return
+        f = open(self._lock_path, "w")
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
             try:
-                with open(self.ledger_path) as f:
-                    data = json.load(f)
-                    self._actions = {
-                        action_id: ActionRecord.from_dict(record)
-                        for action_id, record in data.get("actions", {}).items()
-                    }
-            except (json.JSONDecodeError, KeyError):
-                self._actions = {}
-        else:
-            self._actions = {}
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            finally:
+                f.close()
+
+    def _read_from_disk(self) -> dict:
+        """Parse the ledger, retrying on a torn write. Returns the parsed actions
+        dict. NEVER silently returns {} for a NON-EMPTY-but-unparseable file — that
+        was the bug that let one worker overwrite a torn read with an empty ledger.
+        A missing or genuinely-empty file legitimately means no actions."""
+        if not self.ledger_path.exists():
+            return {}
+        last_err = None
+        for _ in range(4):
+            try:
+                raw = self.ledger_path.read_text()
+                if not raw.strip():
+                    return {}
+                return json.loads(raw).get("actions", {})
+            except (json.JSONDecodeError, OSError) as e:
+                last_err = e
+                time.sleep(0.05)  # likely mid-write; back off and retry
+        # Persistent corruption: raise so the caller ABORTS its write rather than
+        # saving over real data with an empty ledger.
+        raise IOError(f"ledger unreadable after retries: {last_err}")
+
+    def _load(self) -> None:
+        """Load ledger from disk into memory (init + refresh)."""
+        with self._locked():
+            try:
+                data = self._read_from_disk()
+            except IOError:
+                return  # keep current in-memory state; don't wipe
+            self._actions = {
+                action_id: ActionRecord.from_dict(record)
+                for action_id, record in data.items()
+            }
 
     def _save(self) -> None:
-        """Save ledger to disk."""
+        """Atomically write the ledger (temp file + os.replace) so a reader never
+        sees a half-written file. Assumes the caller already holds `_locked()`."""
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": "1.0",
@@ -242,8 +291,28 @@ class ActionLedger:
                 for action_id, record in self._actions.items()
             },
         }
-        with open(self.ledger_path, 'w') as f:
+        tmp = self.ledger_path.with_suffix(self.ledger_path.suffix + ".tmp")
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.ledger_path)
+
+    def _mutate(self, apply_fn) -> Any:
+        """Serialize a read-modify-write: under the lock, RELOAD from disk (to pick
+        up concurrent workers' changes), apply the mutation to self._actions, then
+        atomically save. Prevents lost updates from stale in-memory snapshots."""
+        with self._locked():
+            try:
+                data = self._read_from_disk()
+                self._actions = {
+                    aid: ActionRecord.from_dict(rec) for aid, rec in data.items()
+                }
+            except IOError:
+                return None  # unreadable — abort the write rather than wipe
+            result = apply_fn()
+            self._save()
+            return result
 
     def generate_action_id(self) -> str:
         """Generate unique action ID."""
@@ -257,26 +326,26 @@ class ActionLedger:
 
     def add_action(self, action: ActionRecord) -> None:
         """Add new action to ledger."""
-        self._actions[action.action_id] = action
-        self._save()
+        self._mutate(lambda: self._actions.__setitem__(action.action_id, action))
 
     def get_action(self, action_id: str) -> Optional[ActionRecord]:
         """Get action by ID."""
         return self._actions.get(action_id)
 
     def update_action(self, action: ActionRecord) -> None:
-        """Update existing action."""
-        if action.action_id in self._actions:
+        """Update existing action (merged on top of fresh on-disk state)."""
+        def apply():
             self._actions[action.action_id] = action
-            self._save()
+        self._mutate(apply)
 
     def delete_action(self, action_id: str) -> bool:
         """Remove an action from the ledger entirely."""
-        if action_id in self._actions:
-            del self._actions[action_id]
-            self._save()
-            return True
-        return False
+        def apply():
+            if action_id in self._actions:
+                del self._actions[action_id]
+                return True
+            return False
+        return bool(self._mutate(apply))
 
     def get_all_actions(self) -> list[ActionRecord]:
         """Get all actions."""

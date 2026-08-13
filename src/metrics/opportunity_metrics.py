@@ -185,7 +185,7 @@ TRANSACTIONAL_PATTERNS = [
 COMMERCIAL_PATTERNS = [
     r'\b(best|top|review|compare|comparison|vs|versus|alternative)\b',
     r'\b(recommended|rating|ranked)\b',
-    r'\b(\d{4})\b',  # Year (e.g., "best toys 2026")
+    r'\b(19|20)\d{2}\b',  # Year (e.g., "best toys 2026") — NOT any 4-digit SKU/count/price
 ]
 
 INFORMATIONAL_PATTERNS = [

@@ -228,6 +228,27 @@ class GSCClient:
 
         return entropy / max_entropy if max_entropy > 0 else 0.0
 
+    def _query_all_rows(self, service, body: dict) -> list:
+        """Run a Search Analytics query paginated to the FULL result set. GSC caps a
+        single response at 25k rows; without startRow paging, any property with more
+        than 25k page/query pairs is silently truncated (losing the long tail that
+        feeds momentum + per-page query lists). Loops startRow until a short page."""
+        PAGE = 25000
+        body = dict(body)
+        body['rowLimit'] = PAGE
+        start, rows = 0, []
+        while True:
+            body['startRow'] = start
+            resp = service.searchanalytics().query(siteUrl=self.site_url, body=body).execute()
+            batch = resp.get('rows', [])
+            if not batch:
+                break
+            rows.extend(batch)
+            start += len(batch)
+            if len(batch) < PAGE:
+                break
+        return rows
+
     def positions_for_window(self, end_offset_days: int = 0, days: int = 28) -> dict:
         """Return {(page_url, query): avg_position} for a window `days` long ending
         (today - 3 - end_offset_days). Used to compute position MOMENTUM by diffing a
@@ -243,11 +264,9 @@ class GSCClient:
                 'startDate': start_date.isoformat(),
                 'endDate': end_date.isoformat(),
                 'dimensions': ['page', 'query'],
-                'rowLimit': 25000,
             }
-            resp = service.searchanalytics().query(siteUrl=self.site_url, body=body).execute()
             out = {}
-            for r in resp.get('rows', []):
+            for r in self._query_all_rows(service, body):
                 out[(r['keys'][0], r['keys'][1])] = float(r.get('position', 0.0))
             return out
         except Exception as e:
@@ -272,24 +291,19 @@ class GSCClient:
         start_date = end_date - timedelta(days=days)
 
         try:
-            # Get all pages
+            # Get all pages (paginated to the full set)
             request = {
                 'startDate': start_date.isoformat(),
                 'endDate': end_date.isoformat(),
                 'dimensions': ['page'],
-                'rowLimit': 25000,
             }
 
-            response = service.searchanalytics().query(
-                siteUrl=self.site_url,
-                body=request
-            ).execute()
-
-            if 'rows' not in response:
+            page_rows = self._query_all_rows(service, request)
+            if not page_rows:
                 return {}
 
             result = {}
-            for row in response['rows']:
+            for row in page_rows:
                 url = row['keys'][0]
                 result[url] = {
                     'clicks': int(row.get('clicks', 0)),
@@ -299,21 +313,16 @@ class GSCClient:
                     'queries': [],
                 }
 
-            # Fetch query data for all pages in one call
+            # Fetch query data for all pages (paginated to the full set)
             query_request = {
                 'startDate': start_date.isoformat(),
                 'endDate': end_date.isoformat(),
                 'dimensions': ['page', 'query'],
-                'rowLimit': 25000,
             }
 
-            query_response = service.searchanalytics().query(
-                siteUrl=self.site_url,
-                body=query_request
-            ).execute()
-
-            if 'rows' in query_response:
-                for row in query_response['rows']:
+            query_rows = self._query_all_rows(service, query_request)
+            if query_rows:
+                for row in query_rows:
                     url = row['keys'][0]
                     query = row['keys'][1]
                     if url in result:

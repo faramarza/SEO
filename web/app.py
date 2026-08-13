@@ -1081,9 +1081,15 @@ def api_opportunities():
         if existing is None:
             seen[canonical] = r
         else:
-            # Keep the one with higher priority; merge impression data
-            if r.get("priority_score", 0) > existing.get("priority_score", 0):
-                seen[canonical] = r
+            # Keep the higher-priority row, but ACTUALLY merge the demand data from
+            # both URL variants (previously the losing variant's impressions/clicks
+            # were dropped, undercounting demand for paginated/filtered canonicals).
+            merged_impr = (existing.get("gsc_impressions", 0) or 0) + (r.get("gsc_impressions", 0) or 0)
+            merged_clicks = (existing.get("gsc_clicks", 0) or 0) + (r.get("gsc_clicks", 0) or 0)
+            keep = r if r.get("priority_score", 0) > existing.get("priority_score", 0) else existing
+            keep["gsc_impressions"] = merged_impr
+            keep["gsc_clicks"] = merged_clicks
+            seen[canonical] = keep
 
     all_results = list(seen.values())
 
@@ -3757,6 +3763,37 @@ def api_clear_tasks():
     return jsonify({"success": True, "removed": removed, "scope": scope})
 
 
+def _clear_adopted_entry(dedup_key):
+    """Remove a task from the action_plan 'adopted' store. Used when a task leaves
+    the board (reject / send-back) so it fully un-tracks and can be cleanly
+    re-adopted, instead of leaving a zombie the tracker still thinks is active."""
+    if not dedup_key:
+        return
+    try:
+        store = _load_action_plan_store()
+        if store.get("adopted", {}).pop(dedup_key, None) is not None:
+            _save_action_plan_store(store)
+    except Exception:
+        pass
+
+
+def _close_board_card_by_dedup(dedup_key):
+    """Close the Task Board card matching a dedup_key. Called when the adopted task
+    is marked done, so the ledger card doesn't live on forever as APPROVED (a zombie
+    out of sync with the adopted store)."""
+    if not dedup_key:
+        return
+    try:
+        ledger = ActionLedger()
+        for a in ledger.get_all_actions():
+            if ((a.recommendation_json or {}).get("dedup_key") == dedup_key
+                    and a.status not in (ActionStatus.CLOSED, ActionStatus.MEASURED)):
+                a.update_status(ActionStatus.CLOSED)
+                ledger.update_action(a)
+    except Exception:
+        pass
+
+
 @app.route("/api/tasks/<action_id>/reject", methods=["POST"])
 def api_reject_task(action_id):
     """Reject a task — sends it back to opportunities for re-evaluation."""
@@ -3804,7 +3841,11 @@ def api_send_back_task(action_id):
         return jsonify({"error": "Cannot send back a task that is already measured or closed"}), 400
 
     # Remove the task from the ledger so the URL rejoins the opportunity pool
+    dedup_key = (action.recommendation_json or {}).get("dedup_key")
     ledger.delete_action(action_id)
+    # Also clear the adopted-store entry — same zombie fix reject got; send-back was
+    # missed, so a sent-back task stayed "tracked" and couldn't be cleanly re-adopted.
+    _clear_adopted_entry(dedup_key)
 
     return jsonify({
         "success": True,
@@ -7247,6 +7288,7 @@ def _process_due_reviews(store, results, eval_timestamp=""):
         t.setdefault("reviews", []).append(entry)
         if verdict["status"] in ("improved", "done"):
             t["status"] = "done"
+            _close_board_card_by_dedup(key)  # keep the board card in sync
         elif verdict["status"] == "not_measurable":
             # Re-check in a week once a fresh evaluation likely exists.
             from datetime import timedelta
@@ -7820,11 +7862,14 @@ def api_click_yield_track():
 @app.route("/api/action-plan/complete", methods=["POST"])
 def api_action_plan_complete():
     """Mark an adopted task done (operator says they did it / it worked)."""
-    key = (request.json or {}).get("dedup_key")
+    key = (request.get_json(silent=True) or {}).get("dedup_key")
     store = _load_action_plan_store()
     if key in store.get("adopted", {}):
         store["adopted"][key]["status"] = "done"
         _save_action_plan_store(store)
+        # Close the matching board card too, so it doesn't linger as a zombie
+        # APPROVED card after the adopted task is marked done.
+        _close_board_card_by_dedup(key)
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "not found"}), 404
 

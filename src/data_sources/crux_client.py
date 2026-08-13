@@ -150,9 +150,16 @@ class CrUXClient:
             return None
 
     def _extract_p75(self, metric: dict) -> Optional[float]:
-        """Extract the 75th percentile value from a CrUX metric."""
-        percentiles = metric.get("percentiles", {})
-        return percentiles.get("p75")
+        """Extract the 75th percentile value from a CrUX metric. CrUX returns some
+        percentiles (notably CLS) as STRINGS (e.g. "0.05"); coerce to float so the
+        `<=` rating comparisons don't raise TypeError and silently drop all CWV."""
+        p75 = metric.get("percentiles", {}).get("p75")
+        if p75 is None:
+            return None
+        try:
+            return float(p75)
+        except (TypeError, ValueError):
+            return None
 
     def _rate_lcp(self, ms: Optional[float]) -> str:
         if ms is None:
