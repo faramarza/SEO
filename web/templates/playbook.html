@@ -44,6 +44,9 @@
         <button class="pb-tab" data-tab="ads" onclick="pbShowTab('ads')">
             💸 Ad Relevance
         </button>
+        <button class="pb-tab" data-tab="links" onclick="pbShowTab('links')">
+            🔗 Link Prospects
+        </button>
     </div>
 
     <div id="pb-meta" class="playbook-meta"></div>
@@ -220,6 +223,28 @@
         <div id="pb-ads-body" class="pb-body"></div>
     </section>
 
+    <!-- Link Prospects -->
+    <section class="pb-panel" id="pb-links">
+        <div class="pb-explain">
+            <strong>Method: GSC-driven link prospecting.</strong> Your winnable pages
+            (position 4–20, non-brand demand, ~0 clicks) are the URLs where external
+            authority is the remaining lever. For each, this finds
+            <strong>SHOULD-GET</strong> prospects (topically visible resource/roundup
+            pages, via Serper) and <strong>CAN-GET</strong> prospects (domains that
+            demonstrably link to the content sites outranking you, via DataForSEO),
+            then ranks them by a balanced blend of <em>Impact</em> × <em>Acquisition
+            probability</em> — a great score on one axis can't hide a terrible one.
+            Every prospect shows its factual evidence. Domains already linking to you
+            are excluded automatically.
+        </div>
+        <div style="margin-bottom:14px;">
+            <button class="pb-task-btn" id="pb-links-run" onclick="pbRefreshLinkProspects(this)">Discover Prospects</button>
+            <button class="pb-task-btn pb-task-btn-alt" onclick="pbExportLinksCsv()">Export CSV</button>
+        </div>
+        <div id="pb-links-summary" class="pb-geo-summary"></div>
+        <div id="pb-links-body" class="pb-body"><p class="pb-loading">Loading…</p></div>
+    </section>
+
     <!-- GEO FAQ modal -->
     <div id="pb-faq-modal" class="pb-modal hidden" onclick="if(event.target===this)pbCloseFaq()">
         <div class="pb-modal-content">
@@ -382,6 +407,8 @@ async function loadPlaybook() {
         document.getElementById('pb-striking-body').innerHTML =
             `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
     }
+    // Link prospects load from their own cache (separate endpoint, non-blocking).
+    pbLoadLinkProspects();
 }
 
 function renderCtr(ctr) {
@@ -1290,6 +1317,197 @@ async function pbLoadAio(btn) {
     } catch (e) {
         body.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
     } finally { if (btn) btn.disabled = false; }
+}
+
+// ── Link Prospects ──────────────────────────────────────────
+let PB_LINKS = null;
+const LINK_TIER_LABEL = {1: ['Tier 1 — work first', '#166534', '#dcfce7'],
+                         2: ['Tier 2 — high impact, harder', '#1e40af', '#dbeafe'],
+                         3: ['Tier 3 — easier win', '#92400e', '#fef3c7'],
+                         0: ['Watchlist', '#6b7280', '#f3f4f6']};
+
+async function pbLoadLinkProspects() {
+    const body = document.getElementById('pb-links-body');
+    try {
+        const res = await fetch('/api/link-prospects');
+        const d = await res.json();
+        PB_LINKS = d;
+        renderLinkProspects(d);
+    } catch (e) {
+        body.innerHTML = `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
+    }
+}
+
+function renderLinkProspects(d) {
+    const summary = document.getElementById('pb-links-summary');
+    const body = document.getElementById('pb-links-body');
+    if (!d || !d.available) {
+        summary.innerHTML = '';
+        body.innerHTML = `<p class="empty-state">${escHtml((d && d.reason) || 'No prospect data yet — click Discover Prospects.')}</p>`;
+        return;
+    }
+    const s = d.summary || {};
+    summary.innerHTML = `
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier1||0}</span><span class="pb-geo-stat-lbl">Tier 1 — work first</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier2||0}</span><span class="pb-geo-stat-lbl">Tier 2 — harder</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier3||0}</span><span class="pb-geo-stat-lbl">Tier 3 — easier</span></div>
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.excluded_already_linking||0}</span><span class="pb-geo-stat-lbl">skipped (already link to you)</span></div>`;
+
+    let html = '';
+    (d.provider_notes || []).forEach(n => {
+        html += `<div class="pb-geo-note" style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:8px;">ℹ️ ${escHtml(n)}</div>`;
+    });
+    const rows = (d.prospects || []).filter(p => p.tier > 0);
+    const watch = (d.prospects || []).filter(p => p.tier === 0);
+    if (!rows.length && !watch.length) {
+        body.innerHTML = html + '<p class="empty-state">No qualified prospects found. Check provider notes above or widen the winnable set.</p>';
+        return;
+    }
+    html += `<table class="pb-table"><thead><tr>
+        <th>Tier</th><th>Prospect</th><th>For your page / query</th>
+        <th>Score</th><th>Evidence</th><th>Angle</th><th></th></tr></thead><tbody>`;
+    rows.forEach(p => {
+        html += pbLinkRow(p);
+    });
+    html += '</tbody></table>';
+    if (watch.length) {
+        html += `<details style="margin-top:12px;"><summary style="cursor:pointer;color:var(--text-muted);">Watchlist (${watch.length}) — insufficient relevance/evidence</summary>
+            <table class="pb-table" style="margin-top:8px;"><tbody>` +
+            watch.slice(0, 30).map(p => pbLinkRow(p)).join('') + `</tbody></table></details>`;
+    }
+    body.innerHTML = html;
+}
+
+function pbLinkRow(p) {
+    const idx = (PB_LINKS.prospects || []).indexOf(p);
+    const [label, fg, bg] = LINK_TIER_LABEL[p.tier] || LINK_TIER_LABEL[0];
+    const ev = (p.evidence || []).map(e =>
+        `<div class="pb-geo-fix">${escHtml(e.detail)}${e.source_url ? ` <a href="${escHtml(e.source_url)}" target="_blank" style="font-size:11px;">↗</a>` : ''}</div>`).join('');
+    const page = p.page_title
+        ? `<a href="${escHtml(p.page_url)}" target="_blank" title="${escHtml(p.page_url)}">${escHtml(p.page_title.slice(0, 70))}</a>`
+        : (p.page_url ? `<a href="${escHtml(p.page_url)}" target="_blank">${escHtml(p.page_url.slice(0, 60))}</a>` : '');
+    const key = pbKey('link', p.target_url, p.domain);
+    const btn = (pbIsAdded(key)
+        ? '<button class="pb-task-btn pb-added" disabled>✓ Added</button>'
+        : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddLinkTask(${idx}, this)">+ Task</button>`)
+        + ` <button class="pb-task-btn pb-task-btn-alt" onclick="pbDraftOutreach(${idx}, this)" title="Fetches their page, finds contact routes, and writes a grounded draft">Draft</button>`;
+    return `<tr>
+        <td><span class="pb-badge" style="background:${bg};color:${fg};white-space:nowrap;">${label}</span></td>
+        <td><strong>${escHtml(p.domain)}</strong><div style="font-size:12px;">${page}</div></td>
+        <td><span style="font-size:12px;">${escHtml(fmtUrl(p.target_url))}</span><div style="font-size:12px;color:var(--text-muted);">“${escHtml(p.target_query)}” — #${p.target_position}, ${(p.target_impressions||0).toLocaleString()} impr${p.target_trend === 'down' ? ' 🔻' : ''}</div></td>
+        <td class="pb-num"><strong>${p.final_score}</strong><div style="font-size:11px;color:var(--text-muted);" title="Impact × Acquisition probability (geometric blend)">I ${p.impact} · P ${p.probability}</div></td>
+        <td style="max-width:320px;">${ev}</td>
+        <td style="max-width:220px;font-size:12px;">${escHtml(p.angle)}</td>
+        <td>${btn}</td>
+    </tr>`;
+}
+
+async function pbRefreshLinkProspects(btn) {
+    const body = document.getElementById('pb-links-body');
+    if (btn) { btn.disabled = true; btn.textContent = 'Discovering…'; }
+    try {
+        const res = await fetch('/api/link-prospects/refresh', { method: 'POST' });
+        const d = await res.json();
+        if (d.status === 'busy') {
+            body.innerHTML = '<p class="empty-state">Another job is running — try again in a minute.</p>';
+            if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+            return;
+        }
+        body.innerHTML = '<p class="pb-loading">Discovering prospects (Serper + backlink lookups, ~30–60s)…</p>';
+        const poll = setInterval(async () => {
+            try {
+                const sr = await fetch('/api/job-status');
+                const st = await sr.json();
+                if (st.running) { body.innerHTML = `<p class="pb-loading">${escHtml(st.message || 'Working…')}</p>`; return; }
+                clearInterval(poll);
+                if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+                if (st.error) { body.innerHTML = `<p class="empty-state">Error: ${escHtml(String(st.error).split('\n')[0])}</p>`; return; }
+                pbLoadLinkProspects();
+            } catch (e) {
+                clearInterval(poll);
+                if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+                body.innerHTML = `<p class="empty-state">Lost connection while polling.</p>`;
+            }
+        }, 2500);
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+        body.innerHTML = `<p class="empty-state">Failed to start: ${escHtml(e.message)}</p>`;
+    }
+}
+
+async function pbAddLinkTask(idx, btn) {
+    const p = (PB_LINKS && PB_LINKS.prospects || [])[idx];
+    if (!p) return;
+    const payload = { method: 'link_prospect', url: p.target_url, asset_type: 'other',
+        prospect_domain: p.domain, prospect_url: p.page_url, prospect_title: p.page_title,
+        query: p.target_query, position: p.target_position, impressions: p.target_impressions,
+        angle: p.angle, evidence: (p.evidence || []).map(e => e.detail) };
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+    try {
+        const res = await fetch('/api/playbook/add-task', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.success) { if (btn) { btn.textContent = '✓ Added'; btn.classList.add('pb-added'); if (btn.dataset.key) PB_ADDED.add(btn.dataset.key); } pbToast(data.message + ' — Task Board'); }
+        else { if (btn) { btn.disabled = false; btn.textContent = '+ Task'; } pbToast(data.error || 'Failed', true); }
+    } catch (e) { if (btn) { btn.disabled = false; btn.textContent = '+ Task'; } pbToast('Failed: ' + e.message, true); }
+}
+
+async function pbDraftOutreach(idx, btn) {
+    const p = (PB_LINKS && PB_LINKS.prospects || [])[idx];
+    if (!p) return;
+    const modal = document.getElementById('pb-faq-modal');
+    const fbody = document.getElementById('pb-faq-body');
+    document.querySelector('#pb-faq-modal h2').textContent = `Outreach draft — ${p.domain}`;
+    fbody.innerHTML = '<p class="pb-loading">Fetching their page + drafting (grounded in what they actually published)…</p>';
+    modal.classList.remove('hidden');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/link-prospects/draft', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index: idx }) });
+        const d = await res.json();
+        const contacts = [];
+        (d.emails || []).forEach(e => contacts.push(`✉️ <a href="mailto:${escHtml(e)}">${escHtml(e)}</a>`));
+        (d.contact_links || []).forEach(c => contacts.push(`🔗 <a href="${escHtml(c)}" target="_blank">${escHtml(c)}</a>`));
+        const contactHtml = contacts.length
+            ? `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;"><strong>Contact routes found on their page:</strong><br>${contacts.join('<br>')}</div>`
+            : `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;">No contact route found on the fetched page — check their site's contact/about page manually.</div>`;
+        if (d.error) {
+            fbody.innerHTML = contactHtml + `<p class="empty-state">${escHtml(d.error)}</p>`;
+            return;
+        }
+        fbody.innerHTML = contactHtml + `
+            <div class="pb-geo-note" style="font-style:normal;margin-bottom:8px;">Personalization anchor (verify it reads right): ${escHtml(d.personalization_point || '')}</div>
+            <div style="background:var(--bg-secondary,#f8fafc);border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+                <div style="font-weight:600;margin-bottom:8px;">Subject: ${escHtml(d.subject || '')}</div>
+                <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;">${escHtml(d.body || '')}</div>
+            </div>
+            <button class="pb-copy-btn" style="margin-top:10px;" onclick="navigator.clipboard.writeText(${JSON.stringify('')} + this.dataset.txt).then(()=>pbToast('Copied'))" data-txt="${escHtml('Subject: ' + (d.subject || '') + '\n\n' + (d.body || ''))}">Copy email</button>
+            <p class="pb-geo-note" style="margin-top:8px;">Review before sending — this is a draft grounded in their fetched page, not an auto-send.</p>`;
+    } catch (e) {
+        fbody.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
+    } finally { if (btn) btn.disabled = false; }
+}
+
+function pbExportLinksCsv() {
+    const rows = (PB_LINKS && PB_LINKS.prospects) || [];
+    if (!rows.length) { pbToast('Nothing to export yet', true); return; }
+    const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const head = ['tier', 'final_score', 'impact', 'probability', 'prospect_domain',
+                  'prospect_page', 'prospect_title', 'target_url', 'target_query',
+                  'target_position', 'target_impressions', 'angle', 'evidence'];
+    const lines = [head.join(',')];
+    rows.forEach(p => lines.push([
+        p.tier, p.final_score, p.impact, p.probability, p.domain, p.page_url,
+        p.page_title, p.target_url, p.target_query, p.target_position,
+        p.target_impressions, p.angle,
+        (p.evidence || []).map(e => e.detail).join(' | ')
+    ].map(esc).join(',')));
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
+    a.download = 'link-prospects.csv';
+    a.click();
 }
 
 async function pbAddGeoTask(idx, btn) {

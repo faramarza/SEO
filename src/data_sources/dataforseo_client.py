@@ -220,6 +220,90 @@ def fetch_aio_citation(query: str, own_domain: str = "") -> Optional[dict]:
     return out
 
 
+# ── Backlinks API (same credentials, separate daily cap) ─────────────────────
+# Used by the Link Prospect engine: "who links to this SERP peer?" is the
+# CAN-GET evidence side of prospecting. one_per_domain mode keeps cost bounded
+# (one row per referring domain). Cached per-target with the same TTL.
+_BACKLINKS_ENDPOINT = "https://api.dataforseo.com/v3/backlinks/backlinks/live"
+BACKLINKS_DAILY_LIMIT = int(os.environ.get("DATAFORSEO_BACKLINKS_DAILY_LIMIT", "30"))
+
+
+def get_backlinks_daily_usage() -> int:
+    return _load_cache().get("backlinks_daily", {}).get(_today(), 0)
+
+
+def get_backlinks_remaining_quota() -> int:
+    return max(0, BACKLINKS_DAILY_LIMIT - get_backlinks_daily_usage())
+
+
+def fetch_referring_links(target: str, limit: int = 25) -> dict:
+    """Referring links for a domain/URL (one per referring domain). Returns
+    {"available": True, "links": [{domain_from, url_from, title_from, dofollow,
+    domain_rank, first_seen}]} or {"available": False, "reason": ...}. Never
+    fabricates: an API miss is reported, not filled in."""
+    target = (target or "").strip().lower().rstrip("/")
+    if not target:
+        return {"available": False, "reason": "empty target"}
+    if not is_configured():
+        return {"available": False, "reason": "DataForSEO not configured — set "
+                "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD."}
+
+    cache = _load_cache()
+    entry = cache.get("backlinks", {}).get(target)
+    if entry and _is_fresh(entry):
+        return entry
+
+    if get_backlinks_remaining_quota() <= 0:
+        return {"available": False, "reason": "DataForSEO backlinks daily cap reached "
+                f"({BACKLINKS_DAILY_LIMIT}/day). Raise DATAFORSEO_BACKLINKS_DAILY_LIMIT "
+                "or wait for reset."}
+
+    import httpx
+    login, password = _creds()
+    token = base64.b64encode(f"{login}:{password}".encode()).decode()
+    body = [{"target": target, "limit": max(1, min(limit, 100)),
+             "mode": "one_per_domain", "order_by": ["domain_from_rank,desc"]}]
+    try:
+        resp = httpx.post(_BACKLINKS_ENDPOINT,
+                          headers={"Authorization": f"Basic {token}",
+                                   "Content-Type": "application/json"},
+                          json=body, timeout=30.0)
+        if resp.status_code in (401, 403):
+            return {"available": False, "reason": "DataForSEO auth failed."}
+        if resp.status_code != 200:
+            return {"available": False, "reason": f"DataForSEO API error {resp.status_code}."}
+        data = resp.json()
+    except Exception as e:
+        return {"available": False, "reason": f"DataForSEO request failed: {e}"}
+
+    try:
+        task0 = (data.get("tasks") or [])[0]
+        result0 = (task0.get("result") or [])[0]
+        items = result0.get("items") or []
+    except (IndexError, AttributeError, TypeError):
+        items = []
+
+    links = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        links.append({
+            "domain_from": (it.get("domain_from") or "").lower().replace("www.", ""),
+            "url_from": it.get("url_from") or "",
+            "title_from": it.get("page_from_title") or "",
+            "dofollow": bool(it.get("dofollow")),
+            "domain_rank": it.get("domain_from_rank") or 0,
+            "first_seen": it.get("first_seen") or "",
+        })
+
+    out = {"available": True, "target": target,
+           "fetched_at": datetime.now(timezone.utc).isoformat(), "links": links}
+    cache.setdefault("backlinks", {})[target] = out
+    cache.setdefault("backlinks_daily", {})[_today()] = get_backlinks_daily_usage() + 1
+    _save_cache(cache)
+    return out
+
+
 def check_aio_batch(queries: list, own_domain: str = "") -> dict:
     """Check AI-Overview citations for several queries, respecting the daily cap.
     Returns a summary: which queries have an AIO, where you're cited vs not, and

@@ -5165,6 +5165,135 @@ def api_aio_citations():
     return jsonify(summary)
 
 
+@app.route("/api/link-prospects")
+def api_link_prospects():
+    """Cached link-prospect list (GSC-driven outreach targets)."""
+    from src.analysis.link_prospects import load_link_prospects
+    data = load_link_prospects()
+    if not data:
+        return jsonify({"available": False,
+                        "reason": "No prospect data yet — click Discover Prospects."})
+    return jsonify(data)
+
+
+@app.route("/api/link-prospects/refresh", methods=["POST"])
+def api_link_prospects_refresh():
+    """Run prospect discovery as a background job (Serper + DataForSEO calls can
+    take ~30-60s). Progress via /api/job-status, type link_prospects."""
+    global job_state
+    if job_state["running"]:
+        return jsonify({"error": "A job is already running", "status": "busy"}), 400
+
+    job_state.update({
+        "running": True, "type": "link_prospects", "error": None,
+        "message": "Discovering link prospects…", "progress": 0, "total": 1,
+    })
+
+    def run_discovery():
+        import traceback
+        try:
+            from src.analysis.link_prospects import compute_link_prospects, save_link_prospects
+            config = load_config()
+            data = compute_link_prospects(config)
+            save_link_prospects(data)
+            n = (data.get("summary") or {}).get("total", 0)
+            job_state["message"] = (f"Found {n} qualified prospects."
+                                    if data.get("available")
+                                    else data.get("reason", "Discovery unavailable."))
+        except Exception as e:
+            job_state["error"] = f"{e}\n\n{traceback.format_exc()}"
+            job_state["message"] = f"Error: {e}"
+        finally:
+            job_state["progress"] = 1
+            job_state["finished_at"] = datetime.now().strftime("%b %d, %Y %I:%M %p")
+            job_state["running"] = False
+
+    threading.Thread(target=run_discovery, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/link-prospects/draft", methods=["POST"])
+def api_link_prospects_draft():
+    """Grounded outreach draft for ONE chosen prospect (spec §13/§20: generate
+    only after the user picks a prospect; never fabricate having read a page).
+    Fetches the prospect page live, extracts what it actually says + any contact
+    routes (mailto/contact/about links), then drafts a short personalized email
+    referencing only fetched content. Fails honestly if the page can't be read."""
+    body = request.json or {}
+    idx = body.get("index")
+    from src.analysis.link_prospects import load_link_prospects
+    cached = load_link_prospects() or {}
+    prospects = cached.get("prospects") or []
+    if idx is None or not (0 <= int(idx) < len(prospects)):
+        return jsonify({"error": "invalid prospect index"}), 400
+    p = prospects[int(idx)]
+
+    page_url = p.get("page_url") or f"https://{p.get('domain', '')}"
+    from src.metrics.click_yield import _fetch as _cy_fetch
+    try:
+        html = _cy_fetch(page_url)
+    except Exception as e:
+        return jsonify({"error": f"Could not fetch the prospect page ({e}). An honest "
+                                 "draft requires reading their page — try the domain "
+                                 "homepage or write it manually.", "fetched": False}), 502
+
+    # Deterministic contact discovery from the page we actually fetched.
+    emails = sorted(set(re.findall(r'mailto:([^"\'>\s?]+)', html)))[:5]
+    contact_links = []
+    for href in re.findall(r'href=["\']([^"\']+)["\']', html):
+        if re.search(r'contact|about|write-for-us|contribute|submit', href, re.I):
+            full = href if href.startswith("http") else \
+                f"https://{p.get('domain','')}/{href.lstrip('/')}"
+            if p.get("domain", "") in full and full not in contact_links:
+                contact_links.append(full)
+        if len(contact_links) >= 5:
+            break
+
+    from html import unescape as _unesc
+    text = _unesc(re.sub(r"<[^>]+>", " ", re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ", html)))
+    text = re.sub(r"\s+", " ", text).strip()[:2500]
+    title_m = re.search(r"(?s)<title[^>]*>(.*?)</title>", html, re.I)
+    prospect_title = _unesc(re.sub(r"\s+", " ", title_m.group(1)).strip()) if title_m else ""
+
+    config = load_config()
+    system_message = (
+        "You write short, honest link-outreach emails for a small family business "
+        "(personalized wooden name trains and Montessori toys, made in the USA). "
+        "You reference ONLY what is in the provided PROSPECT PAGE CONTENT — never "
+        "invent details about their site, never flatter generically, never promise "
+        "anything. 90-140 words, specific, human. Return ONLY valid JSON."
+        + _NO_FABRICATION_RULE
+    )
+    user_prompt = f"""PROSPECT PAGE (actually fetched — this is what they published)
+url: {page_url}
+title: {prospect_title}
+content_excerpt: {text}
+
+OUR TARGET PAGE (what we want linked)
+url: {p.get('target_url')}
+ranks #{p.get('target_position')} for "{p.get('target_query')}" ({p.get('target_impressions', 0)} impressions/window)
+
+ANGLE (grounded in evidence): {p.get('angle', '')}
+EVIDENCE: {'; '.join(e.get('detail', '') for e in (p.get('evidence') or [])[:3])}
+
+TASK
+Write the outreach email. Reference ONE specific, real thing from the content_excerpt
+(a section, a list item, a claim) to show we read the page. Propose our page as a
+concrete addition/reference with a one-line reason it helps THEIR readers. No hype.
+
+Return JSON exactly:
+{{"subject": "...", "body": "...", "personalization_point": "the specific thing from their page you referenced"}}"""
+
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=700)
+    if err:
+        return jsonify({"error": err, "emails": emails, "contact_links": contact_links}), 502
+    result["emails"] = emails
+    result["contact_links"] = contact_links
+    result["fetched"] = True
+    result["prospect_page"] = page_url
+    return jsonify(result)
+
+
 def _schema_page_view(match):
     """Flatten an eval result into the shape rich_results expects: url/asset_type
     are top-level, but the crawled schema fields live under page_metadata."""
@@ -8355,6 +8484,43 @@ def _playbook_add_task_impl(body):
             "implementation_summary": f"Add {stype} schema (missing)",
             "implementation_steps": steps,
         })
+    elif method == "link_prospect":
+        pdom = body.get("prospect_domain", "")
+        ppage = body.get("prospect_url", "")
+        ptitle = body.get("prospect_title", "")
+        query = body.get("query", "")
+        pos = body.get("position", 0)
+        impr = body.get("impressions", 0)
+        angle = body.get("angle", "")
+        evidence = body.get("evidence", []) or []
+        steps = [
+            f"Outreach target: {pdom}" + (f" — {ptitle}" if ptitle else "") +
+            (f" ({ppage})" if ppage else ""),
+            f"Goal: earn a contextual link to {url} — it ranks #{pos} for "
+            f"“{query}” ({impr:,} impressions) and external authority is the "
+            f"remaining lever.",
+            "Evidence this prospect fits:",
+        ]
+        steps += [f"• {e}" for e in evidence[:4]]
+        steps += [
+            f"Angle: {angle}" if angle else "Angle: propose the page as a specific, "
+                                            "relevant addition — never a generic pitch.",
+            "READ their page first, find the contact/editor, and personalize — "
+            "reference something real on the page (never claim to have read what "
+            "you haven't).",
+            "Log the outcome in this card's notes (sent / replied / won / no)."
+            " Re-check the query's position 6-8 weeks after a link lands.",
+        ]
+        data.update({
+            "action": "VISIBILITY_FIX",
+            "primary_constraint": "External Links / Outreach",
+            "expected_value": 0,
+            "confidence": 0.55,
+            "risk_level": "low",
+            "gsc_impressions": impr,
+            "implementation_summary": f"Outreach: {pdom} → link to “{query}” page",
+            "implementation_steps": steps,
+        })
     elif method == "pruning":
         disposition = body.get("disposition", "prune")
         reason = body.get("reason", "")
@@ -8405,6 +8571,8 @@ def _playbook_add_task_impl(body):
         _extra = body.get("schema_type", "")
     elif method == "ctr":
         _extra = body.get("query", "")
+    elif method == "link_prospect":
+        _extra = body.get("prospect_domain", "")
     elif method == "cro":
         _extra = "cro"
     elif method == "reviews":
