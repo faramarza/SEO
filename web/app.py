@@ -7773,6 +7773,28 @@ def api_click_yield():
     if not cy:
         return jsonify({"available": False, "needs_refresh": True,
                         "message": "No click-yield analysis yet — click Refresh to build it."})
+    # Hydrate tracked state so the page reflects reality on LOAD, not only after
+    # a click: a winnable page already adopted (and/or with a live board card)
+    # must show "✓ Tracked", never a fresh "+ Track & monitor" (the
+    # alphabet-themed-carpets confusion — tracked in fact, untracked on screen).
+    try:
+        adopted = _load_action_plan_store().get("adopted", {})
+        open_by_key = {}
+        for a in ActionLedger().get_all_actions():
+            if a.status.value in ("closed", "measured"):
+                continue
+            k = (a.recommendation_json or {}).get("dedup_key")
+            if k:
+                open_by_key[k] = a.status.value
+        for w in cy.get("winnable", []):
+            key = f"plan:winnable|{w.get('url')}|{w.get('query')}"
+            entry = adopted.get(key)
+            w["tracked"] = bool(entry) or key in open_by_key
+            w["board_status"] = open_by_key.get(key)
+            if entry:
+                w["review_date"] = entry.get("review_date")
+    except Exception as e:
+        print(f"[ClickYield] tracked-state hydration failed: {e}", flush=True)
     return jsonify(cy)
 
 

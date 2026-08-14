@@ -140,7 +140,9 @@ function cyWinnable(cy){
     <td class="cy-num">${x.position}</td>
     <td class="cy-num">${cyTrend(x)}</td>
     <td class="cy-fix">${cyFix(x)}${cySerp(x)}
-      <div class="cy-trackrow"><button class="cy-track" data-url="${esc(x.url)}" data-query="${esc(x.query)}" onclick="cyTrack(this)">＋ Track &amp; monitor</button></div>
+      <div class="cy-trackrow">${x.tracked
+        ? `<button class="cy-track cy-tracked" data-url="${esc(x.url)}" data-query="${esc(x.query)}" onclick="cyTrack(this)" title="Already tracked — click to re-sync the board card">✓ Tracked${x.board_status ? ' · on board (' + esc(x.board_status.replace(/_/g, ' ')) + ')' : ''}${x.review_date ? ' · auto-check ' + esc(x.review_date) : ''}</button>`
+        : `<button class="cy-track" data-url="${esc(x.url)}" data-query="${esc(x.query)}" onclick="cyTrack(this)">＋ Track &amp; monitor</button>`}</div>
     </td>
   </tr>`).join('');
   const defendNote = dropping
