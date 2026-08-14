@@ -263,17 +263,24 @@ def _striking_external_targets(existing_urls: set) -> list:
         rows = raw.get("rows", []) if isinstance(raw, dict) else (raw or [])
     except Exception:
         return []
-    out = []
+    # One slot per URL — a page ranking for several variants of the same query
+    # ("waldorf vs montessori" / "montessori vs waldorf") must not consume
+    # multiple striking slots on near-identical discovery searches. Keep the
+    # highest-impression query per URL.
+    best_by_url = {}
     for r in rows:
         if r.get("lever") != "external" or not r.get("url") or not r.get("query"):
             continue
         if r["url"] in existing_urls:
             continue
-        out.append({"url": r["url"], "query": r["query"],
-                    "impressions": r.get("impressions", 0) or 0,
-                    "position": r.get("position", 0) or 0,
-                    "trend": "unknown", "serp": {}, "_source": "striking"})
-    out.sort(key=lambda x: -x["impressions"])
+        cur = best_by_url.get(r["url"])
+        if cur is None or (r.get("impressions", 0) or 0) > cur["impressions"]:
+            best_by_url[r["url"]] = {
+                "url": r["url"], "query": r["query"],
+                "impressions": r.get("impressions", 0) or 0,
+                "position": r.get("position", 0) or 0,
+                "trend": "unknown", "serp": {}, "_source": "striking"}
+    out = sorted(best_by_url.values(), key=lambda x: -x["impressions"])
     return out[:max(0, MAX_STRIKING)]
 
 
