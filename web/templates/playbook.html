@@ -1383,7 +1383,8 @@ function renderLinkProspects(d) {
         <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier1||0}</span><span class="pb-geo-stat-lbl">Tier 1 — work first</span></div>
         <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier2||0}</span><span class="pb-geo-stat-lbl">Tier 2 — harder</span></div>
         <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier3||0}</span><span class="pb-geo-stat-lbl">Tier 3 — easier</span></div>
-        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.excluded_already_linking||0}</span><span class="pb-geo-stat-lbl">skipped (already link to you)</span></div>`;
+        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.excluded_already_linking||0}</span><span class="pb-geo-stat-lbl">skipped (already link to you)</span></div>
+        ${d.generated_at ? `<div style="align-self:center;font-size:12px;color:var(--text-muted);">discovered ${escHtml(String(d.generated_at).replace('T',' '))} · ${d.targets_considered||0} target pages</div>` : ''}`;
 
     let html = '';
     (d.provider_notes || []).forEach(n => {
@@ -1400,7 +1401,9 @@ function renderLinkProspects(d) {
     const rows = pool.filter(p => p.tier > 0);
     const watch = pool.filter(p => p.tier === 0);
     if (!rows.length && !watch.length) {
-        body.innerHTML = html + '<p class="empty-state">No qualified prospects found. Check provider notes above or widen the winnable set.</p>';
+        body.innerHTML = html + (PB_LINKS_FILTER
+            ? `<p class="empty-state">This page wasn't covered by the last discovery run${d.generated_at ? ' (built ' + escHtml(String(d.generated_at).replace('T',' ')) + ')' : ''} — it may have become a target since, or no qualified prospects were found for it. Click <strong>Discover Prospects</strong> to re-run with the current target set.</p>`
+            : '<p class="empty-state">No qualified prospects found. Check provider notes above or widen the winnable set.</p>');
         return;
     }
     html += `<table class="pb-table"><thead><tr>
