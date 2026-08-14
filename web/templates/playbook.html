@@ -227,7 +227,8 @@
     <section class="pb-panel" id="pb-links">
         <div class="pb-explain">
             <strong>Method: GSC-driven link prospecting.</strong> Your winnable pages
-            (position 4–20, non-brand demand, ~0 clicks) are the URLs where external
+            (position 4–20, non-brand demand, ~0 clicks) plus the Striking Distance
+            rows marked <em>Needs backlinks</em> are the URLs where external
             authority is the remaining lever. For each, this finds
             <strong>SHOULD-GET</strong> prospects (topically visible resource/roundup
             pages, via Serper) and <strong>CAN-GET</strong> prospects (domains that
@@ -851,7 +852,7 @@ function renderStrikingTable(rows) {
     view.forEach(r => {
         html += `<tr>
             <td><strong>${escHtml(r.query)}</strong>
-                <span class="pb-lever" style="color:${r.lever_color};border-color:${r.lever_color};">${escHtml(r.lever_label)}</span>
+                <span class="pb-lever" style="color:${r.lever_color};border-color:${r.lever_color};">${escHtml(r.lever_label)}</span>${r.lever === 'external' ? `<span class="pb-bl-slot" data-bl-url="${escHtml(r.url)}"></span>` : ''}
                 <div class="pb-todo">→ ${escHtml(r.action_hint)}</div></td>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
             <td class="pb-num">${r.position}</td>
@@ -864,6 +865,35 @@ function renderStrikingTable(rows) {
     });
     html += '</tbody></table>';
     cont.innerHTML = html;
+    pbAnnotateBacklinkLevers();
+}
+
+// ── Bridge: "Needs backlinks" striking rows ↔ Link Prospects tab ──
+function pbAnnotateBacklinkLevers() {
+    if (!PB_LINKS || !PB_LINKS.available) return;
+    document.querySelectorAll('.pb-bl-slot[data-bl-url]').forEach(el => {
+        const url = el.dataset.blUrl;
+        const matches = (PB_LINKS.prospects || []).filter(p => p.target_url === url && p.tier > 0);
+        const jump = `event.preventDefault();pbShowLinkProspectsFor('${escHtml(url).replace(/'/g, "\\'")}')`;
+        if (matches.length) {
+            const top = matches.slice(0, 3).map(p => `${p.domain} (${p.final_score})`).join(', ');
+            el.innerHTML = ` <a href="#" style="font-size:11px;font-weight:600;color:#d97706;text-decoration:none;border:1px solid #fbbf24;border-radius:10px;padding:1px 7px;margin-left:6px;white-space:nowrap;"
+                title="Top prospects: ${escHtml(top)} — click to see them all with evidence and outreach angles"
+                onclick="${jump}">🔗 ${matches.length} link prospect${matches.length > 1 ? 's' : ''} found →</a>`;
+        } else {
+            el.innerHTML = ` <a href="#" style="font-size:11px;color:#92400e;text-decoration:none;border:1px dashed #fbbf24;border-radius:10px;padding:1px 7px;margin-left:6px;white-space:nowrap;"
+                title="No prospects discovered for this page yet — open Link Prospects and click Discover Prospects (it now targets 'Needs backlinks' pages too)"
+                onclick="${jump}">🔗 find prospects →</a>`;
+        }
+    });
+}
+
+function pbShowLinkProspectsFor(url) {
+    PB_LINKS_FILTER = url;
+    pbShowTab('links');
+    renderLinkProspects(PB_LINKS);
+    const panel = document.getElementById('pb-links');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderDecay(decay) {
@@ -1321,6 +1351,7 @@ async function pbLoadAio(btn) {
 
 // ── Link Prospects ──────────────────────────────────────────
 let PB_LINKS = null;
+let PB_LINKS_FILTER = null;  // target URL filter (set by the striking-row bridge)
 const LINK_TIER_LABEL = {1: ['Tier 1 — work first', '#166534', '#dcfce7'],
                          2: ['Tier 2 — high impact, harder', '#1e40af', '#dbeafe'],
                          3: ['Tier 3 — easier win', '#92400e', '#fef3c7'],
@@ -1333,6 +1364,7 @@ async function pbLoadLinkProspects() {
         const d = await res.json();
         PB_LINKS = d;
         renderLinkProspects(d);
+        pbAnnotateBacklinkLevers();
     } catch (e) {
         body.innerHTML = `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
     }
@@ -1357,8 +1389,16 @@ function renderLinkProspects(d) {
     (d.provider_notes || []).forEach(n => {
         html += `<div class="pb-geo-note" style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:8px;">ℹ️ ${escHtml(n)}</div>`;
     });
-    const rows = (d.prospects || []).filter(p => p.tier > 0);
-    const watch = (d.prospects || []).filter(p => p.tier === 0);
+    let pool = d.prospects || [];
+    if (PB_LINKS_FILTER) {
+        const filtered = pool.filter(p => p.target_url === PB_LINKS_FILTER);
+        html += `<div class="pb-geo-note" style="font-style:normal;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;margin-bottom:8px;">
+            Showing ${filtered.length} prospect(s) for <strong>${escHtml(fmtUrl(PB_LINKS_FILTER))}</strong>
+            <button class="pb-task-btn pb-task-btn-alt" style="margin-left:8px;" onclick="PB_LINKS_FILTER=null;renderLinkProspects(PB_LINKS);">✕ Show all</button></div>`;
+        pool = filtered;
+    }
+    const rows = pool.filter(p => p.tier > 0);
+    const watch = pool.filter(p => p.tier === 0);
     if (!rows.length && !watch.length) {
         body.innerHTML = html + '<p class="empty-state">No qualified prospects found. Check provider notes above or widen the winnable set.</p>';
         return;

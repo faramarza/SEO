@@ -59,6 +59,7 @@ def _env_float(name, default):
 
 
 MAX_PAGES = _env_int("LINK_PROSPECT_MAX_PAGES", 10)            # winnable pages to prospect for
+MAX_STRIKING = _env_int("LINK_PROSPECT_MAX_STRIKING", 5)       # extra "Needs backlinks" striking pages
 SEARCHES_PER_QUERY = _env_int("LINK_PROSPECT_SEARCHES_PER_QUERY", 2)
 PEERS_PER_QUERY = _env_int("LINK_PROSPECT_PEERS_PER_QUERY", 2)
 LINKS_PER_PEER = _env_int("LINK_PROSPECT_LINKS_PER_PEER", 25)
@@ -248,6 +249,34 @@ def _angle(pr):
             "page as a citable reference for a specific claim or product category.")
 
 
+def _striking_external_targets(existing_urls: set) -> list:
+    """Striking-distance pages whose remaining lever is EXTERNAL links — the rows
+    the Playbook labels 'Needs backlinks' (query already in title/H1, internal
+    links tapped). They aren't all in the winnable set, so add them as prospect
+    targets. They carry no cached SERP intel, so they get SHOULD-GET discovery
+    only (the can-get side needs the winnable pages' cached peer data)."""
+    try:
+        eval_path = PROJECT_ROOT / "data" / "latest_evaluation.json"
+        results = json.loads(eval_path.read_text()).get("results", [])
+        from src.analysis.growth_playbook import find_striking_distance
+        raw = find_striking_distance(results)
+        rows = raw.get("rows", []) if isinstance(raw, dict) else (raw or [])
+    except Exception:
+        return []
+    out = []
+    for r in rows:
+        if r.get("lever") != "external" or not r.get("url") or not r.get("query"):
+            continue
+        if r["url"] in existing_urls:
+            continue
+        out.append({"url": r["url"], "query": r["query"],
+                    "impressions": r.get("impressions", 0) or 0,
+                    "position": r.get("position", 0) or 0,
+                    "trend": "unknown", "serp": {}, "_source": "striking"})
+    out.sort(key=lambda x: -x["impressions"])
+    return out[:max(0, MAX_STRIKING)]
+
+
 # ────────────────────────────────────────────────── main
 def compute_link_prospects(config: dict) -> dict:
     """Build the ranked prospect list from the cached winnable set. Best-effort
@@ -258,11 +287,6 @@ def compute_link_prospects(config: dict) -> dict:
 
     cy = load_click_yield()
     winnable = (cy or {}).get("winnable") or []
-    if not winnable:
-        return {"available": False,
-                "reason": "No winnable pages cached — run Click Yield first (it defines "
-                          "which URLs deserve link-building effort).",
-                "generated_at": datetime.now().isoformat(timespec="seconds")}
 
     _dom, own_forms = _site_identity(config)
     log: list = []
@@ -279,6 +303,15 @@ def compute_link_prospects(config: dict) -> dict:
                    "can't exclude domains that already link to you.")
 
     targets = winnable[:MAX_PAGES]
+    # Also prospect for the Playbook's "Needs backlinks" striking-distance pages,
+    # so the two features cross-link instead of talking past each other.
+    targets = targets + _striking_external_targets({w["url"] for w in targets})
+    if not targets:
+        return {"available": False,
+                "reason": "No target pages found — run Click Yield (winnable pages) "
+                          "and/or an evaluation (striking-distance pages) first; they "
+                          "define which URLs deserve link-building effort.",
+                "generated_at": datetime.now().isoformat(timespec="seconds")}
     max_impr = max((w.get("impressions") or 1) for w in targets)
     used_peers: set = set()
     by_domain: dict = {}
@@ -313,6 +346,7 @@ def compute_link_prospects(config: dict) -> dict:
                     "target_position": w.get("position"),
                     "target_impressions": w.get("impressions", 0),
                     "target_trend": w.get("trend", "unknown"),
+                    "target_source": w.get("_source", "winnable"),
                     "evidence": [],
                 }
             pr["evidence"].append(cand["evidence"])
