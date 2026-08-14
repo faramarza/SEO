@@ -37,13 +37,29 @@ LANGUAGE_CODE = os.environ.get("DATAFORSEO_LANGUAGE_CODE", "en")
 
 
 def _creds():
-    return (os.environ.get("DATAFORSEO_LOGIN", ""),
-            os.environ.get("DATAFORSEO_PASSWORD", ""))
+    return (os.environ.get("DATAFORSEO_LOGIN", "").strip(),
+            os.environ.get("DATAFORSEO_PASSWORD", "").strip())
+
+
+def _auth_token() -> str:
+    """Basic-auth token. Accepts EITHER a ready-made base64 string
+    (DATAFORSEO_BASE64 — copy it from DataForSEO's logged-in docs/dashboard, with
+    or without the leading 'Basic ') OR DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD,
+    from which the token is built. The base64 form avoids every shell/.env
+    quoting pitfall since it's plain alphanumeric."""
+    b64 = os.environ.get("DATAFORSEO_BASE64", "").strip()
+    if b64:
+        if b64.lower().startswith("basic "):
+            b64 = b64[6:].strip()
+        return b64
+    login, password = _creds()
+    if login and password:
+        return base64.b64encode(f"{login}:{password}".encode()).decode()
+    return ""
 
 
 def is_configured() -> bool:
-    login, password = _creds()
-    return bool(login and password)
+    return bool(_auth_token())
 
 
 def _load_cache() -> dict:
@@ -174,8 +190,7 @@ def fetch_aio_citation(query: str, own_domain: str = "") -> Optional[dict]:
                 f"({DAILY_LIMIT}/day). Raise DATAFORSEO_DAILY_LIMIT or wait for reset."}
 
     import httpx
-    login, password = _creds()
-    token = base64.b64encode(f"{login}:{password}".encode()).decode()
+    token = _auth_token()
     body = [{
         "keyword": query,
         "location_code": LOCATION_CODE,
@@ -259,8 +274,7 @@ def fetch_referring_links(target: str, limit: int = 25) -> dict:
                 "or wait for reset."}
 
     import httpx
-    login, password = _creds()
-    token = base64.b64encode(f"{login}:{password}".encode()).decode()
+    token = _auth_token()
     body = [{"target": target, "limit": max(1, min(limit, 100)),
              "mode": "one_per_domain", "order_by": ["domain_from_rank,desc"]}]
     try:
