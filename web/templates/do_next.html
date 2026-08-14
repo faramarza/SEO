@@ -62,6 +62,15 @@ async function loadStrategy(refresh){
     try{
         const res=await fetch('/api/action-plan/strategy'+(refresh?'?refresh=1':''));
         const d=await res.json();
+        if(d.pending){
+            // Brief is generating in the background (LLM call) — poll a few times.
+            window._stratPolls=(window._stratPolls||0)+1;
+            if(window._stratPolls<=6) setTimeout(()=>loadStrategy(false), 15000);
+            if(refresh) box.innerHTML='<p class="pb-loading" style="margin:0;">Re-reading your whole picture… (finishes in the background, ~1-2 min)</p>';
+            else box.style.display='none';
+            return;
+        }
+        window._stratPolls=0;
         if(d.error || !d.focus){ box.style.display='none'; return; }
         box.style.display='block';
         const moves=(d.moves||[]).map(m=>`<li>${esc(m)}</li>`).join('');

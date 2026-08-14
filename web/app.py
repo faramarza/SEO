@@ -5704,33 +5704,64 @@ def api_mark_notifications_read():
 # ============================================================
 
 EVAL_HISTORY_PATH = DATA_PATH / "eval_history"
+# History snapshots only feed TREND consumers (content decay, growth charts,
+# movers), which read five small per-page GSC fields — but the writer used to
+# copy the ENTIRE evaluation into history (body_html and all: tens of MB per
+# snapshot, one more every auto-eval). Loading every full snapshot into RAM on
+# each Do-This-Next / strategy request eventually OOM-hung gunicorn workers
+# (WORKER TIMEOUT → SIGKILL → HTML error page instead of JSON). Snapshots are
+# now stripped at write, legacy full copies are compacted in place, reads are
+# capped, and files are parsed one-at-a-time so at most one full document is
+# ever in memory.
+EVAL_HISTORY_MAX_SNAPSHOTS = int(os.environ.get("EVAL_HISTORY_MAX_SNAPSHOTS", "24"))
+EVAL_HISTORY_MAX_FILES = int(os.environ.get("EVAL_HISTORY_MAX_FILES", "60"))
+
+
+def _strip_history_snapshot(snap):
+    """Reduce an evaluation to the minimal per-page series trend consumers read."""
+    return {"timestamp": snap.get("timestamp", ""),
+            "results": [{"url": r.get("url", ""),
+                         "asset_type": r.get("asset_type", "other"),
+                         "gsc_clicks": r.get("gsc_clicks", 0) or 0,
+                         "gsc_impressions": r.get("gsc_impressions", 0) or 0,
+                         "gsc_position": r.get("gsc_position", 0) or 0}
+                        for r in snap.get("results", [])]}
+
+
+def _load_history_snapshots(limit=None):
+    """Chronological (oldest-first) STRIPPED history snapshots — newest `limit`
+    files. Legacy full snapshots are stripped immediately after parse."""
+    if limit is None:
+        limit = EVAL_HISTORY_MAX_SNAPSHOTS
+    snaps = []
+    if EVAL_HISTORY_PATH.exists():
+        for p in sorted(EVAL_HISTORY_PATH.glob("*.json"))[-max(1, limit):]:
+            try:
+                with open(p) as f:
+                    snaps.append(_strip_history_snapshot(json.load(f)))
+            except (json.JSONDecodeError, OSError):
+                continue
+    return snaps
 
 
 @app.route("/api/growth/summary")
 def api_growth_summary():
     """Growth movers + evaluation history for charts."""
     eval_path = DATA_PATH / "latest_evaluation.json"
-    history_path = EVAL_HISTORY_PATH
 
-    # Load evaluation history for charts
+    # One stripped pass over history feeds BOTH the charts and the movers —
+    # never re-parse full snapshot files here.
+    all_snaps = _load_history_snapshots(limit=EVAL_HISTORY_MAX_FILES)
+
     history = []
-    if history_path.exists():
-        for f in sorted(history_path.glob("*.json")):
-            try:
-                with open(f) as fh:
-                    snap = json.load(fh)
-                results = snap.get("results", [])
-                total_clicks = sum(r.get("gsc_clicks", 0) for r in results)
-                total_impressions = sum(r.get("gsc_impressions", 0) for r in results)
-                total_pages = len(results)
-                history.append({
-                    "date": snap.get("timestamp", f.stem)[:10],
-                    "total_clicks": total_clicks,
-                    "total_impressions": total_impressions,
-                    "total_pages": total_pages,
-                })
-            except (json.JSONDecodeError, OSError):
-                pass
+    for snap in all_snaps:
+        results = snap.get("results", [])
+        history.append({
+            "date": (snap.get("timestamp", "") or "")[:10],
+            "total_clicks": sum(r.get("gsc_clicks", 0) for r in results),
+            "total_impressions": sum(r.get("gsc_impressions", 0) for r in results),
+            "total_pages": len(results),
+        })
 
     # Compute movers: compare latest vs previous eval
     gainers = []
@@ -5739,13 +5770,10 @@ def api_growth_summary():
     current_date = ""
     previous_date = ""
 
-    snapshots = sorted(history_path.glob("*.json")) if history_path.exists() else []
-    if len(snapshots) >= 2:
+    if len(all_snaps) >= 2:
         try:
-            with open(snapshots[-1]) as f:
-                current = json.load(f)
-            with open(snapshots[-2]) as f:
-                previous = json.load(f)
+            current = all_snaps[-1]
+            previous = all_snaps[-2]
 
             current_date = current.get("timestamp", "")[:10]
             previous_date = previous.get("timestamp", "")[:10]
@@ -6842,16 +6870,35 @@ def api_run_evaluation():
             job_state["message"] = "Saving results..."
             workflow.save_results_for_dashboard()
 
-            # Save snapshot for growth tracking
+            # Save snapshot for growth tracking — STRIPPED to the per-page GSC
+            # series (full copies with body_html were tens of MB each and
+            # OOM-hung workers when trend consumers loaded them all).
             try:
                 from datetime import datetime as _dt
                 eval_file = DATA_PATH / "latest_evaluation.json"
                 if eval_file.exists():
                     EVAL_HISTORY_PATH.mkdir(parents=True, exist_ok=True)
                     snapshot_name = _dt.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
-                    import shutil
-                    shutil.copy2(eval_file, EVAL_HISTORY_PATH / snapshot_name)
-            except OSError:
+                    with open(eval_file) as _ef:
+                        _snap = _strip_history_snapshot(json.load(_ef))
+                    (EVAL_HISTORY_PATH / snapshot_name).write_text(json.dumps(_snap))
+                    # Compact legacy FULL snapshots in place (same fields kept).
+                    for _old in EVAL_HISTORY_PATH.glob("*.json"):
+                        try:
+                            if _old.stat().st_size > 1_000_000:
+                                with open(_old) as _of:
+                                    _s = _strip_history_snapshot(json.load(_of))
+                                _old.write_text(json.dumps(_s))
+                        except (json.JSONDecodeError, OSError):
+                            continue
+                    # Retention: keep only the newest N snapshot files.
+                    _files = sorted(EVAL_HISTORY_PATH.glob("*.json"))
+                    for _stale in _files[:-EVAL_HISTORY_MAX_FILES]:
+                        try:
+                            _stale.unlink()
+                        except OSError:
+                            pass
+            except (json.JSONDecodeError, OSError):
                 pass
 
             job_state["message"] = "Evaluation complete!"
@@ -7330,18 +7377,12 @@ def api_playbook():
             pass
         out["rich_results"] = rr
     if section in ("all", "decay"):
-        # Load chronological history snapshots (oldest first).
-        snaps = []
-        if EVAL_HISTORY_PATH.exists():
-            for p in sorted(EVAL_HISTORY_PATH.glob("*.json")):
-                try:
-                    with open(p) as f:
-                        snaps.append(json.load(f))
-                except (json.JSONDecodeError, OSError):
-                    continue
+        # Chronological STRIPPED history (oldest first) — never hold full
+        # snapshots in memory here.
+        snaps = _load_history_snapshots()
         # Ensure the current evaluation is represented as the latest point.
         if not snaps or snaps[-1].get("timestamp") != eval_data.get("timestamp"):
-            snaps.append(eval_data)
+            snaps.append(_strip_history_snapshot(eval_data))
         out["decay"] = gp.find_content_decay(snaps, system_disallow=disallow)
 
     # Dedup keys of tasks ALREADY on the Task Board (proposed), so the Playbook
@@ -7421,17 +7462,11 @@ def _build_plan_inputs(results, eval_data, disallow):
         brand_terms = ["alphabet trains"]
     bm = brand_merchant_audit(results, brand_terms, system_disallow=disallow)
     striking = gp.find_striking_distance(results, system_disallow=disallow)
-    # Decay needs history snapshots.
-    snaps = []
-    if EVAL_HISTORY_PATH.exists():
-        for p in sorted(EVAL_HISTORY_PATH.glob("*.json")):
-            try:
-                with open(p) as f:
-                    snaps.append(json.load(f))
-            except (json.JSONDecodeError, OSError):
-                continue
+    # Decay needs history snapshots — STRIPPED and capped (loading every full
+    # snapshot here is what OOM-hung the Do-This-Next workers).
+    snaps = _load_history_snapshots()
     if not snaps or snaps[-1].get("timestamp") != eval_data.get("timestamp"):
-        snaps.append(eval_data)
+        snaps.append(_strip_history_snapshot(eval_data))
     decay = gp.find_content_decay(snaps, system_disallow=disallow)
     orphans = gp.find_orphans_and_clusters(results, system_disallow=disallow)
     pruning = gp.find_pruning_candidates(results, system_disallow=disallow)
@@ -7672,6 +7707,41 @@ def api_action_plan_strategy():
         except (json.JSONDecodeError, OSError):
             pass
 
+    # Cache miss: generating the brief gathers every signal AND calls the LLM
+    # (allowed up to ~2 min) — far past gunicorn's request timeout, so doing it
+    # on the request thread hung workers (WORKER TIMEOUT → SIGKILL → the HTML
+    # error page the UI showed as "not valid JSON"). Generate in the background
+    # and return pending; the UI re-polls until the cache is written.
+    marker = DATA_PATH / ".strategy_inflight"
+    try:
+        inflight = (time.time() - marker.stat().st_mtime) < 600
+    except OSError:
+        inflight = False
+    if inflight:
+        return jsonify({"pending": True})
+
+    try:
+        marker.write_text(str(time.time()))
+    except OSError:
+        pass
+
+    def _generate_strategy_brief():
+        try:
+            _run_strategy_generation(eval_data, ts, cache_path, STRATEGY_PROMPT_VERSION)
+        except Exception as e:
+            print(f"[Strategy] generation failed: {e}", flush=True)
+        finally:
+            try:
+                marker.unlink()
+            except OSError:
+                pass
+
+    threading.Thread(target=_generate_strategy_brief, daemon=True).start()
+    return jsonify({"pending": True})
+
+
+def _run_strategy_generation(eval_data, ts, cache_path, prompt_version):
+    """The actual strategy-brief computation — runs OFF the request thread."""
     results = eval_data.get("results", [])
     signals = _gather_strategy_signals(results, eval_data, _robots_disallow_rules())
     config = load_config()
@@ -7753,15 +7823,15 @@ Return JSON exactly:
 }}"""
     result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
     if err or not isinstance(result, dict):
-        return jsonify({"error": err or "strategy generation failed"}), 502
+        print(f"[Strategy] LLM error: {err or 'no dict result'}", flush=True)
+        return
     out = {"timestamp": ts, "generated_at": _now_date_iso(),
-           "prompt_version": STRATEGY_PROMPT_VERSION, **result}
+           "prompt_version": prompt_version, **result}
     try:
         with open(cache_path, "w") as f:
             json.dump(out, f, indent=2)
     except OSError:
         pass
-    return jsonify(out)
 
 
 @app.route("/api/click-yield")
