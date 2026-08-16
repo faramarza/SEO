@@ -240,6 +240,8 @@
         </div>
         <div style="margin-bottom:14px;">
             <button class="pb-task-btn" id="pb-links-run" onclick="pbRefreshLinkProspects(this)">Discover Prospects</button>
+            <button class="pb-task-btn pb-task-btn-alt2" id="pb-links-draftall" onclick="pbDraftAll(this)"
+                title="Generates a grounded outreach draft for every Tier 1-2 prospect that lacks one (fetches each page + finds contacts). You still review and send each one yourself.">✍️ Draft All (Tier 1–2)</button>
             <button class="pb-task-btn pb-task-btn-alt" onclick="pbExportLinksCsv()">Export CSV</button>
         </div>
         <div id="pb-links-summary" class="pb-geo-summary"></div>
@@ -1430,10 +1432,13 @@ function pbLinkRow(p) {
         ? `<a href="${escHtml(p.page_url)}" target="_blank" title="${escHtml(p.page_url)}">${escHtml(p.page_title.slice(0, 70))}</a>`
         : (p.page_url ? `<a href="${escHtml(p.page_url)}" target="_blank">${escHtml(p.page_url.slice(0, 60))}</a>` : '');
     const key = pbKey('link', p.target_url, p.domain);
+    const draftBtn = p.draft
+        ? ` <button class="pb-task-btn" style="background:#dcfce7;color:#166534;border-color:#86efac;" onclick="pbViewDraft(${idx})" title="Draft ready (${escHtml(p.draft.drafted_at || '')}) — click to read, copy, and send">✉️ Draft ready</button>`
+        : ` <button class="pb-task-btn pb-task-btn-alt" onclick="pbDraftOutreach(${idx}, this)" title="Fetches their page, finds contact routes, and writes a grounded draft">Draft</button>`;
     const btn = (pbIsAdded(key)
         ? '<button class="pb-task-btn pb-added" disabled>✓ Added</button>'
         : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddLinkTask(${idx}, this)">+ Task</button>`)
-        + ` <button class="pb-task-btn pb-task-btn-alt" onclick="pbDraftOutreach(${idx}, this)" title="Fetches their page, finds contact routes, and writes a grounded draft">Draft</button>`;
+        + draftBtn;
     return `<tr>
         <td><span class="pb-badge" style="background:${bg};color:${fg};white-space:nowrap;">${label}</span></td>
         <td><strong>${escHtml(p.domain)}</strong><div style="font-size:12px;">${page}</div></td>
@@ -1496,6 +1501,37 @@ async function pbAddLinkTask(idx, btn) {
     } catch (e) { if (btn) { btn.disabled = false; btn.textContent = '+ Task'; } pbToast('Failed: ' + e.message, true); }
 }
 
+function pbRenderDraftModal(idx, p, d) {
+    const fbody = document.getElementById('pb-faq-body');
+    const contacts = [];
+    (d.emails || []).forEach(e => contacts.push(`✉️ <a href="mailto:${escHtml(e)}">${escHtml(e)}</a>`));
+    (d.contact_links || []).forEach(c => contacts.push(`🔗 <a href="${escHtml(c)}" target="_blank">${escHtml(c)}</a>`));
+    const contactHtml = contacts.length
+        ? `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;"><strong>Contact routes found on their page:</strong><br>${contacts.join('<br>')}</div>`
+        : `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;">No contact route found on the fetched page — check their site's contact/about page manually.</div>`;
+    if (d.error) {
+        fbody.innerHTML = contactHtml + `<p class="empty-state">${escHtml(d.error)}</p>`;
+        return;
+    }
+    fbody.innerHTML = contactHtml + `
+        <div class="pb-geo-note" style="font-style:normal;margin-bottom:8px;">Personalization anchor (verify it reads right): ${escHtml(d.personalization_point || '')}</div>
+        <div style="background:var(--bg-secondary,#f8fafc);border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+            <div style="font-weight:600;margin-bottom:8px;">Subject: ${escHtml(d.subject || '')}</div>
+            <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;">${escHtml(d.body || '')}</div>
+        </div>
+        <button class="pb-copy-btn" style="margin-top:10px;" onclick="navigator.clipboard.writeText(${JSON.stringify('')} + this.dataset.txt).then(()=>pbToast('Copied'))" data-txt="${escHtml('Subject: ' + (d.subject || '') + '\n\n' + (d.body || ''))}">Copy email</button>
+        <button class="pb-task-btn pb-task-btn-alt" style="margin-top:10px;margin-left:8px;" onclick="pbDraftOutreach(${idx}, this)" title="Re-fetch their page and write a fresh draft">↻ Regenerate</button>
+        <p class="pb-geo-note" style="margin-top:8px;">Review before sending — this is a draft grounded in their fetched page, not an auto-send.${d.drafted_at ? ' Drafted ' + escHtml(String(d.drafted_at).replace('T',' ')) + '.' : ''}</p>`;
+}
+
+function pbViewDraft(idx) {
+    const p = (PB_LINKS && PB_LINKS.prospects || [])[idx];
+    if (!p || !p.draft) return;
+    document.querySelector('#pb-faq-modal h2').textContent = `Outreach draft — ${p.domain}`;
+    document.getElementById('pb-faq-modal').classList.remove('hidden');
+    pbRenderDraftModal(idx, p, p.draft);
+}
+
 async function pbDraftOutreach(idx, btn) {
     const p = (PB_LINKS && PB_LINKS.prospects || [])[idx];
     if (!p) return;
@@ -1510,27 +1546,42 @@ async function pbDraftOutreach(idx, btn) {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ index: idx }) });
         const d = await res.json();
-        const contacts = [];
-        (d.emails || []).forEach(e => contacts.push(`✉️ <a href="mailto:${escHtml(e)}">${escHtml(e)}</a>`));
-        (d.contact_links || []).forEach(c => contacts.push(`🔗 <a href="${escHtml(c)}" target="_blank">${escHtml(c)}</a>`));
-        const contactHtml = contacts.length
-            ? `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;"><strong>Contact routes found on their page:</strong><br>${contacts.join('<br>')}</div>`
-            : `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;">No contact route found on the fetched page — check their site's contact/about page manually.</div>`;
-        if (d.error) {
-            fbody.innerHTML = contactHtml + `<p class="empty-state">${escHtml(d.error)}</p>`;
-            return;
-        }
-        fbody.innerHTML = contactHtml + `
-            <div class="pb-geo-note" style="font-style:normal;margin-bottom:8px;">Personalization anchor (verify it reads right): ${escHtml(d.personalization_point || '')}</div>
-            <div style="background:var(--bg-secondary,#f8fafc);border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
-                <div style="font-weight:600;margin-bottom:8px;">Subject: ${escHtml(d.subject || '')}</div>
-                <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;">${escHtml(d.body || '')}</div>
-            </div>
-            <button class="pb-copy-btn" style="margin-top:10px;" onclick="navigator.clipboard.writeText(${JSON.stringify('')} + this.dataset.txt).then(()=>pbToast('Copied'))" data-txt="${escHtml('Subject: ' + (d.subject || '') + '\n\n' + (d.body || ''))}">Copy email</button>
-            <p class="pb-geo-note" style="margin-top:8px;">Review before sending — this is a draft grounded in their fetched page, not an auto-send.</p>`;
+        if (!d.error) { p.draft = d; renderLinkProspects(PB_LINKS); }
+        pbRenderDraftModal(idx, p, d);
     } catch (e) {
         fbody.innerHTML = `<p class="empty-state">Failed: ${escHtml(e.message)}</p>`;
     } finally { if (btn) btn.disabled = false; }
+}
+
+async function pbDraftAll(btn) {
+    if (!PB_LINKS || !PB_LINKS.available) { pbToast('Run Discover Prospects first', true); return; }
+    const missing = (PB_LINKS.prospects || []).filter(p => (p.tier === 1 || p.tier === 2) && !p.draft).length;
+    if (!missing) { pbToast('Every Tier 1-2 prospect already has a draft ✓'); return; }
+    if (!confirm(`Draft outreach emails for ${missing} Tier 1-2 prospect(s)? Each one fetches the prospect's page and writes a grounded draft (~15s each). Nothing is sent — you review every email.`)) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Drafting…'; }
+    try {
+        const res = await fetch('/api/link-prospects/draft-all', { method: 'POST' });
+        const d = await res.json();
+        if (d.status === 'busy') { pbToast('Another job is running — try again shortly', true); if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; } return; }
+        if (d.status === 'nothing_to_do') { pbToast(d.message); if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; } return; }
+        const poll = setInterval(async () => {
+            try {
+                const sr = await fetch('/api/job-status');
+                const st = await sr.json();
+                if (st.running) { if (btn) btn.textContent = st.message || 'Drafting…'; return; }
+                clearInterval(poll);
+                if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; }
+                pbToast(st.error ? ('Draft-all error: ' + String(st.error).split('\n')[0]) : (st.message || 'Drafts ready'));
+                pbLoadLinkProspects();
+            } catch (e) {
+                clearInterval(poll);
+                if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; }
+            }
+        }, 3000);
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; }
+        pbToast('Failed to start: ' + e.message, true);
+    }
 }
 
 function pbExportLinksCsv() {

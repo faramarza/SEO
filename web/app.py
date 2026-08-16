@@ -468,6 +468,54 @@ def _claim_daily_autoreview():
         return False
 
 
+OUTREACH_FOLLOWUP_DAYS = int(os.environ.get("OUTREACH_FOLLOWUP_DAYS", "7"))
+
+
+def _process_outreach_followups():
+    """One notification per outreach card that's been open OUTREACH_FOLLOWUP_DAYS
+    with no outcome logged — the follow-up discipline that converts, without a bot
+    ever sending anything. Nudges once per card (recorded in a sidecar file)."""
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        path = DATA_PATH / "outreach_followups.json"
+        try:
+            nudged = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            nudged = {}
+        ledger = ActionLedger()
+        sent = 0
+        for a in ledger.get_all_actions():
+            rec = a.recommendation_json or {}
+            if rec.get("primary_constraint") != "External Links / Outreach":
+                continue
+            if a.status.value in ("closed", "measured") or a.action_id in nudged:
+                continue
+            try:
+                age_days = (_dt.now() - _dt.fromisoformat(a.created_at)).days
+            except (ValueError, TypeError):
+                continue
+            if age_days < OUTREACH_FOLLOWUP_DAYS:
+                continue
+            summary = rec.get("implementation_summary") or a.url
+            _save_notification({
+                "type": "outreach_followup", "severity": "info",
+                "action_id": a.action_id, "url": a.url,
+                "message": (f"Outreach follow-up due: '{summary}' has no outcome logged "
+                            f"after {age_days} days. Send a short follow-up referencing "
+                            "your first email, or log the outcome (won/no reply) on the "
+                            "Task Board card."),
+                "timestamp": _dt.now(_tz.utc).isoformat(),
+                "read": False,
+            })
+            nudged[a.action_id] = _dt.now(_tz.utc).isoformat()
+            sent += 1
+        if sent:
+            path.write_text(json.dumps(nudged, indent=2))
+            print(f"[OutreachFollowup] Nudged {sent} overdue outreach card(s)")
+    except Exception as e:
+        print(f"[OutreachFollowup] Error: {e}")
+
+
 def _run_autoreview_scheduler():
     """Daily hands-off Action Plan check-back: once a day (after AUTO_REVIEW_HOUR),
     re-measure every adopted task whose review date has arrived and record the
@@ -487,6 +535,8 @@ def _run_autoreview_scheduler():
                                                     ev.get("timestamp", ""))
                     if reviewed:
                         print(f"[AutoReview] Checked {len(reviewed)} due Action Plan task(s)")
+                # Same daily cadence: nudge stale outreach cards for follow-up.
+                _process_outreach_followups()
         except Exception as e:
             print(f"[AutoReview] Error: {e}")
         time.sleep(3600)  # re-check hourly; the day-marker ensures once/day
@@ -5212,30 +5262,18 @@ def api_link_prospects_refresh():
     return jsonify({"status": "started"})
 
 
-@app.route("/api/link-prospects/draft", methods=["POST"])
-def api_link_prospects_draft():
-    """Grounded outreach draft for ONE chosen prospect (spec §13/§20: generate
-    only after the user picks a prospect; never fabricate having read a page).
-    Fetches the prospect page live, extracts what it actually says + any contact
-    routes (mailto/contact/about links), then drafts a short personalized email
-    referencing only fetched content. Fails honestly if the page can't be read."""
-    body = request.json or {}
-    idx = body.get("index")
-    from src.analysis.link_prospects import load_link_prospects
-    cached = load_link_prospects() or {}
-    prospects = cached.get("prospects") or []
-    if idx is None or not (0 <= int(idx) < len(prospects)):
-        return jsonify({"error": "invalid prospect index"}), 400
-    p = prospects[int(idx)]
-
+def _generate_outreach_draft(p, config=None):
+    """Grounded outreach draft for one prospect: fetch their page live, extract
+    contact routes deterministically, then draft an email referencing ONLY fetched
+    content (never fabricate having read a page). Returns (result, error)."""
     page_url = p.get("page_url") or f"https://{p.get('domain', '')}"
     from src.metrics.click_yield import _fetch as _cy_fetch
     try:
         html = _cy_fetch(page_url)
     except Exception as e:
-        return jsonify({"error": f"Could not fetch the prospect page ({e}). An honest "
-                                 "draft requires reading their page — try the domain "
-                                 "homepage or write it manually.", "fetched": False}), 502
+        return None, (f"Could not fetch the prospect page ({e}). An honest draft "
+                      "requires reading their page — try the domain homepage or "
+                      "write it manually.")
 
     # Deterministic contact discovery from the page we actually fetched.
     emails = sorted(set(re.findall(r'mailto:([^"\'>\s?]+)', html)))[:5]
@@ -5255,7 +5293,7 @@ def api_link_prospects_draft():
     title_m = re.search(r"(?s)<title[^>]*>(.*?)</title>", html, re.I)
     prospect_title = _unesc(re.sub(r"\s+", " ", title_m.group(1)).strip()) if title_m else ""
 
-    config = load_config()
+    config = config or load_config()
     system_message = (
         "You write short, honest link-outreach emails for a small family business "
         "(personalized wooden name trains and Montessori toys, made in the USA). "
@@ -5286,12 +5324,102 @@ Return JSON exactly:
 
     result, err = _llm_json(system_message, user_prompt, config, max_tokens=700)
     if err:
-        return jsonify({"error": err, "emails": emails, "contact_links": contact_links}), 502
+        return None, err
     result["emails"] = emails
     result["contact_links"] = contact_links
     result["fetched"] = True
     result["prospect_page"] = page_url
+    result["drafted_at"] = datetime.now().isoformat(timespec="seconds")
+    return result, None
+
+
+def _store_prospect_draft(domain, target_url, draft):
+    """Persist a generated draft onto its prospect in the link-prospects cache so
+    it survives reloads (read → tweak → send workflow, no regeneration needed)."""
+    from src.analysis.link_prospects import load_link_prospects, save_link_prospects
+    cached = load_link_prospects()
+    if not cached:
+        return
+    for pr in cached.get("prospects", []):
+        if pr.get("domain") == domain and pr.get("target_url") == target_url:
+            pr["draft"] = draft
+            break
+    save_link_prospects(cached)
+
+
+@app.route("/api/link-prospects/draft", methods=["POST"])
+def api_link_prospects_draft():
+    """Grounded outreach draft for ONE chosen prospect. The result is stored on
+    the prospect in the cache, so it's a one-time cost per prospect."""
+    body = request.json or {}
+    idx = body.get("index")
+    from src.analysis.link_prospects import load_link_prospects
+    cached = load_link_prospects() or {}
+    prospects = cached.get("prospects") or []
+    if idx is None or not (0 <= int(idx) < len(prospects)):
+        return jsonify({"error": "invalid prospect index"}), 400
+    p = prospects[int(idx)]
+    result, err = _generate_outreach_draft(p)
+    if err:
+        return jsonify({"error": err, "fetched": False}), 502
+    _store_prospect_draft(p.get("domain"), p.get("target_url"), result)
     return jsonify(result)
+
+
+@app.route("/api/link-prospects/draft-all", methods=["POST"])
+def api_link_prospects_draft_all():
+    """Batch-draft every Tier 1/2 prospect that doesn't have a draft yet — runs in
+    the background (each draft = a live page fetch + an LLM call). The morning
+    workflow becomes: read → tweak → send. Sending stays human, always."""
+    global job_state
+    if job_state["running"]:
+        return jsonify({"error": "A job is already running", "status": "busy"}), 400
+    from src.analysis.link_prospects import load_link_prospects
+    cached = load_link_prospects() or {}
+    todo = [p for p in cached.get("prospects", [])
+            if p.get("tier", 0) in (1, 2) and not p.get("draft")]
+    if not todo:
+        return jsonify({"status": "nothing_to_do",
+                        "message": "Every Tier 1-2 prospect already has a draft."})
+
+    job_state.update({
+        "running": True, "type": "link_drafts", "error": None,
+        "message": f"Drafting {len(todo)} outreach emails…",
+        "progress": 0, "total": len(todo),
+    })
+
+    def run_drafts():
+        done = failed = 0
+        config = load_config()
+        try:
+            for i, p in enumerate(todo):
+                job_state["message"] = f"[{i+1}/{len(todo)}] Drafting for {p.get('domain')}…"
+                job_state["progress"] = i
+                try:
+                    result, err = _generate_outreach_draft(p, config)
+                    if err:
+                        failed += 1
+                        print(f"[DraftAll] {p.get('domain')}: {err}", flush=True)
+                    else:
+                        _store_prospect_draft(p.get("domain"), p.get("target_url"), result)
+                        done += 1
+                except Exception as e:
+                    failed += 1
+                    print(f"[DraftAll] {p.get('domain')}: {e}", flush=True)
+                time.sleep(1.0)  # be polite to prospect sites + pace LLM calls
+            job_state["message"] = (f"Drafted {done} outreach email(s)"
+                                    + (f", {failed} failed (page unreachable/LLM error)" if failed else "")
+                                    + ". Review each before sending.")
+        except Exception as e:
+            job_state["error"] = str(e)
+            job_state["message"] = f"Error: {e}"
+        finally:
+            job_state["progress"] = len(todo)
+            job_state["finished_at"] = datetime.now().strftime("%b %d, %Y %I:%M %p")
+            job_state["running"] = False
+
+    threading.Thread(target=run_drafts, daemon=True).start()
+    return jsonify({"status": "started", "count": len(todo)})
 
 
 def _schema_page_view(match):
