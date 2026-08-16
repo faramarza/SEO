@@ -74,6 +74,21 @@ PLATFORM_DOMAINS = ("facebook.", "instagram.", "pinterest.", "youtube.", "tiktok
                     "wikipedia.", "wikihow.", "medium.com", "yelp.", "bbb.org",
                     "google.", "apple.", "play.google")
 
+# Hosted-platform / staging subdomains: free site builders, dev previews, and
+# hosting sandboxes. These aren't publishers — there is no editor to reach and
+# no authority to gain. The classic trap: a STAGING CLONE of a SERP peer links
+# to its own production site, which scores as perfect "links to peer, dofollow,
+# topically identical" evidence while being outreach-worthless
+# (brown-woodcock-*.hostingersite.com taught us this one).
+HOSTED_PLATFORM_SUFFIXES = (
+    ".hostingersite.com", ".wixsite.com", ".weebly.com", ".wordpress.com",
+    ".blogspot.com", ".github.io", ".netlify.app", ".vercel.app", ".pages.dev",
+    ".myshopify.com", ".squarespace.com", ".webflow.io", ".godaddysites.com",
+    ".site123.me", ".web.app", ".firebaseapp.com", ".000webhostapp.com",
+    ".wpenginepowered.com", ".kinsta.cloud", ".myftpupload.com", ".repl.co",
+    ".glitch.me", ".neocities.org", ".carrd.co",
+)
+
 # Editorial page patterns that signal "this page curates external resources" —
 # both an impact signal (contextual placement) and a probability signal (they
 # routinely add items).
@@ -95,6 +110,8 @@ def _excluded(dom, own_forms):
     if any(m in dom for m in MARKETPLACES):
         return True
     if any(p in dom for p in PLATFORM_DOMAINS):
+        return True
+    if dom.endswith(HOSTED_PLATFORM_SUFFIXES):
         return True
     if any(f in dom for f in own_forms):
         return True
@@ -377,7 +394,9 @@ def compute_link_prospects(config: dict) -> dict:
                           if not (e["detail"] in seen_e or seen_e.add(e["detail"]))][:6]
         prospects.append(pr)
 
-    prospects.sort(key=lambda p: (-p["final_score"], p["tier"] == 0))
+    # Tiered prospects first (so the [:200] cap can never squeeze them out in
+    # favor of watchlist rows), then by score within each group.
+    prospects.sort(key=lambda p: (p["tier"] == 0, -p["final_score"]))
     tiers = {1: 0, 2: 0, 3: 0, 0: 0}
     for p in prospects:
         tiers[p["tier"]] += 1
