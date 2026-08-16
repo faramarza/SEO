@@ -248,7 +248,7 @@ function renderOpportunities(opportunities) {
             <td class="row-number">${globalIdx + 1}</td>
             <td class="url-cell" title="${escHtml(opp.url)}">
                 <a href="${escHtml(opp.url)}" target="_blank" class="url-link">${truncateUrl(opp.url)}</a>
-                ${demandSignalBadge(opp)}
+                ${demandSignalBadge(opp)}<span class="lp-slot" data-lp-url="${escHtml(opp.url)}"></span>
             </td>
             <td><span class="type-badge type-${opp.asset_type || 'other'}">${formatAssetType(opp.asset_type)}</span></td>
             <td><span class="constraint-badge constraint-${(opp.primary_constraint || 'none').replace(/_/g, '-')}">${formatConstraint(opp.primary_constraint)}</span></td>
@@ -274,7 +274,28 @@ function renderOpportunities(opportunities) {
     `}).join('');
 
     renderPagination(shown, totalPages);
+    lpAnnotate();
 }
+
+// ── 🔗 Link-prospect chips: shown on rows whose page the prospect engine has
+// ranked targets for (pages diagnosed as authority-constrained). Click opens
+// the Playbook Link Prospects tab filtered to that page.
+let LP_SUMMARY = null;
+async function lpLoadSummary() {
+    try { const r = await fetch('/api/link-prospects/summary'); LP_SUMMARY = await r.json(); lpAnnotate(); } catch (e) {}
+}
+function lpAnnotate() {
+    if (!LP_SUMMARY || !LP_SUMMARY.by_url) return;
+    document.querySelectorAll('.lp-slot[data-lp-url]').forEach(el => {
+        const info = LP_SUMMARY.by_url[el.dataset.lpUrl];
+        if (!info) { el.innerHTML = ''; return; }
+        el.innerHTML = ` <a href="/playbook?links_for=${encodeURIComponent(el.dataset.lpUrl)}"
+            style="font-size:11px;font-weight:600;color:#d97706;text-decoration:none;border:1px solid #fbbf24;border-radius:10px;padding:1px 6px;margin-left:4px;white-space:nowrap;"
+            onclick="event.stopPropagation();"
+            title="Link prospects ready: ${escHtml(info.top.join(', '))} — open the ranked list with evidence and outreach drafts">🔗 ${info.count}</a>`;
+    });
+}
+lpLoadSummary();
 
 function renderPagination(totalItems, totalPages) {
     const container = document.getElementById('pagination-controls');

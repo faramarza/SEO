@@ -5227,6 +5227,26 @@ def api_link_prospects():
     return jsonify(data)
 
 
+@app.route("/api/link-prospects/summary")
+def api_link_prospects_summary():
+    """Compact URL → prospect-count map (tiered prospects only) so other screens
+    (Opportunities, Do This Next) can show a 🔗 chip wherever a page the tool
+    diagnosed as authority-constrained has prospects waiting — without shipping
+    the full prospect list (evidence + drafts) to every page."""
+    from src.analysis.link_prospects import load_link_prospects
+    data = load_link_prospects() or {}
+    by_url = {}
+    for p in data.get("prospects", []):
+        if (p.get("tier") or 0) <= 0:
+            continue
+        e = by_url.setdefault(p.get("target_url", ""), {"count": 0, "top": []})
+        e["count"] += 1
+        if len(e["top"]) < 3:
+            e["top"].append(p.get("domain", ""))
+    return jsonify({"available": bool(by_url), "by_url": by_url,
+                    "generated_at": data.get("generated_at")})
+
+
 @app.route("/api/link-prospects/refresh", methods=["POST"])
 def api_link_prospects_refresh():
     """Run prospect discovery as a background job (Serper + DataForSEO calls can

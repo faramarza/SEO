@@ -98,6 +98,7 @@ async function loadPlan(){
         const d=data.timestamp?new Date(data.timestamp).toLocaleString():'—';
         document.getElementById('dn-meta').innerHTML=`Ranked by genuine impact — real levers first, trivial harvests last · from your latest evaluation · ${esc(d)}`;
         renderPlan(data.plan||[], data.adopted_extra||[]);
+        lpAnnotate();
     }catch(e){
         document.getElementById('dn-body').innerHTML=`<p class="empty-state">Failed to load: ${esc(e.message)}</p>`;
     }
@@ -144,7 +145,7 @@ function taskCard(t, off){
                 <div class="dn-sub">
                     <span class="dn-chip">${esc(c.label)}</span>
                     ${t.rank_reason?`<span class="dn-why">${esc(t.rank_reason)}</span>`:''}
-                    ${t.url?`<a href="${esc(t.url)}" target="_blank" title="${esc(t.url)}">${esc(fmtPath(t.url))}</a>`:''}
+                    ${t.url?`<a href="${esc(t.url)}" target="_blank" title="${esc(t.url)}">${esc(fmtPath(t.url))}</a><span class="lp-slot" data-lp-url="${esc(t.url)}"></span>`:''}
                 </div>
             </div>
             <div class="dn-metrics">
@@ -420,7 +421,25 @@ async function dnComplete(key, btn){
     }catch(e){ if(btn){btn.disabled=false;btn.textContent='Mark done';} dnToast('Failed: '+e.message,true); }
 }
 
+// ── 🔗 Link-prospect chips: shown on any task whose page the prospect engine
+// has ranked targets for (i.e. pages diagnosed as authority-constrained).
+let LP_SUMMARY = null;
+async function lpLoadSummary(){
+    try{ const r = await fetch('/api/link-prospects/summary'); LP_SUMMARY = await r.json(); lpAnnotate(); }catch(e){}
+}
+function lpAnnotate(){
+    if(!LP_SUMMARY || !LP_SUMMARY.by_url) return;
+    document.querySelectorAll('.lp-slot[data-lp-url]').forEach(el=>{
+        const info = LP_SUMMARY.by_url[el.dataset.lpUrl];
+        if(!info){ el.innerHTML=''; return; }
+        el.innerHTML = ` <a href="/playbook?links_for=${encodeURIComponent(el.dataset.lpUrl)}"
+            style="font-size:11px;font-weight:600;color:#d97706;text-decoration:none;border:1px solid #fbbf24;border-radius:10px;padding:1px 7px;margin-left:6px;white-space:nowrap;"
+            title="Link prospects ready: ${esc(info.top.join(', '))} — open the ranked list with evidence and outreach drafts">🔗 ${info.count} link prospect${info.count>1?'s':''}</a>`;
+    });
+}
+
 loadPlan();
 loadStrategy();
+lpLoadSummary();
 </script>
 {% endblock %}

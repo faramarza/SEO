@@ -1800,6 +1800,13 @@ async function pbDemandCoverage(url, btn) {
     } finally { if (btn) btn.disabled = false; }
 }
 
-document.addEventListener('DOMContentLoaded', loadPlaybook);
+// Deep link from other screens' 🔗 chips: /playbook?links_for=<url> opens the
+// Link Prospects tab pre-filtered to that page.
+const _lpFor = new URLSearchParams(location.search).get('links_for');
+if (_lpFor) PB_LINKS_FILTER = _lpFor;
+document.addEventListener('DOMContentLoaded', () => {
+    loadPlaybook();
+    if (_lpFor) pbShowTab('links');
+});
 </script>
 {% endblock %}
