@@ -1461,8 +1461,12 @@ function pbLinkRow(p) {
         ? `<a href="${escHtml(p.page_url)}" target="_blank" title="${escHtml(p.page_url)}">${escHtml(p.page_title.slice(0, 70))}</a>`
         : (p.page_url ? `<a href="${escHtml(p.page_url)}" target="_blank">${escHtml(p.page_url.slice(0, 60))}</a>` : '');
     const key = pbKey('link', p.target_url, p.domain);
+    const draftCurrent = p.draft && (!PB_LINKS.draft_prompt_version
+        || p.draft.prompt_version === PB_LINKS.draft_prompt_version);
     const draftBtn = p.draft
-        ? ` <button class="pb-task-btn" style="background:#dcfce7;color:#166534;border-color:#86efac;" onclick="pbViewDraft(${idx})" title="Draft ready (${escHtml(p.draft.drafted_at || '')}) — click to read, copy, and send">✉️ Draft ready</button>`
+        ? (draftCurrent
+            ? ` <button class="pb-task-btn" style="background:#dcfce7;color:#166534;border-color:#86efac;" onclick="pbViewDraft(${idx})" title="Draft ready (${escHtml(p.draft.drafted_at || '')}) — click to read, copy, and send">✉️ Draft ready</button>`
+            : ` <button class="pb-task-btn" style="background:#fef3c7;color:#92400e;border-color:#fbbf24;" onclick="pbDraftOutreach(${idx}, this)" title="This draft was written under an older prompt (it may claim we MAKE products — we're a retailer). Click to regenerate; Draft All also refreshes it.">⚠ Draft outdated — regenerate</button>`)
         : ` <button class="pb-task-btn pb-task-btn-alt" onclick="pbDraftOutreach(${idx}, this)" title="Fetches their page, finds contact routes, and writes a grounded draft">Draft</button>`;
     const btn = (pbIsAdded(key)
         ? '<button class="pb-task-btn pb-added" disabled>✓ Added</button>'
@@ -1548,9 +1552,17 @@ function pbRenderDraftModal(idx, p, d) {
             <div style="font-weight:600;margin-bottom:8px;">Subject: ${escHtml(d.subject || '')}</div>
             <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;">${escHtml(d.body || '')}</div>
         </div>
-        <button class="pb-copy-btn" style="margin-top:10px;" onclick="navigator.clipboard.writeText(${JSON.stringify('')} + this.dataset.txt).then(()=>pbToast('Copied'))" data-txt="${escHtml('Subject: ' + (d.subject || '') + '\n\n' + (d.body || ''))}">Copy email</button>
+        <button class="pb-copy-btn" style="margin-top:10px;" onclick="pbCopyDraft(${idx})">Copy email</button>
         <button class="pb-task-btn pb-task-btn-alt" style="margin-top:10px;margin-left:8px;" onclick="pbDraftOutreach(${idx}, this)" title="Re-fetch their page and write a fresh draft">↻ Regenerate</button>
         <p class="pb-geo-note" style="margin-top:8px;">Review before sending — this is a draft grounded in their fetched page, not an auto-send.${d.drafted_at ? ' Drafted ' + escHtml(String(d.drafted_at).replace('T',' ')) + '.' : ''}</p>`;
+}
+
+function pbCopyDraft(idx) {
+    const p = (PB_LINKS && PB_LINKS.prospects || [])[idx];
+    const d = p && p.draft;
+    if (!d) { pbToast('No draft stored', true); return; }
+    navigator.clipboard.writeText('Subject: ' + (d.subject || '') + '\n\n' + (d.body || ''))
+        .then(() => pbToast('Copied'));
 }
 
 function pbViewDraft(idx) {
@@ -1584,8 +1596,9 @@ async function pbDraftOutreach(idx, btn) {
 
 async function pbDraftAll(btn) {
     if (!PB_LINKS || !PB_LINKS.available) { pbToast('Run Discover Prospects first', true); return; }
-    const missing = (PB_LINKS.prospects || []).filter(p => (p.tier === 1 || p.tier === 2) && !p.draft).length;
-    if (!missing) { pbToast('Every Tier 1-2 prospect already has a draft ✓'); return; }
+    const missing = (PB_LINKS.prospects || []).filter(p => (p.tier === 1 || p.tier === 2)
+        && (!p.draft || (PB_LINKS.draft_prompt_version && p.draft.prompt_version !== PB_LINKS.draft_prompt_version))).length;
+    if (!missing) { pbToast('Every Tier 1-2 prospect already has a current draft ✓'); return; }
     if (!confirm(`Draft outreach emails for ${missing} Tier 1-2 prospect(s)? Each one fetches the prospect's page and writes a grounded draft (~15s each). Nothing is sent — you review every email.`)) return;
     if (btn) { btn.disabled = true; btn.textContent = 'Drafting…'; }
     try {

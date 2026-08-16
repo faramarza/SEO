@@ -5223,6 +5223,7 @@ def api_link_prospects():
     if not data:
         return jsonify({"available": False,
                         "reason": "No prospect data yet — click Discover Prospects."})
+    data["draft_prompt_version"] = DRAFT_PROMPT_VERSION
     return jsonify(data)
 
 
@@ -5262,6 +5263,12 @@ def api_link_prospects_refresh():
     return jsonify({"status": "started"})
 
 
+# Bump when the draft prompt materially changes — Draft All re-drafts anything
+# generated under an older version (v2 = retailer identity: 'we carry', never
+# 'we make'; earlier drafts wrongly claimed we manufacture products).
+DRAFT_PROMPT_VERSION = 2
+
+
 def _generate_outreach_draft(p, config=None):
     """Grounded outreach draft for one prospect: fetch their page live, extract
     contact routes deterministically, then draft an email referencing ONLY fetched
@@ -5295,8 +5302,13 @@ def _generate_outreach_draft(p, config=None):
 
     config = config or load_config()
     system_message = (
-        "You write short, honest link-outreach emails for a small family business "
-        "(personalized wooden name trains and Montessori toys, made in the USA). "
+        "You write short, honest link-outreach emails for Alphabet Trains "
+        "(alphabet-trains.com), a small family-run online RETAILER that curates "
+        "and sells personalized name trains, name puzzles, personalized story "
+        "books, step stools, and Montessori toys. CRITICAL IDENTITY RULE: we are "
+        "a retailer — we do NOT make, craft, or manufacture anything. Never write "
+        "'we make/craft/create/build'. Correct phrasings: 'we carry', 'we offer', "
+        "'our shop specializes in', 'we sell'. "
         "You reference ONLY what is in the provided PROSPECT PAGE CONTENT — never "
         "invent details about their site, never flatter generically, never promise "
         "anything. 90-140 words, specific, human. Return ONLY valid JSON."
@@ -5330,6 +5342,7 @@ Return JSON exactly:
     result["fetched"] = True
     result["prospect_page"] = page_url
     result["drafted_at"] = datetime.now().isoformat(timespec="seconds")
+    result["prompt_version"] = DRAFT_PROMPT_VERSION
     return result, None
 
 
@@ -5376,11 +5389,15 @@ def api_link_prospects_draft_all():
         return jsonify({"error": "A job is already running", "status": "busy"}), 400
     from src.analysis.link_prospects import load_link_prospects
     cached = load_link_prospects() or {}
+    # Re-draft anything generated under an older prompt version (e.g. the
+    # pre-retailer-identity drafts that wrongly claimed "we make" products).
     todo = [p for p in cached.get("prospects", [])
-            if p.get("tier", 0) in (1, 2) and not p.get("draft")]
+            if p.get("tier", 0) in (1, 2)
+            and (not p.get("draft")
+                 or (p["draft"] or {}).get("prompt_version") != DRAFT_PROMPT_VERSION)]
     if not todo:
         return jsonify({"status": "nothing_to_do",
-                        "message": "Every Tier 1-2 prospect already has a draft."})
+                        "message": "Every Tier 1-2 prospect already has a current draft."})
 
     job_state.update({
         "running": True, "type": "link_drafts", "error": None,
