@@ -275,7 +275,7 @@ def fetch_referring_links(target: str, limit: int = 25) -> dict:
 
     import httpx
     token = _auth_token()
-    body = [{"target": target, "limit": max(1, min(limit, 100)),
+    body = [{"target": target, "limit": max(1, min(limit, 1000)),
              "mode": "one_per_domain", "order_by": ["domain_from_rank,desc"]}]
     try:
         resp = httpx.post(_BACKLINKS_ENDPOINT,

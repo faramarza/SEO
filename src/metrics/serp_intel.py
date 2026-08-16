@@ -15,7 +15,8 @@ from urllib.parse import urlparse
 
 # Marketplaces / big-box: if these own the top, organic displacement is hard.
 MARKETPLACES = ("amazon.", "etsy.", "ebay.", "walmart.", "target.", "aliexpress.",
-                "temu.", "wayfair.", "kohls.", "michaels.", "macys.", "costco.")
+                "alibaba.", "temu.", "wayfair.", "kohls.", "michaels.", "macys.",
+                "costco.")
 
 # SERP features that pull clicks away from organic (present ABOVE/around it).
 SIPHON = {

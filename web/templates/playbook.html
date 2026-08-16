@@ -1455,7 +1455,8 @@ function pbLinkRow(p) {
     const idx = (PB_LINKS.prospects || []).indexOf(p);
     const [label, fg, bg] = LINK_TIER_LABEL[p.tier] || LINK_TIER_LABEL[0];
     const ev = (p.evidence || []).map(e =>
-        `<div class="pb-geo-fix">${escHtml(e.detail)}${e.source_url ? ` <a href="${escHtml(e.source_url)}" target="_blank" style="font-size:11px;">↗</a>` : ''}</div>`).join('');
+        `<div class="pb-geo-fix">${escHtml(e.detail)}${e.source_url ? ` <a href="${escHtml(e.source_url)}" target="_blank" style="font-size:11px;">↗</a>` : ''}</div>`).join('')
+        + (p.risk_note ? `<div class="pb-geo-fix" style="color:#b45309;font-weight:600;">⚠ ${escHtml(p.risk_note)}</div>` : '');
     const page = p.page_title
         ? `<a href="${escHtml(p.page_url)}" target="_blank" title="${escHtml(p.page_url)}">${escHtml(p.page_title.slice(0, 70))}</a>`
         : (p.page_url ? `<a href="${escHtml(p.page_url)}" target="_blank">${escHtml(p.page_url.slice(0, 60))}</a>` : '');

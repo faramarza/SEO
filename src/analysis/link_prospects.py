@@ -60,9 +60,10 @@ def _env_float(name, default):
 
 MAX_PAGES = _env_int("LINK_PROSPECT_MAX_PAGES", 10)            # winnable pages to prospect for
 MAX_STRIKING = _env_int("LINK_PROSPECT_MAX_STRIKING", 5)       # extra "Needs backlinks" striking pages
-SEARCHES_PER_QUERY = _env_int("LINK_PROSPECT_SEARCHES_PER_QUERY", 2)
-PEERS_PER_QUERY = _env_int("LINK_PROSPECT_PEERS_PER_QUERY", 2)
-LINKS_PER_PEER = _env_int("LINK_PROSPECT_LINKS_PER_PEER", 25)
+SEARCHES_PER_QUERY = _env_int("LINK_PROSPECT_SEARCHES_PER_QUERY", 3)
+PEERS_PER_QUERY = _env_int("LINK_PROSPECT_PEERS_PER_QUERY", 3)
+LINKS_PER_PEER = _env_int("LINK_PROSPECT_LINKS_PER_PEER", 50)
+OWN_BACKLINK_DEPTH = _env_int("LINK_PROSPECT_OWN_BACKLINK_DEPTH", 300)
 IMPACT_EXP = _env_float("LINK_IMPACT_EXP", 0.6)                # spec's 0.60 / 0.40 split
 PROB_EXP = _env_float("LINK_PROB_EXP", 0.4)
 
@@ -72,7 +73,8 @@ PROB_EXP = _env_float("LINK_PROB_EXP", 0.4)
 PLATFORM_DOMAINS = ("facebook.", "instagram.", "pinterest.", "youtube.", "tiktok.",
                     "twitter.", "x.com", "reddit.", "linkedin.", "quora.",
                     "wikipedia.", "wikihow.", "medium.com", "yelp.", "bbb.org",
-                    "google.", "apple.", "play.google")
+                    "google.", "apple.", "play.google",
+                    "stackexchange.", "stackoverflow.")
 
 # Hosted-platform / staging subdomains: free site builders, dev previews, and
 # hosting sandboxes. These aren't publishers — there is no editor to reach and
@@ -87,6 +89,9 @@ HOSTED_PLATFORM_SUFFIXES = (
     ".site123.me", ".web.app", ".firebaseapp.com", ".000webhostapp.com",
     ".wpenginepowered.com", ".kinsta.cloud", ".myftpupload.com", ".repl.co",
     ".glitch.me", ".neocities.org", ".carrd.co",
+    ".go-vip.net", ".home.blog", ".jimdofree.com", ".jimdosite.com",
+    ".cloudapp.azure.com", ".azurewebsites.net", ".amazonaws.com",
+    ".herokuapp.com", ".civicplus.com", ".constantcontact.com",
 )
 
 # Editorial page patterns that signal "this page curates external resources" —
@@ -132,9 +137,17 @@ def _overlap_ratio(query, *texts):
 # ────────────────────────────────────────────────── discovery
 def _discovery_searches(query):
     """Bounded, deterministic operator searches for SHOULD-GET prospects: pages
-    that curate/recommend resources on the query's topic."""
+    that curate/recommend resources on the query's topic. Ordered by expected
+    yield for a product niche (gift guides are the biggest link-source genre);
+    LINK_PROSPECT_SEARCHES_PER_QUERY controls how deep the list runs."""
     q = (query or "").strip()
-    cands = [f"{q} resources", f"best {q} recommended", f"{q} gift guide"]
+    cands = [
+        f"{q} gift guide",
+        f"{q} resources",
+        f"best {q} recommended",
+        f"{q} for parents and teachers",
+        f'intitle:resources {" ".join(q.split()[:3])}',
+    ]
     return cands[:max(1, SEARCHES_PER_QUERY)]
 
 
@@ -207,7 +220,16 @@ def _can_get_for(w, own_forms, used_peers, fetch_referring_links, log):
     return found
 
 
-# ────────────────────────────────────────────────── scoring
+# Service-industry tokens in a DOMAIN NAME that has no business publishing kids'
+# content: the guest-post-farm signature (an injury-law blog running "Montessori
+# busy board benefits" exists to sell link placements). Soft signal: probability
+# penalty + a visible risk note, never silent exclusion.
+_OFF_NICHE_TOKENS = ("lawyer", "attorney", "injury", "legalservice", "casino",
+                     "betting", "poker", "loan", "lending", "creditrepair",
+                     "insurance", "crypto", "forex", "vpn", "webhosting",
+                     "seoagency", "linkbuilding")
+
+
 def _score_prospect(pr, query):
     """Two independent 0-100 scores + components, deterministic and inspectable."""
     title, snippet, dom = pr.get("page_title", ""), pr.get("snippet", ""), pr["domain"]
@@ -217,6 +239,14 @@ def _score_prospect(pr, query):
     topical_hit = any(e.get("kind") == "topical_search" for e in pr["evidence"])
     dofollow = any("[dofollow]" in (e.get("detail") or "") for e in pr["evidence"])
     rank = max((pr.get("domain_rank") or 0), 0)  # DataForSEO 0-1000; 0 when unknown
+
+    # Dead editorial: a title dated 2+ years back ("Gift Ideas 2011") is a page
+    # nobody updates — the resource-page pattern is real but the door is closed.
+    year_m = re.search(r"\b(20\d{2})\b", title or "")
+    stale_year = int(year_m.group(1)) if year_m and int(year_m.group(1)) <= datetime.now().year - 2 else None
+    # Off-niche service domain publishing on-topic content = likely paid-placement
+    # farm; flag and discount, but keep visible so the operator decides.
+    off_niche = any(t in dom.replace("-", "").replace(".", "") for t in _OFF_NICHE_TOKENS)
 
     impact = (
         overlap * 40                                    # topical relevance — highest weight
@@ -231,6 +261,8 @@ def _score_prospect(pr, query):
         + (25 if is_resource else 0)                    # page type that routinely adds items
         + (10 if topical_hit else 0)                    # actively publishing/visible on the topic
         + (10 if dofollow else 0)                       # links editorially, not just UGC
+        - (20 if stale_year else 0)                     # nobody updates an old-dated listicle
+        - (15 if off_niche else 0)
     )
     impact = max(5.0, min(100.0, impact))
     prob = max(5.0, min(100.0, prob))
@@ -238,16 +270,22 @@ def _score_prospect(pr, query):
         "relevance_overlap": round(overlap, 2), "domain_rank": rank,
         "resource_page": is_resource, "peers_linked": peer_count,
         "topical_search_hit": topical_hit, "dofollow_evidence": dofollow,
+        "stale_title_year": stale_year, "off_niche_domain": off_niche,
     }
 
 
-def _tier(impact, prob):
+def _tier(impact, prob, rank=0):
+    # A mega-publisher (ABC News, Good Housekeeping…) is never "work first" or
+    # an "easier win" — the probability model overrates them (they have resource
+    # pages and peer links galore, and ignore cold pitches). Always Tier 2:
+    # worth deliberate, personalized outreach, never the quick lane.
+    mega = rank >= 700
     if impact >= 50 and prob >= 50:
-        return 1                       # strong impact AND credible path — work first
+        return 2 if mega else 1        # strong impact AND credible path — work first
     if impact >= 65:
         return 2                       # high-impact / harder — deliberate personalized outreach
     if prob >= 60 and impact >= 30:
-        return 3                       # easier win — referring-domain breadth
+        return 2 if mega else 3        # easier win — referring-domain breadth
     return 0                           # watchlist
 
 
@@ -318,7 +356,7 @@ def compute_link_prospects(config: dict) -> dict:
     # Domains that ALREADY link to us — one bounded fetch, used to exclude
     # prospects we've already won (spec §9A referring-domain uniqueness).
     already = set()
-    own_bl = dfs.fetch_referring_links(_dom, limit=100) if dfs.is_configured() else \
+    own_bl = dfs.fetch_referring_links(_dom, limit=OWN_BACKLINK_DEPTH) if dfs.is_configured() else \
         {"available": False, "reason": "DataForSEO not configured"}
     if own_bl.get("available"):
         already = {l["domain_from"] for l in own_bl.get("links", []) if l.get("domain_from")}
@@ -386,8 +424,19 @@ def compute_link_prospects(config: dict) -> dict:
         url_opp = (pr["target_impressions"] or 0) / max_impr
         final = 100.0 * (impact / 100.0) ** IMPACT_EXP * (prob / 100.0) ** PROB_EXP
         pr["final_score"] = round(final * (0.6 + 0.4 * url_opp), 1)  # demand-scaled, floored at 60%
-        pr["tier"] = _tier(impact, prob)
+        pr["tier"] = _tier(impact, prob, comps.get("domain_rank") or 0)
         pr["angle"] = _angle(pr)
+        # Visible risk notes — the operator decides, nothing is silently hidden.
+        notes = []
+        if comps.get("off_niche_domain"):
+            notes.append("Off-niche service domain publishing on-topic content — "
+                         "possible guest-post/paid-placement farm; check editorial "
+                         "quality before outreach.")
+        if comps.get("stale_title_year"):
+            notes.append(f"Page title dated {comps['stale_title_year']} — likely "
+                         "unmaintained; an addition request may go nowhere.")
+        if notes:
+            pr["risk_note"] = " ".join(notes)
         # De-noise evidence for display (dedup identical lines).
         seen_e = set()
         pr["evidence"] = [e for e in pr["evidence"]
