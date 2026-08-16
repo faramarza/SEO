@@ -1354,6 +1354,12 @@ async function pbLoadAio(btn) {
 // ── Link Prospects ──────────────────────────────────────────
 let PB_LINKS = null;
 let PB_LINKS_FILTER = null;  // target URL filter (set by the striking-row bridge)
+let PB_LINKS_TIER = 'all';   // tier filter: 'all' | 1 | 2 | 3 | 0 (watchlist)
+
+function pbLinksTierFilter(t) {
+    PB_LINKS_TIER = t;
+    renderLinkProspects(PB_LINKS);
+}
 const LINK_TIER_LABEL = {1: ['Tier 1 — work first', '#166534', '#dcfce7'],
                          2: ['Tier 2 — high impact, harder', '#1e40af', '#dbeafe'],
                          3: ['Tier 3 — easier win', '#92400e', '#fef3c7'],
@@ -1381,10 +1387,12 @@ function renderLinkProspects(d) {
         return;
     }
     const s = d.summary || {};
+    const tileStyle = t => `cursor:pointer;${PB_LINKS_TIER === t ? 'outline:2px solid var(--accent,#2563eb);border-radius:8px;' : ''}`;
     summary.innerHTML = `
-        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier1||0}</span><span class="pb-geo-stat-lbl">Tier 1 — work first</span></div>
-        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier2||0}</span><span class="pb-geo-stat-lbl">Tier 2 — harder</span></div>
-        <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.tier3||0}</span><span class="pb-geo-stat-lbl">Tier 3 — easier</span></div>
+        <div class="pb-geo-stat" style="${tileStyle(1)}" onclick="pbLinksTierFilter(PB_LINKS_TIER===1?'all':1)" title="Click to show only Tier 1"><span class="pb-geo-stat-val">${s.tier1||0}</span><span class="pb-geo-stat-lbl">Tier 1 — work first</span></div>
+        <div class="pb-geo-stat" style="${tileStyle(2)}" onclick="pbLinksTierFilter(PB_LINKS_TIER===2?'all':2)" title="Click to show only Tier 2"><span class="pb-geo-stat-val">${s.tier2||0}</span><span class="pb-geo-stat-lbl">Tier 2 — harder</span></div>
+        <div class="pb-geo-stat" style="${tileStyle(3)}" onclick="pbLinksTierFilter(PB_LINKS_TIER===3?'all':3)" title="Click to show only Tier 3"><span class="pb-geo-stat-val">${s.tier3||0}</span><span class="pb-geo-stat-lbl">Tier 3 — easier</span></div>
+        <div class="pb-geo-stat" style="${tileStyle(0)}" onclick="pbLinksTierFilter(PB_LINKS_TIER===0?'all':0)" title="Click to show the watchlist"><span class="pb-geo-stat-val">${s.watchlist||0}</span><span class="pb-geo-stat-lbl">watchlist</span></div>
         <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.excluded_already_linking||0}</span><span class="pb-geo-stat-lbl">skipped (already link to you)</span></div>
         ${d.generated_at ? `<div style="align-self:center;font-size:12px;color:var(--text-muted);">discovered ${escHtml(String(d.generated_at).replace('T',' '))} · ${d.targets_considered||0} target pages</div>` : ''}`;
 
@@ -1400,25 +1408,45 @@ function renderLinkProspects(d) {
             <button class="pb-task-btn pb-task-btn-alt" style="margin-left:8px;" onclick="PB_LINKS_FILTER=null;renderLinkProspects(PB_LINKS);">✕ Show all</button></div>`;
         pool = filtered;
     }
-    const rows = pool.filter(p => p.tier > 0);
-    const watch = pool.filter(p => p.tier === 0);
+    // Tier filter chips (counts reflect the current URL filter, if any).
+    const tc = {1: 0, 2: 0, 3: 0, 0: 0};
+    pool.forEach(p => { tc[p.tier] = (tc[p.tier] || 0) + 1; });
+    const chip = (val, label) => {
+        const active = PB_LINKS_TIER === val;
+        return `<button class="pb-lever pb-lever-chip" style="${active ? 'background:#334155;color:#fff;border-color:#334155;' : 'color:#334155;border-color:#94a3b8;'}"
+            onclick="pbLinksTierFilter(${JSON.stringify(val)})">${label} (${val === 'all' ? pool.length : (tc[val] || 0)})</button>`;
+    };
+    html += `<div class="pb-lever-legend" style="margin-bottom:10px;">
+        ${chip('all', 'All')} ${chip(1, 'Tier 1 — work first')} ${chip(2, 'Tier 2 — harder')}
+        ${chip(3, 'Tier 3 — easier')} ${chip(0, 'Watchlist')}</div>`;
+
+    let shown = pool;
+    if (PB_LINKS_TIER !== 'all') shown = pool.filter(p => p.tier === PB_LINKS_TIER);
+    const rows = shown.filter(p => p.tier > 0);
+    const watch = shown.filter(p => p.tier === 0);
     if (!rows.length && !watch.length) {
         body.innerHTML = html + (PB_LINKS_FILTER
             ? `<p class="empty-state">This page wasn't covered by the last discovery run${d.generated_at ? ' (built ' + escHtml(String(d.generated_at).replace('T',' ')) + ')' : ''} — it may have become a target since, or no qualified prospects were found for it. Click <strong>Discover Prospects</strong> to re-run with the current target set.</p>`
-            : '<p class="empty-state">No qualified prospects found. Check provider notes above or widen the winnable set.</p>');
+            : '<p class="empty-state">Nothing in this tier. Click another tier chip above.</p>');
         return;
     }
-    html += `<table class="pb-table"><thead><tr>
+    const tableHead = `<table class="pb-table"><thead><tr>
         <th>Tier</th><th>Prospect</th><th>For your page / query</th>
         <th>Score</th><th>Evidence</th><th>Angle</th><th></th></tr></thead><tbody>`;
-    rows.forEach(p => {
-        html += pbLinkRow(p);
-    });
-    html += '</tbody></table>';
+    if (rows.length) {
+        html += tableHead;
+        rows.forEach(p => { html += pbLinkRow(p); });
+        html += '</tbody></table>';
+    }
     if (watch.length) {
-        html += `<details style="margin-top:12px;"><summary style="cursor:pointer;color:var(--text-muted);">Watchlist (${watch.length}) — insufficient relevance/evidence</summary>
-            <table class="pb-table" style="margin-top:8px;"><tbody>` +
-            watch.slice(0, 30).map(p => pbLinkRow(p)).join('') + `</tbody></table></details>`;
+        if (PB_LINKS_TIER === 0) {
+            // Explicitly viewing the watchlist — show it as the main table.
+            html += tableHead + watch.map(p => pbLinkRow(p)).join('') + '</tbody></table>';
+        } else {
+            html += `<details style="margin-top:12px;"><summary style="cursor:pointer;color:var(--text-muted);">Watchlist (${watch.length}) — insufficient relevance/evidence</summary>
+                <table class="pb-table" style="margin-top:8px;"><tbody>` +
+                watch.slice(0, 30).map(p => pbLinkRow(p)).join('') + `</tbody></table></details>`;
+        }
     }
     body.innerHTML = html;
 }
