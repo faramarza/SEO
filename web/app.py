@@ -5317,6 +5317,16 @@ def _generate_outreach_draft(p, config=None):
     from html import unescape as _unesc
     text = _unesc(re.sub(r"<[^>]+>", " ", re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ", html)))
     text = re.sub(r"\s+", " ", text).strip()[:2500]
+    # Readability gate: if the fetch yielded no real text (still-compressed
+    # bytes, JS-only shell, bot block), fail HONESTLY here — never hand garbage
+    # to the LLM, which can only respond with a hold note or an apologetic
+    # "your page didn't load" email that must never be sent.
+    printable = sum(1 for ch in text if ch.isalnum() or ch.isspace())
+    if len(text) < 200 or text.count("�") > 20 or printable < len(text) * 0.7:
+        return None, ("The fetched page had no readable text (compressed/scripted/"
+                      "bot-blocked response). No draft attempted — open their page "
+                      "in your browser and write this one manually, or hit Draft "
+                      "again later.")
     title_m = re.search(r"(?s)<title[^>]*>(.*?)</title>", html, re.I)
     prospect_title = _unesc(re.sub(r"\s+", " ", title_m.group(1)).strip()) if title_m else ""
 

@@ -166,8 +166,20 @@ def _title_rewrite(query: str, current_title: str) -> Optional[str]:
 
 
 def _fetch(url: str, timeout: int = 18) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    return urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
+    """Fetch a page's HTML. httpx negotiates and DECODES compression and detects
+    charset — raw urllib returned still-gzipped bytes from servers that compress
+    regardless of Accept-Encoding (common WP/CDN setups), which downstream read
+    as binary garbage. urllib remains only as a last-resort fallback."""
+    try:
+        import httpx
+        resp = httpx.get(url, headers={"User-Agent": UA,
+                                       "Accept": "text/html,application/xhtml+xml"},
+                         follow_redirects=True, timeout=timeout)
+        resp.raise_for_status()
+        return resp.text
+    except ImportError:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        return urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
 
 
 def _extract_meta(html: str):
