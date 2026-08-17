@@ -5073,10 +5073,17 @@ def _llm_json(system_message, user_prompt, config, max_tokens=700):
             t = t[4:]
     i, j = t.find("{"), t.rfind("}")
     if i >= 0 and j > i:
-        try:
-            return _json.loads(t[i:j + 1]), None
-        except Exception:
-            pass
+        block = t[i:j + 1]
+        # strict=False accepts literal newlines/tabs INSIDE string values —
+        # models routinely emit real newlines in multi-paragraph strings
+        # (e.g. outreach email bodies), which strict json.loads rejects.
+        for kwargs in ({}, {"strict": False}):
+            try:
+                return _json.loads(block, **kwargs), None
+            except Exception:
+                continue
+    # Log the raw head so a recurring parse failure is diagnosable from journalctl.
+    print(f"[LLM-JSON] unparseable response head: {t[:200]!r}", flush=True)
     return None, "could not parse LLM JSON"
 
 
@@ -5364,7 +5371,9 @@ concrete addition/reference with a one-line reason it helps THEIR readers. No hy
 Return JSON exactly:
 {{"subject": "...", "body": "...", "personalization_point": "the specific thing from their page you referenced"}}"""
 
-    result, err = _llm_json(system_message, user_prompt, config, max_tokens=700)
+    # 1400 tokens: a multi-paragraph email + JSON overhead (and, on thinking
+    # models, reasoning) needs headroom — a truncated response can never parse.
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
     if err:
         return None, err
     result["emails"] = emails
