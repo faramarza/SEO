@@ -1640,8 +1640,10 @@ function pbRenderDraftModal(idx, p, d) {
         fbody.innerHTML = `
             <div class="pb-geo-note" style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:10px;">
                 💬 <strong>This is a forum thread — post a reply, do NOT email.</strong>
-                Check the forum's self-promotion rules first. Links here are typically nofollow:
-                the value is referral traffic and brand visibility, not SEO authority.</div>
+                Check the forum's self-promotion rules first. The reply deliberately contains
+                <strong>no link</strong> — volunteered links are what moderators delete; share your URL only
+                if someone asks (a requested link almost always survives). Links here are typically
+                nofollow anyway: the value is referral traffic and brand visibility, not SEO authority.</div>
             <div class="pb-geo-note" style="font-style:normal;margin-bottom:8px;">Thread reference (verify it reads right): ${escHtml(d.personalization_point || '')}</div>
             <div style="background:var(--bg-secondary,#f8fafc);border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
                 <div style="font-weight:600;margin-bottom:8px;">Suggested forum reply</div>

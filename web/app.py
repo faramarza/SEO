@@ -5405,9 +5405,10 @@ def api_link_prospects_refresh():
 
 # Bump when the draft prompt materially changes — Draft All re-drafts anything
 # generated under an older version (v2 = retailer identity: 'we carry', never
-# 'we make'; v3 = forum/community prospects get a FORUM REPLY, not an email —
-# earlier versions drafted outreach emails at forums that have no editor).
-DRAFT_PROMPT_VERSION = 3
+# 'we make'; v3 = forum/community prospects get a FORUM REPLY, not an email;
+# v4 = forum replies never embed a URL — name-only mention + invite the ask,
+# since volunteered links are what moderators delete).
+DRAFT_PROMPT_VERSION = 4
 
 
 def _generate_outreach_draft(p, config=None):
@@ -5463,10 +5464,13 @@ def _generate_outreach_draft(p, config=None):
             "toys. CRITICAL: we are a retailer — never write 'we make/craft/"
             "create'; say 'we carry' or 'our shop'. You answer the thread's actual "
             "question FIRST with genuinely useful, non-promotional suggestions. "
-            "Mention our shop at most once, naturally, WITH explicit disclosure "
-            "('full disclosure — I run a small shop that…'), and ONLY if the "
-            "thread is asking for product suggestions; otherwise write a purely "
-            "helpful reply with no link. Max 120 words. Return ONLY valid JSON."
+            "NEVER include a URL or domain name — forum moderators remove link "
+            "posts; a requested link survives, a volunteered one doesn't. If the "
+            "thread is asking for product suggestions, mention our shop at most "
+            "once by NAME ONLY with explicit disclosure ('full disclosure — I run "
+            "a small shop that carries…') and invite the ask ('happy to share a "
+            "link if that's useful'); otherwise write a purely helpful reply with "
+            "no shop mention at all. Max 120 words. Return ONLY valid JSON."
             + _NO_FABRICATION_RULE
         )
         f_user = f"""FORUM THREAD (actually fetched — this is the discussion)
