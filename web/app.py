@@ -146,6 +146,18 @@ def _require_login():
     return redirect(url_for("login", next=p))
 
 
+@app.after_request
+def _no_cache_html(resp):
+    """Pages carry their JS inline, so a cached page runs STALE code against new
+    APIs after every deploy (empty draft modals, missing tracked states, absent
+    tabs — each cost a debugging round). no-cache forces revalidation on every
+    load: after a restart the next page load is always current, no hard-refresh
+    ritual. Static assets are untouched."""
+    if resp.content_type and resp.content_type.startswith("text/html"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if not AUTH_PASSWORD:
