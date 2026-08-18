@@ -78,7 +78,34 @@ PLATFORM_DOMAINS = ("facebook.", "instagram.", "pinterest.", "youtube.", "tiktok
                     "wikipedia.", "wikihow.", "medium.com", "yelp.", "bbb.org",
                     "google.", "apple.", "play.google",
                     "stackexchange.", "stackoverflow.",
-                    "trustpilot.", "sitejabber.", "g2.com", "capterra.")
+                    "trustpilot.", "sitejabber.", "g2.com", "capterra.",
+                    "steemit.", "feedspot.")
+
+# Direct competitors and manufacturer brands in our catalog space: outreach is
+# commercially nonsensical (spec §8) — a rival's blog will not link to us.
+# Excluded as PROSPECTS ONLY: as SERP peers they are the competitor-gap
+# goldmine (we mine their referring domains on purpose). Matched as exact
+# domain or subdomain (never substring — 'hape.com' must not catch 'shape.com').
+# Extend via LINK_PROSPECT_COMPETITORS (comma-separated domains).
+_COMPETITOR_DEFAULTS = (
+    "lovevery.com", "kidkraft.com", "kidkraft.ca", "melissaanddoug.com",
+    "hape.com", "hapetoys.com", "iseeme.com", "guidecraft.com",
+    "personalcreations.com", "personalizationmall.com", "shutterfly.com",
+    "thingsremembered.com", "montessorigeneration.com",
+)
+
+
+def _competitor_domains():
+    extra = [d.strip().lower() for d in
+             os.environ.get("LINK_PROSPECT_COMPETITORS", "").split(",") if d.strip()]
+    return _COMPETITOR_DEFAULTS + tuple(extra)
+
+
+def _is_competitor(dom: str) -> bool:
+    for d in _competitor_domains():
+        if dom == d or dom.endswith("." + d):
+            return True
+    return False
 
 # Forum/community threads are a DIFFERENT opportunity class, not an email
 # target: no editor exists, links are typically nofollow UGC (near-zero SEO
@@ -112,6 +139,7 @@ HOSTED_PLATFORM_SUFFIXES = (
     ".go-vip.net", ".home.blog", ".jimdofree.com", ".jimdosite.com",
     ".cloudapp.azure.com", ".azurewebsites.net", ".amazonaws.com",
     ".herokuapp.com", ".civicplus.com", ".constantcontact.com",
+    ".libsyn.com", ".buzzsprout.com", ".podbean.com",
 )
 
 # Editorial page patterns that signal "this page curates external resources" —
@@ -395,6 +423,11 @@ def _score_prospect(pr, query):
     }
 
 
+# DataForSEO's 0-1000 rank runs conservative — national outlets (Fox News, ABC)
+# often sit in the 600s, so 700 let them slip into "work first". Env-tunable.
+MEGA_RANK = _env_int("LINK_PROSPECT_MEGA_RANK", 550)
+
+
 def _tier(impact, prob, rank=0, community=False):
     # Forum/community thread: never a LINK-campaign Tier 1/2 — links are
     # nofollow UGC. At best an "easier" referral/brand play.
@@ -404,7 +437,7 @@ def _tier(impact, prob, rank=0, community=False):
     # an "easier win" — the probability model overrates them (they have resource
     # pages and peer links galore, and ignore cold pitches). Always Tier 2:
     # worth deliberate, personalized outreach, never the quick lane.
-    mega = rank >= 700
+    mega = rank >= MEGA_RANK
     if impact >= 50 and prob >= 50:
         return 2 if mega else 1        # strong impact AND credible path — work first
     if impact >= 65:
@@ -513,6 +546,7 @@ def compute_link_prospects(config: dict) -> dict:
     by_domain: dict = {}
     skipped_already = 0
     skipped_rejected = 0
+    skipped_competitor = 0
     # Rejection memory: domains the operator explicitly skipped never come back.
     rejected = {d for d, v in load_statuses().items()
                 if (v or {}).get("status") == "skipped"}
@@ -533,6 +567,9 @@ def compute_link_prospects(config: dict) -> dict:
                 continue
             if dom in rejected:
                 skipped_rejected += 1
+                continue
+            if _is_competitor(dom):
+                skipped_competitor += 1
                 continue
             # Dedup by domain per target pairing; merge evidence, keep the
             # richest page info. Seeds may map to no site page, so fall back to
@@ -560,6 +597,11 @@ def compute_link_prospects(config: dict) -> dict:
             if cand.get("page_title") and not pr.get("page_title"):
                 pr["page_title"], pr["page_url"] = cand["page_title"], cand.get("page_url", "")
                 pr["snippet"] = cand.get("snippet", "")
+
+    if skipped_competitor:
+        log.append(f"Excluded {skipped_competitor} direct-competitor result(s) as prospects "
+                   "— a rival won't link to us; their backlinks are still mined as peer "
+                   "evidence (extend the list via LINK_PROSPECT_COMPETITORS).")
 
     prospects = []
     for pr in by_domain.values():
@@ -606,6 +648,7 @@ def compute_link_prospects(config: dict) -> dict:
             "tier3": tiers[3], "watchlist": tiers[0],
             "excluded_already_linking": skipped_already,
             "excluded_rejected": skipped_rejected,
+            "excluded_competitors": skipped_competitor,
             "own_referring_domains": len(already),
         },
         "provider_notes": log,
