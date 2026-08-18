@@ -77,7 +77,24 @@ PLATFORM_DOMAINS = ("facebook.", "instagram.", "pinterest.", "youtube.", "tiktok
                     "twitter.", "x.com", "reddit.", "linkedin.", "quora.",
                     "wikipedia.", "wikihow.", "medium.com", "yelp.", "bbb.org",
                     "google.", "apple.", "play.google",
-                    "stackexchange.", "stackoverflow.")
+                    "stackexchange.", "stackoverflow.",
+                    "trustpilot.", "sitejabber.", "g2.com", "capterra.")
+
+# Forum/community threads are a DIFFERENT opportunity class, not an email
+# target: no editor exists, links are typically nofollow UGC (near-zero SEO
+# authority), and most forums restrict self-promotion. They stay in the list
+# as referral/brand plays — honestly tiered (never 1/2), with a participate-
+# genuinely angle and a forum-reply draft instead of an outreach email.
+_COMMUNITY_DOM_RE = re.compile(r"^(community|forums?|boards?)\.", re.I)
+_COMMUNITY_PATH_RE = re.compile(r"/(forums?|community|boards?|topic|thread)s?/", re.I)
+
+
+def _is_community(dom: str, page_url: str) -> bool:
+    try:
+        path = urlparse(page_url or "").path or ""
+    except Exception:
+        path = ""
+    return bool(_COMMUNITY_DOM_RE.search(dom or "") or _COMMUNITY_PATH_RE.search(path))
 
 # Hosted-platform / staging subdomains: free site builders, dev previews, and
 # hosting sandboxes. These aren't publishers — there is no editor to reach and
@@ -346,6 +363,9 @@ def _score_prospect(pr, query):
     # Off-niche service domain publishing on-topic content = likely paid-placement
     # farm; flag and discount, but keep visible so the operator decides.
     off_niche = any(t in dom.replace("-", "").replace(".", "") for t in _OFF_NICHE_TOKENS)
+    # Forum/community thread: nofollow UGC — real referral/brand value, near-zero
+    # link equity, so the link-value side takes a haircut.
+    community = _is_community(dom, pr.get("page_url", ""))
 
     impact = (
         overlap * 40                                    # topical relevance — highest weight
@@ -353,6 +373,7 @@ def _score_prospect(pr, query):
         + (12 if (topical_hit and not rank) else 0)     # topical SERP visibility as proxy when we don't
         + (20 if is_resource else 0)                    # contextual placement potential
         + (5 if dofollow else 0)
+        - (15 if community else 0)
     )
     prob = (
         10                                              # base: qualified, non-excluded site
@@ -370,10 +391,15 @@ def _score_prospect(pr, query):
         "resource_page": is_resource, "peers_linked": peer_count,
         "topical_search_hit": topical_hit, "dofollow_evidence": dofollow,
         "stale_title_year": stale_year, "off_niche_domain": off_niche,
+        "community": community,
     }
 
 
-def _tier(impact, prob, rank=0):
+def _tier(impact, prob, rank=0, community=False):
+    # Forum/community thread: never a LINK-campaign Tier 1/2 — links are
+    # nofollow UGC. At best an "easier" referral/brand play.
+    if community:
+        return 3 if (prob >= 50 and impact >= 25) else 0
     # A mega-publisher (ABC News, Good Housekeeping…) is never "work first" or
     # an "easier win" — the probability model overrates them (they have resource
     # pages and peer links galore, and ignore cold pitches). Always Tier 2:
@@ -391,6 +417,13 @@ def _tier(impact, prob, rank=0):
 def _angle(pr):
     """Deterministic outreach angle grounded in the actual evidence — never a
     claim we haven't verified (drafting a real email means reading their page)."""
+    if pr.get("prospect_type") == "community":
+        return ("Forum/community thread — do NOT email. Participate genuinely: "
+                "answer the thread's question helpfully, disclose you run the shop, "
+                "and share your page only if the thread invites suggestions. Links "
+                "here are typically nofollow — the value is referral traffic and "
+                "brand visibility, not SEO authority. Check the forum's "
+                "self-promotion rules first.")
     if pr["components"]["resource_page"]:
         return ("Resource-page addition: their page curates this topic — suggest your "
                 "target page as a concrete addition, stating what it covers that the "
@@ -532,10 +565,12 @@ def compute_link_prospects(config: dict) -> dict:
     for pr in by_domain.values():
         impact, prob, comps = _score_prospect(pr, pr["target_query"])
         pr["impact"], pr["probability"], pr["components"] = impact, prob, comps
+        pr["prospect_type"] = "community" if comps.get("community") else "publisher"
         url_opp = (pr["target_impressions"] or 0) / max_impr
         final = 100.0 * (impact / 100.0) ** IMPACT_EXP * (prob / 100.0) ** PROB_EXP
         pr["final_score"] = round(final * (0.6 + 0.4 * url_opp), 1)  # demand-scaled, floored at 60%
-        pr["tier"] = _tier(impact, prob, comps.get("domain_rank") or 0)
+        pr["tier"] = _tier(impact, prob, comps.get("domain_rank") or 0,
+                           community=comps.get("community", False))
         pr["angle"] = _angle(pr)
         # Visible risk notes — the operator decides, nothing is silently hidden.
         notes = []

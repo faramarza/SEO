@@ -1564,7 +1564,7 @@ function pbLinkRow(p) {
         + draftBtn;
     return `<tr>
         <td><span class="pb-badge" style="background:${bg};color:${fg};white-space:nowrap;">${label}</span></td>
-        <td><strong>${escHtml(p.domain)}</strong>${statusBadge}<div style="font-size:12px;">${page}</div></td>
+        <td><strong>${escHtml(p.domain)}</strong>${p.prospect_type === 'community' ? ' <span class="pb-badge" style="background:#fef3c7;color:#92400e;" title="Forum/community thread — participate genuinely (nofollow links; referral + brand value, not SEO authority)">💬 forum</span>' : ''}${statusBadge}<div style="font-size:12px;">${page}</div></td>
         <td>${targetCell}</td>
         <td class="pb-num"><strong>${p.final_score}</strong><div style="font-size:11px;color:var(--text-muted);" title="Impact × Acquisition probability (geometric blend)">I ${p.impact} · P ${p.probability}</div></td>
         <td style="max-width:320px;">${ev}</td>
@@ -1636,6 +1636,22 @@ function pbRenderDraftModal(idx, p, d) {
         fbody.innerHTML = contactHtml + `<p class="empty-state">${escHtml(d.error)}</p>`;
         return;
     }
+    if (d.is_forum_reply || d.reply) {
+        fbody.innerHTML = `
+            <div class="pb-geo-note" style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:10px;">
+                💬 <strong>This is a forum thread — post a reply, do NOT email.</strong>
+                Check the forum's self-promotion rules first. Links here are typically nofollow:
+                the value is referral traffic and brand visibility, not SEO authority.</div>
+            <div class="pb-geo-note" style="font-style:normal;margin-bottom:8px;">Thread reference (verify it reads right): ${escHtml(d.personalization_point || '')}</div>
+            <div style="background:var(--bg-secondary,#f8fafc);border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+                <div style="font-weight:600;margin-bottom:8px;">Suggested forum reply</div>
+                <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;">${escHtml(d.reply || '')}</div>
+            </div>
+            <button class="pb-copy-btn" style="margin-top:10px;" onclick="pbCopyDraft(${idx})">Copy reply</button>
+            <button class="pb-task-btn pb-task-btn-alt" style="margin-top:10px;margin-left:8px;" onclick="pbDraftOutreach(${idx}, this)" title="Re-fetch the thread and write a fresh reply">↻ Regenerate</button>
+            <p class="pb-geo-note" style="margin-top:8px;">Review before posting — grounded in the fetched thread, not an auto-post.${d.drafted_at ? ' Drafted ' + escHtml(String(d.drafted_at).replace('T',' ')) + '.' : ''}</p>`;
+        return;
+    }
     fbody.innerHTML = contactHtml + `
         <div class="pb-geo-note" style="font-style:normal;margin-bottom:8px;">Personalization anchor (verify it reads right): ${escHtml(d.personalization_point || '')}</div>
         <div style="background:var(--bg-secondary,#f8fafc);border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
@@ -1651,8 +1667,10 @@ function pbCopyDraft(idx) {
     const p = (PB_LINKS && PB_LINKS.prospects || [])[idx];
     const d = p && p.draft;
     if (!d) { pbToast('No draft stored', true); return; }
-    navigator.clipboard.writeText('Subject: ' + (d.subject || '') + '\n\n' + (d.body || ''))
-        .then(() => pbToast('Copied'));
+    const txt = (d.is_forum_reply || d.reply)
+        ? (d.reply || '')
+        : 'Subject: ' + (d.subject || '') + '\n\n' + (d.body || '');
+    navigator.clipboard.writeText(txt).then(() => pbToast('Copied'));
 }
 
 function pbViewDraft(idx) {

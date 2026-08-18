@@ -5393,8 +5393,9 @@ def api_link_prospects_refresh():
 
 # Bump when the draft prompt materially changes — Draft All re-drafts anything
 # generated under an older version (v2 = retailer identity: 'we carry', never
-# 'we make'; earlier drafts wrongly claimed we manufacture products).
-DRAFT_PROMPT_VERSION = 2
+# 'we make'; v3 = forum/community prospects get a FORUM REPLY, not an email —
+# earlier versions drafted outreach emails at forums that have no editor).
+DRAFT_PROMPT_VERSION = 3
 
 
 def _generate_outreach_draft(p, config=None):
@@ -5439,6 +5440,48 @@ def _generate_outreach_draft(p, config=None):
     prospect_title = _unesc(re.sub(r"\s+", " ", title_m.group(1)).strip()) if title_m else ""
 
     config = config or load_config()
+
+    # Forum/community thread: there is no editor to email. Draft a genuinely
+    # helpful FORUM REPLY instead — grounded in the actual thread content.
+    if p.get("prospect_type") == "community":
+        f_system = (
+            "You write helpful, honest forum replies for Alphabet Trains "
+            "(alphabet-trains.com), a small family-run online RETAILER of "
+            "personalized name trains, name puzzles, story books, and Montessori "
+            "toys. CRITICAL: we are a retailer — never write 'we make/craft/"
+            "create'; say 'we carry' or 'our shop'. You answer the thread's actual "
+            "question FIRST with genuinely useful, non-promotional suggestions. "
+            "Mention our shop at most once, naturally, WITH explicit disclosure "
+            "('full disclosure — I run a small shop that…'), and ONLY if the "
+            "thread is asking for product suggestions; otherwise write a purely "
+            "helpful reply with no link. Max 120 words. Return ONLY valid JSON."
+            + _NO_FABRICATION_RULE
+        )
+        f_user = f"""FORUM THREAD (actually fetched — this is the discussion)
+url: {page_url}
+content_excerpt: {text}
+
+OUR RELEVANT PAGE (mention at most once, only if the thread invites suggestions)
+{p.get('target_url') or 'alphabet-trains.com'}
+topic: "{p.get('target_query')}"
+
+TASK
+Write the forum reply. Reference something specific actually said in the thread.
+
+Return JSON exactly:
+{{"reply": "...", "personalization_point": "the specific thing from the thread you responded to"}}"""
+        result, err = _llm_json(f_system, f_user, config, max_tokens=1000)
+        if err:
+            return None, err
+        result["is_forum_reply"] = True
+        result["emails"] = emails
+        result["contact_links"] = contact_links
+        result["fetched"] = True
+        result["prospect_page"] = page_url
+        result["drafted_at"] = datetime.now().isoformat(timespec="seconds")
+        result["prompt_version"] = DRAFT_PROMPT_VERSION
+        return result, None
+
     system_message = (
         "You write short, honest link-outreach emails for Alphabet Trains "
         "(alphabet-trains.com), a small family-run online RETAILER that curates "
