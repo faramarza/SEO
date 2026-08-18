@@ -42,6 +42,8 @@ from src.metrics.serp_intel import MARKETPLACES
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CACHE_PATH = PROJECT_ROOT / "data" / "link_prospects.json"
+SEEDS_PATH = PROJECT_ROOT / "data" / "link_prospect_seeds.json"
+STATUS_PATH = PROJECT_ROOT / "data" / "link_prospect_status.json"
 
 
 def _env_int(name, default):
@@ -64,6 +66,7 @@ SEARCHES_PER_QUERY = _env_int("LINK_PROSPECT_SEARCHES_PER_QUERY", 3)
 PEERS_PER_QUERY = _env_int("LINK_PROSPECT_PEERS_PER_QUERY", 3)
 LINKS_PER_PEER = _env_int("LINK_PROSPECT_LINKS_PER_PEER", 50)
 OWN_BACKLINK_DEPTH = _env_int("LINK_PROSPECT_OWN_BACKLINK_DEPTH", 300)
+SEED_MAX_QUERIES = _env_int("LINK_PROSPECT_SEED_QUERIES", 8)      # searches per seed topic
 IMPACT_EXP = _env_float("LINK_IMPACT_EXP", 0.6)                # spec's 0.60 / 0.40 split
 PROB_EXP = _env_float("LINK_PROB_EXP", 0.4)
 
@@ -134,6 +137,83 @@ def _overlap_ratio(query, *texts):
     return len(qt & tt) / len(qt)
 
 
+# ────────────────────────────────────────────────── seeds & statuses
+def _read_json(path, default):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(path)
+
+
+def load_seeds() -> dict:
+    """Seed topics (spec: arbitrary buyer ideas beyond GSC data), each stored
+    WITH its pre-expanded search queries so discovery runs are deterministic and
+    the LLM expansion is a one-time cost per topic."""
+    return _read_json(SEEDS_PATH, {"seeds": []})
+
+
+def save_seeds(data: dict) -> None:
+    _write_json(SEEDS_PATH, data)
+
+
+def load_statuses() -> dict:
+    """Per-domain outreach statuses: contacted / won / skipped. 'skipped' is the
+    REJECTION MEMORY — a skipped domain is excluded from every future discovery
+    run, so the operator never re-triages the same junk twice."""
+    return _read_json(STATUS_PATH, {})
+
+
+def save_statuses(data: dict) -> None:
+    _write_json(STATUS_PATH, data)
+
+
+def _map_seed_to_page(topic: str) -> str:
+    """Best-matching page on OUR site for a seed topic (token overlap against
+    title/H1/slug) so seed prospects still carry a concrete target page for the
+    outreach angle when one genuinely fits; '' when nothing clears the bar —
+    never force a bad mapping."""
+    try:
+        results = json.loads((PROJECT_ROOT / "data" / "latest_evaluation.json")
+                             .read_text()).get("results", [])
+    except (OSError, json.JSONDecodeError):
+        return ""
+    st = _tokens(topic)
+    if not st:
+        return ""
+    best, best_score = "", 0.34   # >1/3 of the topic's tokens must match
+    for r in results:
+        pm = r.get("page_metadata", {}) or {}
+        slug = (r.get("url", "").rsplit("/", 1)[-1]).replace("-", " ").replace(".html", "")
+        ov = len(st & _tokens(" ".join([pm.get("title", ""), pm.get("h1", ""), slug]))) / len(st)
+        if ov > best_score:
+            best, best_score = r.get("url", ""), ov
+    return best
+
+
+def _seed_targets() -> list:
+    """One direct-search target per expanded seed query. Seeds have no GSC
+    demand data (impressions 0, no position) — scoring stays honest about that
+    (they take the neutral demand factor, never a fabricated one)."""
+    out = []
+    for s in load_seeds().get("seeds", []):
+        topic = (s.get("topic") or "").strip()
+        if not topic:
+            continue
+        mapped = _map_seed_to_page(topic)
+        for q in (s.get("queries") or [])[:SEED_MAX_QUERIES]:
+            out.append({"url": mapped, "query": q, "impressions": 0, "position": None,
+                        "trend": "n/a", "serp": {}, "_source": "seed",
+                        "_seed": topic, "_direct": True})
+    return out
+
+
 # ────────────────────────────────────────────────── discovery
 def _discovery_searches(query):
     """Bounded, deterministic operator searches for SHOULD-GET prospects: pages
@@ -152,14 +232,30 @@ def _discovery_searches(query):
 
 
 def _should_get_for(w, own_forms, fetch_serp, log):
-    """Serper discovery: topical resource/roundup pages for one winnable query."""
+    """Serper discovery: topical resource/roundup pages. GSC-derived targets get
+    the operator-pattern searches; seed targets (_direct) search their expanded
+    buyer query verbatim (the expansion already produced guide-shaped queries)
+    AND derive SERP peers inline so the can-get side works for seeds too."""
     found = []
-    for search in _discovery_searches(w["query"]):
+    searches = [w["query"]] if w.get("_direct") else _discovery_searches(w["query"])
+    for search in searches:
         serp = fetch_serp(search)
         if not serp:
             log.append(f"Serper unavailable/quota-out at '{search}' — should-get discovery partial.")
             break
-        for r in (serp.get("organic_results") or [])[:10]:
+        organic = (serp.get("organic_results") or [])[:10]
+        if w.get("_direct") and not (w.get("serp") or {}).get("top5"):
+            top5 = []
+            for r in organic[:5]:
+                dom = _domain(r.get("url", ""))
+                if not dom:
+                    continue
+                kind = ("own" if any(f in dom for f in own_forms)
+                        else "marketplace" if any(m in dom for m in MARKETPLACES)
+                        else "content")
+                top5.append({"position": r.get("position"), "domain": dom, "kind": kind})
+            w["serp"] = {"top5": top5}
+        for r in organic:
             dom = _domain(r.get("url", ""))
             if _excluded(dom, own_forms):
                 continue
@@ -170,24 +266,27 @@ def _should_get_for(w, own_forms, fetch_serp, log):
                 "snippet": r.get("snippet", ""),
                 "evidence": {
                     "kind": "topical_search",
-                    "detail": f"Ranks #{r.get('position')} for discovery search \"{search}\"",
+                    "detail": f"Ranks #{r.get('position')} for "
+                              + (f"seed search \"{search}\"" if w.get("_direct")
+                                 else f"discovery search \"{search}\""),
                     "source_url": r.get("url", ""),
                 },
             })
     return found
 
 
-def _can_get_for(w, own_forms, used_peers, fetch_referring_links, log):
+def _can_get_for(w, own_forms, used_peers, fetch_referring_links, log, cap=None):
     """DataForSEO evidence: referring domains of the content-type SERP peers that
     outrank us for this query (peers come from the winnable page's cached SERP
-    intel — no extra SERP spend)."""
+    intel — no extra SERP spend). `cap` overrides peers-per-target (seed targets
+    use 1 to keep the shared daily backlink budget for GSC-backed targets)."""
     found = []
     peers = [t for t in ((w.get("serp") or {}).get("top5") or [])
              if t.get("kind") == "content" and t.get("domain")
              and not _excluded(t["domain"], own_forms)]
     picked = 0
     for p in peers:
-        if picked >= PEERS_PER_QUERY:
+        if picked >= (cap or PEERS_PER_QUERY):
             break
         peer_dom = p["domain"]
         if peer_dom in used_peers:
@@ -368,21 +467,28 @@ def compute_link_prospects(config: dict) -> dict:
     # Also prospect for the Playbook's "Needs backlinks" striking-distance pages,
     # so the two features cross-link instead of talking past each other.
     targets = targets + _striking_external_targets({w["url"] for w in targets})
+    # Seed topics (buyer ideas beyond GSC data) contribute direct-search targets.
+    targets = targets + _seed_targets()
     if not targets:
         return {"available": False,
-                "reason": "No target pages found — run Click Yield (winnable pages) "
-                          "and/or an evaluation (striking-distance pages) first; they "
-                          "define which URLs deserve link-building effort.",
+                "reason": "No target pages found — run Click Yield (winnable pages), "
+                          "an evaluation (striking-distance pages), or add a seed "
+                          "topic; they define what deserves link-building effort.",
                 "generated_at": datetime.now().isoformat(timespec="seconds")}
     max_impr = max((w.get("impressions") or 1) for w in targets)
     used_peers: set = set()
     by_domain: dict = {}
     skipped_already = 0
+    skipped_rejected = 0
+    # Rejection memory: domains the operator explicitly skipped never come back.
+    rejected = {d for d, v in load_statuses().items()
+                if (v or {}).get("status") == "skipped"}
 
     for w in targets:
         raw = _should_get_for(w, own_forms, fetch_serp, log)
         if dfs.is_configured():
-            raw += _can_get_for(w, own_forms, used_peers, dfs.fetch_referring_links, log)
+            raw += _can_get_for(w, own_forms, used_peers, dfs.fetch_referring_links, log,
+                                cap=1 if w.get("_direct") else None)
         elif "DataForSEO not configured" not in " ".join(log):
             log.append("DataForSEO not configured — CAN-GET (peer-backlink) discovery skipped; "
                        "prospects below are SHOULD-GET only.")
@@ -392,9 +498,13 @@ def compute_link_prospects(config: dict) -> dict:
             if dom in already:
                 skipped_already += 1
                 continue
-            # Dedup by domain per target-URL pairing; merge evidence, keep the
-            # richest page info.
-            key = (dom, w["url"])
+            if dom in rejected:
+                skipped_rejected += 1
+                continue
+            # Dedup by domain per target pairing; merge evidence, keep the
+            # richest page info. Seeds may map to no site page, so fall back to
+            # the seed topic to keep keys distinct across seeds.
+            key = (dom, w["url"] or w.get("_seed") or w["query"])
             pr = by_domain.get(key)
             if pr is None:
                 pr = by_domain[key] = {
@@ -409,6 +519,7 @@ def compute_link_prospects(config: dict) -> dict:
                     "target_impressions": w.get("impressions", 0),
                     "target_trend": w.get("trend", "unknown"),
                     "target_source": w.get("_source", "winnable"),
+                    "target_seed": w.get("_seed", ""),
                     "evidence": [],
                 }
             pr["evidence"].append(cand["evidence"])
@@ -459,6 +570,7 @@ def compute_link_prospects(config: dict) -> dict:
             "total": len(prospects), "tier1": tiers[1], "tier2": tiers[2],
             "tier3": tiers[3], "watchlist": tiers[0],
             "excluded_already_linking": skipped_already,
+            "excluded_rejected": skipped_rejected,
             "own_referring_domains": len(already),
         },
         "provider_notes": log,

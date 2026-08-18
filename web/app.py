@@ -5225,13 +5225,111 @@ def api_aio_citations():
 @app.route("/api/link-prospects")
 def api_link_prospects():
     """Cached link-prospect list (GSC-driven outreach targets)."""
-    from src.analysis.link_prospects import load_link_prospects
+    from src.analysis.link_prospects import load_link_prospects, load_statuses
     data = load_link_prospects()
     if not data:
         return jsonify({"available": False,
                         "reason": "No prospect data yet — click Discover Prospects."})
+    # Merge per-domain outreach statuses; hide skipped (rejection memory) even
+    # when the cache predates the skip.
+    st = load_statuses()
+    kept = []
+    for p in data.get("prospects", []):
+        s = st.get((p.get("domain") or "").lower(), {})
+        if s.get("status") == "skipped":
+            continue
+        p["outreach_status"] = s.get("status", "new")
+        kept.append(p)
+    data["prospects"] = kept
     data["draft_prompt_version"] = DRAFT_PROMPT_VERSION
     return jsonify(data)
+
+
+def _expand_seed_topic(topic):
+    """Turn a buyer topic into 8-10 search queries that surface gift guides,
+    resource pages, reviews, and roundups — LLM expansion with a deterministic
+    template fallback so seeds work even with no LLM configured."""
+    fallback = [f"best {topic}", f"{topic} gift guide", f"{topic} ideas roundup",
+                f"personalized {topic}", f"{topic} recommendations blog",
+                f"{topic} for grandparents", f"{topic} resources"]
+    try:
+        config = load_config()
+        result, err = _llm_json(
+            "You generate Google search queries for link-prospect research for a "
+            "small retailer of personalized name trains, name puzzles, story books, "
+            "and Montessori toys. Return ONLY valid JSON.",
+            f"""BUYER TOPIC: "{topic}"
+
+Generate 10 Google search queries a researcher would use to find GIFT GUIDES,
+RESOURCE PAGES, PRODUCT REVIEWS, and ROUNDUPS relevant to this buyer topic —
+pages whose editors curate/recommend products, NOT product listings. Mix buyer-
+language variants (synonyms, audiences: parents, grandparents, teachers,
+occupational therapists). Keep each query short and natural.
+
+Return JSON exactly: {{"queries": ["...", "..."]}}""",
+            config, max_tokens=500)
+        if not err and isinstance(result, dict):
+            qs, seen = [], set()
+            for q in (result.get("queries") or []):
+                q = str(q).strip()
+                if q and q.lower() not in seen:
+                    seen.add(q.lower())
+                    qs.append(q)
+            if len(qs) >= 4:
+                return qs[:10]
+    except Exception as e:
+        print(f"[Seeds] LLM expansion failed for '{topic}': {e}", flush=True)
+    return fallback
+
+
+@app.route("/api/link-prospects/seeds", methods=["GET", "POST", "DELETE"])
+def api_link_prospect_seeds():
+    """Seed topics: arbitrary buyer ideas ('first birthday gifts') beyond GSC
+    data. POST expands the topic into search queries once (stored with the seed);
+    Discover then includes them as direct-search targets."""
+    from src.analysis.link_prospects import load_seeds, save_seeds
+    if request.method == "GET":
+        return jsonify(load_seeds())
+    body = request.get_json(silent=True) or {}
+    topic = (body.get("topic") or "").strip()
+    if not topic:
+        return jsonify({"error": "topic required"}), 400
+    data = load_seeds()
+    if request.method == "DELETE":
+        before = len(data["seeds"])
+        data["seeds"] = [s for s in data["seeds"]
+                         if s.get("topic", "").lower() != topic.lower()]
+        save_seeds(data)
+        return jsonify({"success": True, "removed": before - len(data["seeds"]),
+                        "seeds": data["seeds"]})
+    if any(s.get("topic", "").lower() == topic.lower() for s in data["seeds"]):
+        return jsonify({"error": "topic already added"}), 400
+    queries = _expand_seed_topic(topic)
+    entry = {"topic": topic, "queries": queries,
+             "added_at": datetime.now().isoformat(timespec="seconds")}
+    data["seeds"].append(entry)
+    save_seeds(data)
+    return jsonify({"success": True, "seed": entry, "seeds": data["seeds"]})
+
+
+@app.route("/api/link-prospects/status", methods=["POST"])
+def api_link_prospect_status():
+    """Per-domain outreach status: contacted / won / skipped ('new' clears).
+    'skipped' is rejection memory — excluded from every future discovery run."""
+    from src.analysis.link_prospects import load_statuses, save_statuses
+    body = request.get_json(silent=True) or {}
+    domain = (body.get("domain") or "").strip().lower()
+    status = (body.get("status") or "").strip().lower()
+    if not domain or status not in ("new", "contacted", "won", "skipped"):
+        return jsonify({"error": "domain and status (new|contacted|won|skipped) required"}), 400
+    st = load_statuses()
+    if status == "new":
+        st.pop(domain, None)
+    else:
+        st[domain] = {"status": status,
+                      "at": datetime.now().isoformat(timespec="seconds")}
+    save_statuses(st)
+    return jsonify({"success": True, "domain": domain, "status": status})
 
 
 @app.route("/api/link-prospects/summary")
@@ -5240,11 +5338,14 @@ def api_link_prospects_summary():
     (Opportunities, Do This Next) can show a 🔗 chip wherever a page the tool
     diagnosed as authority-constrained has prospects waiting — without shipping
     the full prospect list (evidence + drafts) to every page."""
-    from src.analysis.link_prospects import load_link_prospects
+    from src.analysis.link_prospects import load_link_prospects, load_statuses
     data = load_link_prospects() or {}
+    st = load_statuses()
     by_url = {}
     for p in data.get("prospects", []):
         if (p.get("tier") or 0) <= 0:
+            continue
+        if st.get((p.get("domain") or "").lower(), {}).get("status") == "skipped":
             continue
         e = by_url.setdefault(p.get("target_url", ""), {"count": 0, "top": []})
         e["count"] += 1
@@ -5357,8 +5458,10 @@ title: {prospect_title}
 content_excerpt: {text}
 
 OUR TARGET PAGE (what we want linked)
-url: {p.get('target_url')}
-ranks #{p.get('target_position')} for "{p.get('target_query')}" ({p.get('target_impressions', 0)} impressions/window)
+url: {p.get('target_url') or 'alphabet-trains.com (our most relevant category page for this topic)'}
+{f'ranks #{p.get("target_position")} for "{p.get("target_query")}" ({p.get("target_impressions", 0)} impressions/window)'
+ if p.get('target_position') else
+ f'buyer topic: "{p.get("target_query")}"' + (f' (seed topic: {p.get("target_seed")})' if p.get('target_seed') else '')}
 
 ANGLE (grounded in evidence): {p.get('angle', '')}
 EVIDENCE: {'; '.join(e.get('detail', '') for e in (p.get('evidence') or [])[:3])}
@@ -5426,12 +5529,15 @@ def api_link_prospects_draft_all():
     global job_state
     if job_state["running"]:
         return jsonify({"error": "A job is already running", "status": "busy"}), 400
-    from src.analysis.link_prospects import load_link_prospects
+    from src.analysis.link_prospects import load_link_prospects, load_statuses
     cached = load_link_prospects() or {}
+    _st = load_statuses()
     # Re-draft anything generated under an older prompt version (e.g. the
     # pre-retailer-identity drafts that wrongly claimed "we make" products).
+    # Skipped domains (rejection memory) never get drafted.
     todo = [p for p in cached.get("prospects", [])
             if p.get("tier", 0) in (1, 2)
+            and _st.get((p.get("domain") or "").lower(), {}).get("status") != "skipped"
             and (not p.get("draft")
                  or (p["draft"] or {}).get("prompt_version") != DRAFT_PROMPT_VERSION)]
     if not todo:
@@ -8769,12 +8875,16 @@ def _playbook_add_task_impl(body):
         impr = body.get("impressions", 0)
         angle = body.get("angle", "")
         evidence = body.get("evidence", []) or []
+        goal = (f"Goal: earn a contextual link to {url} — it ranks #{pos} for "
+                f"“{query}” ({impr:,} impressions) and external authority is the "
+                f"remaining lever."
+                if url and pos else
+                f"Goal: earn a mention/backlink for buyer topic “{query}” — "
+                + (f"link to {url}." if url else "link to our most relevant page."))
         steps = [
             f"Outreach target: {pdom}" + (f" — {ptitle}" if ptitle else "") +
             (f" ({ppage})" if ppage else ""),
-            f"Goal: earn a contextual link to {url} — it ranks #{pos} for "
-            f"“{query}” ({impr:,} impressions) and external authority is the "
-            f"remaining lever.",
+            goal,
             "Evidence this prospect fits:",
         ]
         steps += [f"• {e}" for e in evidence[:4]]

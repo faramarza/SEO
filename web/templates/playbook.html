@@ -238,6 +238,7 @@
             Every prospect shows its factual evidence. Domains already linking to you
             are excluded automatically.
         </div>
+        <div id="pb-links-seeds" style="margin-bottom:10px;"></div>
         <div style="margin-bottom:14px;">
             <button class="pb-task-btn" id="pb-links-run" onclick="pbRefreshLinkProspects(this)">Discover Prospects</button>
             <button class="pb-task-btn pb-task-btn-alt2" id="pb-links-draftall" onclick="pbDraftAll(this)"
@@ -1376,6 +1377,81 @@ async function pbLoadLinkProspects() {
     } catch (e) {
         body.innerHTML = `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
     }
+    pbLoadSeeds();
+}
+
+// ── Seed topics: buyer ideas beyond GSC data ─────────────────
+let PB_SEEDS = [];
+async function pbLoadSeeds() {
+    try {
+        const r = await fetch('/api/link-prospects/seeds');
+        PB_SEEDS = (await r.json()).seeds || [];
+        pbRenderSeeds();
+    } catch (e) {}
+}
+function pbRenderSeeds() {
+    const el = document.getElementById('pb-links-seeds');
+    if (!el) return;
+    const chips = PB_SEEDS.map(s =>
+        `<span class="pb-badge" style="background:#eef2ff;color:#3730a3;margin:0 6px 4px 0;display:inline-block;" title="Expanded into ${(s.queries||[]).length} search queries: ${escHtml((s.queries||[]).slice(0,4).join(' · '))}…">🌱 ${escHtml(s.topic)}
+            <a href="#" style="color:#991b1b;text-decoration:none;margin-left:3px;" title="Remove this topic"
+               onclick="event.preventDefault();pbRemoveSeed('${escHtml(s.topic).replace(/'/g, "\\'")}')">✕</a></span>`).join('');
+    el.innerHTML = `
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">
+            Seed topics — buyer ideas beyond your GSC data (e.g. “first birthday gifts”). Each is expanded
+            into guide/resource search queries once and included in every Discover run.</div>
+        <div>${chips}
+            <input id="pb-seed-input" placeholder="e.g. first birthday gifts"
+                style="font-size:12px;padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;width:220px;"
+                onkeydown="if(event.key==='Enter')pbAddSeed()">
+            <button class="pb-task-btn pb-task-btn-alt" onclick="pbAddSeed(this)">+ Add topic</button>
+        </div>`;
+}
+async function pbAddSeed(btn) {
+    const inp = document.getElementById('pb-seed-input');
+    const topic = (inp && inp.value || '').trim();
+    if (!topic) { pbToast('Type a topic first', true); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Expanding…'; }
+    try {
+        const r = await fetch('/api/link-prospects/seeds', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic }) });
+        const d = await r.json();
+        if (d.success) {
+            PB_SEEDS = d.seeds || [];
+            pbRenderSeeds();
+            pbToast(`“${topic}” added — expanded into ${(d.seed.queries||[]).length} search queries. Run Discover Prospects to include it.`);
+        } else { pbToast(d.error || 'Failed', true); }
+    } catch (e) { pbToast('Failed: ' + e.message, true); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = '+ Add topic'; } }
+}
+async function pbRemoveSeed(topic) {
+    try {
+        const r = await fetch('/api/link-prospects/seeds', {
+            method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic }) });
+        const d = await r.json();
+        if (d.success) { PB_SEEDS = d.seeds || []; pbRenderSeeds(); pbToast('Topic removed (existing prospects stay until the next Discover)'); }
+    } catch (e) {}
+}
+
+// ── Per-prospect outreach status (contacted / won / skip=rejection memory) ──
+async function pbSetStatus(idx, status) {
+    const p = (PB_LINKS && PB_LINKS.prospects || [])[idx];
+    if (!p) return;
+    if (status === 'skipped' && !confirm(`Skip ${p.domain}? It will be hidden and EXCLUDED from all future discovery runs.`)) return;
+    try {
+        const r = await fetch('/api/link-prospects/status', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain: p.domain, status }) });
+        const d = await r.json();
+        if (d.success) {
+            p.outreach_status = status;
+            if (status === 'skipped') PB_LINKS.prospects = PB_LINKS.prospects.filter(x => x.domain !== p.domain);
+            renderLinkProspects(PB_LINKS);
+            pbToast(status === 'skipped' ? `${p.domain} skipped — it won't come back` : `Marked ${status}`);
+        } else { pbToast(d.error || 'Failed', true); }
+    } catch (e) { pbToast('Failed: ' + e.message, true); }
 }
 
 function renderLinkProspects(d) {
@@ -1460,6 +1536,20 @@ function pbLinkRow(p) {
     const page = p.page_title
         ? `<a href="${escHtml(p.page_url)}" target="_blank" title="${escHtml(p.page_url)}">${escHtml(p.page_title.slice(0, 70))}</a>`
         : (p.page_url ? `<a href="${escHtml(p.page_url)}" target="_blank">${escHtml(p.page_url.slice(0, 60))}</a>` : '');
+    const statusBadge = p.outreach_status === 'contacted'
+        ? ' <span class="pb-badge" style="background:#dbeafe;color:#1e40af;">✉ contacted</span>'
+        : p.outreach_status === 'won'
+            ? ' <span class="pb-badge" style="background:#dcfce7;color:#166534;">🏆 won</span>' : '';
+    const statusBtns = `<div style="margin-top:4px;white-space:nowrap;">
+        <button class="pb-task-btn pb-task-btn-alt" style="font-size:10px;padding:2px 6px;" title="Mark contacted (outreach sent)" onclick="pbSetStatus(${idx},'contacted')">✉</button>
+        <button class="pb-task-btn pb-task-btn-alt" style="font-size:10px;padding:2px 6px;" title="Mark won (link acquired!)" onclick="pbSetStatus(${idx},'won')">🏆</button>
+        <button class="pb-task-btn pb-task-btn-alt" style="font-size:10px;padding:2px 6px;" title="Skip — hide and never suggest this domain again" onclick="pbSetStatus(${idx},'skipped')">✕</button>
+    </div>`;
+    const targetCell = p.target_source === 'seed'
+        ? `<span style="font-size:12px;color:#3730a3;">🌱 seed: “${escHtml(p.target_seed || '')}”</span>
+           <div style="font-size:12px;color:var(--text-muted);">“${escHtml(p.target_query)}”</div>
+           ${p.target_url ? `<div style="font-size:11px;">↳ best page: ${escHtml(fmtUrl(p.target_url))}</div>` : ''}`
+        : `<span style="font-size:12px;">${escHtml(fmtUrl(p.target_url))}</span><div style="font-size:12px;color:var(--text-muted);">“${escHtml(p.target_query)}” — #${p.target_position}, ${(p.target_impressions||0).toLocaleString()} impr${p.target_trend === 'down' ? ' 🔻' : ''}</div>`;
     const key = pbKey('link', p.target_url, p.domain);
     const draftCurrent = p.draft && (!PB_LINKS.draft_prompt_version
         || p.draft.prompt_version === PB_LINKS.draft_prompt_version);
@@ -1474,12 +1564,12 @@ function pbLinkRow(p) {
         + draftBtn;
     return `<tr>
         <td><span class="pb-badge" style="background:${bg};color:${fg};white-space:nowrap;">${label}</span></td>
-        <td><strong>${escHtml(p.domain)}</strong><div style="font-size:12px;">${page}</div></td>
-        <td><span style="font-size:12px;">${escHtml(fmtUrl(p.target_url))}</span><div style="font-size:12px;color:var(--text-muted);">“${escHtml(p.target_query)}” — #${p.target_position}, ${(p.target_impressions||0).toLocaleString()} impr${p.target_trend === 'down' ? ' 🔻' : ''}</div></td>
+        <td><strong>${escHtml(p.domain)}</strong>${statusBadge}<div style="font-size:12px;">${page}</div></td>
+        <td>${targetCell}</td>
         <td class="pb-num"><strong>${p.final_score}</strong><div style="font-size:11px;color:var(--text-muted);" title="Impact × Acquisition probability (geometric blend)">I ${p.impact} · P ${p.probability}</div></td>
         <td style="max-width:320px;">${ev}</td>
         <td style="max-width:220px;font-size:12px;">${escHtml(p.angle)}</td>
-        <td>${btn}</td>
+        <td>${btn}${statusBtns}</td>
     </tr>`;
 }
 
@@ -1632,13 +1722,14 @@ function pbExportLinksCsv() {
     const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
     const head = ['tier', 'final_score', 'impact', 'probability', 'prospect_domain',
                   'prospect_page', 'prospect_title', 'target_url', 'target_query',
-                  'target_position', 'target_impressions', 'angle', 'evidence'];
+                  'target_seed', 'target_position', 'target_impressions',
+                  'outreach_status', 'angle', 'evidence'];
     const lines = [head.join(',')];
     rows.forEach(p => lines.push([
         p.tier, p.final_score, p.impact, p.probability, p.domain, p.page_url,
-        p.page_title, p.target_url, p.target_query, p.target_position,
-        p.target_impressions, p.angle,
-        (p.evidence || []).map(e => e.detail).join(' | ')
+        p.page_title, p.target_url, p.target_query, p.target_seed || '',
+        p.target_position, p.target_impressions, p.outreach_status || 'new',
+        p.angle, (p.evidence || []).map(e => e.detail).join(' | ')
     ].map(esc).join(',')));
     const a = document.createElement('a');
     a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(lines.join('\n'));
