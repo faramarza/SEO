@@ -5468,9 +5468,13 @@ def _generate_outreach_draft(p, config=None):
             "posts; a requested link survives, a volunteered one doesn't. If the "
             "thread is asking for product suggestions, mention our shop at most "
             "once by NAME ONLY with explicit disclosure ('full disclosure — I run "
-            "a small shop that carries…') and invite the ask ('happy to share a "
-            "link if that's useful'); otherwise write a purely helpful reply with "
-            "no shop mention at all. Max 120 words. Return ONLY valid JSON."
+            "a small shop that carries…', naming at most ONE product category) and "
+            "invite the ask ('happy to share a link if that's useful'); otherwise "
+            "write a purely helpful reply with no shop mention at all. ALWAYS "
+            "include at least one specific suggestion we do NOT sell (e.g. a "
+            "well-known brand like Melissa & Doug or Hape, or a classic board "
+            "book) — recommending only our own catalog reads as a pitch. "
+            "Max 120 words. Return ONLY valid JSON."
             + _NO_FABRICATION_RULE
         )
         f_user = f"""FORUM THREAD (actually fetched — this is the discussion)
