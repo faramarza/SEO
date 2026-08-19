@@ -1564,7 +1564,7 @@ function pbLinkRow(p) {
         + draftBtn;
     return `<tr>
         <td><span class="pb-badge" style="background:${bg};color:${fg};white-space:nowrap;">${label}</span></td>
-        <td><strong>${escHtml(p.domain)}</strong>${p.prospect_type === 'community' ? ' <span class="pb-badge" style="background:#fef3c7;color:#92400e;" title="Forum/community thread — participate genuinely (nofollow links; referral + brand value, not SEO authority)">💬 forum</span>' : ''}${statusBadge}<div style="font-size:12px;">${page}</div></td>
+        <td><strong>${escHtml(p.domain)}</strong>${p.prospect_type === 'community' ? ' <span class="pb-badge" style="background:#fef3c7;color:#92400e;" title="Forum/community thread — participate genuinely (nofollow links; referral + brand value, not SEO authority)">💬 forum</span>' : ''}${p.draft && (p.draft.emails||[]).length ? ` <span title="Public email found: ${escHtml((p.draft.emails||[]).join(', '))}" style="cursor:help;">📧</span>` : ''}${statusBadge}<div style="font-size:12px;">${page}</div></td>
         <td>${targetCell}</td>
         <td class="pb-num"><strong>${p.final_score}</strong><div style="font-size:11px;color:var(--text-muted);" title="Impact × Acquisition probability (geometric blend)">I ${p.impact} · P ${p.probability}</div></td>
         <td style="max-width:320px;">${ev}</td>
@@ -1630,8 +1630,8 @@ function pbRenderDraftModal(idx, p, d) {
     (d.emails || []).forEach(e => contacts.push(`✉️ <a href="mailto:${escHtml(e)}">${escHtml(e)}</a>`));
     (d.contact_links || []).forEach(c => contacts.push(`🔗 <a href="${escHtml(c)}" target="_blank">${escHtml(c)}</a>`));
     const contactHtml = contacts.length
-        ? `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;"><strong>Contact routes found on their page:</strong><br>${contacts.join('<br>')}</div>`
-        : `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;">No contact route found on the fetched page — check their site's contact/about page manually.</div>`;
+        ? `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;"><strong>Contact routes found on their site</strong> (page + its contact/about links, publicly listed only):<br>${contacts.join('<br>')}</div>`
+        : `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;">No public contact route found on the page or its contact/about links — look for a contact form on their site manually.</div>`;
     if (d.error) {
         fbody.innerHTML = contactHtml + `<p class="empty-state">${escHtml(d.error)}</p>`;
         return;

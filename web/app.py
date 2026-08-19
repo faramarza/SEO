@@ -5502,6 +5502,28 @@ Return JSON exactly:
         result["prompt_version"] = DRAFT_PROMPT_VERSION
         return result, None
 
+    # Second hop: the prospect PAGE (an article) rarely lists an email, but it
+    # links to /contact or /about — follow up to two of those same-domain links
+    # and harvest PUBLICLY LISTED addresses (mailto:, visible text, and
+    # obfuscated 'name [at] domain' forms). Public info only — never guessed,
+    # never bought from enrichment vendors.
+    if not emails and contact_links:
+        harvested = []
+        for cl in contact_links[:2]:
+            try:
+                chtml = _cy_fetch(cl)
+            except Exception:
+                continue
+            harvested += re.findall(r'mailto:([^"\'>\s?]+)', chtml)
+            harvested += re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b', chtml)
+            harvested += [f"{u}@{h}" for u, h in re.findall(
+                r'([A-Za-z0-9._%+-]+)\s*(?:\[at\]|\(at\))\s*([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})',
+                chtml, re.I)]
+        emails = sorted({e.strip().strip(".").lower() for e in harvested
+                         if not re.search(r'\.(png|jpe?g|gif|webp|svg|js|css|woff2?)$', e, re.I)
+                         and "example." not in e and "@2x" not in e
+                         and "sentry" not in e and "wixpress" not in e})[:5]
+
     system_message = (
         "You write short, honest link-outreach emails for Alphabet Trains "
         "(alphabet-trains.com), a small family-run online RETAILER that curates "
