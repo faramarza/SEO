@@ -5444,6 +5444,39 @@ def api_link_prospects_refresh():
 DRAFT_PROMPT_VERSION = 4
 
 
+# Explicit decline-policy statements on contact/about pages. Deterministic
+# phrase matching — the sign on the door read verbatim, never inferred.
+_DECLINE_RE = re.compile(
+    r"(not\s+(?:currently\s+)?(?:doing|accepting|taking|open\s+to)\s+(?:any\s+)?"
+    r"(?:collaborations?|partnerships?|guest\s+posts?|sponsor(?:ed)?\s+(?:posts?|content)|"
+    r"link\s+(?:requests?|insertions?|exchanges?))"
+    r"|no\s+(?:collaborations?|guest\s+posts?|link\s+(?:requests?|exchanges?)|sponsored\s+posts?)\b"
+    r"|(?:these\s+)?(?:requests?|messages?|emails?|submissions?)\s+will\s+be\s+"
+    r"(?:automatically\s+)?(?:deleted|ignored)"
+    r"|do\s+not\s+(?:contact|email)\s+(?:me|us)\s+(?:about|regarding)\s+"
+    r"(?:collaborations?|partnerships?|links?|sponsorships?))", re.I)
+
+
+def _detect_outreach_decline(*html_blobs):
+    """Scan fetched pages for an explicit 'no collaborations / will be deleted'
+    policy. Returns a quoted-snippet warning, or None. Surfaced to the operator
+    — the decision stays human, but they shouldn't have to discover the sign on
+    the door after writing the email."""
+    for blob in html_blobs:
+        if not blob:
+            continue
+        text = re.sub(r"\s+", " ", re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ",
+                                          re.sub(r"<[^>]+>", " ", blob)))
+        m = _DECLINE_RE.search(text)
+        if m:
+            s = max(0, m.start() - 60)
+            snippet = text[s:m.end() + 60].strip()
+            return (f"Their site states: “…{snippet}…” — promotional outreach is "
+                    "likely ignored or auto-deleted. Consider Skip (✕); the domain "
+                    "still counts as a peer for backlink mining.")
+    return None
+
+
 def _generate_outreach_draft(p, config=None):
     """Grounded outreach draft for one prospect: fetch their page live, extract
     contact routes deterministically, then draft an email referencing ONLY fetched
@@ -5537,16 +5570,19 @@ Return JSON exactly:
 
     # Second hop: the prospect PAGE (an article) rarely lists an email, but it
     # links to /contact or /about — follow up to two of those same-domain links
-    # and harvest PUBLICLY LISTED addresses (mailto:, visible text, and
-    # obfuscated 'name [at] domain' forms). Public info only — never guessed,
-    # never bought from enrichment vendors.
-    if not emails and contact_links:
+    # to (a) harvest PUBLICLY LISTED addresses (mailto:, visible text, and
+    # obfuscated 'name [at] domain' forms — never guessed, never bought), and
+    # (b) detect explicit no-collaboration policies ("requests will be
+    # automatically deleted") that make outreach pointless.
+    hop_html = []
+    for cl in contact_links[:2]:
+        try:
+            hop_html.append(_cy_fetch(cl))
+        except Exception:
+            continue
+    if not emails and hop_html:
         harvested = []
-        for cl in contact_links[:2]:
-            try:
-                chtml = _cy_fetch(cl)
-            except Exception:
-                continue
+        for chtml in hop_html:
             harvested += re.findall(r'mailto:([^"\'>\s?]+)', chtml)
             harvested += re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b', chtml)
             harvested += [f"{u}@{h}" for u, h in re.findall(
@@ -5556,6 +5592,8 @@ Return JSON exactly:
                          if not re.search(r'\.(png|jpe?g|gif|webp|svg|js|css|woff2?)$', e, re.I)
                          and "example." not in e and "@2x" not in e
                          and "sentry" not in e and "wixpress" not in e})[:5]
+
+    outreach_warning = _detect_outreach_decline(html, *hop_html)
 
     system_message = (
         "You write short, honest link-outreach emails for Alphabet Trains "
@@ -5599,6 +5637,8 @@ Return JSON exactly:
         return None, err
     result["emails"] = emails
     result["contact_links"] = contact_links
+    if outreach_warning:
+        result["outreach_warning"] = outreach_warning
     result["fetched"] = True
     result["prospect_page"] = page_url
     result["drafted_at"] = datetime.now().isoformat(timespec="seconds")
