@@ -5607,10 +5607,23 @@ Return JSON exactly:
     # obfuscated 'name [at] domain' forms — never guessed, never bought), and
     # (b) detect explicit no-collaboration policies ("requests will be
     # automatically deleted") that make outreach pointless.
+    # When the article exposes no contact links (landing templates, AMP, or
+    # JS-collapsed navs), probe the standard slugs directly — what a human
+    # would do. First two that respond win.
+    if not contact_links:
+        dom = p.get("domain", "")
+        probes = [f"https://{dom}/{slug}" for slug in
+                  ("contact", "contact-me", "contact-us", "about", "about-me")]
+    else:
+        probes = []
     hop_html = []
-    for cl in contact_links[:2]:
+    for cl in (contact_links[:2] + probes):
+        if len(hop_html) >= 2:
+            break
         try:
             hop_html.append(_cy_fetch(cl))
+            if cl not in contact_links:
+                contact_links.append(cl)  # a probed page that answered IS the contact route
         except Exception:
             continue
     if not emails and hop_html:
