@@ -5022,10 +5022,61 @@ def api_ads_execute():
 
 
 def _llm_json(system_message, user_prompt, config, max_tokens=700):
-    """Compact single-shot LLM call returning parsed JSON. (result, error)."""
+    """Compact LLM call returning parsed JSON. (result, error). If the first
+    response isn't valid JSON, retries ONCE with a corrective instruction (the
+    usual failure is unescaped double quotes inside a string value); empty
+    responses are reported distinctly (reasoning models can consume the whole
+    token budget before emitting content)."""
+    text, err = _llm_text(system_message, user_prompt, config, max_tokens)
+    if err:
+        return None, err
+    parsed = _parse_llm_json(text)
+    if parsed is not None:
+        return parsed, None
+    if not (text or "").strip():
+        return None, ("LLM returned empty content — if the configured model is a "
+                      "reasoning model, its thinking may be consuming the whole "
+                      "token budget; raise max_tokens in the AI config.")
+    print(f"[LLM-JSON] unparseable head (attempt 1): {text[:200]!r}", flush=True)
+    text2, err2 = _llm_text(
+        system_message,
+        user_prompt + "\n\nIMPORTANT: Your previous response was not valid JSON. "
+                      "Return ONLY a strict, valid JSON object — escape every "
+                      "double quote inside string values as \\\" and include no "
+                      "text outside the JSON object.",
+        config, max_tokens)
+    if err2:
+        return None, err2
+    parsed = _parse_llm_json(text2)
+    if parsed is not None:
+        return parsed, None
+    print(f"[LLM-JSON] unparseable head (attempt 2): {text2[:200]!r}", flush=True)
+    return None, "could not parse LLM JSON"
+
+
+def _parse_llm_json(text):
+    """Fence-stripping, control-char-tolerant JSON extraction. None on failure."""
+    import json as _json
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        if t.lower().startswith("json"):
+            t = t[4:]
+    i, j = t.find("{"), t.rfind("}")
+    if i >= 0 and j > i:
+        block = t[i:j + 1]
+        for kwargs in ({}, {"strict": False}):
+            try:
+                return _json.loads(block, **kwargs)
+            except Exception:
+                continue
+    return None
+
+
+def _llm_text(system_message, user_prompt, config, max_tokens=700):
+    """One raw LLM completion. Returns (text, error)."""
     import os
     import httpx
-    import json as _json
     ai_config = config.get("ai", {})
     model = ai_config.get("model", "gpt-4o-mini")
     temperature = ai_config.get("temperature", 0.4)
@@ -5078,25 +5129,7 @@ def _llm_json(system_message, user_prompt, config, max_tokens=700):
     except Exception as e:
         return None, f"LLM call failed: {e}"
 
-    t = (text or "").strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        if t.lower().startswith("json"):
-            t = t[4:]
-    i, j = t.find("{"), t.rfind("}")
-    if i >= 0 and j > i:
-        block = t[i:j + 1]
-        # strict=False accepts literal newlines/tabs INSIDE string values —
-        # models routinely emit real newlines in multi-paragraph strings
-        # (e.g. outreach email bodies), which strict json.loads rejects.
-        for kwargs in ({}, {"strict": False}):
-            try:
-                return _json.loads(block, **kwargs), None
-            except Exception:
-                continue
-    # Log the raw head so a recurring parse failure is diagnosable from journalctl.
-    print(f"[LLM-JSON] unparseable response head: {t[:200]!r}", flush=True)
-    return None, "could not parse LLM JSON"
+    return text, None
 
 
 def _find_eval_result(url):
@@ -5490,7 +5523,7 @@ Write the forum reply. Reference something specific actually said in the thread.
 
 Return JSON exactly:
 {{"reply": "...", "personalization_point": "the specific thing from the thread you responded to"}}"""
-        result, err = _llm_json(f_system, f_user, config, max_tokens=1000)
+        result, err = _llm_json(f_system, f_user, config, max_tokens=1400)
         if err:
             return None, err
         result["is_forum_reply"] = True
@@ -5561,7 +5594,7 @@ Return JSON exactly:
 
     # 1400 tokens: a multi-paragraph email + JSON overhead (and, on thinking
     # models, reasoning) needs headroom — a truncated response can never parse.
-    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1800)
     if err:
         return None, err
     result["emails"] = emails
@@ -5820,7 +5853,7 @@ Return JSON exactly:
   "tip": "the single highest-impact change to make"
 }}"""
 
-    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1800)
     if err:
         print(f"[CTR-REWRITE] {url} error: {err}", flush=True)
         return jsonify({"error": err}), 502
@@ -5880,7 +5913,7 @@ Return JSON exactly:
   "note": "one sentence on how to deploy these (FAQ section + FAQPage schema)"
 }}"""
 
-    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1800)
     if err:
         print(f"[GEO-QUESTIONS] {url} error: {err}", flush=True)
         return jsonify({"error": err}), 502
@@ -8196,7 +8229,7 @@ Return JSON exactly:
   "skip": "the tempting-but-low-value things to NOT spend time on right now, and why",
   "expected_impact": "a grounded, honest estimate tied to their numbers"
 }}"""
-    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1400)
+    result, err = _llm_json(system_message, user_prompt, config, max_tokens=1800)
     if err or not isinstance(result, dict):
         print(f"[Strategy] LLM error: {err or 'no dict result'}", flush=True)
         return
