@@ -5446,8 +5446,10 @@ DRAFT_PROMPT_VERSION = 4
 
 # Explicit decline-policy statements on contact/about pages. Deterministic
 # phrase matching — the sign on the door read verbatim, never inferred.
+# Handles contractions and curly apostrophes ("don’t accept guest posts").
+_NEG = r"(?:not\s+(?:currently\s+)?|don['’]?t\s+|do\s+not\s+|doesn['’]?t\s+|does\s+not\s+|no\s+longer\s+)"
 _DECLINE_RE = re.compile(
-    r"(not\s+(?:currently\s+)?(?:doing|accepting|taking|open\s+to)\s+(?:any\s+)?"
+    r"(" + _NEG + r"(?:doing|accept(?:ing)?|tak(?:e|ing)|allow(?:ing)?|open\s+to)\s+(?:any\s+)?"
     r"(?:collaborations?|partnerships?|guest\s+posts?|sponsor(?:ed)?\s+(?:posts?|content)|"
     r"link\s+(?:requests?|insertions?|exchanges?))"
     r"|no\s+(?:collaborations?|guest\s+posts?|link\s+(?:requests?|exchanges?)|sponsored\s+posts?)\b"
@@ -5456,24 +5458,55 @@ _DECLINE_RE = re.compile(
     r"|do\s+not\s+(?:contact|email)\s+(?:me|us)\s+(?:about|regarding)\s+"
     r"(?:collaborations?|partnerships?|links?|sponsorships?))", re.I)
 
+# A dedicated brand/PR route on the site = they WORK with brands; outreach
+# should go through (or reference) their preferred door.
+_PR_ROUTE_RE = re.compile(
+    r'href=["\']([^"\']*(?:pr-advertis|advertis|work-with-(?:me|us)|media-kit|'
+    r'sponsor(?:ship)?s?|collaborat|partner-with)[^"\']*)["\']', re.I)
+
 
 def _detect_outreach_decline(*html_blobs):
-    """Scan fetched pages for an explicit 'no collaborations / will be deleted'
-    policy. Returns a quoted-snippet warning, or None. Surfaced to the operator
-    — the decision stays human, but they shouldn't have to discover the sign on
-    the door after writing the email."""
+    """Scan fetched pages for explicit decline policies. Returns (level, message)
+    or (None, None). 'block' = blanket no-collaboration / auto-delete policy
+    (outreach pointless); 'note' = a SCOPED decline (e.g. guest posts only) that
+    does NOT cover a resource-addition pitch — proceed, but don't be mistaken
+    for what they banned. Verbatim quotes only; the decision stays human."""
+    from html import unescape as _unesc
     for blob in html_blobs:
         if not blob:
             continue
-        text = re.sub(r"\s+", " ", re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ",
-                                          re.sub(r"<[^>]+>", " ", blob)))
+        text = _unesc(re.sub(r"\s+", " ", re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ",
+                                                 re.sub(r"<[^>]+>", " ", blob))))
         m = _DECLINE_RE.search(text)
-        if m:
-            s = max(0, m.start() - 60)
-            snippet = text[s:m.end() + 60].strip()
-            return (f"Their site states: “…{snippet}…” — promotional outreach is "
-                    "likely ignored or auto-deleted. Consider Skip (✕); the domain "
-                    "still counts as a peer for backlink mining.")
+        if not m:
+            continue
+        s = max(0, m.start() - 60)
+        snippet = text[s:m.end() + 60].strip()
+        matched = m.group(0).lower()
+        scoped_guest_only = ("guest post" in matched and not any(
+            k in matched for k in ("collaborat", "partnership", "link", "sponsor",
+                                   "deleted", "ignored")))
+        if scoped_guest_only:
+            return "note", (f"Their contact page declines GUEST POSTS specifically "
+                            f"(“…{snippet}…”). A resource-page addition is not a guest "
+                            "post — proceed, but make sure the email cannot be read as "
+                            "a guest-post pitch.")
+        return "block", (f"Their site states: “…{snippet}…” — promotional outreach is "
+                         "likely ignored or auto-deleted. Consider Skip (✕); the domain "
+                         "still counts as a peer for backlink mining.")
+    return None, None
+
+
+def _detect_pr_route(domain, *html_blobs):
+    """First same-site brand/PR/advertise page linked from the fetched pages —
+    the site's stated door for working with shops. Paid placements must carry
+    rel=sponsored (no SEO value), so this is a referral/brand route, flagged as
+    such rather than hidden."""
+    for blob in html_blobs:
+        for href in _PR_ROUTE_RE.findall(blob or ""):
+            full = href if href.startswith("http") else f"https://{domain}/{href.lstrip('/')}"
+            if domain in full:
+                return full
     return None
 
 
@@ -5593,7 +5626,8 @@ Return JSON exactly:
                          and "example." not in e and "@2x" not in e
                          and "sentry" not in e and "wixpress" not in e})[:5]
 
-    outreach_warning = _detect_outreach_decline(html, *hop_html)
+    warn_level, outreach_warning = _detect_outreach_decline(html, *hop_html)
+    pr_route = _detect_pr_route(p.get("domain", ""), html, *hop_html)
 
     system_message = (
         "You write short, honest link-outreach emails for Alphabet Trains "
@@ -5639,6 +5673,9 @@ Return JSON exactly:
     result["contact_links"] = contact_links
     if outreach_warning:
         result["outreach_warning"] = outreach_warning
+        result["outreach_warning_level"] = warn_level
+    if pr_route:
+        result["pr_route"] = pr_route
     result["fetched"] = True
     result["prospect_page"] = page_url
     result["drafted_at"] = datetime.now().isoformat(timespec="seconds")

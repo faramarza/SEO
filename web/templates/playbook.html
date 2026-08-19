@@ -1564,7 +1564,7 @@ function pbLinkRow(p) {
         + draftBtn;
     return `<tr>
         <td><span class="pb-badge" style="background:${bg};color:${fg};white-space:nowrap;">${label}</span></td>
-        <td><strong>${escHtml(p.domain)}</strong>${p.prospect_type === 'community' ? ' <span class="pb-badge" style="background:#fef3c7;color:#92400e;" title="Forum/community thread — participate genuinely (nofollow links; referral + brand value, not SEO authority)">💬 forum</span>' : ''}${p.draft && (p.draft.emails||[]).length ? ` <span title="Public email found: ${escHtml((p.draft.emails||[]).join(', '))}" style="cursor:help;">📧</span>` : ''}${p.draft && p.draft.outreach_warning ? ` <span title="${escHtml(p.draft.outreach_warning)}" style="cursor:help;">⛔</span>` : ''}${statusBadge}<div style="font-size:12px;">${page}</div></td>
+        <td><strong>${escHtml(p.domain)}</strong>${p.prospect_type === 'community' ? ' <span class="pb-badge" style="background:#fef3c7;color:#92400e;" title="Forum/community thread — participate genuinely (nofollow links; referral + brand value, not SEO authority)">💬 forum</span>' : ''}${p.draft && (p.draft.emails||[]).length ? ` <span title="Public email found: ${escHtml((p.draft.emails||[]).join(', '))}" style="cursor:help;">📧</span>` : ''}${p.draft && p.draft.outreach_warning ? ` <span title="${escHtml(p.draft.outreach_warning)}" style="cursor:help;">${p.draft.outreach_warning_level === 'note' ? '⚠' : '⛔'}</span>` : ''}${p.draft && p.draft.pr_route ? ` <span title="Has a brand/PR page: ${escHtml(p.draft.pr_route)}" style="cursor:help;">🤝</span>` : ''}${statusBadge}<div style="font-size:12px;">${page}</div></td>
         <td>${targetCell}</td>
         <td class="pb-num"><strong>${p.final_score}</strong><div style="font-size:11px;color:var(--text-muted);" title="Impact × Acquisition probability (geometric blend)">I ${p.impact} · P ${p.probability}</div></td>
         <td style="max-width:320px;">${ev}</td>
@@ -1632,9 +1632,14 @@ function pbRenderDraftModal(idx, p, d) {
     const contactHtml = contacts.length
         ? `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;"><strong>Contact routes found on their site</strong> (page + its contact/about links, publicly listed only):<br>${contacts.join('<br>')}</div>`
         : `<div class="pb-geo-note" style="font-style:normal;margin-bottom:10px;">No public contact route found on the page or its contact/about links — look for a contact form on their site manually.</div>`;
-    const warnHtml = d.outreach_warning
-        ? `<div class="pb-geo-note" style="color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:10px;">⛔ ${escHtml(d.outreach_warning)}</div>`
-        : '';
+    const warnHtml = (d.outreach_warning
+        ? (d.outreach_warning_level === 'note'
+            ? `<div class="pb-geo-note" style="color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:10px;">⚠ ${escHtml(d.outreach_warning)}</div>`
+            : `<div class="pb-geo-note" style="color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:10px;">⛔ ${escHtml(d.outreach_warning)}</div>`)
+        : '')
+        + (d.pr_route
+            ? `<div class="pb-geo-note" style="color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;font-style:normal;margin-bottom:10px;">🤝 They have a brand/PR page: <a href="${escHtml(d.pr_route)}" target="_blank">${escHtml(d.pr_route)}</a> — check their preferred route before emailing. Note: paid placements must be rel=sponsored (no SEO value); judge those on referral value only.</div>`
+            : '');
     if (d.error) {
         fbody.innerHTML = warnHtml + contactHtml + `<p class="empty-state">${escHtml(d.error)}</p>`;
         return;
