@@ -16,6 +16,8 @@ ambition, just making sure the brand looks like a real brand where it counts:
 Everything is grounded in the site's own GSC + crawl data. No fabricated numbers.
 """
 
+from urllib.parse import urlparse
+
 from src.analysis.growth_playbook import _is_system_page
 
 

@@ -33,7 +33,6 @@ from src.data_sources import serp_client
 from src.data_sources.crux_client import CrUXClient
 from src.data_sources import ai_visibility
 from src.data_sources import content_manager
-from src.diagnostics.tracking_sanity import TrackingSanityDiagnostics
 
 
 app = Flask(__name__,
@@ -395,7 +394,7 @@ def _run_serp_collector():
     Only runs when SERP_AUTO_COLLECT=true is set in environment. Deduped across
     gunicorn workers via a per-window marker so only one worker collects per pass.
     """
-    if not os.environ.get("SERP_AUTO_COLLECT", "").lower() in ("true", "1", "yes"):
+    if os.environ.get("SERP_AUTO_COLLECT", "").lower() not in ("true", "1", "yes"):
         print("[SERP Collector] Auto-collection disabled. Set SERP_AUTO_COLLECT=true in .env to enable.")
         return
     time.sleep(30)  # Wait for app to be fully ready
@@ -1670,7 +1669,6 @@ def api_ai_recommend():
     max_tokens = ai_config.get("max_tokens", 4500)
     timeout_sec = ai_config.get("timeout", 120)
     max_queries = ai_config.get("max_queries_in_prompt", 0)
-    max_issues = ai_config.get("max_issues_in_prompt", 0)
     min_context = ai_config.get("min_context_fields", 3)
 
     # ── Page metadata from frontend (populated by Fetch Page button) ──
@@ -1939,11 +1937,11 @@ def api_ai_recommend():
                     f"{': ' + pa.description[:80] if pa.description else ''}"
                 )
             action_history_str = (
-                f"\n\npast_actions_on_this_page (CRITICAL — learn from what was already tried):\n"
+                "\n\npast_actions_on_this_page (CRITICAL — learn from what was already tried):\n"
                 + "\n".join(history_lines) + "\n"
-                f"RULE: If a TITLE_META_TEST was previously tried on this page and the outcome was "
-                f"NEGATIVE or NEUTRAL, do NOT recommend another TITLE_META_TEST unless you can explain "
-                f"specifically what was wrong with the previous attempt and why yours would differ.\n"
+                "RULE: If a TITLE_META_TEST was previously tried on this page and the outcome was "
+                "NEGATIVE or NEUTRAL, do NOT recommend another TITLE_META_TEST unless you can explain "
+                "specifically what was wrong with the previous attempt and why yours would differ.\n"
             )
     except Exception:
         pass
@@ -2063,7 +2061,6 @@ def api_ai_recommend():
                 title_r = pm_r.get("title", "") or pm_r.get("h1", "")
                 # Include basic performance signal for prioritization
                 ev = r.get("expected_value", 0)
-                conf = r.get("confidence", 0)
 
                 # GSC metrics for this page (flat fields in evaluation results)
                 impressions = r.get("gsc_impressions", 0) or 0
@@ -3949,7 +3946,6 @@ def api_send_back_task(action_id):
     """Send a task back for re-evaluation. Removes it from the task board
     so it will be re-scored on the next evaluation run."""
     ledger = ActionLedger()
-    data = request.json or {}
     action = ledger.get_action(action_id)
 
     if not action:
@@ -4761,7 +4757,7 @@ def _diagnose_ad_structure(by_type, break_even_roas=4.0):
         ]
         tradeoff = ""
     else:
-        findings = [f"Account campaign mix: " +
+        findings = ["Account campaign mix: " +
                     ", ".join(f"{v['count']} {k} (${v['cost']:.0f})" for k, v in by_type.items()) + "."]
         recs = []
         tradeoff = ""
@@ -5258,7 +5254,8 @@ def api_aio_citations():
         for w in (cy or {}).get("winnable", []):
             q = w.get("query")
             if q and q.lower() not in seen:
-                seen.add(q.lower()); queries.append(q)
+                seen.add(q.lower())
+                queries.append(q)
     except Exception:
         pass
     limit = min(int(request.args.get("limit", "15") or 15), dfs.get_remaining_quota() or 0)
@@ -6245,7 +6242,6 @@ def _load_history_snapshots(limit=None):
 @app.route("/api/growth/summary")
 def api_growth_summary():
     """Growth movers + evaluation history for charts."""
-    eval_path = DATA_PATH / "latest_evaluation.json"
 
     # One stripped pass over history feeds BOTH the charts and the movers —
     # never re-parse full snapshot files here.
@@ -7113,7 +7109,6 @@ def api_run_evaluation():
         try:
 
             from src.workflows.full_evaluation import FullEvaluationWorkflow, WorkflowConfig
-            from src.output.decision_formatter import OutputFormat
 
             # Load config
             job_state["message"] = "Loading config..."
@@ -7133,7 +7128,7 @@ def api_run_evaluation():
             workflow = FullEvaluationWorkflow(config)
 
             # Step 1: Load data (GSC + GA4 API calls — typically 2-5 min for large sites)
-            job_state["message"] = f"Loading data from GSC + GA4 (28 days)... this takes a few minutes"
+            job_state["message"] = "Loading data from GSC + GA4 (28 days)... this takes a few minutes"
             workflow.load_data(days=28)
             job_state["total"] = len(workflow._assets)
             job_state["message"] = f"Loaded {len(workflow._assets)} pages from GSC + GA4"
@@ -7200,7 +7195,7 @@ def api_run_evaluation():
                                     try:
                                         parser.feed(response.text)
                                         parser.close()
-                                    except:
+                                    except Exception:
                                         pass
 
                                     canonical = parser.canonical_url
@@ -8004,7 +7999,7 @@ def _process_due_reviews(store, results, eval_timestamp=""):
     adopted — otherwise we'd compare the baseline to itself. When the evaluation
     is stale, the task is marked not-yet-measurable and re-checked in a week."""
     from src.analysis.action_plan import evaluate_review, review_date_for
-    from datetime import datetime, date, timedelta
+    from datetime import date, timedelta
 
     by_url = {_normalize_url(r.get("url", "")): r for r in results}
     # Site-wide clicks per query, for content tasks (a new article can rank on any URL).

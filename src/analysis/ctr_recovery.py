@@ -15,7 +15,6 @@ Pure functions over the evaluation `results` list. Monetization (lost revenue) i
 left to the caller so this stays free of the web layer's business params.
 """
 
-from urllib.parse import urlparse
 
 from src.analysis.site_benchmarks import achievable_ctr
 from src.analysis.growth_playbook import _is_system_page

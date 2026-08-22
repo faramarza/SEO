@@ -5,10 +5,9 @@ Doctrine #7: You are allowed 2 irreversible mistakes per calendar year.
 Doctrine #8: You must remember past actions and their outcomes.
 """
 
-from datetime import date, datetime
+from datetime import date
 from enum import Enum
-from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class ActionOutcome(str, Enum):

@@ -17,7 +17,6 @@ import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlencode, parse_qs, urlparse
 import threading
-import time
 
 
 # Google OAuth2 endpoints

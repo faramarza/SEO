@@ -6,7 +6,7 @@ Each indexable URL is treated as a financial asset with measurable attributes.
 
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class AssetType(str, Enum):

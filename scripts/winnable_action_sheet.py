@@ -150,7 +150,9 @@ def main():
         src_index.setdefault(url, set()).update(_tokens(query))
         if _is_brand(query) or "shop-by-brands" in url:
             continue
-        impr = r.get('impressions', 0); pos = r.get('position', 0.0); clk = r.get('clicks', 0)
+        impr = r.get('impressions', 0)
+        pos = r.get('position', 0.0)
+        clk = r.get('clicks', 0)
         if impr < args.min_impr or not (4.0 <= pos <= 20.0):
             continue
         cur = best.get(url)
@@ -178,9 +180,9 @@ def main():
     for rank, (url, impr, pos, query, pclk) in enumerate(winnable, 1):
         path = urlparse(url).path or url
         try:
-            title, meta, h1 = _extract(_fetch(url))
+            title, meta, _h1 = _extract(_fetch(url))
         except Exception as e:
-            title, meta, h1 = "", "", ""
+            title, meta, _h1 = "", "", ""
             fetch_err = f"(could not fetch page: {type(e).__name__})"
         else:
             fetch_err = ""
@@ -195,8 +197,8 @@ def main():
         # --- title recommendation ---
         rw = _title_rewrite(query, title)
         if rw is None:
-            print(f"   ✓ TITLE OK   : query already in title — do NOT retitle. "
-                  f"The gap is POSITION/authority → internal links below.")
+            print("   ✓ TITLE OK   : query already in title — do NOT retitle. "
+                  "The gap is POSITION/authority → internal links below.")
         else:
             print(f"   → NEW TITLE  : {rw}   ({len(rw)} chars)")
 
@@ -208,7 +210,7 @@ def main():
             print(f"   → META edit  : front-load \"{query}\" into your existing description.")
             print(f"                  current: {meta[:90]}{'…' if len(meta) > 90 else ''}")
         else:
-            print(f"   ✓ META OK    : query already present.")
+            print("   ✓ META OK    : query already present.")
 
         # --- internal-link sources (topical overlap, crawl-free) ---
         qtok = _tokens(query)

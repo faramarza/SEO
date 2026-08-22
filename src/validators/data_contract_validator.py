@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any, Optional
 from pydantic import ValidationError
 
-from ..models.page_asset import PageAsset, GSCMetrics, GA4Metrics, TopQuery
+from ..models.page_asset import PageAsset
 
 
 class ValidationStatus(str, Enum):

@@ -175,7 +175,6 @@ def evaluate_geo_readiness(
     _faq_examples = ("; try: " + ", ".join(f'"{q}?"'.replace('??', '?') for q in _real_qs[:3])
                      if _real_qs else "")
     has_faq_schema = _has_schema(schema_types, "FAQPage", "QAPage")
-    has_howto = _has_schema(schema_types, "HowTo")
     if not question_headings and not has_faq_schema:
         penalize(11, "answerability", "high", "No question-form content / FAQ",
                  "No question-style headings and no FAQ markup. AI answers map user questions to pages that pose and answer those questions directly.",

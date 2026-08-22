@@ -475,9 +475,9 @@ def _from_pruning(pruning, out):
         tgt = r.get("redirect_target") or {}
         if disp == "merge_redirect":
             steps = [f"Merge any useful content from this dead page into “{tgt.get('title','a stronger page')}” ({tgt.get('url','')}).",
-                     f"301-redirect this URL to that page to preserve residual equity.",
+                     "301-redirect this URL to that page to preserve residual equity.",
                      f"Rationale: {r.get('reason','')}", "Review before executing — this is a suggestion."]
-            title = f"Merge & 301 a dead page into a stronger one"
+            title = "Merge & 301 a dead page into a stronger one"
         else:
             steps = [f"Prune this dead page ({r.get('impressions',0)} impr, {r.get('word_count',0)} words) — noindex it or remove and 410.",
                      f"Rationale: {r.get('reason','')}", "Review before executing — this is a suggestion."]
@@ -664,19 +664,32 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
                       winnable=None, limit=60):
     """Aggregate EVERY subsystem into one ranked, do-this-next list."""
     out = []
-    if ctr: _from_ctr(ctr, out)
-    if cro: _from_cro(cro, out)
-    if reviews: _from_reviews(reviews, out)
-    if rich: _from_rich(rich, out)
-    if brand_merchant: _from_merchant(brand_merchant, out)
-    if striking: _from_striking(striking, out)
-    if winnable: _from_winnable(winnable, out)
-    if decay: _from_decay(decay, out)
-    if content: _from_content(content, out)
-    if orphans: _from_orphans(orphans, out)
-    if pruning: _from_pruning(pruning, out)
-    if geo: _from_geo(geo, out)
-    if brand_merchant: _from_brand(brand_merchant, out)
+    if ctr:
+        _from_ctr(ctr, out)
+    if cro:
+        _from_cro(cro, out)
+    if reviews:
+        _from_reviews(reviews, out)
+    if rich:
+        _from_rich(rich, out)
+    if brand_merchant:
+        _from_merchant(brand_merchant, out)
+    if striking:
+        _from_striking(striking, out)
+    if winnable:
+        _from_winnable(winnable, out)
+    if decay:
+        _from_decay(decay, out)
+    if content:
+        _from_content(content, out)
+    if orphans:
+        _from_orphans(orphans, out)
+    if pruning:
+        _from_pruning(pruning, out)
+    if geo:
+        _from_geo(geo, out)
+    if brand_merchant:
+        _from_brand(brand_merchant, out)
 
     for t in out:
         _score_task(t)

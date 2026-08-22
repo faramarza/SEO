@@ -11,7 +11,6 @@ Per doctrine:
 
 from dataclasses import dataclass
 from typing import Optional
-import re
 
 import sys
 from pathlib import Path
@@ -20,8 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.models.page_asset import PageAsset, AssetType
 from src.metrics.opportunity_metrics import (
     calculate_demand_score,
-    calculate_visibility_gap,
-    calculate_click_upside,
     QueryIntent,
 )
 

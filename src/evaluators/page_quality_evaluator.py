@@ -282,7 +282,7 @@ def evaluate_page_quality(
                      "Add descriptive alt text to content images (helps image SEO and accessibility).")
 
     if asset_type == "category" and has_crawl_data:
-        product_links = sum(1 for l in outlinks if ".html" in str(l.get("target_url", "")).lower())
+        product_links = sum(1 for lk in outlinks if ".html" in str(lk.get("target_url", "")).lower())
         if product_links and product_links < 8:
             penalize(6, "cro", "medium", "Few product links",
                      f"Only ~{product_links} product links — thin category.",

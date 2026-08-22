@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.models.page_asset import PageAsset
-from src.data_sources.google_ads_client import AdsAccountData, AdsQueryData, CampaignType
+from src.data_sources.google_ads_client import AdsAccountData
 
 
 class DemandSignalStrength(str, Enum):

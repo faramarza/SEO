@@ -163,12 +163,12 @@ def collect_sitemap_urls(base: str) -> set[str]:
             continue
         # A sitemap index points at more sitemaps (they end in .xml/.gz).
         if "<sitemapindex" in body.lower():
-            for l in locs:
-                if l not in seen_maps:
-                    queue.append(l)
+            for loc in locs:
+                if loc not in seen_maps:
+                    queue.append(loc)
         else:
-            for l in locs:
-                urls.add(_norm(l))
+            for loc in locs:
+                urls.add(_norm(loc))
     return urls
 
 
@@ -253,7 +253,7 @@ def main():
 
     # --- biggest wasted-impression pages (ranking, no clicks) ---------------
     print("\n" + "=" * 68)
-    print(f"TOP 'SHOWN BUT NOT CLICKED' PAGES (fix titles/intent, not new links)")
+    print("TOP 'SHOWN BUT NOT CLICKED' PAGES (fix titles/intent, not new links)")
     print("=" * 68)
     top_wasted = sorted(ranking_noclick.values(), key=lambda v: -v['impressions'])[:args.show]
     if top_wasted:

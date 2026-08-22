@@ -15,7 +15,7 @@ Supports both live crawling and loading from cached data.
 
 import json
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -60,7 +60,8 @@ _JSONLD_TYPE_RE = re.compile(r'"@type"\s*:\s*("(?:[^"\\]|\\.)*"|\[[^\]]*\])')
 def _sanitize_jsonld(raw: str) -> str:
     s = (raw or "").strip()
     s = re.sub(r'^﻿', '', s)
-    s = re.sub(r'^\s*<!--', '', s); s = re.sub(r'-->\s*$', '', s)
+    s = re.sub(r'^\s*<!--', '', s)
+    s = re.sub(r'-->\s*$', '', s)
     s = re.sub(r'^\s*//?\s*<!\[CDATA\[', '', s)
     s = re.sub(r'//?\s*\]\]>\s*$', '', s)
     s = re.sub(r',\s*([}\]])', r'\1', s)

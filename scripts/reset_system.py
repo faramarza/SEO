@@ -25,7 +25,6 @@ Modes:
 """
 
 import argparse
-import shutil
 import sys
 import tarfile
 from datetime import datetime

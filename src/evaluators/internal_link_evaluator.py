@@ -478,7 +478,6 @@ class InternalLinkEvaluator:
 
             # Build recommended destinations with rationale
             for opp in funnel_opps[:3]:
-                target_type = "category" if "category" in opp.target_url.lower() else "product"
                 recommended_destinations.append(opp.target_url)
 
             if routing_assessment.primary_destination_url:

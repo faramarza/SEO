@@ -524,7 +524,7 @@ def compute_link_prospects(config: dict) -> dict:
     own_bl = dfs.fetch_referring_links(_dom, limit=OWN_BACKLINK_DEPTH) if dfs.is_configured() else \
         {"available": False, "reason": "DataForSEO not configured"}
     if own_bl.get("available"):
-        already = {l["domain_from"] for l in own_bl.get("links", []) if l.get("domain_from")}
+        already = {lk["domain_from"] for lk in own_bl.get("links", []) if lk.get("domain_from")}
     else:
         log.append(f"Own-backlink check unavailable ({own_bl.get('reason')}) — "
                    "can't exclude domains that already link to you.")

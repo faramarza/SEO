@@ -1187,7 +1187,6 @@ def _load_keyword_index():
 
 def _find_content_gaps(queries, existing_articles):
     """Find queries that have search volume but no dedicated blog content."""
-    existing_urls = {a.get("url", "").lower() for a in existing_articles if a.get("url")}
     existing_titles_words = set()
     for a in existing_articles:
         existing_titles_words.update(a.get("title", "").lower().split())
@@ -1788,7 +1787,7 @@ def get_content_suggestions(cluster_id=None):
                 all_suggestions.append({
                     "title": idea,
                     "type": "topic_gap",
-                    "reason": f"Template suggestion — run an evaluation for data-driven recommendations",
+                    "reason": "Template suggestion — run an evaluation for data-driven recommendations",
                     "priority": "low",
                     "impressions": 0,
                     "commercial_intent": 0,

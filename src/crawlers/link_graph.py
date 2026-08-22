@@ -193,7 +193,6 @@ class LinkGraph:
 
         n = len(self._nodes)
         nodes = list(self._nodes)
-        node_idx = {url: i for i, url in enumerate(nodes)}
 
         # Initialize scores
         authority = {url: 1.0 / n for url in nodes}

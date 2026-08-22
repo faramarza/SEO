@@ -13,14 +13,13 @@ Output formats: JSON, Markdown, Console
 import json
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 from enum import Enum
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.governor.priority_scoring import ActionType, PriorityScore
 from src.ledger.action_ledger import LearningInsight
 
 
@@ -227,7 +226,7 @@ class DecisionFormatter:
         lines.append("## Executive Summary")
         lines.append("")
         summary = output.executive_summary
-        lines.append(f"| Metric | Value |")
+        lines.append("| Metric | Value |")
         lines.append("|--------|-------|")
         lines.append(f"| Pages Evaluated | {summary.total_pages_evaluated} |")
         lines.append(f"| Pages with Action | {summary.pages_with_action} |")

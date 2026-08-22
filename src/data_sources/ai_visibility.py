@@ -619,7 +619,6 @@ def _get_recommendation(bp: dict, prompt_text: str = "", pages: dict = None) -> 
     tier = bp.get("tier", {}).get("level", "unknown")
     mentioned = bp["mentioned_count"]
     total = bp["total"]
-    url_cited = bp["url_cited_count"]
 
     cited_engines = [
         eng for eng, d in bp.get("engines", {}).items()

@@ -78,7 +78,8 @@ def main():
     try:
         client, prop = _client(config)
     except Exception as e:
-        print(f"GA4 auth failed: {type(e).__name__}: {e}"); sys.exit(1)
+        print(f"GA4 auth failed: {type(e).__name__}: {e}")
+        sys.exit(1)
 
     NS = "(not set)"
     print(f"Window: last {args.days} days\n")

@@ -18,7 +18,6 @@ import json
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -329,7 +328,7 @@ def print_results(results: list[EvaluationResult]) -> None:
     # Doctrine compliance
     no_action_count = by_decision.get("NO_ACTION", 0) + by_decision.get("OBSERVE_ONLY", 0)
     no_action_pct = no_action_count / len(results) * 100 if results else 0
-    print(f"\nDoctrine compliance: ", end="")
+    print("\nDoctrine compliance: ", end="")
     if no_action_pct >= 60:
         print(f"PASS ({no_action_pct:.0f}% NO_ACTION)")
     else:
@@ -457,7 +456,7 @@ def main():
     # Sort by impressions and limit
     assets = sorted(assets, key=lambda a: a.gsc.impressions_28d, reverse=True)[:args.top]
 
-    print(f"\n" + "-" * 60)
+    print("\n" + "-" * 60)
     print(f"PHASE 2: AGENTIC EVALUATION ({len(assets)} pages)")
     print("-" * 60)
 

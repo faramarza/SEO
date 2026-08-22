@@ -10,7 +10,6 @@ Export from Beam Us Up: File > Export > All URLs (CSV)
 import csv
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 from src.models.page_asset import PageAsset
 

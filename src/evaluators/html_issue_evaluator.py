@@ -12,7 +12,7 @@ All three are fully reversible, low-risk HTML fixes.
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import sys
 from pathlib import Path

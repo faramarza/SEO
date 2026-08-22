@@ -1,0 +1,10 @@
+# Lint configuration. Long lines are accepted in this codebase (prompt strings,
+# docstrings); E402 is unavoidable in entry scripts that must set sys.path
+# before importing src modules.
+line-length = 200
+
+[lint.per-file-ignores]
+"scripts/run_agentic_evaluation.py" = ["E402"]
+"scripts/run_diagnostics.py" = ["E402"]
+"scripts/run_evaluation.py" = ["E402"]
+"src/governor/agentic_governor.py" = ["E402"]

@@ -444,7 +444,7 @@ def print_results(results: list[tuple[PageAsset, Any]]) -> None:
     no_action_count = len(by_type.get('NO_ACTION', [])) + len(by_type.get('OBSERVE_ONLY', []))
     no_action_pct = no_action_count / len(results) * 100 if results else 0
 
-    print(f"\nDoctrine compliance: ", end="")
+    print("\nDoctrine compliance: ", end="")
     if no_action_pct >= 60:
         print(f"PASS ({no_action_pct:.0f}% NO_ACTION)")
     else:
@@ -555,7 +555,7 @@ def main():
         diagnostics = diagnostics_engine.diagnose_all(assets, organic_sessions_map)
         summary = diagnostics_engine.summary(diagnostics)
 
-        print(f"\nDiagnostics complete:")
+        print("\nDiagnostics complete:")
         print(f"  Total pages: {summary['total_pages']}")
         print(f"  PASS: {summary['passed']}")
         print(f"  WARN: {summary['warned']}")

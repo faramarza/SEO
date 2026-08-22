@@ -142,7 +142,7 @@ def fetch_serp(query: str, api_key: str = "") -> Optional[dict]:
         if resp.status_code == 429:
             return None
         if resp.status_code == 401 or resp.status_code == 403:
-            print(f"[SERP] Serper API key invalid or quota exhausted")
+            print("[SERP] Serper API key invalid or quota exhausted")
             return None
         if resp.status_code != 200:
             print(f"[SERP] API error {resp.status_code}: {resp.text[:200]}")

@@ -16,7 +16,6 @@ reports whether the gclid survives to the final page — and if not, exactly whi
 hop dropped it. Read-only: makes a handful of GET requests, changes nothing.
 """
 
-import sys
 import urllib.request
 import urllib.error
 from urllib.parse import urljoin, urlparse, parse_qs
@@ -80,7 +79,6 @@ def main():
             # find the hop where gclid disappeared
             drop_at = None
             for u, status, loc in hops:
-                nxt = loc if loc else u
                 if loc and not has_gclid(urljoin(u, loc)) and has_gclid(u):
                     drop_at = (u, loc)
                     break
@@ -89,7 +87,6 @@ def main():
                 any_drop = True
             print(f"\n  {base}{path}")
             for u, status, loc in hops:
-                short = u.replace("https://", "").replace("http://", "")
                 if loc:
                     print(f"    {status} → {loc[:70]}")
                 else:

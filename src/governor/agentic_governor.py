@@ -15,8 +15,7 @@ Uses:
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
-from datetime import datetime
+from typing import Optional
 from enum import Enum
 
 
@@ -35,30 +34,21 @@ from src.models.cost_model import ActionCostModel
 from src.models.profit_model import ProfitModel
 from src.models.governance_state import GovernanceState
 from src.models.decision_envelope import (
-    DecisionEnvelope,
     DecisionType,
-    RAIPEstimate,
     Evidence,
-    RiskAssessment,
-    Reversibility,
     ActionPlan,
 )
 from src.metrics.opportunity_metrics import (
     calculate_evuv,
     calculate_assist_value,
     calculate_demand_score,
-    calculate_visibility_gap,
-    calculate_click_upside,
     calculate_conversion_proxy,
     QueryIntent,
-    EVUVResult,
-    AssistValueResult,
 )
 from src.governor.priority_scoring import (
     calculate_priority,
     ActionType,
     PriorityScore,
-    Reversibility as PriorityReversibility,
 )
 from src.ledger.action_ledger import (
     ActionLedger,
@@ -252,7 +242,6 @@ class AgenticGovernor:
             asset,
             self.config.site_avg_purchase_rate,
         )
-        click_upside = calculate_click_upside(asset.gsc.avg_position_28d)
 
         # Calculate incremental profit
         current_sessions = asset.ga4.sessions_28d

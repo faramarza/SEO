@@ -13,7 +13,7 @@ from typing import Optional
 from ..models.page_asset import PageAsset
 from ..models.cost_model import ActionCostModel, ActionType
 from ..models.profit_model import ProfitModel
-from ..models.governance_state import GovernanceState, PastAction, ActionOutcome
+from ..models.governance_state import GovernanceState
 from ..models.decision_envelope import (
     DecisionEnvelope,
     DecisionType,
@@ -463,8 +463,6 @@ class CapitalGovernor:
         )
 
         # Calculate cannibalization risk against existing assets
-        max_cannibalization = 0.0
-        cannibalizing_asset = None
 
         # Note: This is a simplified check - in practice you'd compare query intent
         # For now, we flag this as high risk by default for new pages

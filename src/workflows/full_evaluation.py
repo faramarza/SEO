@@ -39,11 +39,11 @@ from src.evaluators.title_meta_evaluator import TitleMetaEvaluator
 from src.evaluators.canonical_evaluator import CanonicalEvaluator
 from src.evaluators.internal_link_evaluator import InternalLinkEvaluator
 from src.evaluators.asset_creation_evaluator import AssetCreationEvaluator
-from src.evaluators.constraint_detector import ConstraintDetector, CaptureClass, ConstraintType
+from src.evaluators.constraint_detector import ConstraintDetector, ConstraintType
 from src.evaluators.html_issue_evaluator import HTMLIssueEvaluator
 from src.evaluators.page_quality_evaluator import evaluate_page_quality
 from src.evaluators.geo_scorecard import evaluate_geo_readiness
-from src.ledger.action_ledger import ActionLedger, ActionFingerprint, ActionRecord
+from src.ledger.action_ledger import ActionLedger, ActionFingerprint
 from src.output.decision_formatter import DecisionFormatter, OutputFormat
 from src.crawlers.page_inventory import PageInventory
 from src.crawlers.link_graph import LinkGraph
@@ -1813,7 +1813,7 @@ class FullEvaluationWorkflow:
         print("Generating output report...")
 
         # Get learning insights for referenced patterns
-        learning_insights = []
+        _learning_insights = []
         for result in self._evaluation_results:
             if result.get("learning_reference"):
                 # Could fetch from ledger, but for now just include in output
@@ -1830,7 +1830,7 @@ class FullEvaluationWorkflow:
             }
 
         # Get regret budget from ledger
-        ledger_summary = self.ledger.summary()
+        _ledger_summary = self.ledger.summary()
         # Count irreversible actions in last year
         # (simplified - would need to track properly)
         regret_budget_remaining = self.config.regret_budget_year

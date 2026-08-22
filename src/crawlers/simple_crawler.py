@@ -38,7 +38,8 @@ def _sanitize_jsonld(raw: str) -> str:
     """Strip the wrappers/typos that break strict JSON but are common in the wild."""
     s = raw.strip()
     s = re.sub(r'^﻿', '', s)                       # BOM
-    s = re.sub(r'^\s*<!--', '', s); s = re.sub(r'-->\s*$', '', s)   # HTML comments
+    s = re.sub(r'^\s*<!--', '', s)   # HTML comments
+    s = re.sub(r'-->\s*$', '', s)
     s = re.sub(r'^\s*//?\s*<!\[CDATA\[', '', s)         # //<![CDATA[
     s = re.sub(r'//?\s*\]\]>\s*$', '', s)               # //]]>
     s = re.sub(r',\s*([}\]])', r'\1', s)                # trailing commas

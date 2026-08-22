@@ -1,0 +1,8 @@
+[flake8]
+max-line-length = 200
+extend-ignore = E501, W503, E203, E731
+per-file-ignores =
+    scripts/run_agentic_evaluation.py:E402
+    scripts/run_diagnostics.py:E402
+    scripts/run_evaluation.py:E402
+    src/governor/agentic_governor.py:E402
