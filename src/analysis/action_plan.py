@@ -730,11 +730,19 @@ def evaluate_review(metric, baseline, result):
                           "the evaluation (with crawl) so this can be measured.",
                 "tweak": "Re-run an evaluation, then this will auto-check again."}
 
-    def verdict(now, base, higher_better=True, up="improved", tweak_msg=""):
+    def verdict(now, base, higher_better=True, up="improved", tweak_msg="",
+                min_sample=None):
         if base in (None, 0) and now:
             return {"status": "improved", "detail": f"Now {now} (was ~0).", "tweak": ""}
         if base in (None, 0):
             return {"status": "no_change", "detail": "No measurable change yet.", "tweak": tweak_msg}
+        # Sample-size honesty for COUNT metrics (clicks): a percentage on
+        # single-digit counts is noise (2→3 reads "+50%"). Below the floor,
+        # never claim improved/worse. Rate metrics (CVR%) pass no floor.
+        if min_sample and (abs(base) + abs(now)) < min_sample:
+            return {"status": "no_change",
+                    "detail": f"From {base} to {now} — sample too small to call "
+                              "either way; treat as no change.", "tweak": tweak_msg}
         change = (now - base) / abs(base) if base else 0
         better = change > 0.1 if higher_better else change < -0.1
         worse = change < -0.1 if higher_better else change > 0.1
@@ -755,7 +763,8 @@ def evaluate_review(metric, baseline, result):
         now = (q.get("clicks", 0) if q else 0)
         return verdict(now, baseline.get("clicks"), True,
                        tweak_msg="CTR didn't move — try a more benefit-led title, add a number, "
-                                 "or get review stars showing so the listing stands out.")
+                                 "or get review stars showing so the listing stands out.",
+                       min_sample=20)
     if mtype == "query_position":
         q = _find_query(result, metric.get("query"))
         now = (q.get("position", 99) if q else 99)
@@ -781,7 +790,8 @@ def evaluate_review(metric, baseline, result):
         now = result.get("gsc_clicks", 0) or 0
         return verdict(now, baseline.get("clicks"), True,
                        tweak_msg="Clicks haven't recovered — deepen the refresh to match "
-                                 "what currently ranks, and add fresh internal links.")
+                                 "what currently ranks, and add fresh internal links.",
+                       min_sample=20)
     if mtype == "manual":
         return {"status": "not_measurable",
                 "detail": "This one you confirm yourself — mark it done once actioned.",
@@ -793,7 +803,8 @@ def evaluate_review(metric, baseline, result):
         return verdict(now, baseline.get("clicks"), True,
                        tweak_msg="Nothing ranks for this topic yet — make sure the new "
                                  "article puts the exact query in the title/H1, answers it "
-                                 "directly, and is internally linked.")
+                                 "directly, and is internally linked.",
+                       min_sample=20)
     if mtype == "geo_score":
         # result must carry a recomputed geo score under 'geo_score' (the caller
         # supplies it); if absent, not measurable.

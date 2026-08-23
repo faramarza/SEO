@@ -364,6 +364,7 @@ function renderTask(task, status) {
     }
 
     // Outcome with metrics for closed tasks
+    // (guidance computed by taskNextStep — defined below renderTask)
     let outcomeHtml = '';
     if (task.outcome) {
         let metricsSnippet = '';
@@ -371,7 +372,9 @@ function renderTask(task, status) {
             const m = task.outcome_metrics;
             metricsSnippet = ` | Clicks: ${m.baseline_clicks} → ${m.current_clicks}, Impr: ${m.baseline_impressions} → ${m.current_impressions}`;
         }
-        outcomeHtml = `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + escHtml(task.notes.slice(0, 100)) : ''}${metricsSnippet}</div>`;
+        const ns = taskNextStep(task);
+        outcomeHtml = `<div class="task-outcome outcome-${task.outcome}">${task.outcome.toUpperCase()}${task.notes ? ': ' + escHtml(task.notes.slice(0, 100)) : ''}${metricsSnippet}</div>`
+            + (ns ? `<div style="margin-top:6px;padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.5;background:${ns.warn ? '#fffbeb' : '#eff6ff'};color:${ns.warn ? '#92400e' : '#1e40af'};border:1px solid ${ns.warn ? '#fde68a' : '#bfdbfe'};"><strong>➡ What now:</strong> ${escHtml(ns.text)}</div>` : '');
     }
 
     // Actions per column
@@ -430,6 +433,43 @@ function renderTask(task, status) {
 }
 
 // ── Shared AI rendering (same as opportunities page) ──
+// "What now" guidance for a measured/closed card — the board should never end a
+// task's story with a bare verdict. Also retroactively re-reads verdicts made
+// before the sample-size guards existed: a POSITIVE built on single-digit
+// clicks alongside a big impressions swing is really "review manually".
+function taskNextStep(task) {
+    const m = task.outcome_metrics || {};
+    const sample = (m.baseline_clicks || 0) + (m.current_clicks || 0);
+    const hasClickData = m.baseline_clicks !== undefined;
+    const impSwing = (m.baseline_impressions > 0)
+        ? (m.current_impressions - m.baseline_impressions) / m.baseline_impressions : 0;
+    const gscCheck = 'In GSC: filter this page, compare the last 28 days vs the prior 28 on the Queries tab. '
+        + 'If the impression change is long-tail junk (position 30+) while core queries held or improved, the change worked — keep it. '
+        + 'If core queries lost impressions or position, revert the change (see the steps above for what was modified) and Re-evaluate.';
+    // Retro-guard: pre-guard verdicts that shouldn't be trusted.
+    if ((task.outcome === 'positive' || task.outcome === 'negative')
+            && hasClickData && sample < 20 && Math.abs(impSwing) >= 0.5) {
+        return { warn: true, text: 'Treat this verdict as INCONCLUSIVE — it rests on a tiny click sample ('
+            + sample + ' total) while impressions moved ' + Math.round(impSwing * 100) + '%. ' + gscCheck };
+    }
+    if (task.outcome === 'positive') {
+        return { text: 'It worked — keep the change. Scale it: apply the same fix to sibling pages with the same constraint, '
+            + 'and if this page still ranks 4–20 for its money query, point Link Prospects at it so external links finish the climb.' };
+    }
+    if (task.outcome === 'negative') {
+        return { warn: true, text: 'Revert the change (the steps above describe exactly what was modified; use the rollback plan if present), '
+            + 'then Re-evaluate to try a different angle. Note what you reverted so Learning records the failed pattern.' };
+    }
+    if (task.outcome === 'neutral') {
+        return { text: 'No reliable movement. Either give it one more window (Re-evaluate) or accept it and move effort to a '
+            + 'higher-traffic play — a page with single-digit clicks can’t prove much either way.' };
+    }
+    if (task.outcome === 'inconclusive') {
+        return { warn: true, text: gscCheck };
+    }
+    return null;
+}
+
 function buildAIHtml(rec, reproducibility) {
     const esc = (s) => {
         if (!s || typeof s !== 'string') return s || '';
@@ -832,12 +872,15 @@ function showTaskDetail(actionId, status) {
         </div>
         ` : ''}
         ${metricsHtml}
-        ${task.outcome ? `
+        ${task.outcome ? (() => {
+            const ns = taskNextStep(task);
+            return `
         <div style="margin-bottom: 16px; padding: 12px; border-radius: 6px; background: ${task.outcome === 'positive' ? '#f0fdf4' : task.outcome === 'negative' ? '#fef2f2' : '#f9fafb'};">
             <h4 style="margin-bottom: 4px;">Outcome: ${task.outcome.toUpperCase()}</h4>
             ${task.notes ? `<p style="margin: 0; color: var(--text-secondary);">${escHtml(task.notes)}</p>` : ''}
-        </div>
-        ` : ''}
+            ${ns ? `<div style="margin-top:10px;padding:10px 12px;border-radius:6px;font-size:13px;line-height:1.55;background:${ns.warn ? '#fffbeb' : '#eff6ff'};color:${ns.warn ? '#92400e' : '#1e40af'};border:1px solid ${ns.warn ? '#fde68a' : '#bfdbfe'};"><strong>➡ What now:</strong> ${escHtml(ns.text)}</div>` : ''}
+        </div>`;
+        })() : ''}
         <div class="detail-actions">
             <button class="btn btn-secondary" onclick="printTaskDetail()">Print</button>
             <button class="btn btn-secondary" onclick="closeTaskDetail()">Close</button>

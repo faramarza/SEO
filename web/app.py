@@ -3754,15 +3754,48 @@ def _auto_measure_action(action, config: dict) -> dict | None:
     else:
         imp_change = 0.0
 
-    if click_change > 0.10 or imp_change > 0.15:
+    # Determine outcome — with statistical honesty guards:
+    # - A percentage on a tiny sample is noise: 2→3 clicks reads "+50%" and
+    #   means nothing. Clicks only drive a verdict when the combined sample
+    #   clears a floor.
+    # - Conflicting signals (clicks up, impressions collapsed) are MIXED and
+    #   need a human read — never a confident POSITIVE (the pretend-play-toys
+    #   card was labeled positive on one extra click while visibility fell 71%).
+    MIN_CLICK_SAMPLE = 20
+    BIG_IMP_SWING = 0.50
+    clicks_significant = (old_clicks + new_clicks) >= MIN_CLICK_SAMPLE
+    fmt = (f"Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), "
+           f"impressions {old_impressions}→{new_impressions} ({imp_change:+.0%}).")
+
+    corroborated = clicks_significant and (click_change > 0) == (imp_change > 0)
+    if abs(imp_change) >= BIG_IMP_SWING and not corroborated:
+        outcome = "inconclusive"
+        direction = "collapsed" if imp_change < 0 else "surged"
+        notes = (fmt + f" MIXED SIGNALS — impressions {direction} while the click sample "
+                 f"({old_clicks + new_clicks} total) is too small to corroborate. Review "
+                 "manually: in GSC, filter this page and compare the two 28-day windows on "
+                 "the Queries tab. If the impression change is long-tail junk queries "
+                 "(position 30+) while core queries held or improved, the change worked — "
+                 "keep it. If core queries lost impressions or position, revert the change "
+                 "and re-evaluate.")
+    elif clicks_significant and click_change > 0.10:
         outcome = "positive"
-        notes = f"Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), impressions {old_impressions}→{new_impressions} ({imp_change:+.0%})."
-    elif click_change < -0.10 or imp_change < -0.15:
+        notes = fmt
+    elif clicks_significant and click_change < -0.10:
         outcome = "negative"
-        notes = f"Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), impressions {old_impressions}→{new_impressions} ({imp_change:+.0%})."
+        notes = fmt
+    elif imp_change > 0.15:
+        outcome = "positive"
+        notes = fmt + (f" (Impressions-driven; click sample of {old_clicks + new_clicks} "
+                       "is too small to read on its own.)" if not clicks_significant else "")
+    elif imp_change < -0.15:
+        outcome = "negative"
+        notes = fmt
     else:
         outcome = "neutral"
-        notes = f"No significant change. Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), impressions {old_impressions}→{new_impressions} ({imp_change:+.0%})."
+        notes = ("No significant change. " + fmt
+                 + (f" (Click sample {old_clicks + new_clicks} — too small for a click "
+                    "verdict either way.)" if not clicks_significant else ""))
 
     return {"outcome": outcome, "metrics": metrics, "notes": notes}
 
