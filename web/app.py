@@ -3974,6 +3974,64 @@ def api_reject_task(action_id):
     })
 
 
+@app.route("/api/tasks/<action_id>/reopen", methods=["POST"])
+def api_reopen_task(action_id):
+    """Reopen a CLOSED task for another attempt — the missing exit from the
+    board's loop (the What-now guidance says 'revert and re-measure'; this is
+    the button that does it). Archives the previous outcome into
+    reopen_history, captures a FRESH baseline so the next measurement compares
+    against TODAY's state (e.g. post-revert) rather than the original pre-fix
+    state, restarts the evaluation clock, and returns the card to In Progress."""
+    ledger = ActionLedger()
+    action = ledger.get_action(action_id)
+    if not action:
+        return jsonify({"error": "Action not found"}), 404
+    if action.status.value not in ("closed", "measured"):
+        return jsonify({"error": "Only closed tasks can be reopened"}), 400
+
+    rec = action.recommendation_json or {}
+    hist = rec.get("reopen_history") or []
+    hist.append({
+        "reopened_at": datetime.now().isoformat(timespec="seconds"),
+        "previous_outcome": getattr(action.outcome, "value", None)
+                            or (str(action.outcome) if action.outcome else None),
+        "previous_notes": action.notes,
+        "previous_metrics": action.outcome_metrics,
+    })
+    rec["reopen_history"] = hist
+    action.recommendation_json = rec
+    action.outcome = None
+    action.outcome_metrics = None
+    action.notes = f"Reopened for retry (attempt {len(hist) + 1})."
+    action.baseline_metrics = _capture_baseline(action.url) if action.url else None
+    action.update_status(ActionStatus.IMPLEMENTED)
+    action.implemented_at = datetime.now().isoformat()
+    ledger.update_action(action)
+
+    # Adopted-store twin: clear "done" and restart its review clock so Do This
+    # Next / Click Yield reflect the retry instead of showing it finished.
+    review_date = None
+    key = rec.get("dedup_key")
+    if key:
+        try:
+            from src.analysis.action_plan import review_date_for
+            store = _load_action_plan_store()
+            entry = store.get("adopted", {}).get(key)
+            if entry:
+                entry["status"] = "todo"
+                cat = key.split(":", 1)[1].split("|", 1)[0] if ":" in key else ""
+                review_date = review_date_for(cat)
+                entry["review_date"] = review_date
+                _save_action_plan_store(store)
+        except Exception as e:
+            print(f"[Reopen] adopted-store reset failed: {e}", flush=True)
+
+    window = getattr(action, "evaluation_window_days", 28)
+    return jsonify({"success": True, "status": "implemented",
+                    "review_date": review_date,
+                    "message": f"Reopened with a fresh baseline — auto-measure in ~{window} days."})
+
+
 @app.route("/api/tasks/<action_id>/send-back", methods=["POST"])
 def api_send_back_task(action_id):
     """Send a task back for re-evaluation. Removes it from the task board

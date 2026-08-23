@@ -397,6 +397,11 @@ function renderTask(task, status) {
                 <button class="btn btn-small btn-sendback-task" onclick="showSendBackModal('${task.action_id}')">Re-evaluate</button>
             `;
         }
+    } else if (status === 'closed') {
+        actions = `
+            <button class="btn btn-small btn-approve-task" title="Archive this outcome, capture a fresh baseline (today's state), restart the auto-measure clock — use after reverting a bad change or trying a new angle" onclick="event.stopPropagation();reopenTask('${task.action_id}')">↩ Reopen & retry</button>
+            <button class="btn btn-small btn-sendback-task" title="Remove from the board entirely — the next evaluation re-proposes this page fresh if the opportunity still exists" onclick="event.stopPropagation();showSendBackModal('${task.action_id}')">Send back to pool</button>
+        `;
     }
 
     const constraintLabel = task.primary_constraint
@@ -445,7 +450,7 @@ function taskNextStep(task) {
         ? (m.current_impressions - m.baseline_impressions) / m.baseline_impressions : 0;
     const gscCheck = 'In GSC: filter this page, compare the last 28 days vs the prior 28 on the Queries tab. '
         + 'If the impression change is long-tail junk (position 30+) while core queries held or improved, the change worked — keep it. '
-        + 'If core queries lost impressions or position, revert the change (see the steps above for what was modified) and Re-evaluate.';
+        + 'If core queries lost impressions or position, revert the change (see the steps above for what was modified), then hit ↩ Reopen & retry so the next window measures the reverted state.';
     // Retro-guard: pre-guard verdicts that shouldn't be trusted.
     if ((task.outcome === 'positive' || task.outcome === 'negative')
             && hasClickData && sample < 20 && Math.abs(impSwing) >= 0.5) {
@@ -458,10 +463,11 @@ function taskNextStep(task) {
     }
     if (task.outcome === 'negative') {
         return { warn: true, text: 'Revert the change (the steps above describe exactly what was modified; use the rollback plan if present), '
-            + 'then Re-evaluate to try a different angle. Note what you reverted so Learning records the failed pattern.' };
+            + 'then hit ↩ Reopen & retry to measure a different angle — or Send back to pool to let the next evaluation re-propose it. '
+            + 'Note what you reverted so Learning records the failed pattern.' };
     }
     if (task.outcome === 'neutral') {
-        return { text: 'No reliable movement. Either give it one more window (Re-evaluate) or accept it and move effort to a '
+        return { text: 'No reliable movement. Either give it one more window (↩ Reopen & retry) or accept it and move effort to a '
             + 'higher-traffic play — a page with single-digit clicks can’t prove much either way.' };
     }
     if (task.outcome === 'inconclusive') {
@@ -922,6 +928,18 @@ function formatUrl(url) {
     if (!url) return '—';
     const path = url.replace(/https?:\/\/[^\/]+/, '');
     return path || '/';
+}
+
+async function reopenTask(actionId) {
+    if (!confirm('Reopen this task? The previous outcome is archived, a FRESH baseline is captured (the next measurement compares against today\'s state — do your revert/change first), and the auto-measure clock restarts.')) return;
+    const res = await fetch(`/api/tasks/${actionId}/reopen`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+        showToast(data.message || `Task ${actionId} reopened`, 'success');
+        loadTasks();
+    } else {
+        showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+    }
 }
 
 async function advanceTask(actionId) {
