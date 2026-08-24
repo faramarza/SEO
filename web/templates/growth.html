@@ -63,17 +63,23 @@
         <div id="movers-empty" class="chart-empty" style="display:none;">
             Need at least 2 evaluation runs to compute movers. Run an evaluation, wait, then run another.
         </div>
+        <div style="display:none;font-size:12px;color:var(--text-muted);margin:4px 0 8px;" id="movers-sort-hint">
+            Click a column to sort (click again to flip). Your previous sort becomes the tiebreaker —
+            e.g. click <em>Type</em> then <em>Clicks</em> for growth-first, grouped-by-type-on-ties;
+            click <em>Clicks</em> then <em>Type</em> to group by type with growth inside.
+            <span id="movers-sort-state" style="font-weight:600;"></span>
+        </div>
         <div class="movers-split" id="movers-container" style="display:none;">
             <div class="movers-col">
                 <h4 class="gain">Gainers</h4>
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>URL</th>
-                            <th>Type</th>
-                            <th>Clicks</th>
-                            <th>Impr</th>
-                            <th>Pos</th>
+                            <th class="mv-sort" data-mvkey="url" onclick="mvSort('url')" style="cursor:pointer;user-select:none;">URL</th>
+                            <th class="mv-sort" data-mvkey="page_type" onclick="mvSort('page_type')" style="cursor:pointer;user-select:none;">Type</th>
+                            <th class="mv-sort" data-mvkey="clicks_delta" onclick="mvSort('clicks_delta')" style="cursor:pointer;user-select:none;">Clicks</th>
+                            <th class="mv-sort" data-mvkey="impressions_delta" onclick="mvSort('impressions_delta')" style="cursor:pointer;user-select:none;">Impr</th>
+                            <th class="mv-sort" data-mvkey="position_delta" onclick="mvSort('position_delta')" style="cursor:pointer;user-select:none;">Pos</th>
                             <th>Why</th>
                         </tr>
                     </thead>
@@ -85,11 +91,11 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>URL</th>
-                            <th>Type</th>
-                            <th>Clicks</th>
-                            <th>Impr</th>
-                            <th>Pos</th>
+                            <th class="mv-sort" data-mvkey="url" onclick="mvSort('url')" style="cursor:pointer;user-select:none;">URL</th>
+                            <th class="mv-sort" data-mvkey="page_type" onclick="mvSort('page_type')" style="cursor:pointer;user-select:none;">Type</th>
+                            <th class="mv-sort" data-mvkey="clicks_delta" onclick="mvSort('clicks_delta')" style="cursor:pointer;user-select:none;">Clicks</th>
+                            <th class="mv-sort" data-mvkey="impressions_delta" onclick="mvSort('impressions_delta')" style="cursor:pointer;user-select:none;">Impr</th>
+                            <th class="mv-sort" data-mvkey="position_delta" onclick="mvSort('position_delta')" style="cursor:pointer;user-select:none;">Pos</th>
                             <th>Why</th>
                         </tr>
                     </thead>
@@ -450,11 +456,53 @@ function renderVisibilityChart(vis) {
 }
 
 // ── Movers Table ──
+// ── Two-level movers sort: the last-clicked column is the PRIMARY key; the
+// previous primary becomes the SECONDARY (tiebreaker). Clicking the current
+// primary again flips its direction. Numeric columns default to "biggest
+// movement first" (desc by magnitude direction), text columns to A→Z.
+let MV_DATA = null;
+let MV_SORT = [{ key: 'clicks_delta', dir: -1 }];  // default: biggest click change first
+const MV_LABEL = { url: 'URL', page_type: 'Type', clicks_delta: 'Clicks',
+                   impressions_delta: 'Impr', position_delta: 'Pos' };
+const MV_TEXT_KEYS = new Set(['url', 'page_type']);
+
+function mvSort(key) {
+    if (MV_SORT[0] && MV_SORT[0].key === key) {
+        MV_SORT[0].dir *= -1;                       // flip primary direction
+    } else {
+        const prev = MV_SORT[0];
+        MV_SORT = [{ key, dir: MV_TEXT_KEYS.has(key) ? 1 : -1 }];
+        if (prev && prev.key !== key) MV_SORT.push(prev);   // old primary → tiebreaker
+    }
+    if (MV_DATA) renderMovers(MV_DATA);
+}
+
+function mvCompare(a, b) {
+    for (const lvl of MV_SORT) {
+        const av = a[lvl.key], bv = b[lvl.key];
+        // Text: ascending A→Z base. Numeric: ascending MAGNITUDE base, so
+        // "biggest mover first" (dir -1) means the same thing in the gainers
+        // and decliners tables alike.
+        const c = MV_TEXT_KEYS.has(lvl.key)
+            ? String(av || '').localeCompare(String(bv || ''))
+            : Math.abs(av || 0) - Math.abs(bv || 0);
+        if (c !== 0) return c * lvl.dir;   // dir 1 = ascending (A→Z / smallest), -1 = descending (biggest first)
+    }
+    return 0;
+}
+
+function mvSortStateLabel() {
+    return 'Sorting: ' + MV_SORT.map((l, i) =>
+        `${i + 1}. ${MV_LABEL[l.key] || l.key} ${MV_TEXT_KEYS.has(l.key) ? (l.dir === 1 ? 'A→Z' : 'Z→A') : (l.dir === -1 ? '↓ biggest' : '↑ smallest')}`
+    ).join(' · ');
+}
+
 function renderMovers(data) {
+    MV_DATA = data;
     const container = document.getElementById('movers-container');
     const empty = document.getElementById('movers-empty');
-    const gainers = data.gainers || [];
-    const decliners = data.decliners || [];
+    const gainers = (data.gainers || []).slice();
+    const decliners = (data.decliners || []).slice();
 
     if (gainers.length === 0 && decliners.length === 0) {
         container.style.display = 'none';
@@ -464,11 +512,25 @@ function renderMovers(data) {
 
     container.style.display = 'flex';
     empty.style.display = 'none';
+    const hint = document.getElementById('movers-sort-hint');
+    if (hint) {
+        hint.style.display = 'block';
+        document.getElementById('movers-sort-state').textContent = mvSortStateLabel();
+    }
+    // Header badges: 1/2 with direction on every mv-sort th (both tables).
+    document.querySelectorAll('th.mv-sort').forEach(th => {
+        const idx = MV_SORT.findIndex(l => l.key === th.dataset.mvkey);
+        const base = MV_LABEL[th.dataset.mvkey] || th.dataset.mvkey;
+        th.textContent = idx === -1 ? base
+            : `${base} ${idx + 1}${MV_TEXT_KEYS.has(th.dataset.mvkey) ? (MV_SORT[idx].dir === 1 ? '↓' : '↑') : (MV_SORT[idx].dir === -1 ? '↓' : '↑')}`;
+    });
 
     if (data.current_date && data.previous_date) {
         document.getElementById('movers-period').textContent = `${data.previous_date} → ${data.current_date}`;
     }
 
+    gainers.sort(mvCompare);
+    decliners.sort(mvCompare);
     document.getElementById('gainers-body').innerHTML = gainers.slice(0, 15).map(m => moverRow(m, true)).join('');
     document.getElementById('decliners-body').innerHTML = decliners.slice(0, 15).map(m => moverRow(m, false)).join('');
 }
