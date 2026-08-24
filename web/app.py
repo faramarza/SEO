@@ -6454,7 +6454,9 @@ def api_growth_summary():
                 if abs(clicks_delta) < 2 and abs(impr_delta) < 300:
                     continue
 
-                why = _explain_mover(url, actions_by_url.get(norm_key, []), clicks_delta, pos_delta)
+                why = _explain_mover(url, actions_by_url.get(norm_key, []), clicks_delta,
+                                     pos_delta, impr_prev=impr_prev, impr_cur=impr_cur,
+                                     pos_prev=pos_prev, pos_cur=pos_cur)
 
                 mover = {
                     "url": url,
@@ -6492,32 +6494,48 @@ def api_growth_summary():
     })
 
 
-def _explain_mover(url: str, actions: list, clicks_delta: int, pos_delta: float) -> str:
-    """Try to explain why a page moved."""
-    reasons = []
-
+def _explain_mover(url: str, actions: list, clicks_delta: int, pos_delta: float,
+                   impr_prev: int = 0, impr_cur: int = 0,
+                   pos_prev: float = 0.0, pos_cur: float = 0.0) -> str:
+    """Explain a page's movement from signals we actually have. Priority: a
+    board task on the page (a change WE made), else the movement's SIGNATURE —
+    the clicks/impressions/position deltas separate ranking moves from demand
+    moves from CTR/snippet moves. 'Organic fluctuation' only remains for
+    genuinely small/mixed patterns (old thresholds were sized for a site 100x
+    bigger, so it was the answer to everything)."""
     for action in actions:
         if action.status.value in ("implemented", "closed"):
-            atype = action.action_type or "change"
-            label = atype.replace("_", " ").title()
-            if action.outcome and action.outcome.value == "positive":
-                reasons.append(f"{label} (positive outcome)")
-            elif action.status.value == "implemented":
-                reasons.append(f"{label} in progress")
-            else:
-                reasons.append(f"{label} applied")
+            label = (action.action_type or "change").replace("_", " ").title()
+            if action.outcome and getattr(action.outcome, "value", "") == "positive":
+                return f"{label} on this page (measured positive)"
+            if action.status.value == "implemented":
+                return f"{label} in progress on this page"
+            return f"{label} applied to this page"
 
-    if not reasons:
-        if pos_delta < -2:
-            reasons.append("Position improved significantly")
-        elif pos_delta > 2:
-            reasons.append("Position dropped")
-        elif abs(clicks_delta) > 50:
-            reasons.append("Traffic shift (no task found)")
-        else:
-            reasons.append("Organic fluctuation")
+    impr_delta = impr_cur - impr_prev
+    impr_pct = (impr_delta / impr_prev) if impr_prev else (1.0 if impr_cur else 0.0)
+    rank_up = pos_delta < -0.4       # position number fell = rank improved
+    rank_down = pos_delta > 0.4
+    impr_up = impr_pct >= 0.15
+    impr_down = impr_pct <= -0.15
 
-    return "; ".join(reasons[:2])
+    if clicks_delta > 0 and rank_up:
+        return (f"Ranking gain (#{round(pos_prev, 1)}→#{round(pos_cur, 1)}) — "
+                "better position earning clicks")
+    if clicks_delta < 0 and rank_down:
+        return (f"Ranking slip (#{round(pos_prev, 1)}→#{round(pos_cur, 1)}) — "
+                "worse position costing clicks")
+    if clicks_delta > 0 and impr_up:
+        return f"Demand rise — shown {impr_pct:+.0%} more at a steady position (interest/seasonality)"
+    if clicks_delta < 0 and impr_down:
+        return f"Demand drop — shown {impr_pct:+.0%} less at a steady position (interest/seasonality)"
+    if impr_up and clicks_delta <= 0:
+        return f"Query-set widened ({impr_pct:+.0%} impressions) — no extra clicks yet"
+    if impr_down and clicks_delta >= 0:
+        return f"Query-set narrowed ({impr_pct:+.0%} impressions) while clicks held — low-value impressions shed"
+    if abs(clicks_delta) >= 2 and not (impr_up or impr_down or rank_up or rank_down):
+        return "CTR shift at stable rank — snippet or SERP layout likely changed"
+    return "Organic fluctuation — small mixed movement"
 
 
 @app.route("/api/growth/ai-visibility")
