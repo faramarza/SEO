@@ -6386,8 +6386,16 @@ def api_growth_summary():
     # never re-parse full snapshot files here.
     all_snaps = _load_history_snapshots(limit=EVAL_HISTORY_MAX_FILES)
 
-    history = []
+    # One snapshot per DAY (the day's last): multiple eval runs in a day were
+    # plotting duplicate x-axis dates, and could make the movers compare two
+    # snapshots taken hours apart — a degenerate "trend".
+    by_day = {}
     for snap in all_snaps:
+        by_day[(snap.get("timestamp", "") or "")[:10]] = snap
+    day_snaps = [by_day[d] for d in sorted(by_day)]
+
+    history = []
+    for snap in day_snaps:
         results = snap.get("results", [])
         history.append({
             "date": (snap.get("timestamp", "") or "")[:10],
@@ -6403,10 +6411,10 @@ def api_growth_summary():
     current_date = ""
     previous_date = ""
 
-    if len(all_snaps) >= 2:
+    if len(day_snaps) >= 2:
         try:
-            current = all_snaps[-1]
-            previous = all_snaps[-2]
+            current = day_snaps[-1]
+            previous = day_snaps[-2]
 
             current_date = current.get("timestamp", "")[:10]
             previous_date = previous.get("timestamp", "")[:10]
@@ -6440,7 +6448,10 @@ def api_growth_summary():
                 pos_delta = pos_cur - pos_prev
                 net_clicks += clicks_delta
 
-                if clicks_delta == 0 and impr_delta == 0:
+                # Noise floor: a ±1-click wobble is not a "top mover" (0→1 read
+                # as "+999%", 1→0 as "-100%"). Require a click move of ≥2 or a
+                # substantial impressions move to earn a row.
+                if abs(clicks_delta) < 2 and abs(impr_delta) < 300:
                     continue
 
                 why = _explain_mover(url, actions_by_url.get(norm_key, []), clicks_delta, pos_delta)

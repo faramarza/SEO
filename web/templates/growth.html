@@ -536,7 +536,8 @@ function renderMovers(data) {
 }
 
 function moverRow(m, isGain) {
-    const clicksPct = m.clicks_prev > 0 ? Math.round((m.clicks_delta / m.clicks_prev) * 100) : (m.clicks_delta > 0 ? 999 : 0);
+    const clicksNew = m.clicks_prev === 0 && m.clicks_cur > 0;   // 0→N is "new", not "+999%"
+    const clicksPct = m.clicks_prev > 0 ? Math.round((m.clicks_delta / m.clicks_prev) * 100) : 0;
     const imprPct = m.impressions_prev > 0 ? Math.round((m.impressions_delta / m.impressions_prev) * 100) : 0;
     const posDelta = m.position_delta ? m.position_delta.toFixed(1) : '0';
     const posClass = m.position_delta < 0 ? 'gain' : (m.position_delta > 0 ? 'loss' : '');
@@ -549,7 +550,7 @@ function moverRow(m, isGain) {
     return `<tr>
         <td title="${escHtml(m.url)}"><a href="${escHtml(m.url)}" target="_blank">${truncUrl(m.url)}</a></td>
         <td>${typeBadge}</td>
-        <td class="${clicksClass}">${clicksPct > 0 ? '+' : ''}${clicksPct}% <span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">(${m.clicks_prev}→${m.clicks_cur})</span></td>
+        <td class="${clicksClass}">${clicksNew ? 'new' : (clicksPct > 0 ? '+' : '') + clicksPct + '%'} <span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">(${m.clicks_prev}→${m.clicks_cur})</span></td>
         <td>${imprPct > 0 ? '+' : ''}${imprPct}% <span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">(${(m.impressions_prev||0).toLocaleString()}→${(m.impressions_cur||0).toLocaleString()})</span></td>
         <td class="${posClass}">${parseFloat(posDelta) > 0 ? '+' : ''}${posDelta}</td>
         <td class="why-cell">${escHtml(m.why) || '—'}</td>
