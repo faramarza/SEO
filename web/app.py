@@ -4042,11 +4042,23 @@ def api_send_back_task(action_id):
     if not action:
         return jsonify({"error": "Action not found"}), 404
 
-    if action.status in (ActionStatus.MEASURED, ActionStatus.CLOSED):
-        return jsonify({"error": "Cannot send back a task that is already measured or closed"}), 400
-
-    # Remove the task from the ledger so the URL rejoins the opportunity pool
     dedup_key = (action.recommendation_json or {}).get("dedup_key")
+
+    if action.status in (ActionStatus.MEASURED, ActionStatus.CLOSED):
+        # A measured task's outcome is Learning data — never delete it. "Send
+        # back to pool" for a closed card means: keep the history, clear the
+        # ADOPTION so the next evaluation re-proposes the page fresh (dedup
+        # ignores closed records, so the old card can't block the new one).
+        _clear_adopted_entry(dedup_key)
+        return jsonify({
+            "success": True,
+            "message": f"{action_id} released back to the pool. Its measured outcome "
+                       "stays on the board (Learning keeps the history); the page "
+                       "will be re-scored on the next evaluation run.",
+            "url": action.url,
+        })
+
+    # Un-measured task: remove it entirely so the URL rejoins the opportunity pool
     ledger.delete_action(action_id)
     # Also clear the adopted-store entry — same zombie fix reject got; send-back was
     # missed, so a sent-back task stayed "tracked" and couldn't be cleanly re-adopted.
