@@ -157,6 +157,21 @@ def _no_cache_html(resp):
     return resp
 
 
+@app.context_processor
+def _static_version():
+    """Cache-bust static assets by file mtime — without this, browsers
+    heuristically cache style.css and CSS fixes don't show until the cache
+    expires on its own."""
+    def static_url(filename):
+        path = os.path.join(app.static_folder or "", filename)
+        try:
+            v = int(os.path.getmtime(path))
+        except OSError:
+            v = 0
+        return url_for("static", filename=filename) + f"?v={v}"
+    return {"static_url": static_url}
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if not AUTH_PASSWORD:

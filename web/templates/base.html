@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Governor{% endblock %} — Alphabet Trains</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ static_url('style.css') }}">
 </head>
 <body>
     <nav class="sidebar">
@@ -55,7 +55,7 @@
         <div id="notification-list" class="notification-list"></div>
     </div>
 
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ static_url('app.js') }}"></script>
     <script>
     function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
     // Check for tasks ready for measurement and notifications (runs on every page)

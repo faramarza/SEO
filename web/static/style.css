@@ -2675,12 +2675,12 @@ td.negative { color: var(--accent-red); font-weight: 600; }
 .text-muted { color: var(--text-muted); }
 
 .why-cell {
-    max-width: 200px;
+    max-width: 260px;
+    min-width: 160px;
     font-size: 11px;
     color: var(--text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    line-height: 1.4;
 }
 
 .kpi-value.gain { color: var(--accent-green); }

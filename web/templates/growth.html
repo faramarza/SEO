@@ -553,7 +553,7 @@ function moverRow(m, isGain) {
         <td class="${clicksClass}">${clicksNew ? 'new' : (clicksPct > 0 ? '+' : '') + clicksPct + '%'} <span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">(${m.clicks_prev}→${m.clicks_cur})</span></td>
         <td>${imprPct > 0 ? '+' : ''}${imprPct}% <span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">(${(m.impressions_prev||0).toLocaleString()}→${(m.impressions_cur||0).toLocaleString()})</span></td>
         <td class="${posClass}">${parseFloat(posDelta) > 0 ? '+' : ''}${posDelta}</td>
-        <td class="why-cell">${escHtml(m.why) || '—'}</td>
+        <td class="why-cell" title="${escHtml(m.why || '')}">${escHtml(m.why) || '—'}</td>
     </tr>`;
 }
 
