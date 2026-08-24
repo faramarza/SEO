@@ -6354,6 +6354,30 @@ def _load_history_snapshots(limit=None):
     return snaps
 
 
+def _merge_results_by_page(results):
+    """Collapse URL variants (scheme/www/trailing-slash/params, /blog/post/
+    aliases) onto one page before trend math — otherwise traffic migrating
+    between variants lists the SAME page as both a gainer and a decliner.
+    Clicks/impressions sum; position is impressions-weighted."""
+    merged = {}
+    for r in results or []:
+        url = r.get("url", "")
+        if not url:
+            continue
+        key = (_normalize_url(url).replace("https://", "").replace("http://", "")
+               .replace("www.", "").lower())
+        m = merged.setdefault(key, {"url": url, "asset_type": r.get("asset_type", ""),
+                                    "gsc_clicks": 0, "gsc_impressions": 0, "_posw": 0.0})
+        m["gsc_clicks"] += r.get("gsc_clicks", 0) or 0
+        impr = r.get("gsc_impressions", 0) or 0
+        m["gsc_impressions"] += impr
+        m["_posw"] += (r.get("gsc_position", 0) or 0) * impr
+    for m in merged.values():
+        m["gsc_position"] = round(m["_posw"] / m["gsc_impressions"], 1) if m["gsc_impressions"] else 0.0
+        m.pop("_posw", None)
+    return merged
+
+
 @app.route("/api/growth/summary")
 def api_growth_summary():
     """Growth movers + evaluation history for charts."""
@@ -6387,16 +6411,20 @@ def api_growth_summary():
             current_date = current.get("timestamp", "")[:10]
             previous_date = previous.get("timestamp", "")[:10]
 
-            prev_by_url = {r["url"]: r for r in previous.get("results", [])}
+            # Variant-merged maps: one entry per PAGE, keyed by normalized URL.
+            cur_map = _merge_results_by_page(current.get("results", []))
+            prev_map = _merge_results_by_page(previous.get("results", []))
             ledger = ActionLedger()
             all_actions = ledger.get_all_actions()
             actions_by_url = {}
             for a in all_actions:
-                actions_by_url.setdefault(a.url, []).append(a)
+                nk = (_normalize_url(a.url).replace("https://", "").replace("http://", "")
+                      .replace("www.", "").lower()) if a.url else ""
+                actions_by_url.setdefault(nk, []).append(a)
 
-            for r in current.get("results", []):
+            for norm_key, r in cur_map.items():
                 url = r["url"]
-                prev = prev_by_url.get(url)
+                prev = prev_map.get(norm_key)
                 if not prev:
                     continue
 
@@ -6415,7 +6443,7 @@ def api_growth_summary():
                 if clicks_delta == 0 and impr_delta == 0:
                     continue
 
-                why = _explain_mover(url, actions_by_url.get(url, []), clicks_delta, pos_delta)
+                why = _explain_mover(url, actions_by_url.get(norm_key, []), clicks_delta, pos_delta)
 
                 mover = {
                     "url": url,

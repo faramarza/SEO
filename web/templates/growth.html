@@ -487,8 +487,8 @@ function moverRow(m, isGain) {
     return `<tr>
         <td title="${escHtml(m.url)}"><a href="${escHtml(m.url)}" target="_blank">${truncUrl(m.url)}</a></td>
         <td>${typeBadge}</td>
-        <td class="${clicksClass}">${clicksPct > 0 ? '+' : ''}${clicksPct}%</td>
-        <td>${imprPct > 0 ? '+' : ''}${imprPct}%</td>
+        <td class="${clicksClass}">${clicksPct > 0 ? '+' : ''}${clicksPct}% <span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">(${m.clicks_prev}→${m.clicks_cur})</span></td>
+        <td>${imprPct > 0 ? '+' : ''}${imprPct}% <span style="color:var(--text-muted);font-size:11px;white-space:nowrap;">(${(m.impressions_prev||0).toLocaleString()}→${(m.impressions_cur||0).toLocaleString()})</span></td>
         <td class="${posClass}">${parseFloat(posDelta) > 0 ? '+' : ''}${posDelta}</td>
         <td class="why-cell">${escHtml(m.why) || '—'}</td>
     </tr>`;
