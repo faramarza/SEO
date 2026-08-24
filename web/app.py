@@ -1397,6 +1397,13 @@ def api_tasks():
         column = column_map.get(action.status.value, "proposed")
         rec = action.recommendation_json or {}
 
+        # A closed card "sent back to pool" is archived off the board: the
+        # ledger record persists (Learning keeps the measured outcome) but the
+        # card no longer occupies the Closed column — "sent back" should look
+        # like leaving.
+        if column == "closed" and rec.get("released_at"):
+            continue
+
         # Calculate days remaining in evaluation window
         days_remaining = None
         if action.implemented_at and action.status in (ActionStatus.IMPLEMENTED, ActionStatus.APPROVED):
@@ -4046,14 +4053,19 @@ def api_send_back_task(action_id):
 
     if action.status in (ActionStatus.MEASURED, ActionStatus.CLOSED):
         # A measured task's outcome is Learning data — never delete it. "Send
-        # back to pool" for a closed card means: keep the history, clear the
-        # ADOPTION so the next evaluation re-proposes the page fresh (dedup
+        # back to pool" for a closed card means: archive the card off the board
+        # (released_at flag; the ledger record persists for Learning) and clear
+        # the ADOPTION so the next evaluation re-proposes the page fresh (dedup
         # ignores closed records, so the old card can't block the new one).
+        rec = action.recommendation_json or {}
+        rec["released_at"] = datetime.now().isoformat(timespec="seconds")
+        action.recommendation_json = rec
+        ledger.update_action(action)
         _clear_adopted_entry(dedup_key)
         return jsonify({
             "success": True,
-            "message": f"{action_id} released back to the pool. Its measured outcome "
-                       "stays on the board (Learning keeps the history); the page "
+            "message": f"{action_id} released back to the pool and archived off the "
+                       "board (its measured outcome is kept for Learning). The page "
                        "will be re-scored on the next evaluation run.",
             "url": action.url,
         })
