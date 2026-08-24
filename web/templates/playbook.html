@@ -275,6 +275,12 @@ function fmtUrl(u) {
         return p.length > 48 ? '…' + p.slice(-46) : p;
     } catch (e) { return u; }
 }
+// Same colored page-type badge as Opportunities (product/category/blog/other).
+function pbTypeBadge(t) {
+    const type = (t || 'other').toLowerCase();
+    const cls = ['product', 'category', 'blog'].includes(type) ? type : 'other';
+    return `<span class="type-badge type-${cls}">${escHtml(type)}</span>`;
+}
 function pbShowTab(tab) {
     document.querySelectorAll('.pb-tab').forEach(t =>
         t.classList.toggle('active', t.dataset.tab === tab));
@@ -442,7 +448,7 @@ function renderCtr(ctr) {
             ? '<button class="pb-task-btn pb-added" disabled title="Already on the Task Board">✓ Added</button>'
             : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddCtrTask(${i}, this)">+ Task</button>`;
         html += `<tr>
-            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a> ${pbTypeBadge(r.asset_type)}
                 <div style="font-size:12px;color:var(--text-primary);margin-top:2px;">“${escHtml(r.query)}”</div></td>
             <td class="pb-num">${r.position}</td>
             <td class="pb-num">${(r.impressions||0).toLocaleString()}</td>
@@ -553,7 +559,7 @@ function renderCro(cro) {
             : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddCroTask(${i}, this)">+ Task</button>`;
         html += `<tr>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
-            <td>${escHtml(r.asset_type)}</td>
+            <td>${pbTypeBadge(r.asset_type)}</td>
             <td class="pb-num">${(r.sessions||0).toLocaleString()}</td>
             <td class="pb-num"><span style="color:#dc2626;">${r.page_cvr}%</span> → <span style="color:#059669;">${r.benchmark_cvr}%</span></td>
             <td class="pb-num">$${Math.round(r.lost_revenue||0).toLocaleString()}<br><span style="color:var(--text-muted);">${r.lost_purchases} orders</span></td>
@@ -631,7 +637,7 @@ function renderReviews(rev) {
             : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddReviewsTask(${i}, this)">+ Task</button>`;
         html += `<tr>
             <td class="pb-num">${i + 1}</td>
-            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a> ${pbTypeBadge(r.asset_type || 'product')}</td>
             ${anySales?`<td class="pb-num">${r.revenue ? '$' + Math.round(r.revenue).toLocaleString() : '—'}</td><td class="pb-num">${r.units_sold||'—'}</td>`:''}
             <td class="pb-num">${(r.impressions||0).toLocaleString()}</td>
             <td>${addBtn}</td>
@@ -715,7 +721,7 @@ function renderBrandMerchant(bm) {
                 : `<button class="pb-task-btn" data-key="${key}" onclick="pbAddMerchantTask(${i}, this)">+ Task</button>`;
             const miss = (r.missing || []).map(m => `<span class="pb-badge" style="background:#fee2e2;color:#991b1b;">${escHtml(m)}</span>`).join(' ');
             html += `<tr>
-                <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+                <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a> ${pbTypeBadge(r.asset_type || 'product')}</td>
                 <td class="pb-num">${(r.impressions||0).toLocaleString()}</td>
                 <td>${miss}</td>
                 <td>${addBtn}</td></tr>`;
@@ -857,7 +863,7 @@ function renderStrikingTable(rows) {
             <td><strong>${escHtml(r.query)}</strong>
                 <span class="pb-lever" style="color:${r.lever_color};border-color:${r.lever_color};">${escHtml(r.lever_label)}</span>${r.lever === 'external' ? `<span class="pb-bl-slot" data-bl-url="${escHtml(r.url)}"></span>` : ''}
                 <div class="pb-todo">→ ${escHtml(r.action_hint)}</div></td>
-            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a></td>
+            <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a> ${pbTypeBadge(r.asset_type)}</td>
             <td class="pb-num">${r.position}</td>
             <td class="pb-num">${r.impressions.toLocaleString()}</td>
             <td class="pb-num">${r.clicks}</td>
@@ -918,7 +924,7 @@ function renderDecay(decay) {
         const posMove = r.position_current > r.position_peak ? '▼' : '▲';
         html += `<tr>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
-                <span class="pb-badge">${escHtml(r.asset_type)}</span>
+                ${pbTypeBadge(r.asset_type)}
                 <div class="pb-todo">→ ${escHtml(r.action_hint || 'Refresh the page and re-index in GSC.')}</div></td>
             <td class="pb-num">${r.peak_clicks} → ${r.current_clicks}</td>
             <td class="pb-num pb-drop">−${r.drop_pct}%</td>
@@ -947,7 +953,7 @@ function renderOrphans(oc) {
             html += `<tr>
                 <td><a href="${escHtml(o.url)}" target="_blank" title="${escHtml(o.url)}">${escHtml(fmtUrl(o.url))}</a>
                     <div class="pb-todo">→ ${escHtml(o.action_hint || 'Add internal links to this page from related pages.')}</div></td>
-                <td>${escHtml(o.asset_type)}</td>
+                <td>${pbTypeBadge(o.asset_type)}</td>
                 <td class="pb-num">${o.impressions.toLocaleString()}</td>
                 <td class="pb-num">${o.clicks}</td>
                 <td class="pb-num">${o.position}</td>
@@ -970,7 +976,7 @@ function renderOrphans(oc) {
                     <span class="pb-cluster-size">${c.size} pages</span>
                 </div>
                 <div class="pb-pillar">Pillar: <a href="${escHtml(c.pillar.url)}" target="_blank">${escHtml(c.pillar.title)}</a>
-                    <span class="pb-badge">${escHtml(c.pillar.asset_type)}</span>
+                    ${pbTypeBadge(c.pillar.asset_type)}
                     <span class="pb-num">${c.pillar.impressions.toLocaleString()} impr</span>${pillarOrphan}</div>`;
             if (c.missing_pillar_links && c.missing_pillar_links.length) {
                 html += `<div class="pb-missing">Missing cluster → pillar links (${c.missing_pillar_links.length}):<ul>`;
@@ -1007,7 +1013,7 @@ function renderPruning(rows) {
         }
         html += `<tr>
             <td><a href="${escHtml(r.url)}" target="_blank" title="${escHtml(r.url)}">${escHtml(fmtUrl(r.url))}</a>
-                ${r.is_orphan ? '<span class="pb-badge">orphan</span>' : ''}</td>
+                ${pbTypeBadge(r.asset_type)}${r.is_orphan ? ' <span class="pb-badge">orphan</span>' : ''}</td>
             <td class="pb-num">${r.impressions}</td>
             <td class="pb-num">${r.word_count}</td>
             <td><span class="pb-disp ${dispClass}">${dispLabel}</span></td>
@@ -1139,7 +1145,7 @@ function renderRich(rich) {
                         const tag = i.severity === 'error' ? 'ERROR' : 'warn';
                         return `<div class="pb-geo-fix"><span style="color:${c};font-weight:600;">[${tag}] ${escHtml(i.type)}.${escHtml(i.field)}</span> — ${escHtml(i.message)}</div>`;
                     }).join('');
-                    validationHtml += `<tr><td><a href="${escHtml(p.url)}" target="_blank">${escHtml(p.url)}</a></td><td>${rows}</td></tr>`;
+                    validationHtml += `<tr><td><a href="${escHtml(p.url)}" target="_blank">${escHtml(p.url)}</a> ${pbTypeBadge(p.asset_type)}</td><td>${rows}</td></tr>`;
                 });
                 validationHtml += `</tbody></table>`;
             }
@@ -1228,7 +1234,7 @@ function renderRich(rich) {
         }).join('');
         html += `<tr>
             <td><a href="${escHtml(p.url)}" target="_blank" title="${escHtml(p.url)}">${escHtml(fmtUrl(p.url))}</a></td>
-            <td>${escHtml(p.asset_type)}</td>
+            <td>${pbTypeBadge(p.asset_type)}</td>
             <td>${has}</td>
             <td>${missing}</td>
         </tr>`;
@@ -1297,7 +1303,7 @@ function renderGeo(geo) {
             ? `<div class="pb-geo-note">${escHtml(p.format_note)}</div>` : '';
         html += `<tr>
             <td><a href="${escHtml(p.url)}" target="_blank" title="${escHtml(p.url)}">${escHtml(fmtUrl(p.url))}</a></td>
-            <td>${escHtml(p.asset_type)}</td>
+            <td>${pbTypeBadge(p.asset_type)}</td>
             <td><span class="geo-pill ${geoGradeClass(p.grade)}">${p.grade} ${p.score}</span></td>
             <td class="pb-num">${(p.gsc_impressions||0).toLocaleString()}</td>
             <td>${fixes}${note}</td>
