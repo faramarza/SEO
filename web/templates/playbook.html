@@ -393,7 +393,7 @@ async function loadPlaybook() {
         PB_DATA = data;
         if (data.error) {
             const msg = `<p class="empty-state">${escHtml(data.error)}</p>`;
-            ['ctr','cro','striking','decay','orphans','pruning','reviews','rich','brand'].forEach(s =>
+            ['ctr','cro','striking','decay','orphans','pruning','reviews','rich','brand','geo'].forEach(s =>
                 document.getElementById('pb-' + s + '-body').innerHTML = msg);
             return;
         }
@@ -403,19 +403,34 @@ async function loadPlaybook() {
         const d = data.timestamp ? new Date(data.timestamp).toLocaleString() : '—';
         document.getElementById('pb-meta').innerHTML =
             `Based on ${data.page_count} pages · evaluation ${escHtml(d)}`;
-        renderCtr(data.ctr_recovery || {});
-        renderCro(data.cro_leaks || {});
-        renderStriking(data.striking_distance || []);
-        renderDecay(data.decay || {});
-        renderOrphans(data.orphans_clusters || {});
-        renderPruning(data.pruning || []);
-        renderReviews(data.reviews || {});
-        renderBrandMerchant(data.brand_merchant || {});
-        renderRich(data.rich_results || {});
-        renderGeo(data.geo || {});
+        // Render each section independently: one section's failure must not
+        // strand the sections after it at "Loading…" — show the error IN that
+        // section instead, so the screen diagnoses itself.
+        [
+            ['ctr',      () => renderCtr(data.ctr_recovery || {})],
+            ['cro',      () => renderCro(data.cro_leaks || {})],
+            ['striking', () => renderStriking(data.striking_distance || [])],
+            ['decay',    () => renderDecay(data.decay || {})],
+            ['orphans',  () => renderOrphans(data.orphans_clusters || {})],
+            ['pruning',  () => renderPruning(data.pruning || [])],
+            ['reviews',  () => renderReviews(data.reviews || {})],
+            ['brand',    () => renderBrandMerchant(data.brand_merchant || {})],
+            ['rich',     () => renderRich(data.rich_results || {})],
+            ['geo',      () => renderGeo(data.geo || {})],
+        ].forEach(([sec, fn]) => {
+            try { fn(); } catch (e) {
+                console.error('Playbook section "' + sec + '" failed:', e);
+                const el = document.getElementById('pb-' + sec + '-body');
+                if (el) el.innerHTML = `<p class="empty-state">This section failed to render: ${escHtml(e.message)}<br>` +
+                    `<span style="font-size:12px;color:var(--text-muted);">Send this message to your operator — the other tabs are unaffected.</span></p>`;
+            }
+        });
     } catch (e) {
-        document.getElementById('pb-striking-body').innerHTML =
-            `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
+        const msg = `<p class="empty-state">Failed to load: ${escHtml(e.message)}</p>`;
+        ['ctr','cro','striking','decay','orphans','pruning','reviews','rich','brand','geo'].forEach(s => {
+            const el = document.getElementById('pb-' + s + '-body');
+            if (el) el.innerHTML = msg;
+        });
     }
     // Link prospects load from their own cache (separate endpoint, non-blocking).
     pbLoadLinkProspects();
