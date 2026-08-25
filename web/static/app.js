@@ -54,16 +54,19 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('Governor Dashboard initialized');
 });
 
-/* ── Generic clickable-header table sorting ───────────────────────────────
+/* ── Generic clickable-header table sorting (two-level) ───────────────────
    Makes any data table (a <table> with <thead> and <tbody>) sortable by
    clicking its column headers — across ALL screens, via event delegation, so
-   dynamically-rendered tables work too. Click to sort; click again to flip.
-   Numeric columns sort high→low first, text A→Z. Opt out: data-nosort on the
-   table or a <th>. Headers with their own onclick (e.g. Playbook's custom
-   Striking sort) are left alone. */
+   dynamically-rendered tables work too. Click to sort; click the same header
+   again to flip. Click a DIFFERENT header and it becomes the primary sort
+   while the previous one stays on as the tiebreaker (same two-level scheme
+   as Growth → Top movers; arrows show 1▼ / 2▲). Numeric columns sort
+   high→low first, text A→Z. Opt out: data-nosort on the table or a <th>.
+   Headers with their own onclick (e.g. Playbook's custom Striking sort) are
+   left alone. */
 (function () {
   function cellVal(td) {
-    var t = (td.textContent || '').trim();
+    var t = td ? (td.textContent || '').trim() : '';
     if (t === '') return { t: '', n: 0, num: false };
     var cleaned = t.replace(/[,$%]/g, '').replace(/\/mo\b/gi, '').replace(/[▲▼→].*/, '').trim();
     // Sort by the cell's LEADING number so unit suffixes ("68.6 clk", "0% → 5%",
@@ -72,34 +75,59 @@ document.addEventListener('DOMContentLoaded', () => {
     var m = cleaned.match(/^[-+]?\d+(\.\d+)?(?![\d/-])/);
     return { t: t.toLowerCase(), n: m ? parseFloat(m[0]) : 0, num: !!m };
   }
+  function colKeys(rows, idx) {
+    var keys = rows.map(function (r) { return cellVal(r.cells[idx]); });
+    var allNum = keys.every(function (k) { return k.num || k.t === ''; }) &&
+                 keys.some(function (k) { return k.num; });
+    return { keys: keys, num: allNum };
+  }
   function sortTable(table, idx, th) {
     var tbody = table.tBodies[0];
     if (!tbody) return;
     var rows = Array.prototype.slice.call(tbody.rows).filter(function (r) { return r.cells.length > idx; });
     if (rows.length < 2) return;
-    var keys = rows.map(function (r) { return cellVal(r.cells[idx]); });
-    var allNum = keys.every(function (k) { return k.num || k.t === ''; }) &&
-                 keys.some(function (k) { return k.num; });
-    var dir = table.getAttribute('data-sort-col') === String(idx)
-      ? (table.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc')
-      : (allNum ? 'desc' : 'asc');
-    var mul = dir === 'asc' ? 1 : -1;
+    var stack;
+    try { stack = JSON.parse(table.getAttribute('data-sort-stack') || '[]'); } catch (e) { stack = []; }
+    if (!Array.isArray(stack)) stack = [];
+    if (stack.length && stack[0].idx === idx) {
+      stack[0].dir = stack[0].dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      stack = [{ idx: idx, dir: colKeys(rows, idx).num ? 'desc' : 'asc' }]
+        .concat(stack.filter(function (s) { return s.idx !== idx; }));
+    }
+    stack = stack.slice(0, 2);
+    var cols = stack.map(function (s) {
+      var c = colKeys(rows, s.idx);
+      return { keys: c.keys, num: c.num, mul: s.dir === 'asc' ? 1 : -1 };
+    });
     var order = rows.map(function (r, i) { return i; });
     order.sort(function (a, b) {
-      return allNum ? mul * ((keys[a].n || 0) - (keys[b].n || 0))
-                    : mul * keys[a].t.localeCompare(keys[b].t);
+      for (var ci = 0; ci < cols.length; ci++) {
+        var c = cols[ci];
+        var d = c.num ? (c.keys[a].n || 0) - (c.keys[b].n || 0)
+                      : c.keys[a].t.localeCompare(c.keys[b].t);
+        if (d) return c.mul * d;
+      }
+      return 0;
     });
     order.forEach(function (i) { tbody.appendChild(rows[i]); });
-    table.setAttribute('data-sort-col', idx);
-    table.setAttribute('data-sort-dir', dir);
-    Array.prototype.slice.call(th.parentElement.children).forEach(function (h) {
+    table.setAttribute('data-sort-stack', JSON.stringify(stack));
+    var ths = Array.prototype.slice.call(th.parentElement.children);
+    ths.forEach(function (h) {
       var a = h.querySelector('.tbl-sort-arrow'); if (a) a.remove();
+      if (!h.title && !h.hasAttribute('data-nosort') && h.textContent.trim()) {
+        h.title = 'Click to sort. Click another column to sort by it first — this one becomes the tiebreaker.';
+      }
     });
-    var arrow = document.createElement('span');
-    arrow.className = 'tbl-sort-arrow';
-    arrow.textContent = dir === 'asc' ? ' ▲' : ' ▼';
-    arrow.style.opacity = '0.65';
-    th.appendChild(arrow);
+    stack.forEach(function (s, level) {
+      var h = ths[s.idx];
+      if (!h) return;
+      var arrow = document.createElement('span');
+      arrow.className = 'tbl-sort-arrow';
+      arrow.textContent = ' ' + (stack.length > 1 ? (level + 1) : '') + (s.dir === 'asc' ? '▲' : '▼');
+      arrow.style.opacity = level === 0 ? '0.75' : '0.5';
+      h.appendChild(arrow);
+    });
   }
   document.addEventListener('click', function (e) {
     var th = e.target.closest && e.target.closest('th');
