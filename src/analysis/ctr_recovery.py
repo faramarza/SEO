@@ -52,24 +52,32 @@ def _query_in_title(query: str, title: str) -> bool:
 
 def _diagnose(query, title, has_crawl, has_rating_schema, position, asset_type="other"):
     """Why is CTR low here? Grounded, specific reasons — in priority order.
-    Product-review advice only applies to product/category pages; a homepage or
-    blog post can't carry star ratings, so we don't suggest them there."""
+    Star-rating advice only applies to PRODUCT pages: Google shows review stars
+    for one specific item, never for a category/listing page (marking a whole
+    category with AggregateRating is ineligible and against their guidelines),
+    and a homepage or blog post can't carry them either."""
     reasons = []
     if not has_crawl:
         return ["Page not crawled — fetch it to see the live title/meta."]
     title_ok = _query_in_title(query, title)
-    is_shop = asset_type in ("product", "category")
+    is_product = asset_type == "product"
     if not title_ok:
         reasons.append(f"Your title doesn't clearly match “{query}” — searchers "
                        f"don't see their words, so they skip your result.")
-    if is_shop and not has_rating_schema:
+    if is_product and not has_rating_schema:
         reasons.append("No star rating in your result — competitors with stars "
                        "pull the click. Add reviews + AggregateRating schema.")
-    if title_ok and not (is_shop and not has_rating_schema):
-        if is_shop:
+    if title_ok and not (is_product and not has_rating_schema):
+        if is_product:
             reasons.append("Title matches and stars are present — the meta description "
                            "or the offer (price/shipping) is likely losing the click. "
                            "Sharpen the value proposition.")
+        elif asset_type == "category":
+            reasons.append("Category pages can't show star ratings — the snippet is "
+                           "the whole lever here. Use a title that signals selection "
+                           "(“Wooden Name Puzzles — 30+ Personalized Designs”) and a "
+                           "meta description with your concrete offer (personalization, "
+                           "price range, shipping).")
         elif (position or 0) > 1.5:
             reasons.append("Your title already targets this — the real issue is that "
                            "you only rank #{:.1f}. If it's your brand/name, make sure "
