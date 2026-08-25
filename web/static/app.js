@@ -66,7 +66,10 @@ document.addEventListener('DOMContentLoaded', () => {
    own onclick (e.g. Playbook's custom Striking sort) are left alone. */
 (function () {
   function cellVal(td) {
-    var t = td ? (td.textContent || '').trim() : '';
+    // A cell can carry an explicit sort key (data-sort) when its display text
+    // isn't the thing to sort by (e.g. GEO's "C 57" grade pill sorts by 57).
+    var ds = td && td.getAttribute && td.getAttribute('data-sort');
+    var t = ds != null ? String(ds).trim() : (td ? (td.textContent || '').trim() : '');
     if (t === '') return { t: '', n: 0, num: false };
     var cleaned = t.replace(/[,$%]/g, '').replace(/\/mo\b/gi, '').replace(/[▲▼→].*/, '').trim();
     // Sort by the cell's LEADING number so unit suffixes ("68.6 clk", "0% → 5%",
@@ -122,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 + 'clicking a sorted column flips it; a third column starts a new sort.';
       }
     });
+    var names = ths.map(function (h) { return (h.textContent || '').trim(); });
     stack.forEach(function (s, level) {
       var h = ths[s.idx];
       if (!h) return;
@@ -131,6 +135,20 @@ document.addEventListener('DOMContentLoaded', () => {
       arrow.style.opacity = level === 0 ? '0.75' : '0.5';
       h.appendChild(arrow);
     });
+    // Spell the sort out above the table — numbered arrows alone read as
+    // "broken" when the tiebreaker has no ties to act on.
+    var cap = table.previousElementSibling;
+    if (!cap || !cap.classList || !cap.classList.contains('tbl-sort-state')) {
+      cap = document.createElement('div');
+      cap.className = 'tbl-sort-state';
+      cap.style.cssText = 'font-size:11px;color:var(--text-muted,#64748b);margin:6px 0 2px;';
+      if (table.parentElement) table.parentElement.insertBefore(cap, table);
+    }
+    cap.textContent = 'Sorting: ' + stack.map(function (s, i) {
+      return (i + 1) + '. ' + (names[s.idx] || 'column ' + (s.idx + 1)) + ' ' + (s.dir === 'asc' ? '▲' : '▼');
+    }).join('  ·  ') + (stack.length > 1
+      ? '  —  the 2nd column only orders rows the 1st column ties on'
+      : '');
   }
   document.addEventListener('click', function (e) {
     var th = e.target.closest && e.target.closest('th');

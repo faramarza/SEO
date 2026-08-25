@@ -1322,7 +1322,7 @@ function renderGeo(geo) {
         html += `<tr>
             <td><a href="${escHtml(p.url)}" target="_blank" title="${escHtml(p.url)}">${escHtml(fmtUrl(p.url))}</a></td>
             <td>${pbTypeBadge(p.asset_type)}</td>
-            <td><span class="geo-pill ${geoGradeClass(p.grade)}">${p.grade} ${p.score}</span></td>
+            <td data-sort="${p.score}"><span class="geo-pill ${geoGradeClass(p.grade)}">${p.grade} ${p.score}</span></td>
             <td class="pb-num">${(p.gsc_impressions||0).toLocaleString()}</td>
             <td>${fixes}${note}</td>
             <td class="pb-geo-actions">
