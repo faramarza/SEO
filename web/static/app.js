@@ -66,10 +66,11 @@ document.addEventListener('DOMContentLoaded', () => {
     var t = (td.textContent || '').trim();
     if (t === '') return { t: '', n: 0, num: false };
     var cleaned = t.replace(/[,$%]/g, '').replace(/\/mo\b/gi, '').replace(/[▲▼→].*/, '').trim();
-    var n = parseFloat(cleaned);
-    var num = /\d/.test(t) && !isNaN(n) &&
-              /^[-+]?[\d.,]+\s*[%$]?(\/mo)?$/i.test(t.replace(/[▲▼]/g, '').trim());
-    return { t: t.toLowerCase(), n: n, num: num };
+    // Sort by the cell's LEADING number so unit suffixes ("68.6 clk", "0% → 5%",
+    // "141 → 42") still sort numerically. The lookahead rejects date-like values
+    // ("2026-08-15", "8/22/2026") so those keep sorting as text.
+    var m = cleaned.match(/^[-+]?\d+(\.\d+)?(?![\d/-])/);
+    return { t: t.toLowerCase(), n: m ? parseFloat(m[0]) : 0, num: !!m };
   }
   function sortTable(table, idx, th) {
     var tbody = table.tBodies[0];
