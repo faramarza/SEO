@@ -64,9 +64,9 @@
             Need at least 2 evaluation runs to compute movers. Run an evaluation, wait, then run another.
         </div>
         <div style="display:none;font-size:12px;color:var(--text-muted);margin:4px 0 8px;" id="movers-sort-hint">
-            Click a column to sort (click again to flip). Your previous sort becomes the tiebreaker —
-            e.g. click <em>Type</em> then <em>Clicks</em> for growth-first, grouped-by-type-on-ties;
-            click <em>Clicks</em> then <em>Type</em> to group by type with growth inside.
+            Clicks build the sort in order: the first column you click sorts first, the second becomes
+            the tiebreaker — e.g. click <em>Clicks</em> then <em>Type</em> for growth-first, grouped by
+            type on ties. Click a sorted column again to flip it; click a third column to start over.
             <span id="movers-sort-state" style="font-weight:600;"></span>
         </div>
         <div class="movers-split" id="movers-container" style="display:none;">
@@ -456,10 +456,11 @@ function renderVisibilityChart(vis) {
 }
 
 // ── Movers Table ──
-// ── Two-level movers sort: the last-clicked column is the PRIMARY key; the
-// previous primary becomes the SECONDARY (tiebreaker). Clicking the current
-// primary again flips its direction. Numeric columns default to "biggest
-// movement first" (desc by magnitude direction), text columns to A→Z.
+// ── Two-level movers sort: clicks build the sort IN ORDER — the first column
+// clicked is the primary key, the second becomes the tiebreaker. Clicking a
+// column already in the sort flips its direction. Clicking a third, different
+// column starts a fresh sort. Numeric columns default to "biggest movement
+// first" (desc by magnitude), text columns to A→Z.
 let MV_DATA = null;
 let MV_SORT = [{ key: 'clicks_delta', dir: -1 }];  // default: biggest click change first
 const MV_LABEL = { url: 'URL', page_type: 'Type', clicks_delta: 'Clicks',
@@ -467,12 +468,13 @@ const MV_LABEL = { url: 'URL', page_type: 'Type', clicks_delta: 'Clicks',
 const MV_TEXT_KEYS = new Set(['url', 'page_type']);
 
 function mvSort(key) {
-    if (MV_SORT[0] && MV_SORT[0].key === key) {
-        MV_SORT[0].dir *= -1;                       // flip primary direction
+    const hit = MV_SORT.findIndex(l => l.key === key);
+    if (hit >= 0) {
+        MV_SORT[hit].dir *= -1;                     // flip that level's direction
+    } else if (MV_SORT.length < 2) {
+        MV_SORT.push({ key, dir: MV_TEXT_KEYS.has(key) ? 1 : -1 });  // becomes the tiebreaker
     } else {
-        const prev = MV_SORT[0];
-        MV_SORT = [{ key, dir: MV_TEXT_KEYS.has(key) ? 1 : -1 }];
-        if (prev && prev.key !== key) MV_SORT.push(prev);   // old primary → tiebreaker
+        MV_SORT = [{ key, dir: MV_TEXT_KEYS.has(key) ? 1 : -1 }];    // third column → fresh sort
     }
     if (MV_DATA) renderMovers(MV_DATA);
 }

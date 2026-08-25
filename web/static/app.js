@@ -57,13 +57,13 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ── Generic clickable-header table sorting (two-level) ───────────────────
    Makes any data table (a <table> with <thead> and <tbody>) sortable by
    clicking its column headers — across ALL screens, via event delegation, so
-   dynamically-rendered tables work too. Click to sort; click the same header
-   again to flip. Click a DIFFERENT header and it becomes the primary sort
-   while the previous one stays on as the tiebreaker (same two-level scheme
-   as Growth → Top movers; arrows show 1▼ / 2▲). Numeric columns sort
-   high→low first, text A→Z. Opt out: data-nosort on the table or a <th>.
-   Headers with their own onclick (e.g. Playbook's custom Striking sort) are
-   left alone. */
+   dynamically-rendered tables work too. Clicks build the sort IN ORDER: the
+   first column clicked is the primary key, a second column click adds it as
+   the tiebreaker, clicking a sorted column flips its direction, and clicking
+   a third, different column starts a fresh sort (same scheme as Growth →
+   Top movers; arrows show 1▼ / 2▲). Numeric columns sort high→low first,
+   text A→Z. Opt out: data-nosort on the table or a <th>. Headers with their
+   own onclick (e.g. Playbook's custom Striking sort) are left alone. */
 (function () {
   function cellVal(td) {
     var t = td ? (td.textContent || '').trim() : '';
@@ -89,13 +89,15 @@ document.addEventListener('DOMContentLoaded', () => {
     var stack;
     try { stack = JSON.parse(table.getAttribute('data-sort-stack') || '[]'); } catch (e) { stack = []; }
     if (!Array.isArray(stack)) stack = [];
-    if (stack.length && stack[0].idx === idx) {
-      stack[0].dir = stack[0].dir === 'asc' ? 'desc' : 'asc';
+    var hit = -1;
+    for (var si = 0; si < stack.length; si++) if (stack[si].idx === idx) hit = si;
+    if (hit >= 0) {
+      stack[hit].dir = stack[hit].dir === 'asc' ? 'desc' : 'asc';
+    } else if (stack.length < 2) {
+      stack.push({ idx: idx, dir: colKeys(rows, idx).num ? 'desc' : 'asc' });
     } else {
-      stack = [{ idx: idx, dir: colKeys(rows, idx).num ? 'desc' : 'asc' }]
-        .concat(stack.filter(function (s) { return s.idx !== idx; }));
+      stack = [{ idx: idx, dir: colKeys(rows, idx).num ? 'desc' : 'asc' }];
     }
-    stack = stack.slice(0, 2);
     var cols = stack.map(function (s) {
       var c = colKeys(rows, s.idx);
       return { keys: c.keys, num: c.num, mul: s.dir === 'asc' ? 1 : -1 };
@@ -116,7 +118,8 @@ document.addEventListener('DOMContentLoaded', () => {
     ths.forEach(function (h) {
       var a = h.querySelector('.tbl-sort-arrow'); if (a) a.remove();
       if (!h.title && !h.hasAttribute('data-nosort') && h.textContent.trim()) {
-        h.title = 'Click to sort. Click another column to sort by it first — this one becomes the tiebreaker.';
+        h.title = 'Click to sort. A second column click adds it as the tiebreaker; '
+                + 'clicking a sorted column flips it; a third column starts a new sort.';
       }
     });
     stack.forEach(function (s, level) {

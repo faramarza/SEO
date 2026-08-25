@@ -1285,11 +1285,14 @@ function renderGeo(geo) {
         return;
     }
     const gc = s.grade_counts || {};
+    // Score bands from src/evaluators/geo_scorecard.py::_grade — keep in sync.
+    const GEO_BANDS = { A: '85–100', B: '70–84', C: '55–69', D: '40–54', F: 'below 40' };
     summary.innerHTML = `
         <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.avg_score ?? '—'}</span><span class="pb-geo-stat-lbl">avg readiness</span></div>
         <div class="pb-geo-stat"><span class="pb-geo-stat-val">${s.scored ?? 0}</span><span class="pb-geo-stat-lbl">pages scored</span></div>
         <div class="pb-geo-grades">
-            ${['A','B','C','D','F'].map(g => `<span class="geo-pill ${geoGradeClass(g)}">${g}: ${gc[g] || 0}</span>`).join('')}
+            <span style="font-size:12px;color:var(--text-muted);margin-right:4px;">Pages by readiness grade (A best → F worst):</span>
+            ${['A','B','C','D','F'].map(g => `<span class="geo-pill ${geoGradeClass(g)}" title="${gc[g] || 0} page(s) with a citation-readiness score of ${GEO_BANDS[g]} out of 100">${g}: ${gc[g] || 0}</span>`).join('')}
         </div>`;
 
     let html = `<table class="pb-table"><thead><tr>
