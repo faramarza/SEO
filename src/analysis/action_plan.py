@@ -384,7 +384,11 @@ def _from_winnable(winnable, out):
                    "but earns almost no clicks because position 4–20 gets ~1% CTR. It's non-brand "
                    "category demand — winnable for a reseller (no brand owns it). Getting it into "
                    "the top 5 turns impressions you ALREADY earn into clicks, with no new backlinks.")
-        title = (f"🛡️ Defend “{q}” — dropped ~{abs(delta):.0f} spots to #{pos} (non-brand demand)"
+        # When declining, headline the CURRENT position (now28), not the 28-day
+        # average — "dropped ~10 spots to #14" while the steps say #28.4 reads
+        # as a contradiction (both were true: avg vs now).
+        _pos_now = r.get("position_now28") or pos
+        title = (f"🛡️ Defend “{q}” — dropped ~{abs(delta):.0f} spots to #{_pos_now} (non-brand demand)"
                  if declining else
                  f"Win clicks on “{q}” (ranks #{pos}, non-brand demand, ~0 clicks)")
         _t = _task(
@@ -596,7 +600,8 @@ def _from_outreach(links_info, striking, out):
     top_targets = sorted(blocked, key=lambda r: -(r.get("impressions", 0) or 0))[:3]
     steps = [
         f"{tier12} tier-1/2 prospects are qualified in Playbook → Link Prospects"
-        + (f" — {drafted} already have a finished draft." if drafted else "."),
+        + (f" — {drafted} already {'has' if drafted == 1 else 'have'} a finished draft."
+           if drafted else "."),
         "Start with the tier-1 prospects that have a contact route; personalize the "
         "first 10% of each draft, send, and mark the card ✉ Contacted.",
     ]
@@ -643,7 +648,7 @@ def _from_duplicates(results, out):
     pairs = [sorted(v, key=lambda x: -x[1]) for v in groups.values()
              if len({u for u, _ in v}) > 1]
     if not pairs:
-        return
+        return set()
     # The recoverable split = the demand currently landing on the losing variants.
     split = sum(sum(i for _, i in p[1:]) for p in pairs)
     total = sum(sum(i for _, i in p) for p in pairs)
@@ -666,6 +671,9 @@ def _from_duplicates(results, out):
          "merged URL."),
         0, split,
         {"type": "self_report"}, {}, "blog", "blog-post-variants", auto_review=False))
+    # The losing variants — every other task aimed at one of these URLs is
+    # superseded by the redirect (no point internal-linking a page about to 301).
+    return {u for p in pairs for u, _ in p[1:]}
 
 
 def _score_task(t):
@@ -795,10 +803,11 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
                       winnable=None, links_info=None, results=None, limit=60):
     """Aggregate EVERY subsystem into one ranked, do-this-next list."""
     out = []
+    dup_losers = set()
     if links_info:
         _from_outreach(links_info, striking, out)
     if results:
-        _from_duplicates(results, out)
+        dup_losers = _from_duplicates(results, out) or set()
     if ctr:
         _from_ctr(ctr, out)
     if cro:
@@ -825,6 +834,13 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
         _from_geo(geo, out)
     if brand_merchant:
         _from_brand(brand_merchant, out)
+
+    # Tasks aimed at a losing duplicate variant are superseded by the
+    # consolidation redirect — linking to or retitling a page that's about to
+    # 301 away is wasted work, and the winner keeps its own tasks.
+    if dup_losers:
+        out = [t for t in out
+               if t["category"] == "consolidation" or t.get("url") not in dup_losers]
 
     for t in out:
         _score_task(t)

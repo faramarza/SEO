@@ -7997,9 +7997,14 @@ def api_playbook():
         grade_counts = {}
         score_sum = 0
         scored = 0
+        from src.analysis.growth_playbook import _is_system_page as _sys_page
         for r in results:
             pm = r.get("page_metadata", {})
             if not pm.get("has_crawl_data"):
+                continue
+            # System/utility pages (enable-cookies, admin, checkout…) are not
+            # citable content — scoring them poisons the list AND the average.
+            if _sys_page(r.get("url", ""), extra_disallow=disallow):
                 continue
             sc = _compute_geo(r)
             if sc.get("limited"):

@@ -36,7 +36,7 @@ const CAT_META = {
     striking: { icon:'🎯', label:'Ranking' },
     winnable: { icon:'🧲', label:'Winnable' },
     decay:    { icon:'📉', label:'Refresh' },
-    orphan:   { icon:'🕸️', label:'Links' },
+    orphan:   { icon:'🕸️', label:'Internal links' },
     pruning:  { icon:'✂️', label:'Prune' },
     content:  { icon:'✍️', label:'Content gap' },
     geo:      { icon:'🤖', label:'AI Citation' },
@@ -141,7 +141,7 @@ function taskCard(t, off){
             : `<button class="pb-task-btn" onclick="dnAdopt('${esc(t.dedup_key)}', this)">Start this →</button>`)) + genBtn;
     return `<div class="dn-card ${off?'dn-off':''}">
         <div class="dn-head">
-            <div class="dn-rank">${off?'✓':('#'+t.rank)}</div>
+            <div class="dn-rank">${off?'✓':(t.rank?('#'+t.rank):'—')}</div>
             <div class="dn-titlewrap">
                 <div class="dn-title">${c.icon} ${esc(t.title)}</div>
                 <div class="dn-sub">

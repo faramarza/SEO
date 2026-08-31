@@ -45,6 +45,7 @@ SYSTEM_PATH_MARKERS = (
     "/newsletter", "/sendfriend", "/gift", "/catalog/product_compare",
     "/compare", "/contacts", "/customer-service/", "/multishipping",
     "/authornet", "/paypal", "/rss/", "/cms/", "/index.php",
+    "/admin", "/enable-cookies", "/sitemap",
 )
 
 # Non-HTML assets — images, media, documents, static files. These appear in GSC

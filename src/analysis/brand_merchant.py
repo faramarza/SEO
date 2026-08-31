@@ -75,6 +75,10 @@ def brand_serp_audit(results, brand_terms, min_impressions=20):
         url = r.get("url", "")
         for q in (r.get("top_queries") or []):
             query = q.get("query", "")
+            # "site:domain.com" is a search-operator artifact in GSC (someone
+            # inspecting the index), not a customer searching the brand.
+            if query.lower().startswith("site:"):
+                continue
             if not _is_brand_query(query, brand_terms):
                 continue
             impr = q.get("impressions", 0) or 0
