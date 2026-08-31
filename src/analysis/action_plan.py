@@ -33,6 +33,8 @@ TIME_TO_IMPACT = {
     "geo":       (28, "3–6 weeks"),
     "brand":     (21, "2–4 weeks"),
     "winnable":  (28, "3–6 weeks"),
+    "links":     (60, "6–10 weeks"),
+    "consolidation": (21, "2–4 weeks"),
 }
 
 EFFORT = {
@@ -43,6 +45,8 @@ EFFORT = {
     "pruning": "Quick (review + act)", "content": "Large (write an article)",
     "geo": "Medium (a few hours)", "brand": "Medium (~1 hour)",
     "winnable": "Medium (~1 hour)",
+    "links": "Medium (send prepared emails)",
+    "consolidation": "Quick (~1 hour, one redirect rule)",
 }
 
 # Hours of hands-on work, used for the ROI ranking (value per hour per week).
@@ -50,6 +54,7 @@ EFFORT_HOURS = {
     "ctr": 0.35, "schema": 0.5, "merchant": 0.5, "orphan": 0.35, "pruning": 0.5,
     "reviews": 1.0, "brand": 1.0, "striking": 1.0, "geo": 3.0, "cro": 3.0,
     "decay": 3.0, "content": 8.0, "winnable": 1.0,
+    "links": 1.5, "consolidation": 1.0,
 }
 # Baseline impact (in $-equivalent points) for foundational tasks that have no
 # measured revenue and little/no reach, so a quick 30-min schema fix still ranks
@@ -72,6 +77,7 @@ REACH_YIELD = {
     "geo": 0.30, "brand": 0.55, "schema": 0.55, "pruning": 0.45,
     "merchant": 0.60, "orphan": 0.60, "content": 0.55,
     "striking": 0.75, "winnable": 0.75, "decay": 0.80,
+    "links": 0.75, "consolidation": 0.80,
 }
 # Is this a "knock it out now" quick win? Used for batching + the weekly view.
 QUICK_CATS = {"ctr", "schema", "merchant", "orphan", "pruning"}
@@ -79,7 +85,8 @@ QUICK_CATS = {"ctr", "schema", "merchant", "orphan", "pruning"}
 # Categories that are ALWAYS genuine growth levers — they can never be demoted to
 # the "while you're at it" strip no matter how small their measured value, because
 # their value is future traffic/structure that 28-day money can't see.
-NEVER_MINOR = {"winnable", "striking", "content", "cro", "decay", "orphan", "geo"}
+NEVER_MINOR = {"winnable", "striking", "content", "cro", "decay", "orphan", "geo",
+               "links", "consolidation"}
 # Below this $-equivalent impact, a NON-lever task (a cheap CTR/schema/reviews
 # harvest) is "minor" — real, but it must never headline "do this next". A $10/mo
 # brand-CTR fix lands here; a $200/mo money-page fix does not.
@@ -181,10 +188,16 @@ def _from_ctr(ctr, out):
             {"type": "query_clicks", "url": r.get("url",""), "query": r.get("query","")},
             {"clicks": r.get("clicks", 0), "ctr": r.get("actual_ctr", 0)},
             r.get("asset_type","other"), r.get("query",""))
-        # A CTR "fix" on the store's own brand term, or on a page already at the top
-        # (nothing to gain from position, and the click is a commodity toss-up), is
-        # a trivial harvest — flag it so it can never headline the plan.
-        if _is_brand_query(r.get("query", "")) or (r.get("position") or 99) <= 2.0:
+        # Recoverable clicks — the measurability signal for a CTR fix (a page
+        # with modest impressions but a huge CTR gap yields a readable sample).
+        _t["expected_clicks"] = r.get("lost_clicks", 0) or 0
+        # A CTR "fix" on the store's own brand term, or a SMALL harvest on a page
+        # already at the top (nothing to gain from position, the click is a
+        # commodity toss-up), is trivial — flag it so it can never headline the
+        # plan. But a top-2 page leaking a real click volume is an anomaly worth
+        # headlining, not a toss-up — keep it.
+        if _is_brand_query(r.get("query", "")) or (
+                (r.get("position") or 99) <= 2.0 and (r.get("lost_clicks") or 0) < 10):
             _t["is_brand_ctr"] = True
         out.append(_t)
 
@@ -551,6 +564,8 @@ ASSET_INTENT_WEIGHT = {
 # these are reported side by side and the plan is split into two horizons rather
 # than collapsed into one misleading number.
 STRATEGIC_WEIGHT = {
+    "links": 1.0,      # earned authority compounds across every page and query
+    "consolidation": 0.8,  # structural — merges split rank signals permanently
     "content": 1.0,    # new traffic + topical authority — the classic compounding asset
     "cro": 0.85,       # a structural conversion fix lifts EVERY future visitor
     "striking": 0.7,   # capture demand that's already rising
@@ -565,6 +580,92 @@ STRATEGIC_WEIGHT = {
     "pruning": 0.3,
     "ctr": 0.2,        # a one-time click harvest — real money, but it doesn't compound
 }
+
+
+def _from_outreach(links_info, striking, out):
+    """The site's #1 lever as a first-class task: send the prepared link
+    outreach. Grounded in the striking-distance rows the tool itself marked
+    'needs backlinks' — those queries have NO other lever left, so this task
+    carries their combined demand as its reach."""
+    tier12 = links_info.get("tier12", 0)
+    if tier12 <= 0:
+        return
+    blocked = [r for r in (striking or []) if r.get("lever") == "external"]
+    blocked_reach = sum(r.get("impressions", 0) or 0 for r in blocked)
+    drafted = links_info.get("drafted", 0)
+    top_targets = sorted(blocked, key=lambda r: -(r.get("impressions", 0) or 0))[:3]
+    steps = [
+        f"{tier12} tier-1/2 prospects are qualified in Playbook → Link Prospects"
+        + (f" — {drafted} already have a finished draft." if drafted else "."),
+        "Start with the tier-1 prospects that have a contact route; personalize the "
+        "first 10% of each draft, send, and mark the card ✉ Contacted.",
+    ]
+    if top_targets:
+        steps.append("Aim links at the pages the tool marked authority-blocked: "
+                     + "; ".join(f"{r.get('url','')} (“{r.get('query','')}”, "
+                                 f"{r.get('impressions',0)} impr)" for r in top_targets))
+    steps.append("Forum-reply prospects (💬) are posted, not emailed — answer the thread "
+                 "genuinely, recommend a non-self option too, no links in the reply.")
+    benefit = (f"{len(blocked)} striking-distance queries "
+               f"({blocked_reach:,} impressions/mo) are blocked ONLY on authority — "
+               "no title or internal link can move them further. Earned links are the "
+               "single lever that unblocks them, and each one compounds across every "
+               "page and future query."
+               if blocked else
+               "Earned links raise the whole domain's authority — the constraint the "
+               "rest of this plan keeps running into.")
+    out.append(_task(
+        "links", "", "Send your prepared link outreach — the drafts are waiting",
+        steps, benefit, 0, blocked_reach or 500,
+        {"type": "self_report"}, {}, "other", "outreach", auto_review=False))
+
+
+def _from_duplicates(results, out):
+    """Same blog post indexed at two URL variants (/blog/X and /blog/post/X),
+    each earning impressions — they compete with each other and split rank.
+    Detected conservatively: identical path after collapsing the known variant
+    infix, both variants with GSC impressions."""
+    def norm(path):
+        return path.rstrip("/").replace("/blog/post/", "/blog/")
+    groups = {}
+    for r in results or []:
+        url = r.get("url", "")
+        impr = r.get("gsc_impressions", 0) or 0
+        if not url or impr <= 0:
+            continue
+        try:
+            from urllib.parse import urlparse
+            p = urlparse(url)
+            key = p.netloc + norm(p.path)
+        except Exception:
+            continue
+        groups.setdefault(key, []).append((url, impr))
+    pairs = [sorted(v, key=lambda x: -x[1]) for v in groups.values()
+             if len({u for u, _ in v}) > 1]
+    if not pairs:
+        return
+    # The recoverable split = the demand currently landing on the losing variants.
+    split = sum(sum(i for _, i in p[1:]) for p in pairs)
+    total = sum(sum(i for _, i in p) for p in pairs)
+    pairs.sort(key=lambda p: -sum(i for _, i in p))
+    steps = ["Verify first: open both URLs of one pair — if both return 200 with the "
+             "same content (no redirect), they are true duplicates competing in Google."]
+    for p in pairs[:5]:
+        steps.append("Duplicate: " + "  vs  ".join(f"{u} ({i:,} impr)" for u, i in p[:2]))
+    steps.append("Fix with ONE redirect rule: 301 /blog/post/<slug> → /blog/<slug> "
+                 "(keep whichever pattern ranks better as the target), and make each "
+                 "post's canonical tag point at the kept URL.")
+    steps.append("Then request re-indexing of the kept URLs in GSC.")
+    out.append(_task(
+        "consolidation", "",
+        f"Consolidate {len(pairs)} duplicate blog URLs splitting {total:,} impressions",
+        steps,
+        (f"Google indexes these posts at two URLs each; the variants compete and split "
+         f"rank. One redirect rule consolidates ~{split:,} impressions/mo of split "
+         "demand onto single stronger pages — typically worth 1–3 positions on the "
+         "merged URL."),
+        0, split,
+        {"type": "self_report"}, {}, "blog", "blog-post-variants", auto_review=False))
 
 
 def _score_task(t):
@@ -602,8 +703,12 @@ def _score_task(t):
     # reach (a page at pos 8-14 moved into the top 5 realistically converts ~2% of
     # its impressions to clicks) — otherwise a $10 CTR harvest outranks a
     # 1,000-impression winnable page, which is exactly the bug we're fixing.
-    if cat in ("winnable", "striking", "content", "orphan"):
+    if cat in ("winnable", "striking", "content", "orphan", "links", "consolidation"):
         t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02), 1)
+    elif cat == "ctr" and (t.get("expected_clicks") or 0) >= 10:
+        # A big recoverable click volume is a real lever even when the $-figure
+        # is tiny (small-site CVR×AOV understates a 40-click/mo recovery).
+        t["lever_score"] = round(max(impact, t["expected_clicks"] * 0.4), 1)
     else:
         t["lever_score"] = round(impact, 1)
     # URGENCY: a page that's actively SLIPPING (position momentum down) is more
@@ -633,7 +738,8 @@ def _score_task(t):
     # MINOR = a real but trivial cheap harvest (a $10 brand-CTR nudge, a phantom
     # schema count) that must never headline. Genuine levers are exempt.
     t["minor"] = (cat not in NEVER_MINOR) and (
-        impact < MINOR_IMPACT_FLOOR or t.get("is_brand_ctr", False))
+        (impact < MINOR_IMPACT_FLOOR and (t.get("expected_clicks") or 0) < 10)
+        or t.get("is_brand_ctr", False))
     # Second lens: strategic/compounding value. Scales with the AUDIENCE a task
     # builds or unlocks (sqrt-damped so a huge page doesn't dominate), weighted by
     # how durable that value is. Deliberately independent of near-term ROI so a
@@ -641,11 +747,36 @@ def _score_task(t):
     # while scoring low on ROI — which is exactly the signal ROI alone misses.
     sw = STRATEGIC_WEIGHT.get(cat, 0.4)
     t["strategic_score"] = round(sw * (max(t["reach"], 1) ** 0.5), 1)
+    # MEASURABILITY: on a low-demand page NO per-task verdict can ever be read —
+    # the effect sits below the noise floor no matter how good the fix is. Say so
+    # on the card instead of promising a measurement that will come back
+    # inconclusive. Aggregate/systemic tasks are exempt (their effect shows at
+    # the site level), as is anything with measured revenue.
+    _aggregate = cat in ("links", "consolidation", "reviews", "brand", "content", "cro")
+    t["measurable"] = bool(
+        t["expected_value"] > 0 or (t.get("reach") or 0) >= 300 or _aggregate
+        # A CTR fix expected to recover a real click volume clears the 20-click
+        # sample on its own, whatever the raw impression count.
+        or (t.get("expected_clicks") or 0) >= 10)
+    if not t["measurable"]:
+        t["yield_note"] = (
+            f"Heads-up: this page gets ~{t.get('reach') or 0} impressions/28d — below "
+            "the floor where any per-task verdict is readable. Do it only if it takes "
+            "minutes, batch it with similar fixes, and don't expect the closed card "
+            "to prove anything either way.")
+        if cat not in NEVER_MINOR:
+            t["minor"] = True
     # A one-line, honest "why this rank".
     fast = t["time_to_impact_days"] <= 21
     cheap = hours <= 0.6
     big = t["expected_value"] >= 200
-    if cheap and (big or fast):
+    if cat == "links":
+        t["rank_reason"] = "The constraint everything else runs into — authority"
+    elif cat == "consolidation":
+        t["rank_reason"] = "Structural fix — stops your own pages competing"
+    elif not t["measurable"]:
+        t["rank_reason"] = "Tiny page — batch it; won't be individually measurable"
+    elif cheap and (big or fast):
         t["rank_reason"] = "Quick win — high value for ~20–30 min of work"
     elif big:
         t["rank_reason"] = "High revenue impact"
@@ -661,9 +792,13 @@ def _score_task(t):
 def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
                       brand_merchant=None, striking=None, decay=None,
                       content=None, orphans=None, pruning=None, geo=None,
-                      winnable=None, limit=60):
+                      winnable=None, links_info=None, results=None, limit=60):
     """Aggregate EVERY subsystem into one ranked, do-this-next list."""
     out = []
+    if links_info:
+        _from_outreach(links_info, striking, out)
+    if results:
+        _from_duplicates(results, out)
     if ctr:
         _from_ctr(ctr, out)
     if cro:

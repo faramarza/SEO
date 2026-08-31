@@ -41,6 +41,8 @@ const CAT_META = {
     content:  { icon:'✍️', label:'Content gap' },
     geo:      { icon:'🤖', label:'AI Citation' },
     brand:    { icon:'🏷️', label:'Brand' },
+    links:    { icon:'🔗', label:'Outreach' },
+    consolidation: { icon:'🧭', label:'Consolidate' },
 };
 const STATUS_META = {
     todo:        { txt:'In progress — auto-check scheduled', cls:'dn-badge-todo' },
@@ -155,6 +157,7 @@ function taskCard(t, off){
             </div>
         </div>
         <div class="dn-benefit">🎁 <strong>Benefit:</strong> ${esc(t.benefit)}</div>
+        ${t.yield_note?`<div class="dn-when" style="color:#b45309;">⚖️ ${esc(t.yield_note)}</div>`:''}
         ${steps?`<details ${off?'':'open'}><summary>Exact steps</summary><ol class="dn-steps">${steps}</ol></details>`:''}
         ${statusBadge}
         ${(t.adopted && t.auto_review!==false && t.review_date && t.status!=='done') ? `<div class="dn-when">⏳ Auto-check on <strong>${esc(t.review_date)}</strong> — the tool will re-measure and tell you if it worked.</div>`:''}

@@ -8599,6 +8599,25 @@ def _winnable_plan_input():
         return []
 
 
+def _links_plan_info():
+    """Tier-1/2 link prospects still awaiting outreach — feeds the plan's
+    'send your prepared outreach' task. None when there's nothing actionable."""
+    try:
+        from src.analysis.link_prospects import load_link_prospects, load_statuses
+        lp = load_link_prospects() or {}
+        st = load_statuses()
+        t12 = [p for p in lp.get("prospects", [])
+               if (p.get("tier") or 0) in (1, 2)
+               and st.get((p.get("domain") or "").lower(), {}).get("status")
+               not in ("skipped", "won", "contacted")]
+        if not t12:
+            return None
+        return {"tier12": len(t12),
+                "drafted": sum(1 for p in t12 if p.get("draft"))}
+    except Exception:
+        return None
+
+
 @app.route("/api/action-plan")
 def api_action_plan():
     """The unified 'do this next' plan: every recommendation across the tool,
@@ -8624,7 +8643,8 @@ def api_action_plan():
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
                              brand_merchant=bm, striking=striking, decay=decay,
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
-                             winnable=_winnable_plan_input())
+                             winnable=_winnable_plan_input(),
+                             links_info=_links_plan_info(), results=results)
 
     adopted = store.get("adopted", {})
     for t in plan:
@@ -8920,7 +8940,8 @@ def _compose_weekly_digest():
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
                              brand_merchant=bm, striking=striking, decay=decay,
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
-                             winnable=_winnable_plan_input())
+                             winnable=_winnable_plan_input(),
+                             links_info=_links_plan_info(), results=results)
     adopted = store.get("adopted", {})
     top3 = [t for t in plan if t["dedup_key"] not in adopted][:3]
 
