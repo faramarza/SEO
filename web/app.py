@@ -3786,8 +3786,17 @@ def _auto_measure_action(action, config: dict) -> dict | None:
     MIN_CLICK_SAMPLE = 20
     BIG_IMP_SWING = 0.50
     clicks_significant = (old_clicks + new_clicks) >= MIN_CLICK_SAMPLE
+    # Position is the one signal that stays readable at low click volume: a
+    # rank move of a full spot at stable demand is real even on a page with 3
+    # clicks. Guard against the query-mix artifact — avg position "improves"
+    # when long-tail impressions are shed — by requiring impressions stable.
+    pos_old = baseline_gsc.get("avg_position_28d") or 0.0
+    pos_new = current.avg_position_28d or 0.0
+    have_pos = pos_old > 0 and pos_new > 0
+    pos_delta = (pos_old - pos_new) if have_pos else 0.0  # >0 = moved up the page
     fmt = (f"Clicks {old_clicks}→{new_clicks} ({click_change:+.0%}), "
-           f"impressions {old_impressions}→{new_impressions} ({imp_change:+.0%}).")
+           f"impressions {old_impressions}→{new_impressions} ({imp_change:+.0%})"
+           + (f", position #{pos_old:.1f}→#{pos_new:.1f}." if have_pos else "."))
 
     corroborated = clicks_significant and (click_change > 0) == (imp_change > 0)
     if abs(imp_change) >= BIG_IMP_SWING and not corroborated:
@@ -3806,6 +3815,17 @@ def _auto_measure_action(action, config: dict) -> dict | None:
     elif clicks_significant and click_change < -0.10:
         outcome = "negative"
         notes = fmt
+    elif have_pos and pos_delta >= 1.0 and abs(imp_change) < 0.30:
+        outcome = "positive"
+        notes = (fmt + f" RANK-DRIVEN verdict: position improved {pos_delta:.1f} spot(s) "
+                 f"at stable demand. The click sample ({old_clicks + new_clicks}) is too "
+                 "small to read, but rank movement is measurable at low volume — and it's "
+                 "the signal that precedes clicks.")
+    elif have_pos and pos_delta <= -1.0 and abs(imp_change) < 0.15:
+        outcome = "negative"
+        notes = (fmt + f" RANK-DRIVEN verdict: position slipped {-pos_delta:.1f} spot(s) "
+                 "at stable demand. If this task changed the page's title or content, "
+                 "review the change and consider reverting it.")
     elif imp_change > 0.15:
         outcome = "positive"
         notes = fmt + (f" (Impressions-driven; click sample of {old_clicks + new_clicks} "
