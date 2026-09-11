@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}SEO Loop — Governor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🔁 SEO Loop</h1>
+    <p class="page-description">
+        Unattended meta-title/description experiments: the loop selects under-clicked
+        page-1 pages and sliding pages from your GSC data, writes a rewrite through a
+        Magento token that <strong>can only touch meta fields</strong> (prices, URLs,
+        categories are structurally unreachable), verifies against baseline after
+        {{ '' }}<span id="lp-verifydays">28</span> days normalized by the site trend, keeps
+        winners, and reverts confirmed losers automatically. Start in
+        <strong>shadow mode</strong>: it proposes, you click Apply — flip to auto once
+        you trust its taste.
+    </p>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+            <input type="checkbox" id="loop-enabled" onchange="loopSaveSettings()"> Loop enabled
+            <span style="font-weight:400;color:var(--text-muted);font-size:12px;">(kill switch — off pauses everything)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;">
+            Mode:
+            <select id="loop-mode" onchange="loopSaveSettings()">
+                <option value="shadow">Shadow — propose only, I click Apply</option>
+                <option value="auto">Auto — apply within caps, unattended</option>
+            </select>
+        </label>
+        <span id="loop-caps" style="font-size:13px;color:var(--text-muted);"></span>
+        <span id="loop-magento" style="font-size:13px;"></span>
+        <button class="pb-task-btn" onclick="loopPropose(this)">🔍 Propose now</button>
+    </div>
+    <div id="loop-notes" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+</div>
+
+<div id="loop-body"><p class="pb-loading">Loading…</p></div>
+<div id="loop-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let LOOP = null;
+function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function loopToast(msg, err){
+    const t=document.getElementById('loop-toast');
+    t.textContent=msg; t.className='pb-toast show'+(err?' error':'');
+    setTimeout(()=>{ t.className='pb-toast'; },3500);
+}
+const LOOP_STATUS = {
+    proposed:  {label:'PROPOSED — awaiting apply', color:'#2563eb'},
+    applied:   {label:'LIVE — measuring',          color:'#7c3aed'},
+    suspect:   {label:'SUSPECT — confirming slide',color:'#d97706'},
+    kept:      {label:'KEPT ✓ won',                color:'#059669'},
+    neutral:   {label:'NEUTRAL — kept, flat',      color:'#64748b'},
+    reverted:  {label:'REVERTED ✗',                color:'#dc2626'},
+    failed:    {label:'FAILED — see detail',       color:'#dc2626'},
+    dismissed: {label:'DISMISSED',                 color:'#94a3b8'},
+};
+
+async function loadLoop(){
+    const res = await fetch('/api/seo-loop');
+    LOOP = await res.json();
+    document.getElementById('loop-enabled').checked = !!LOOP.settings.enabled;
+    document.getElementById('loop-mode').value = LOOP.settings.mode || 'shadow';
+    document.getElementById('lp-verifydays').textContent = LOOP.verify_after_days;
+    const c = LOOP.caps || {};
+    document.getElementById('loop-caps').textContent =
+        `Writes: ${c.used_today||0}/${c.per_day} today · ${c.used_week||0}/${c.per_week} this week`;
+    document.getElementById('loop-magento').innerHTML = LOOP.magento_configured
+        ? '<span style="color:var(--accent-green);">Magento: connected ✓</span>'
+        : '<span style="color:#dc2626;">Magento: NOT configured — set MAGENTO_BASE_URL + MAGENTO_TOKEN in .env</span>';
+    renderLoop();
+}
+
+function renderLoop(){
+    const body = document.getElementById('loop-body');
+    const exps = LOOP.experiments || [];
+    if(!exps.length){
+        body.innerHTML = '<p class="empty-state">No experiments yet. Hit “Propose now” — the loop will pick its top candidates from the latest evaluation and draft rewrites for your review.</p>';
+        return;
+    }
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Status</th><th>Page / query</th><th>Title: before → after</th>
+        <th>Hypothesis / latest verdict</th><th>Baseline</th><th></th></tr></thead><tbody>`;
+    exps.forEach((e, i) => {
+        const st = LOOP_STATUS[e.status] || {label:e.status, color:'#64748b'};
+        const last = (e.verdicts||[]).slice(-1)[0];
+        const base = (e.baseline||{}).page || {};
+        const btns = [];
+        if(e.status==='proposed'){
+            btns.push(`<button class="pb-task-btn" onclick="loopApply('${e.id}',this)">Apply →</button>`);
+            btns.push(`<button class="pb-task-btn pb-task-btn-alt" onclick="loopDismiss('${e.id}',this)">Dismiss</button>`);
+        }
+        if(['applied','suspect','kept','neutral'].includes(e.status)){
+            btns.push(`<button class="pb-task-btn pb-task-btn-alt" onclick="loopRevert('${e.id}',this)">↩ Revert</button>`);
+        }
+        html += `<tr>
+            <td style="white-space:nowrap;"><span style="color:${st.color};font-weight:700;font-size:12px;">${escHtml(st.label)}</span>
+                ${e.check_at?`<div style="font-size:11px;color:var(--text-muted);">check ${escHtml(e.check_at)}</div>`:''}</td>
+            <td><a href="${escHtml(e.url)}" target="_blank" title="${escHtml(e.url)}">${escHtml((e.url||'').replace(/^https?:\/\/[^/]+/,''))}</a>
+                <div style="font-size:12px;">“${escHtml(e.query)}”</div>
+                <div style="font-size:11px;color:var(--text-muted);">${escHtml(e.selection_reason||'')}</div></td>
+            <td style="max-width:280px;font-size:12px;">
+                <div style="color:var(--text-muted);text-decoration:line-through;">${escHtml((e.before||{}).meta_title||'(empty)')}</div>
+                <div style="font-weight:600;">${escHtml((e.after||{}).meta_title||'')}</div>
+                <div style="color:var(--text-muted);margin-top:4px;">${escHtml((e.after||{}).meta_description||'')}</div></td>
+            <td style="max-width:280px;font-size:12px;">
+                <div>${escHtml(e.hypothesis||'')}</div>
+                ${last?`<div style="margin-top:4px;color:var(--text-muted);">${escHtml(last.at||'')}: <strong>${escHtml(last.verdict||'')}</strong> — ${escHtml(last.detail||'')}</div>`:''}</td>
+            <td class="pb-num" style="font-size:12px;white-space:nowrap;">
+                ${(base.impressions||0).toLocaleString()} impr<br>
+                ${((base.ctr||0)*100).toFixed(2)}% CTR<br>#${(base.position||0).toFixed(1)}</td>
+            <td style="white-space:nowrap;">${btns.join(' ')}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+async function loopSaveSettings(){
+    const res = await fetch('/api/seo-loop/settings',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({enabled:document.getElementById('loop-enabled').checked,
+                             mode:document.getElementById('loop-mode').value})});
+    const d = await res.json();
+    loopToast(d.success?'Settings saved':'Failed to save', !d.success);
+}
+
+async function loopPropose(btn){
+    btn.disabled=true; btn.textContent='Selecting + drafting…';
+    try{
+        const res = await fetch('/api/seo-loop/propose',{method:'POST',
+            headers:{'Content-Type':'application/json'}, body:'{}'});
+        const d = await res.json();
+        document.getElementById('loop-notes').textContent = (d.notes||[]).join('  ·  ');
+        loopToast(`${d.proposed||0} experiment(s) proposed`);
+        await loadLoop();
+    }catch(e){ loopToast('Failed: '+e.message, true); }
+    btn.disabled=false; btn.textContent='🔍 Propose now';
+}
+
+async function loopApply(id, btn){
+    if(!confirm('Write this meta title/description to the LIVE store? A render check runs immediately after, and a failed check auto-reverts.')) return;
+    btn.disabled=true; btn.textContent='Writing…';
+    const res = await fetch('/api/seo-loop/apply',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+    const d = await res.json();
+    loopToast(d.success?'Applied — live check passed ✓':(d.error||'Failed'), !d.success);
+    await loadLoop();
+}
+
+async function loopRevert(id, btn){
+    if(!confirm('Revert this page to its stored before-values?')) return;
+    btn.disabled=true;
+    const res = await fetch('/api/seo-loop/revert',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+    const d = await res.json();
+    loopToast(d.success?'Reverted':(d.error||'Failed'), !d.success);
+    await loadLoop();
+}
+
+async function loopDismiss(id, btn){
+    btn.disabled=true;
+    const res = await fetch('/api/seo-loop/dismiss',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+    const d = await res.json();
+    loopToast(d.success?'Dismissed':(d.error||'Failed'), !d.success);
+    await loadLoop();
+}
+
+loadLoop();
+</script>
+{% endblock %}

@@ -563,6 +563,12 @@ def _run_autoreview_scheduler():
                         print(f"[AutoReview] Checked {len(reviewed)} due Action Plan task(s)")
                 # Same daily cadence: nudge stale outreach cards for follow-up.
                 _process_outreach_followups()
+                # SEO loop daily tick: verify due experiments; auto mode also
+                # proposes/applies within its caps. No-op unless enabled.
+                try:
+                    _process_seo_loop()
+                except Exception as _le:
+                    print(f"[SEOLoop] Error: {_le}")
         except Exception as e:
             print(f"[AutoReview] Error: {e}")
         time.sleep(3600)  # re-check hourly; the day-marker ensures once/day
@@ -10621,6 +10627,409 @@ def api_content_generate_article():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ============================================================
+# SEO LOOP — unattended meta experiments (select → act → verify → learn)
+# ============================================================
+# The loop engine (selection + verify math + state) lives in
+# src/analysis/seo_loop.py; the Magento write path (structurally scoped to
+# meta_title/meta_description) in src/data_sources/magento_client.py. This
+# layer owns scheduling, LLM rewrite generation, and the apply/revert
+# choreography with the post-write render check.
+
+LOOP_REWRITE_SYSTEM = (
+    "You write meta titles and meta descriptions for alphabet-trains.com, an "
+    "online RETAILER of personalized name trains, name puzzles, step stools, "
+    "Montessori toys, classroom rugs, and personalized story books. The store "
+    "CARRIES products from independent makers — never say 'we make' or "
+    "'handmade by us'. Rules: the title MUST contain the target query's words "
+    "naturally, lead with one concrete draw (age range, material, "
+    "personalization, a number for list pages) and stay under 60 characters. "
+    "No '|' pipes or bolted-on separators — Google rewrites over-templated "
+    "titles. The meta description is under 155 characters, promises the "
+    "specific value, and ends with a reason to click. Never invent claims "
+    "(review counts, awards, shipping promises you can't verify). Respond "
+    "ONLY with JSON: {\"meta_title\": \"...\", \"meta_description\": \"...\", "
+    "\"hypothesis\": \"one sentence: why this beats the current one\"}"
+)
+
+
+def _loop_site_totals():
+    """Site-wide 28d totals from the latest evaluation — the tide the verify
+    step normalizes against."""
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+        return {"impressions": sum(r.get("gsc_impressions", 0) or 0 for r in results),
+                "clicks": sum(r.get("gsc_clicks", 0) or 0 for r in results)}
+    except (OSError, json.JSONDecodeError):
+        return {"impressions": 0, "clicks": 0}
+
+
+def _loop_page_metrics(url):
+    """Live 28d GSC metrics for one page (fractions for ctr)."""
+    config = load_config()
+    gsc_cfg = config.get("data_sources", {}).get("gsc", {})
+    gsc = GSCClient(site_url=gsc_cfg.get("property_url", ""),
+                    credentials_path=gsc_cfg.get("credentials_path"))
+    m = gsc.get_page_metrics(url, days=28)
+    return {"impressions": m.impressions_28d, "clicks": m.clicks_28d,
+            "ctr": m.ctr_28d, "position": m.avg_position_28d}
+
+
+def _loop_generate_rewrite(candidate, entity, config):
+    """LLM rewrite for one candidate, informed by recent loop outcomes."""
+    from src.analysis import seo_loop as sl
+    digest = sl.outcomes_digest(sl.load_state())
+    user = (f"Page: {entity.get('name', '')} ({candidate.get('asset_type', 'page')})\n"
+            f"URL: {candidate['url']}\n"
+            f"Target query: “{candidate.get('query', '')}” — "
+            f"position #{candidate.get('position')}, "
+            f"{candidate.get('impressions')} impressions/28d, "
+            f"CTR {candidate.get('ctr', 0)}% vs {candidate.get('expected_ctr', '?')}% achievable.\n"
+            f"Why selected: {candidate.get('reason', '')}\n"
+            f"CURRENT meta_title: {entity.get('meta_title') or '(empty)'}\n"
+            f"CURRENT meta_description: {entity.get('meta_description') or '(empty)'}\n"
+            + (f"\nRecent experiment outcomes (avoid repeating what loses):\n{digest}"
+               if digest else ""))
+    return _llm_json(LOOP_REWRITE_SYSTEM, user, config, max_tokens=500)
+
+
+def _loop_postwrite_check(url, meta_title):
+    """Fetch the LIVE page: it must render 200 and carry the new title. Some
+    themes don't emit meta_title as <title> — accept either tag. Returns
+    (ok, detail)."""
+    try:
+        from src.metrics.click_yield import _fetch
+        html = _fetch(url)
+    except Exception as e:
+        return False, f"Live fetch failed: {e}"
+    if not html or len(html) < 200:
+        return False, "Live page returned empty/short content."
+    if meta_title and meta_title.lower() not in html.lower():
+        return False, ("Page renders but the new meta_title isn't in the HTML "
+                       "(theme may ignore meta_title, or cache needs a flush).")
+    return True, "Live page renders with the new title."
+
+
+def _loop_dup_losers():
+    """URLs slated for consolidation — never experiment on a page about to 301."""
+    try:
+        from src.analysis.action_plan import _from_duplicates
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+        return _from_duplicates(results, []) or set()
+    except Exception:
+        return set()
+
+
+def _loop_recent_board_changes():
+    """url -> reason for pages the OPERATOR changed recently via board tasks —
+    the loop must not stack a second treatment on them."""
+    from datetime import datetime as _dt, timedelta as _td
+    out = {}
+    try:
+        cutoff = _dt.now() - _td(days=21)
+        for a in ActionLedger().get_all_actions():
+            if a.status.value not in ("implemented", "measured", "closed"):
+                continue
+            try:
+                when = _dt.fromisoformat(a.updated_at or a.created_at)
+            except (ValueError, TypeError):
+                continue
+            if when >= cutoff and a.url:
+                out[a.url] = "board task changed this page recently"
+    except Exception:
+        pass
+    return out
+
+
+def _loop_propose(config, limit=None):
+    """SELECT + generate rewrites; returns (new_proposals, skipped_notes)."""
+    from src.analysis import seo_loop as sl
+    from src.data_sources.magento_client import MagentoClient
+    from src.analysis.ctr_recovery import find_ctr_recovery
+
+    state = sl.load_state()
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except (OSError, json.JSONDecodeError):
+        return [], ["No evaluation data."]
+    disallow = _robots_disallow_rules()
+    ctr_rows = find_ctr_recovery(results, system_disallow=disallow).get("rows", [])
+    winnable = _winnable_plan_input()
+    revenue = {r.get("url", ""): r.get("ga4_revenue", 0) or 0 for r in results}
+
+    budget = sl.WRITES_PER_WEEK - sl.open_writes_this_week(state) \
+        - sum(1 for e in state["experiments"] if e.get("status") == "proposed")
+    if limit is not None:
+        budget = min(budget, limit)
+    if budget <= 0:
+        return [], ["Weekly budget already covered by open/applied experiments."]
+
+    cands = sl.select_candidates(ctr_rows, winnable, state,
+                                 revenue_by_url=revenue,
+                                 dup_losers=_loop_dup_losers(),
+                                 extra_excluded=_loop_recent_board_changes(),
+                                 limit=budget)
+    mc = MagentoClient()
+    made, notes = [], []
+    for c in cands:
+        if not mc.configured:
+            notes.append("Magento not configured — cannot resolve pages to products.")
+            break
+        entity = mc.resolve_url(c["url"], asset_type=c.get("asset_type", ""))
+        if not entity:
+            notes.append(f"{c['url']}: no unique product/category match — skipped.")
+            continue
+        rewrite, err = _loop_generate_rewrite(c, entity, config)
+        if err or not rewrite or not rewrite.get("meta_title"):
+            notes.append(f"{c['url']}: rewrite generation failed ({err or 'empty'}).")
+            continue
+        try:
+            page = _loop_page_metrics(c["url"])
+        except Exception as e:
+            notes.append(f"{c['url']}: baseline GSC fetch failed ({e}).")
+            continue
+        exp = sl.new_experiment(c, entity, rewrite,
+                                rewrite.get("hypothesis", ""),
+                                {"page": page, "site": _loop_site_totals(),
+                                 "captured_at": datetime.now().isoformat(timespec="seconds")})
+        state["experiments"].append(exp)
+        made.append(exp)
+    if made or notes:
+        sl.save_state(state)
+    return made, notes
+
+
+def _loop_apply(exp_id):
+    """Write one proposed experiment to Magento: refresh before-values, PUT,
+    live render check, revert immediately on any failure. Enforces caps."""
+    from src.analysis import seo_loop as sl
+    from src.data_sources.magento_client import MagentoClient, MagentoError
+    state = sl.load_state()
+    exp = next((e for e in state["experiments"] if e["id"] == exp_id), None)
+    if not exp:
+        return {"error": "Experiment not found."}
+    if exp.get("status") != "proposed":
+        return {"error": f"Experiment is {exp.get('status')}, not proposed."}
+    if sl.writes_today(state) >= sl.WRITES_PER_DAY:
+        return {"error": f"Daily write cap ({sl.WRITES_PER_DAY}) reached — try tomorrow."}
+    if sl.open_writes_this_week(state) >= sl.WRITES_PER_WEEK:
+        return {"error": f"Weekly write cap ({sl.WRITES_PER_WEEK}) reached."}
+    mc = MagentoClient()
+    if not mc.configured:
+        return {"error": "Magento not configured (MAGENTO_BASE_URL / MAGENTO_TOKEN)."}
+    try:
+        fresh = mc.resolve_url(exp["url"], asset_type="")
+        if not fresh:
+            return {"error": "Page no longer resolves to a unique product/category."}
+        # Refresh the stored before-values at the moment of the write, so a
+        # revert restores what was ACTUALLY live, not what we saw at proposal.
+        exp["before"] = {"meta_title": fresh.get("meta_title", ""),
+                         "meta_description": fresh.get("meta_description", "")}
+        exp["entity"] = {k: fresh[k] for k in
+                         ("entity_type", "sku", "category_id", "name") if k in fresh}
+        mc.write_meta(fresh, exp["after"]["meta_title"],
+                      exp["after"]["meta_description"])
+    except MagentoError as e:
+        exp["status"] = "failed"
+        exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                                "verdict": "failed", "detail": str(e)})
+        sl.save_state(state)
+        return {"error": f"Magento write failed: {e}"}
+    ok, detail = _loop_postwrite_check(exp["url"], exp["after"]["meta_title"])
+    if not ok:
+        # Immediate self-revert — the page must never stay in an unknown state.
+        try:
+            mc.write_meta(exp["entity"], exp["before"]["meta_title"],
+                          exp["before"]["meta_description"])
+            detail += " Reverted to the previous values."
+        except MagentoError as e:
+            detail += f" REVERT ALSO FAILED ({e}) — fix this page by hand NOW."
+        exp["status"] = "failed"
+        exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                                "verdict": "failed", "detail": detail})
+        sl.save_state(state)
+        _save_notification({"type": "seo_loop", "severity": "warning",
+                            "url": exp["url"],
+                            "message": f"SEO loop write failed post-check: {detail}"})
+        return {"error": detail}
+    sl.mark_applied(exp)
+    exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                            "verdict": "applied", "detail": detail})
+    sl.save_state(state)
+    return {"success": True, "experiment": exp}
+
+
+def _loop_revert(exp, state, reason):
+    from src.analysis import seo_loop as sl
+    from src.data_sources.magento_client import MagentoClient, MagentoError
+    mc = MagentoClient()
+    try:
+        mc.write_meta(exp["entity"], exp["before"]["meta_title"],
+                      exp["before"]["meta_description"])
+        exp["status"] = "reverted"
+        exp["reverted_at"] = datetime.now().isoformat(timespec="seconds")
+        detail = f"Reverted: {reason}"
+    except MagentoError as e:
+        detail = f"REVERT FAILED ({e}) — fix by hand: {reason}"
+        _save_notification({"type": "seo_loop", "severity": "warning",
+                            "url": exp["url"],
+                            "message": f"SEO loop revert failed for {exp['url']}: {e}"})
+    exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                            "verdict": "reverted", "detail": detail})
+    sl.save_state(state)
+
+
+def _process_seo_loop():
+    """Daily tick (runs under the same once-a-day claim as auto-review):
+    verify due experiments, then — auto mode only — propose and apply within
+    caps. Fully paused when the kill switch is off."""
+    from src.analysis import seo_loop as sl
+    from datetime import timedelta as _td
+    state = sl.load_state()
+    settings = state.get("settings", {})
+    if not settings.get("enabled"):
+        return
+    config = load_config()
+    today = datetime.now().date().isoformat()
+
+    # 1) VERIFY experiments past their check date.
+    for exp in state["experiments"]:
+        if exp.get("status") not in ("applied", "suspect"):
+            continue
+        if not exp.get("check_at") or exp["check_at"] > today:
+            continue
+        try:
+            cur = _loop_page_metrics(exp["url"])
+        except Exception as e:
+            exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                                    "verdict": "inconclusive",
+                                    "detail": f"GSC fetch failed: {e}"})
+            exp["check_at"] = (datetime.now() + _td(days=3)).date().isoformat()
+            continue
+        verdict, detail = sl.verify_experiment(exp, cur, _loop_site_totals())
+        exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                                "verdict": verdict, "detail": detail})
+        if verdict == "keep":
+            exp["status"] = "kept"
+        elif verdict == "neutral":
+            exp["status"] = "neutral"
+        elif verdict == "suspect":
+            exp["status"] = "suspect"
+            exp["check_at"] = (datetime.now() +
+                               _td(days=sl.REVERT_CONFIRM_DAYS)).date().isoformat()
+        elif verdict == "revert":
+            _loop_revert(exp, state, detail)
+        else:  # inconclusive — look again shortly, settle after 3 tries
+            if sum(1 for v in exp["verdicts"] if v["verdict"] == "inconclusive") >= 3:
+                exp["status"] = "neutral"
+            else:
+                exp["check_at"] = (datetime.now() + _td(days=7)).date().isoformat()
+        if verdict in ("keep", "revert"):
+            _save_notification({"type": "seo_loop", "severity": "info",
+                                "url": exp["url"],
+                                "message": f"SEO loop verdict for {exp['url']}: "
+                                           f"{verdict.upper()} — {detail[:200]}"})
+    sl.save_state(state)
+
+    # 2) PROPOSE + 3) APPLY — auto mode only; shadow mode waits for clicks.
+    if settings.get("mode") != "auto":
+        return
+    try:
+        _loop_propose(config)
+    except Exception as e:
+        print(f"[SEOLoop] propose failed: {e}")
+    state = sl.load_state()
+    if sl.writes_today(state) < sl.WRITES_PER_DAY \
+            and sl.open_writes_this_week(state) < sl.WRITES_PER_WEEK:
+        nxt = next((e for e in state["experiments"] if e.get("status") == "proposed"), None)
+        if nxt:
+            res = _loop_apply(nxt["id"])
+            print(f"[SEOLoop] auto-apply {nxt['url']}: "
+                  f"{'OK' if res.get('success') else res.get('error')}")
+
+
+@app.route("/loop")
+def seo_loop_page():
+    return render_template("seo_loop.html")
+
+
+@app.route("/api/seo-loop")
+def api_seo_loop():
+    from src.analysis import seo_loop as sl
+    from src.data_sources.magento_client import MagentoClient
+    state = sl.load_state()
+    exps = sorted(state.get("experiments", []),
+                  key=lambda e: e.get("created_at", ""), reverse=True)
+    return jsonify({
+        "settings": state.get("settings", {}),
+        "experiments": exps,
+        "caps": {"per_week": sl.WRITES_PER_WEEK, "per_day": sl.WRITES_PER_DAY,
+                 "used_week": sl.open_writes_this_week(state),
+                 "used_today": sl.writes_today(state)},
+        "magento_configured": MagentoClient().configured,
+        "verify_after_days": sl.VERIFY_AFTER_DAYS,
+    })
+
+
+@app.route("/api/seo-loop/settings", methods=["POST"])
+def api_seo_loop_settings():
+    from src.analysis import seo_loop as sl
+    body = request.json or {}
+    state = sl.load_state()
+    s = state.setdefault("settings", {})
+    if "enabled" in body:
+        s["enabled"] = bool(body["enabled"])
+    if body.get("mode") in ("shadow", "auto"):
+        s["mode"] = body["mode"]
+    sl.save_state(state)
+    return jsonify({"success": True, "settings": s})
+
+
+@app.route("/api/seo-loop/propose", methods=["POST"])
+def api_seo_loop_propose():
+    made, notes = _loop_propose(load_config(),
+                                limit=(request.json or {}).get("limit"))
+    return jsonify({"success": True, "proposed": len(made), "notes": notes})
+
+
+@app.route("/api/seo-loop/apply", methods=["POST"])
+def api_seo_loop_apply():
+    res = _loop_apply((request.json or {}).get("id", ""))
+    return (jsonify(res), 400) if res.get("error") else jsonify(res)
+
+
+@app.route("/api/seo-loop/revert", methods=["POST"])
+def api_seo_loop_revert():
+    from src.analysis import seo_loop as sl
+    state = sl.load_state()
+    exp = next((e for e in state["experiments"]
+                if e["id"] == (request.json or {}).get("id")), None)
+    if not exp:
+        return jsonify({"error": "Experiment not found."}), 404
+    if exp.get("status") not in ("applied", "suspect", "kept", "neutral"):
+        return jsonify({"error": f"Nothing live to revert (status {exp.get('status')})."}), 400
+    _loop_revert(exp, state, "manual revert from dashboard")
+    return jsonify({"success": True, "experiment": exp})
+
+
+@app.route("/api/seo-loop/dismiss", methods=["POST"])
+def api_seo_loop_dismiss():
+    from src.analysis import seo_loop as sl
+    state = sl.load_state()
+    exp = next((e for e in state["experiments"]
+                if e["id"] == (request.json or {}).get("id")), None)
+    if not exp:
+        return jsonify({"error": "Experiment not found."}), 404
+    if exp.get("status") != "proposed":
+        return jsonify({"error": "Only proposed experiments can be dismissed."}), 400
+    exp["status"] = "dismissed"
+    sl.save_state(state)
+    return jsonify({"success": True})
 
 
 # ============================================================
