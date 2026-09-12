@@ -74,10 +74,13 @@ async function loadLoop(){
     renderLoop();
 }
 
+let LOOP_SHOW_HISTORY = false;
 function renderLoop(){
     const body = document.getElementById('loop-body');
-    const exps = LOOP.experiments || [];
-    if(!exps.length){
+    const all = LOOP.experiments || [];
+    const hidden = all.filter(e => e.superseded);
+    const exps = LOOP_SHOW_HISTORY ? all : all.filter(e => !e.superseded);
+    if(!all.length){
         body.innerHTML = '<p class="empty-state">No experiments yet. Hit “Propose now” — the loop will pick its top candidates from the latest evaluation and draft rewrites for your review.</p>';
         return;
     }
@@ -96,7 +99,7 @@ function renderLoop(){
         if(['applied','suspect','kept','neutral'].includes(e.status)){
             btns.push(`<button class="pb-task-btn pb-task-btn-alt" onclick="loopRevert('${e.id}',this)">↩ Revert</button>`);
         }
-        if(e.status==='failed'){
+        if(e.status==='failed' && !e.superseded){
             btns.push(`<button class="pb-task-btn" onclick="loopRetry('${e.id}',this)">↻ Retry apply</button>`);
         }
         html += `<tr>
@@ -120,6 +123,12 @@ function renderLoop(){
         </tr>`;
     });
     html += '</tbody></table>';
+    if(hidden.length){
+        html += `<p style="font-size:12px;color:var(--text-muted);margin-top:8px;">
+            <a href="#" onclick="LOOP_SHOW_HISTORY=!LOOP_SHOW_HISTORY;renderLoop();return false;">
+            ${LOOP_SHOW_HISTORY?'Hide':'Show'} ${hidden.length} superseded attempt(s)</a>
+            — old failed/dismissed rows replaced by a newer experiment on the same page.</p>`;
+    }
     body.innerHTML = html;
 }
 

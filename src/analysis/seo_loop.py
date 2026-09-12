@@ -108,7 +108,16 @@ def _excluded_urls(state) -> dict:
                     out[url] = "changed recently"
             except (ValueError, TypeError):
                 pass
-        # failed/dismissed: nothing durable changed on the page — retryable.
+        elif st == "dismissed":
+            # The operator said no to a rewrite here — don't re-pitch the same
+            # page immediately; the objection expires with the change window.
+            try:
+                when = datetime.fromisoformat(e.get("created_at", ""))
+                if now - when < timedelta(days=RECENT_CHANGE_DAYS):
+                    out[url] = "dismissed recently"
+            except (ValueError, TypeError):
+                pass
+        # failed: nothing durable changed on the page — retryable immediately.
     return out
 
 

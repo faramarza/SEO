@@ -10823,10 +10823,35 @@ def _loop_propose(config, limit=None):
         except Exception as e:
             notes.append(f"{c['url']}: baseline GSC fetch failed ({e}).")
             continue
+        baseline = {"page": page, "site": _loop_site_totals(),
+                    "captured_at": datetime.now().isoformat(timespec="seconds")}
+        # Re-proposing a page whose last attempt FAILED revives that row in
+        # place (history kept) instead of stacking a duplicate next to it.
+        prior = next((e for e in state["experiments"]
+                      if e.get("url") == c["url"] and e.get("status") == "failed"), None)
+        if prior:
+            prior.update({
+                "status": "proposed", "applied_at": None, "check_at": None,
+                "query": c.get("query", ""), "arm": c.get("arm", ""),
+                "selection_reason": c.get("reason", ""),
+                "entity": {k: entity[k] for k in
+                           ("entity_type", "sku", "category_id", "name") if k in entity},
+                "before": {"meta_title": entity.get("meta_title", ""),
+                           "meta_description": entity.get("meta_description", "")},
+                "after": {"meta_title": rewrite.get("meta_title", ""),
+                          "meta_description": rewrite.get("meta_description", "")},
+                "hypothesis": rewrite.get("hypothesis", ""),
+                "baseline": baseline,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            })
+            prior["verdicts"].append({
+                "at": datetime.now().isoformat(timespec="seconds"),
+                "verdict": "re-proposed",
+                "detail": "Fresh rewrite generated after the earlier failure."})
+            made.append(prior)
+            continue
         exp = sl.new_experiment(c, entity, rewrite,
-                                rewrite.get("hypothesis", ""),
-                                {"page": page, "site": _loop_site_totals(),
-                                 "captured_at": datetime.now().isoformat(timespec="seconds")})
+                                rewrite.get("hypothesis", ""), baseline)
         state["experiments"].append(exp)
         made.append(exp)
     if made or notes:
@@ -10995,6 +11020,16 @@ def api_seo_loop():
     state = sl.load_state()
     exps = sorted(state.get("experiments", []),
                   key=lambda e: e.get("created_at", ""), reverse=True)
+    # Terminal rows (failed/dismissed) with a newer experiment on the same URL
+    # are history, not actionable — mark them so the UI can tuck them away.
+    newest = {}
+    for e in exps:  # exps is newest-first
+        u = e.get("url", "")
+        if u not in newest:
+            newest[u] = e["id"]
+    for e in exps:
+        e["superseded"] = (e.get("status") in ("failed", "dismissed")
+                           and newest.get(e.get("url", "")) != e["id"])
     return jsonify({
         "settings": state.get("settings", {}),
         "experiments": exps,
