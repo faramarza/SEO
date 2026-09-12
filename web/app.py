@@ -10697,20 +10697,36 @@ def _loop_generate_rewrite(candidate, entity, config):
 
 
 def _loop_postwrite_check(url, meta_title):
-    """Fetch the LIVE page: it must render 200 and carry the new title. Some
-    themes don't emit meta_title as <title> — accept either tag. Returns
+    """Fetch the LIVE page: it must render 200 and carry the new title.
+
+    Magento's full-page cache serves the OLD HTML until the page's cache tag
+    is flushed, so a plain fetch can read stale content right after a
+    successful write. If the plain fetch misses the title, probe again with a
+    cache-busting query param (an FPC/Varnish MISS renders fresh): title
+    present there = the write took, cache just lags; absent in both = the
+    theme genuinely doesn't render meta_title → real failure. Returns
     (ok, detail)."""
+    from src.metrics.click_yield import _fetch
     try:
-        from src.metrics.click_yield import _fetch
         html = _fetch(url)
     except Exception as e:
         return False, f"Live fetch failed: {e}"
     if not html or len(html) < 200:
         return False, "Live page returned empty/short content."
-    if meta_title and meta_title.lower() not in html.lower():
-        return False, ("Page renders but the new meta_title isn't in the HTML "
-                       "(theme may ignore meta_title, or cache needs a flush).")
-    return True, "Live page renders with the new title."
+    if not meta_title or meta_title.lower() in html.lower():
+        return True, "Live page renders with the new title."
+    buster = f"{url}{'&' if '?' in url else '?'}loopcheck={int(time.time())}"
+    try:
+        fresh = _fetch(buster)
+    except Exception as e:
+        return False, f"Cache-bust fetch failed: {e}"
+    if fresh and meta_title.lower() in fresh.lower():
+        return True, ("Write verified on a fresh render — the page cache is "
+                      "still serving the old HTML and will refresh on its "
+                      "normal flush/TTL.")
+    return False, ("New meta_title missing from BOTH the cached and a "
+                   "freshly-rendered page — the theme likely doesn't emit "
+                   "meta_title. Reverting.")
 
 
 def _loop_dup_losers():

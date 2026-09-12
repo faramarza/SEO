@@ -36,12 +36,21 @@ class MagentoError(Exception):
     pass
 
 
-def _assert_safe_payload(payload: dict):
+def _assert_safe_payload(payload: dict, path_sku: str = None):
     """Refuse any payload that touches a field outside the allowlist.
-    Raises instead of filtering: a denylist violation is a bug, not an input."""
+    Raises instead of filtering: a denylist violation is a bug, not an input.
+    'sku' is permitted ONLY as an identifier echoing the URL path (Magento's
+    product save rejects partial updates without it) — a sku that differs
+    from the path is a rename attempt and is refused."""
     ent = payload.get("product") or payload.get("category") or {}
     for key in ent:
-        if key in ("custom_attributes",):
+        if key == "custom_attributes":
+            continue
+        if key == "sku" and "product" in payload:
+            # Only valid as an identifier echoing the URL path — callers must
+            # pass path_sku; a missing or different value is a rename attempt.
+            if path_sku is None or ent["sku"] != path_sku:
+                raise MagentoError("Payload sku must echo the path sku — refused.")
             continue
         raise MagentoError(f"Denylisted top-level field in write payload: {key}")
     for attr in ent.get("custom_attributes", []):
@@ -69,7 +78,9 @@ class MagentoClient:
     def _req(self, method, path, payload=None):
         if not self.configured:
             raise MagentoError("Magento not configured (MAGENTO_BASE_URL / MAGENTO_TOKEN)")
-        url = f"{self.base_url}/rest/V1{path}"
+        # /rest/all/V1 = global scope: reads see default values, writes update
+        # the default (all-store-views) value instead of a single store view.
+        url = f"{self.base_url}/rest/all/V1{path}"
         headers = {"Authorization": f"Bearer {self.token}",
                    "Content-Type": "application/json"}
         try:
@@ -159,7 +170,10 @@ class MagentoClient:
 
     def update_product_meta(self, sku, meta_title=None, meta_description=None):
         payload = self._meta_payload("product", meta_title, meta_description)
-        _assert_safe_payload(payload)
+        # Magento's product save rejects partial updates without the sku in the
+        # body ("The product was unable to be saved") — echo the path sku.
+        payload["product"]["sku"] = sku
+        _assert_safe_payload(payload, path_sku=sku)
         # url-encode the sku path segment minimally
         safe_sku = sku.replace("/", "%2F").replace(" ", "%20")
         return self._req("PUT", f"/products/{safe_sku}", payload)

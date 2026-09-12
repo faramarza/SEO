@@ -97,13 +97,14 @@ def _excluded_urls(state) -> dict:
                     out[url] = f"reverted — excluded until {until.date()}"
             except (ValueError, TypeError):
                 out[url] = "reverted recently"
-        else:  # kept/neutral/failed — still respect the recent-change window
+        elif st in ("kept", "neutral"):  # live changes respect the change window
             try:
                 changed = datetime.fromisoformat(e.get("applied_at") or e.get("created_at", ""))
                 if now - changed < timedelta(days=RECENT_CHANGE_DAYS):
                     out[url] = "changed recently"
             except (ValueError, TypeError):
                 pass
+        # failed/dismissed: nothing durable changed on the page — retryable.
     return out
 
 
@@ -124,9 +125,13 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
 
     cands = {}
 
-    def blocked(url, query=""):
+    def blocked(url, query="", asset_type=""):
         if not url or url in cands:
             return "dup"
+        # The write path is Magento products/categories only — blog-module and
+        # unclassified pages can't be written, so don't spend budget on them.
+        if asset_type not in ("product", "category"):
+            return "not a Magento product/category page"
         if url in excluded:
             return excluded[url]
         if url in dup_losers:
@@ -146,7 +151,7 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
         pos = r.get("position", 99) or 99
         if impr < MIN_IMPRESSIONS or pos > 10:
             continue
-        if blocked(url, q):
+        if blocked(url, q, r.get("asset_type", "")):
             continue
         expected = achievable_ctr(pos)
         actual = (r.get("actual_ctr", 0) or 0) / 100.0
@@ -172,7 +177,7 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
             continue
         if impr < MIN_IMPRESSIONS:
             continue
-        if blocked(url, q):
+        if blocked(url, q, r.get("asset_type", "")):
             continue
         cands[url] = {
             "url": url, "query": q, "arm": "drift",

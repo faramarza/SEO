@@ -40,6 +40,17 @@ def test_payload_builder_only_meta():
     assert codes == {"meta_title", "meta_description"}
 
 
+def test_sku_echo_allowed_but_rename_refused():
+    p = MagentoClient._meta_payload("product", "T", "D")
+    p["product"]["sku"] = "ABC-1"
+    _assert_safe_payload(p, path_sku="ABC-1")  # identifier echo — fine
+    try:
+        _assert_safe_payload(p, path_sku="OTHER-SKU")
+        assert False, "sku differing from path must be refused"
+    except MagentoError:
+        pass
+
+
 def test_empty_write_rejected():
     try:
         MagentoClient._meta_payload("product")
@@ -71,6 +82,9 @@ def test_selection_filters():
         _ctr_row("http://x/brand.html", query="alphabet trains toys",
                  impr=900, pos=4.0),                            # brand query
         _ctr_row("http://x/enable-cookies", impr=900, pos=4.0),  # system page
+        {"url": "http://x/blog/post", "query": "q", "impressions": 900,
+         "position": 4.0, "actual_ctr": 0.5,
+         "asset_type": "blog"},                                  # not writable
     ]
     picked = sl.select_candidates(
         rows, [], state,
@@ -92,12 +106,23 @@ def test_selection_skips_open_and_reverted():
     assert [c["url"] for c in picked] == ["http://x/fresh.html"]
 
 
+def test_failed_experiments_are_retryable():
+    state = {"experiments": [
+        {"url": "http://x/failed.html", "status": "failed",
+         "created_at": datetime.now().isoformat()},
+    ]}
+    picked = sl.select_candidates(
+        [_ctr_row("http://x/failed.html", impr=500, pos=5.0)], [], state)
+    assert [c["url"] for c in picked] == ["http://x/failed.html"]
+
+
 def test_drift_arm():
     win = [{"url": "http://x/slide.html", "query": "q", "impressions": 400,
-            "trend": "down", "position_delta": -5.0,
+            "trend": "down", "position_delta": -5.0, "asset_type": "category",
             "position_prev28": 8.0, "position_now28": 13.0},
            {"url": "http://x/wobble.html", "query": "q", "impressions": 400,
             "trend": "down", "position_delta": -1.5,   # below DRIFT_POSITIONS
+            "asset_type": "category",
             "position_prev28": 8.0, "position_now28": 9.5}]
     picked = sl.select_candidates([], win, {"experiments": []})
     assert [c["url"] for c in picked] == ["http://x/slide.html"]
