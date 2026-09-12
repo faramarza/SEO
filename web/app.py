@@ -11061,6 +11061,12 @@ def api_seo_loop_retry():
     if exp.get("status") != "failed":
         return jsonify({"error": f"Only failed experiments can be retried "
                                  f"(this one is {exp.get('status')})."}), 400
+    dup = next((e for e in state["experiments"]
+                if e is not exp and e.get("url") == exp.get("url")
+                and e.get("status") in ("proposed", "applied", "suspect")), None)
+    if dup:
+        return jsonify({"error": "A newer experiment already covers this page "
+                                 f"({dup['status']}) — use that one instead."}), 400
     exp["status"] = "proposed"
     exp["applied_at"] = None
     exp["check_at"] = None
