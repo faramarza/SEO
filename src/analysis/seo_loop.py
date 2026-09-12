@@ -24,6 +24,7 @@ this module owns the decisions.
 
 import json
 import fcntl
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -32,15 +33,18 @@ from src.analysis.growth_playbook import _is_system_page
 
 STATE_PATH = Path(__file__).parent.parent.parent / "data" / "seo_loop.json"
 
-# Selection tunables (env-overridable via the web layer if ever needed).
-MIN_IMPRESSIONS = 200
+# Operator tunables — .env-overridable like the rest of the tool; the
+# defaults are the agreed spec. Lowering the caps is always safe; raising
+# them mostly buys muddier attribution (the 28-day verify window is the real
+# bottleneck, not write throughput).
+MIN_IMPRESSIONS = int(os.environ.get("SEO_LOOP_MIN_IMPRESSIONS", "200"))
 CTR_UNDERPERFORMANCE = 0.70    # actual < 70% of the site's achievable CTR
 DRIFT_POSITIONS = 3.0          # defend pages sliding 3+ spots
 RECENT_CHANGE_DAYS = 21        # don't touch pages changed recently
 REVERT_EXCLUDE_DAYS = 60
-VERIFY_AFTER_DAYS = 28
-WRITES_PER_WEEK = 5
-WRITES_PER_DAY = 1
+VERIFY_AFTER_DAYS = int(os.environ.get("SEO_LOOP_VERIFY_DAYS", "28"))
+WRITES_PER_WEEK = int(os.environ.get("SEO_LOOP_WRITES_PER_WEEK", "5"))
+WRITES_PER_DAY = int(os.environ.get("SEO_LOOP_WRITES_PER_DAY", "1"))
 
 # Verify thresholds — deliberately asymmetric.
 KEEP_CTR_LIFT = 1.10           # normalized CTR ratio to call it a win
