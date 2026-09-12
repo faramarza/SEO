@@ -81,30 +81,30 @@ class MagentoClient:
     def configured(self) -> bool:
         return bool(self.base_url and self.token and _HTTPX)
 
-    @property
-    def store_code(self) -> str:
+    def write_scopes(self):
+        """Candidate scopes for WRITES, in order: explicit env override, then
+        detected store-view codes (so the storefront-visible value changes even
+        when a store-view override masks the global one), then 'all' as the
+        last resort. Reads always use 'all' — it's guaranteed valid and
+        url_key lookups are store-agnostic."""
         if self._store_code:
-            return self._store_code
-        code = "default"
-        if self.configured:
-            try:
-                views = self._req("GET", "/store/storeViews", scope="all") or []
-                active = [v.get("code") for v in views
-                          if v.get("code") and v.get("code") != "admin"
-                          and v.get("is_active", 1)]
-                if "default" in active:
-                    code = "default"
-                elif len(active) == 1:
-                    code = active[0]
-            except MagentoError:
-                pass  # token may be Catalog-only — 'default' is the safe guess
-        self._store_code = code
-        return code
+            return [self._store_code, "all"]
+        codes = []
+        try:
+            views = self._req("GET", "/store/storeViews", scope="all") or []
+            codes = [v.get("code") for v in views
+                     if v.get("code") and v.get("code") != "admin"
+                     and v.get("is_active", 1)]
+            if "default" in codes:  # prefer the conventional default first
+                codes = ["default"] + [c for c in codes if c != "default"]
+        except MagentoError:
+            pass  # token may be Catalog-only — fall through to 'all'
+        return (codes or []) + ["all"]
 
-    def _req(self, method, path, payload=None, scope=None):
+    def _req(self, method, path, payload=None, scope="all"):
         if not self.configured:
             raise MagentoError("Magento not configured (MAGENTO_BASE_URL / MAGENTO_TOKEN)")
-        url = f"{self.base_url}/rest/{scope or self.store_code}/V1{path}"
+        url = f"{self.base_url}/rest/{scope}/V1{path}"
         headers = {"Authorization": f"Bearer {self.token}",
                    "Content-Type": "application/json"}
         try:
@@ -194,7 +194,9 @@ class MagentoClient:
                 n = len((self._req("GET", q) or {}).get("items") or [])
                 parts.append(f"{n} {label}")
             except MagentoError as e:
-                parts.append(f"{label} lookup failed ({str(e)[:60]})")
+                # Keep the tail of the error — that's where the status code and
+                # server message live (the head is just the long request path).
+                parts.append(f"{label} lookup failed (…{str(e)[-160:]})")
         parts.append("— if 0/0, the Magento url_key differs from the URL slug; "
                      "check the entity's Search Engine Optimization section in admin.")
         return " ".join(parts)
@@ -211,6 +213,22 @@ class MagentoClient:
             raise MagentoError("Nothing to write")
         return {root_key: {"custom_attributes": attrs}}
 
+    def _write(self, path, payload):
+        """PUT through the write-scope ladder: a scope whose store code the
+        server rejects ('store is not found' 404) falls through to the next;
+        any other error is real and raised as-is."""
+        last = None
+        for scope in self.write_scopes():
+            try:
+                return self._req("PUT", path, payload, scope=scope)
+            except MagentoError as e:
+                msg = str(e).lower()
+                if "store" in msg and "not found" in msg:
+                    last = e
+                    continue
+                raise
+        raise last or MagentoError("No usable write scope found")
+
     def update_product_meta(self, sku, meta_title=None, meta_description=None):
         payload = self._meta_payload("product", meta_title, meta_description)
         # Magento's product save rejects partial updates without the sku in the
@@ -219,12 +237,12 @@ class MagentoClient:
         _assert_safe_payload(payload, path_sku=sku)
         # url-encode the sku path segment minimally
         safe_sku = sku.replace("/", "%2F").replace(" ", "%20")
-        return self._req("PUT", f"/products/{safe_sku}", payload)
+        return self._write(f"/products/{safe_sku}", payload)
 
     def update_category_meta(self, category_id, meta_title=None, meta_description=None):
         payload = self._meta_payload("category", meta_title, meta_description)
         _assert_safe_payload(payload)
-        return self._req("PUT", f"/categories/{int(category_id)}", payload)
+        return self._write(f"/categories/{int(category_id)}", payload)
 
     def write_meta(self, entity, meta_title=None, meta_description=None):
         """Write to whichever entity resolve_url() returned."""
