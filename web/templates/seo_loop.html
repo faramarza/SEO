@@ -96,6 +96,9 @@ function renderLoop(){
         if(['applied','suspect','kept','neutral'].includes(e.status)){
             btns.push(`<button class="pb-task-btn pb-task-btn-alt" onclick="loopRevert('${e.id}',this)">↩ Revert</button>`);
         }
+        if(e.status==='failed'){
+            btns.push(`<button class="pb-task-btn" onclick="loopRetry('${e.id}',this)">↻ Retry apply</button>`);
+        }
         html += `<tr>
             <td style="white-space:nowrap;"><span style="color:${st.color};font-weight:700;font-size:12px;" title="${escHtml(last?(last.at+': '+(last.detail||'')):'')}">${escHtml(st.label)}</span>
                 ${e.check_at?`<div style="font-size:11px;color:var(--text-muted);">check ${escHtml(e.check_at)}</div>`:''}
@@ -159,6 +162,20 @@ async function loopRevert(id, btn){
         headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
     const d = await res.json();
     loopToast(d.success?'Reverted':(d.error||'Failed'), !d.success);
+    await loadLoop();
+}
+
+async function loopRetry(id, btn){
+    if(!confirm('Retry this experiment? It re-applies the same rewrite (the earlier failure was environmental) with the full render check — up to ~2 minutes.')) return;
+    btn.disabled=true; btn.textContent='Retrying…';
+    const r1 = await fetch('/api/seo-loop/retry',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+    const d1 = await r1.json();
+    if(!d1.success){ loopToast(d1.error||'Retry failed', true); await loadLoop(); return; }
+    const r2 = await fetch('/api/seo-loop/apply',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+    const d2 = await r2.json();
+    loopToast(d2.success?'Applied — live check passed ✓':(d2.error||'Apply failed'), !d2.success);
     await loadLoop();
 }
 

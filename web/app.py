@@ -11047,6 +11047,29 @@ def api_seo_loop_revert():
     return jsonify({"success": True, "experiment": exp})
 
 
+@app.route("/api/seo-loop/retry", methods=["POST"])
+def api_seo_loop_retry():
+    """Return a FAILED experiment to proposed so it can be applied again —
+    for failures that were environmental (scope bug, cache hiccup), not a
+    problem with the rewrite itself. History is kept."""
+    from src.analysis import seo_loop as sl
+    state = sl.load_state()
+    exp = next((e for e in state["experiments"]
+                if e["id"] == (request.json or {}).get("id")), None)
+    if not exp:
+        return jsonify({"error": "Experiment not found."}), 404
+    if exp.get("status") != "failed":
+        return jsonify({"error": f"Only failed experiments can be retried "
+                                 f"(this one is {exp.get('status')})."}), 400
+    exp["status"] = "proposed"
+    exp["applied_at"] = None
+    exp["check_at"] = None
+    exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                            "verdict": "retry", "detail": "Retry requested from dashboard."})
+    sl.save_state(state)
+    return jsonify({"success": True})
+
+
 @app.route("/api/seo-loop/dismiss", methods=["POST"])
 def api_seo_loop_dismiss():
     from src.analysis import seo_loop as sl
