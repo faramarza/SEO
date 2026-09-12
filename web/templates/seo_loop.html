@@ -98,7 +98,6 @@ function renderLoop(){
         }
         if(e.status==='failed'){
             btns.push(`<button class="pb-task-btn" onclick="loopRetry('${e.id}',this)">↻ Retry apply</button>`);
-            btns.push(`<button class="pb-task-btn pb-task-btn-alt" onclick="loopDismiss('${e.id}',this)">Dismiss</button>`);
         }
         html += `<tr>
             <td style="white-space:nowrap;"><span style="color:${st.color};font-weight:700;font-size:12px;" title="${escHtml(last?(last.at+': '+(last.detail||'')):'')}">${escHtml(st.label)}</span>
