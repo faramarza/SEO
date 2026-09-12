@@ -86,11 +86,14 @@ def test_selection_filters():
          "position": 4.0, "actual_ctr": 0.5,
          "asset_type": "blog"},                                  # not writable
     ]
-    picked = sl.select_candidates(
+    picked, funnel = sl.select_candidates(
         rows, [], state,
         revenue_by_url={"http://x/money.html": 120.0},
         dup_losers={"http://x/dupe.html"})
     assert [c["url"] for c in picked] == ["http://x/good.html"], picked
+    # The funnel accounts for every rejection.
+    assert funnel["eligible"] == 1 and funnel["selected"] == 1
+    assert sum(funnel["rejections"].values()) == len(rows) - 1, funnel
 
 
 def test_selection_skips_open_and_reverted():
@@ -102,7 +105,7 @@ def test_selection_skips_open_and_reverted():
     rows = [_ctr_row("http://x/open.html", impr=900, pos=4.0),
             _ctr_row("http://x/reverted.html", impr=900, pos=4.0),
             _ctr_row("http://x/fresh.html", impr=400, pos=6.0)]
-    picked = sl.select_candidates(rows, [], state)
+    picked, _f = sl.select_candidates(rows, [], state)
     assert [c["url"] for c in picked] == ["http://x/fresh.html"]
 
 
@@ -111,7 +114,7 @@ def test_failed_experiments_are_retryable():
         {"url": "http://x/failed.html", "status": "failed",
          "created_at": datetime.now().isoformat()},
     ]}
-    picked = sl.select_candidates(
+    picked, _f = sl.select_candidates(
         [_ctr_row("http://x/failed.html", impr=500, pos=5.0)], [], state)
     assert [c["url"] for c in picked] == ["http://x/failed.html"]
 
@@ -124,7 +127,7 @@ def test_drift_arm():
             "trend": "down", "position_delta": -1.5,   # below DRIFT_POSITIONS
             "asset_type": "category",
             "position_prev28": 8.0, "position_now28": 9.5}]
-    picked = sl.select_candidates([], win, {"experiments": []})
+    picked, _f = sl.select_candidates([], win, {"experiments": []})
     assert [c["url"] for c in picked] == ["http://x/slide.html"]
     assert picked[0]["arm"] == "drift"
 
@@ -132,7 +135,7 @@ def test_drift_arm():
 def test_selection_respects_limit():
     rows = [_ctr_row(f"http://x/p{i}.html", impr=300 + i, pos=5.0)
             for i in range(10)]
-    picked = sl.select_candidates(rows, [], {"experiments": []}, limit=5)
+    picked, _f = sl.select_candidates(rows, [], {"experiments": []}, limit=5)
     assert len(picked) == 5
     # ranked by impressions × gap — highest impressions first here
     assert picked[0]["url"] == "http://x/p9.html"

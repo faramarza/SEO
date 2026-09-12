@@ -33,6 +33,7 @@
         <button class="pb-task-btn" onclick="loopPropose(this)">🔍 Propose now</button>
     </div>
     <div id="loop-notes" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+    <div id="loop-funnel" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
 </div>
 
 <div id="loop-body"><p class="pb-loading">Loading…</p></div>
@@ -71,7 +72,22 @@ async function loadLoop(){
     document.getElementById('loop-magento').innerHTML = LOOP.magento_configured
         ? '<span style="color:var(--accent-green);">Magento: connected ✓</span>'
         : '<span style="color:#dc2626;">Magento: NOT configured — set MAGENTO_BASE_URL + MAGENTO_TOKEN in .env</span>';
+    renderFunnel(LOOP.last_funnel);
     renderLoop();
+}
+
+function renderFunnel(f){
+    const el = document.getElementById('loop-funnel');
+    if(!f){ el.innerHTML=''; return; }
+    const rej = Object.entries(f.rejections||{}).map(([k,n])=>`${n}× ${k}`).join(' · ');
+    el.innerHTML = `<strong>Selection funnel</strong> (last propose, ${escHtml((f.at||'').replace('T',' '))}):
+        ${(f.pages_total||0).toLocaleString()} pages
+        → ${f.pages_min_impr||0} with ≥200 impressions
+        → ${f.pages_min_impr_writable||0} of those are writable products/categories
+        → ${f.ctr_rows_in||0} CTR-leak + ${f.drift_rows_in||0} drifting candidates
+        → <strong>${f.eligible||0} eligible</strong>
+        → ${f.selected||0} proposed (budget ${f.budget||0}).
+        ${rej?`<br>Rejected on the way: ${escHtml(rej)}.`:''}`;
 }
 
 let LOOP_SHOW_HISTORY = false;
@@ -86,7 +102,8 @@ function renderLoop(){
     }
     let html = `<table class="pb-table"><thead><tr>
         <th>Status</th><th>Page / query</th><th>Title: before → after</th>
-        <th>Hypothesis / latest verdict</th><th>Baseline</th><th></th></tr></thead><tbody>`;
+        <th>Hypothesis / latest verdict</th>
+        <th title="Whole-page metrics across ALL of its queries — what the 28-day verdict compares against. The numbers on the left are the single TARGET query only, so they legitimately differ.">Page baseline ⓘ</th><th></th></tr></thead><tbody>`;
     exps.forEach((e, i) => {
         const st = LOOP_STATUS[e.status] || {label:e.status, color:'#64748b'};
         const last = (e.verdicts||[]).slice(-1)[0];
@@ -108,7 +125,7 @@ function renderLoop(){
                 ${['failed','reverted'].includes(e.status)&&last?`<div style="font-size:11px;color:#dc2626;max-width:150px;white-space:normal;">${escHtml((last.detail||'').slice(0,160))}</div>`:''}</td>
             <td><a href="${escHtml(e.url)}" target="_blank" title="${escHtml(e.url)}">${escHtml((e.url||'').replace(/^https?:\/\/[^/]+/,''))}</a>
                 <div style="font-size:12px;">“${escHtml(e.query)}”</div>
-                <div style="font-size:11px;color:var(--text-muted);">${escHtml(e.selection_reason||'')}</div></td>
+                <div style="font-size:11px;color:var(--text-muted);" title="These numbers are the TARGET QUERY only; the Page baseline column is the whole page across all queries.">🎯 ${escHtml(e.selection_reason||'')}</div></td>
             <td style="max-width:280px;font-size:12px;">
                 <div style="color:var(--text-muted);text-decoration:line-through;">${escHtml((e.before||{}).meta_title||'(empty)')}</div>
                 <div style="font-weight:600;">${escHtml((e.after||{}).meta_title||'')}</div>

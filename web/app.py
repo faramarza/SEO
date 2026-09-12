@@ -10795,11 +10795,21 @@ def _loop_propose(config, limit=None):
     if budget <= 0:
         return [], ["Weekly budget already covered by open/applied experiments."]
 
-    cands = sl.select_candidates(ctr_rows, winnable, state,
-                                 revenue_by_url=revenue,
-                                 dup_losers=_loop_dup_losers(),
-                                 extra_excluded=_loop_recent_board_changes(),
-                                 limit=budget)
+    cands, funnel = sl.select_candidates(ctr_rows, winnable, state,
+                                         revenue_by_url=revenue,
+                                         dup_losers=_loop_dup_losers(),
+                                         extra_excluded=_loop_recent_board_changes(),
+                                         limit=budget)
+    # Site-level context so "why only N out of 1,300 pages" answers itself:
+    # most of the site simply has no search demand to experiment on.
+    funnel["pages_total"] = len(results)
+    funnel["pages_min_impr"] = sum(
+        1 for r in results if (r.get("gsc_impressions", 0) or 0) >= sl.MIN_IMPRESSIONS)
+    funnel["pages_min_impr_writable"] = sum(
+        1 for r in results if (r.get("gsc_impressions", 0) or 0) >= sl.MIN_IMPRESSIONS
+        and (r.get("asset_type") or "") in ("product", "category"))
+    funnel["at"] = datetime.now().isoformat(timespec="seconds")
+    state["last_funnel"] = funnel
     mc = MagentoClient()
     made, notes = [], []
     for c in cands:
@@ -10854,8 +10864,7 @@ def _loop_propose(config, limit=None):
                                 rewrite.get("hypothesis", ""), baseline)
         state["experiments"].append(exp)
         made.append(exp)
-    if made or notes:
-        sl.save_state(state)
+    sl.save_state(state)  # always — the funnel snapshot updates every run
     return made, notes
 
 
@@ -11038,6 +11047,7 @@ def api_seo_loop():
                  "used_today": sl.writes_today(state)},
         "magento_configured": MagentoClient().configured,
         "verify_after_days": sl.VERIFY_AFTER_DAYS,
+        "last_funnel": state.get("last_funnel"),
     })
 
 

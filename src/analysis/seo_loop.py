@@ -128,8 +128,10 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
     ctr_rows: find_ctr_recovery rows (already page-1-only, impressions-floored
     upstream — re-checked here). winnable_rows: click-yield winnable pages with
     trend/position_delta for the drift arm. revenue_by_url: url -> 28d revenue
-    (pages with any revenue are untouchable). Returns candidate dicts, best
-    first, each with a selection reason — never more than `limit`.
+    (pages with any revenue are untouchable). Returns (candidates, funnel):
+    candidate dicts best-first (never more than `limit`), plus a stage-by-stage
+    account of what was rejected and why — so "why only N?" is answerable from
+    the dashboard instead of the source code.
     """
     revenue_by_url = revenue_by_url or {}
     dup_losers = dup_losers or set()
@@ -137,6 +139,16 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
     excluded.update(_excluded_urls(state))
 
     cands = {}
+    rejections = {}
+
+    def _count(reason):
+        # Collapse per-URL exclusion details into stable buckets for the funnel.
+        for bucket in ("open experiment", "reverted", "changed recently",
+                       "dismissed recently", "board task"):
+            if bucket in reason:
+                reason = bucket
+                break
+        rejections[reason] = rejections.get(reason, 0) + 1
 
     def blocked(url, query="", asset_type=""):
         if not url or url in cands:
@@ -163,8 +175,12 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
         impr = r.get("impressions", 0) or 0
         pos = r.get("position", 99) or 99
         if impr < MIN_IMPRESSIONS or pos > 10:
+            _count(f"below {MIN_IMPRESSIONS} impressions or off page 1")
             continue
-        if blocked(url, q, r.get("asset_type", "")):
+        b = blocked(url, q, r.get("asset_type", ""))
+        if b:
+            if b != "dup":
+                _count(b)
             continue
         expected = achievable_ctr(pos)
         actual = (r.get("actual_ctr", 0) or 0) / 100.0
@@ -187,10 +203,14 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
         impr = r.get("impressions", 0) or 0
         delta = r.get("position_delta")
         if r.get("trend") != "down" or delta is None or abs(delta) < DRIFT_POSITIONS:
-            continue
+            continue  # not drifting — not this arm's business, don't count
         if impr < MIN_IMPRESSIONS:
+            _count(f"below {MIN_IMPRESSIONS} impressions or off page 1")
             continue
-        if blocked(url, q, r.get("asset_type", "")):
+        b = blocked(url, q, r.get("asset_type", ""))
+        if b:
+            if b != "dup":
+                _count(b)
             continue
         cands[url] = {
             "url": url, "query": q, "arm": "drift",
@@ -204,7 +224,17 @@ def select_candidates(ctr_rows, winnable_rows, state, revenue_by_url=None,
         }
 
     ranked = sorted(cands.values(), key=lambda c: -c["score"])
-    return ranked[:limit]
+    funnel = {
+        "ctr_rows_in": len(ctr_rows or []),
+        "drift_rows_in": sum(1 for r in (winnable_rows or [])
+                             if r.get("trend") == "down"
+                             and abs(r.get("position_delta") or 0) >= DRIFT_POSITIONS),
+        "eligible": len(ranked),
+        "selected": len(ranked[:max(limit, 0)]),
+        "budget": max(limit, 0),
+        "rejections": dict(sorted(rejections.items(), key=lambda kv: -kv[1])),
+    }
+    return ranked[:max(limit, 0)], funnel
 
 
 # --------------------------------------------------------------- experiments
