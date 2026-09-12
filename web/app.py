@@ -10699,33 +10699,43 @@ def _loop_generate_rewrite(candidate, entity, config):
 def _loop_postwrite_check(url, meta_title):
     """Fetch the LIVE page: it must render 200 and carry the new title.
 
-    Magento's full-page cache serves the OLD HTML until the page's cache tag
-    is flushed, so a plain fetch can read stale content right after a
-    successful write. If the plain fetch misses the title, probe again with a
-    cache-busting query param (an FPC/Varnish MISS renders fresh): title
-    present there = the write took, cache just lags; absent in both = the
-    theme genuinely doesn't render meta_title → real failure. Returns
+    Two Magento behaviors make an instant check lie: full-page cache serves
+    the OLD HTML until the tag flushes (defeated with a cache-busting query
+    param → FPC/Varnish MISS renders fresh), and flat-catalog indexing makes
+    even a FRESH render read stale values until the cron reindex runs
+    (defeated by waiting). So: probe at 0s, ~45s, and ~120s, cache-busted,
+    and only fail after the last attempt — reporting the title the page IS
+    serving, so scope masking vs error pages are distinguishable. Returns
     (ok, detail)."""
     from src.metrics.click_yield import _fetch
-    try:
-        html = _fetch(url)
-    except Exception as e:
-        return False, f"Live fetch failed: {e}"
-    if not html or len(html) < 200:
-        return False, "Live page returned empty/short content."
-    if not meta_title or meta_title.lower() in html.lower():
-        return True, "Live page renders with the new title."
-    buster = f"{url}{'&' if '?' in url else '?'}loopcheck={int(time.time())}"
-    try:
-        fresh = _fetch(buster)
-    except Exception as e:
-        return False, f"Cache-bust fetch failed: {e}"
-    if fresh and meta_title.lower() in fresh.lower():
-        return True, ("Write verified on a fresh render — the page cache is "
-                      "still serving the old HTML and will refresh on its "
-                      "normal flush/TTL.")
-    return False, ("New meta_title missing from BOTH the cached and a "
-                   "freshly-rendered page — the theme likely doesn't emit "
+    if not meta_title:
+        return True, "No title to verify."
+    seen_title = ""
+    for i, delay in enumerate((0, 45, 75)):
+        if delay:
+            time.sleep(delay)
+        buster = f"{url}{'&' if '?' in url else '?'}loopcheck={int(time.time())}"
+        try:
+            html = _fetch(buster)
+        except Exception as e:
+            if i == 2:
+                return False, f"Live fetch failed on final attempt: {e}"
+            continue
+        if not html or len(html) < 200:
+            if i == 2:
+                return False, "Live page returned empty/short content."
+            continue
+        if meta_title.lower() in html.lower():
+            note = (" (took ~%ds — flat-catalog reindex lag; the public cache "
+                    "refreshes on its own flush/TTL)" % (45 + 75 if i == 2 else 45)
+                    if i else "")
+            return True, "Write verified on a fresh render." + note
+        m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
+        seen_title = (m.group(1).strip()[:120] if m else "(no <title> found)")
+    return False, ("New meta_title missing from fresh renders over ~2 minutes — "
+                   f"the page is serving <title>{seen_title}</title>. If that's "
+                   "the OLD meta, a store-view override or indexer is masking "
+                   "the write; if it's the product name, the theme ignores "
                    "meta_title. Reverting.")
 
 
@@ -10798,7 +10808,11 @@ def _loop_propose(config, limit=None):
             break
         entity = mc.resolve_url(c["url"], asset_type=c.get("asset_type", ""))
         if not entity:
-            notes.append(f"{c['url']}: no unique product/category match — skipped.")
+            try:
+                diag = mc.resolve_diag(c["url"])
+            except Exception:
+                diag = "no unique product/category match"
+            notes.append(f"{c['url']}: skipped — {diag}")
             continue
         rewrite, err = _loop_generate_rewrite(c, entity, config)
         if err or not rewrite or not rewrite.get("meta_title"):

@@ -67,20 +67,44 @@ def _slug_of(url: str) -> str:
 
 
 class MagentoClient:
-    def __init__(self, base_url=None, token=None):
+    """Reads and writes run at STORE-VIEW scope (env MAGENTO_STORE_CODE,
+    auto-detected otherwise, falling back to 'default'): writing the global
+    ('all') scope is invisible on the storefront whenever a product carries a
+    store-view-level override for the same attribute — and metas usually do."""
+
+    def __init__(self, base_url=None, token=None, store_code=None):
         self.base_url = (base_url or os.environ.get("MAGENTO_BASE_URL", "")).rstrip("/")
         self.token = token or os.environ.get("MAGENTO_TOKEN", "")
+        self._store_code = store_code or os.environ.get("MAGENTO_STORE_CODE") or None
 
     @property
     def configured(self) -> bool:
         return bool(self.base_url and self.token and _HTTPX)
 
-    def _req(self, method, path, payload=None):
+    @property
+    def store_code(self) -> str:
+        if self._store_code:
+            return self._store_code
+        code = "default"
+        if self.configured:
+            try:
+                views = self._req("GET", "/store/storeViews", scope="all") or []
+                active = [v.get("code") for v in views
+                          if v.get("code") and v.get("code") != "admin"
+                          and v.get("is_active", 1)]
+                if "default" in active:
+                    code = "default"
+                elif len(active) == 1:
+                    code = active[0]
+            except MagentoError:
+                pass  # token may be Catalog-only — 'default' is the safe guess
+        self._store_code = code
+        return code
+
+    def _req(self, method, path, payload=None, scope=None):
         if not self.configured:
             raise MagentoError("Magento not configured (MAGENTO_BASE_URL / MAGENTO_TOKEN)")
-        # /rest/all/V1 = global scope: reads see default values, writes update
-        # the default (all-store-views) value instead of a single store view.
-        url = f"{self.base_url}/rest/all/V1{path}"
+        url = f"{self.base_url}/rest/{scope or self.store_code}/V1{path}"
         headers = {"Authorization": f"Bearer {self.token}",
                    "Content-Type": "application/json"}
         try:
@@ -155,6 +179,25 @@ class MagentoClient:
             if found:
                 return found
         return None
+
+    def resolve_diag(self, url: str) -> str:
+        """Human-readable reason a URL couldn't be resolved — counts matches
+        per entity type so 'wrong url_key' and 'ambiguous' are distinguishable."""
+        slug = _slug_of(url)
+        parts = [f"url_key '{slug}':"]
+        for label, path in (("products", "/products"), ("categories", "/categories/list")):
+            q = (f"{path}?searchCriteria[filterGroups][0][filters][0][field]=url_key"
+                 f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
+                 f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
+                 f"&searchCriteria[pageSize]=3")
+            try:
+                n = len((self._req("GET", q) or {}).get("items") or [])
+                parts.append(f"{n} {label}")
+            except MagentoError as e:
+                parts.append(f"{label} lookup failed ({str(e)[:60]})")
+        parts.append("— if 0/0, the Magento url_key differs from the URL slug; "
+                     "check the entity's Search Engine Optimization section in admin.")
+        return " ".join(parts)
 
     # ------------------------------------------------------------ writes
     @staticmethod

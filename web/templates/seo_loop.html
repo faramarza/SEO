@@ -142,8 +142,8 @@ async function loopPropose(btn){
 }
 
 async function loopApply(id, btn){
-    if(!confirm('Write this meta title/description to the LIVE store? A render check runs immediately after, and a failed check auto-reverts.')) return;
-    btn.disabled=true; btn.textContent='Writing…';
+    if(!confirm('Write this meta title/description to the LIVE store? A render check runs right after (it may retry for up to ~2 minutes while Magento reindexes), and a failed check auto-reverts.')) return;
+    btn.disabled=true; btn.textContent='Writing + verifying (≤2 min)…';
     const res = await fetch('/api/seo-loop/apply',{method:'POST',
         headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
     const d = await res.json();
