@@ -214,20 +214,27 @@ class MagentoClient:
         return {root_key: {"custom_attributes": attrs}}
 
     def _write(self, path, payload):
-        """PUT through the write-scope ladder: a scope whose store code the
-        server rejects ('store is not found' 404) falls through to the next;
-        any other error is real and raised as-is."""
+        """PUT through the write-scope ladder. Falls through to the next scope
+        on 'store is not found' (bad store code) AND on Magento's generic
+        'unable to be saved' (store-scope product saves hit known core bugs —
+        notably on products with customizable options — that the global scope
+        sometimes doesn't). Any other error is real and raised as-is. The
+        final error names every scope tried."""
+        tried = []
         last = None
         for scope in self.write_scopes():
             try:
                 return self._req("PUT", path, payload, scope=scope)
             except MagentoError as e:
                 msg = str(e).lower()
-                if "store" in msg and "not found" in msg:
+                retryable = ("store" in msg and "not found" in msg) \
+                    or "unable to be saved" in msg
+                if retryable:
+                    tried.append(scope)
                     last = e
                     continue
                 raise
-        raise last or MagentoError("No usable write scope found")
+        raise MagentoError(f"{last} (scopes tried: {', '.join(tried) or 'none'})")
 
     def update_product_meta(self, sku, meta_title=None, meta_description=None):
         payload = self._meta_payload("product", meta_title, meta_description)
