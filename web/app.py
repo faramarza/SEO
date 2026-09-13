@@ -10900,6 +10900,29 @@ def _loop_apply(exp_id):
                           "attribute_set_id", "type_id") if k in fresh}
         mc.write_meta(fresh, exp["after"]["meta_title"],
                       exp["after"]["meta_description"])
+        # CRITICAL guardrail: some Magento builds drop customizable options on
+        # product saves. If the option count shrank, alarm — this is data loss
+        # on a personalized-products store, worth more than any meta rewrite.
+        if fresh.get("entity_type") == "product" and fresh.get("options_count"):
+            after = mc.resolve_url(exp["url"], asset_type="")
+            if after and (after.get("options_count") or 0) < fresh["options_count"]:
+                _save_notification({
+                    "type": "seo_loop", "severity": "critical", "url": exp["url"],
+                    "message": (f"URGENT: product options dropped from "
+                                f"{fresh['options_count']} to {after.get('options_count')} "
+                                f"after the meta save on {exp['url']} — restore the "
+                                "product's customizable options in admin NOW "
+                                "(or from backup).")})
+                exp["status"] = "failed"
+                exp["verdicts"].append({
+                    "at": datetime.now().isoformat(timespec="seconds"),
+                    "verdict": "failed",
+                    "detail": "Save succeeded but the product LOST customizable "
+                              "options — restore them in admin immediately. "
+                              "Meta values were still written."})
+                sl.save_state(state)
+                return {"error": "Product options were lost during save — restore "
+                                 "them in admin NOW. See notifications."}
     except MagentoError as e:
         exp["status"] = "failed"
         exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),

@@ -158,6 +158,10 @@ class MagentoClient:
                 # without them in the body.
                 "attribute_set_id": p.get("attribute_set_id"),
                 "type_id": p.get("type_id"),
+                # Guardrail datum: buggy Magento builds can DROP customizable
+                # options on payloads that omit them — the write path compares
+                # this count after every successful save.
+                "options_count": len(p.get("options") or []),
                 "meta_title": self._attr(p, "meta_title"),
                 "meta_description": self._attr(p, "meta_description")}
 
