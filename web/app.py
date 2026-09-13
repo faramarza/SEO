@@ -10846,7 +10846,7 @@ def _loop_propose(config, limit=None):
                 "selection_reason": c.get("reason", ""),
                 "entity": {k: entity[k] for k in
                            ("entity_type", "sku", "category_id", "name",
-                            "attribute_set_id", "type_id") if k in entity},
+                            "attribute_set_id", "type_id", "options_count") if k in entity},
                 "before": {"meta_title": entity.get("meta_title", ""),
                            "meta_description": entity.get("meta_description", "")},
                 "after": {"meta_title": rewrite.get("meta_title", ""),
@@ -10891,13 +10891,22 @@ def _loop_apply(exp_id):
         fresh = mc.resolve_url(exp["url"], asset_type="")
         if not fresh:
             return {"error": "Page no longer resolves to a unique product/category."}
+        # Established empirically (Sep 2026): this store's Magento build cannot
+        # REST-save any product carrying customizable options — with or without
+        # the options echoed — while admin saves work. Route those to the
+        # hand-apply flow instead of failing a fourth time.
+        if fresh.get("entity_type") == "product" and (fresh.get("options_count") or 0) > 0:
+            return {"error": "This product has customizable options, and this "
+                             "store's Magento build can't REST-save option-bearing "
+                             "products (admin saves work). Paste the rewrite in "
+                             "admin and use “✋ I applied it by hand”."}
         # Refresh the stored before-values at the moment of the write, so a
         # revert restores what was ACTUALLY live, not what we saw at proposal.
         exp["before"] = {"meta_title": fresh.get("meta_title", ""),
                          "meta_description": fresh.get("meta_description", "")}
         exp["entity"] = {k: fresh[k] for k in
                          ("entity_type", "sku", "category_id", "name",
-                          "attribute_set_id", "type_id") if k in fresh}
+                          "attribute_set_id", "type_id", "options_count") if k in fresh}
         mc.write_meta(fresh, exp["after"]["meta_title"],
                       exp["after"]["meta_description"])
         # CRITICAL guardrail: some Magento builds drop customizable options on
@@ -11054,7 +11063,10 @@ def _process_seo_loop():
     state = sl.load_state()
     if sl.writes_today(state) < sl.WRITES_PER_DAY \
             and sl.open_writes_this_week(state) < sl.WRITES_PER_WEEK:
-        nxt = next((e for e in state["experiments"] if e.get("status") == "proposed"), None)
+        # Auto mode can only apply what the API can write — option-bearing
+        # products need the human hand-apply flow.
+        nxt = next((e for e in state["experiments"] if e.get("status") == "proposed"
+                    and not ((e.get("entity") or {}).get("options_count") or 0)), None)
         if nxt:
             res = _loop_apply(nxt["id"])
             print(f"[SEOLoop] auto-apply {nxt['url']}: "

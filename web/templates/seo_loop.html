@@ -110,8 +110,13 @@ function renderLoop(){
         const base = (e.baseline||{}).page || {};
         const btns = [];
         if(e.status==='proposed'){
-            btns.push(`<button class="pb-task-btn" onclick="loopApply('${e.id}',this)">Apply →</button>`);
-            btns.push(`<button class="pb-task-btn pb-task-btn-alt" title="For pages the API can't write (e.g. a product whose REST save is broken): paste the rewrite into Magento admin yourself, then click this — the loop verifies the live page, records the baseline, and measures the 28-day verdict as usual." onclick="loopMarkApplied('${e.id}',this)">✋ I applied it by hand</button>`);
+            const optProduct = ((e.entity||{}).options_count||0) > 0;
+            if(optProduct){
+                btns.push(`<span style="font-size:11px;color:#b45309;display:block;margin-bottom:4px;" title="This store's Magento build can't REST-save products with customizable options (admin saves work) — paste the rewrite in admin, then confirm here.">✋ hand-apply only — personalized product</span>`);
+            } else {
+                btns.push(`<button class="pb-task-btn" onclick="loopApply('${e.id}',this)">Apply →</button>`);
+            }
+            btns.push(`<button class="pb-task-btn ${optProduct?'':'pb-task-btn-alt'}" title="Paste the rewrite into Magento admin yourself, then click this — the loop verifies the live page, records the baseline, and measures the 28-day verdict as usual." onclick="loopMarkApplied('${e.id}',this)">✋ I applied it by hand</button>`);
             btns.push(`<button class="pb-task-btn pb-task-btn-alt" onclick="loopDismiss('${e.id}',this)">Dismiss</button>`);
         }
         if(['applied','suspect','kept','neutral'].includes(e.status)){
