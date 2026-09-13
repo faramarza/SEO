@@ -36,21 +36,29 @@ class MagentoError(Exception):
     pass
 
 
-def _assert_safe_payload(payload: dict, path_sku: str = None):
+def _assert_safe_payload(payload: dict, path_sku: str = None, echoes: dict = None):
     """Refuse any payload that touches a field outside the allowlist.
     Raises instead of filtering: a denylist violation is a bug, not an input.
-    'sku' is permitted ONLY as an identifier echoing the URL path (Magento's
-    product save rejects partial updates without it) — a sku that differs
-    from the path is a rename attempt and is refused."""
+
+    Identifier fields are permitted ONLY as echoes of values we just read:
+    'sku' must equal the URL path sku (else it's a rename attempt), and
+    'attribute_set_id'/'type_id' must equal the value in `echoes` (read from
+    the product GET — Magento's REST save needs the product's identity in the
+    body, notably for option-bearing products, but a changed value would be a
+    re-typing and is refused)."""
+    echoes = echoes or {}
     ent = payload.get("product") or payload.get("category") or {}
     for key in ent:
         if key == "custom_attributes":
             continue
         if key == "sku" and "product" in payload:
-            # Only valid as an identifier echoing the URL path — callers must
-            # pass path_sku; a missing or different value is a rename attempt.
             if path_sku is None or ent["sku"] != path_sku:
                 raise MagentoError("Payload sku must echo the path sku — refused.")
+            continue
+        if key in ("attribute_set_id", "type_id") and "product" in payload:
+            if key not in echoes or ent[key] != echoes[key]:
+                raise MagentoError(f"Payload {key} must echo the value read "
+                                   "from the product — refused.")
             continue
         raise MagentoError(f"Denylisted top-level field in write payload: {key}")
     for attr in ent.get("custom_attributes", []):
@@ -145,6 +153,11 @@ class MagentoClient:
         p = items[0]
         return {"entity_type": "product", "sku": p.get("sku", ""),
                 "name": p.get("name", ""),
+                # Identity fields echoed back on writes — REST product saves
+                # (especially with customizable options) fail generically
+                # without them in the body.
+                "attribute_set_id": p.get("attribute_set_id"),
+                "type_id": p.get("type_id"),
                 "meta_title": self._attr(p, "meta_title"),
                 "meta_description": self._attr(p, "meta_description")}
 
@@ -236,12 +249,21 @@ class MagentoClient:
                 raise
         raise MagentoError(f"{last} (scopes tried: {', '.join(tried) or 'none'})")
 
-    def update_product_meta(self, sku, meta_title=None, meta_description=None):
+    def update_product_meta(self, sku, meta_title=None, meta_description=None,
+                            attribute_set_id=None, type_id=None):
         payload = self._meta_payload("product", meta_title, meta_description)
-        # Magento's product save rejects partial updates without the sku in the
-        # body ("The product was unable to be saved") — echo the path sku.
+        # Magento's product save rejects partial updates without the product's
+        # identity in the body ("The product was unable to be saved") — echo
+        # the path sku plus attribute_set_id/type_id exactly as read.
         payload["product"]["sku"] = sku
-        _assert_safe_payload(payload, path_sku=sku)
+        echoes = {}
+        if attribute_set_id is not None:
+            payload["product"]["attribute_set_id"] = attribute_set_id
+            echoes["attribute_set_id"] = attribute_set_id
+        if type_id:
+            payload["product"]["type_id"] = type_id
+            echoes["type_id"] = type_id
+        _assert_safe_payload(payload, path_sku=sku, echoes=echoes)
         # url-encode the sku path segment minimally
         safe_sku = sku.replace("/", "%2F").replace(" ", "%20")
         return self._write(f"/products/{safe_sku}", payload)
@@ -254,7 +276,10 @@ class MagentoClient:
     def write_meta(self, entity, meta_title=None, meta_description=None):
         """Write to whichever entity resolve_url() returned."""
         if entity.get("entity_type") == "product":
-            return self.update_product_meta(entity["sku"], meta_title, meta_description)
+            return self.update_product_meta(
+                entity["sku"], meta_title, meta_description,
+                attribute_set_id=entity.get("attribute_set_id"),
+                type_id=entity.get("type_id"))
         if entity.get("entity_type") == "category":
             return self.update_category_meta(entity["category_id"],
                                              meta_title, meta_description)

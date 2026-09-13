@@ -51,6 +51,23 @@ def test_sku_echo_allowed_but_rename_refused():
         pass
 
 
+def test_identity_echoes_enforced():
+    p = MagentoClient._meta_payload("product", "T", "D")
+    p["product"]["sku"] = "ABC-1"
+    p["product"]["attribute_set_id"] = 4
+    p["product"]["type_id"] = "simple"
+    ok = {"attribute_set_id": 4, "type_id": "simple"}
+    _assert_safe_payload(p, path_sku="ABC-1", echoes=ok)  # exact echoes — fine
+    for bad in ({"attribute_set_id": 9, "type_id": "simple"},   # changed value
+                {"type_id": "simple"},                          # missing reference
+                {}):                                            # no references
+        try:
+            _assert_safe_payload(p, path_sku="ABC-1", echoes=bad)
+            assert False, f"echo mismatch must be refused: {bad}"
+        except MagentoError:
+            pass
+
+
 def test_empty_write_rejected():
     try:
         MagentoClient._meta_payload("product")

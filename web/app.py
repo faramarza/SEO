@@ -10845,7 +10845,8 @@ def _loop_propose(config, limit=None):
                 "query": c.get("query", ""), "arm": c.get("arm", ""),
                 "selection_reason": c.get("reason", ""),
                 "entity": {k: entity[k] for k in
-                           ("entity_type", "sku", "category_id", "name") if k in entity},
+                           ("entity_type", "sku", "category_id", "name",
+                            "attribute_set_id", "type_id") if k in entity},
                 "before": {"meta_title": entity.get("meta_title", ""),
                            "meta_description": entity.get("meta_description", "")},
                 "after": {"meta_title": rewrite.get("meta_title", ""),
@@ -10895,7 +10896,8 @@ def _loop_apply(exp_id):
         exp["before"] = {"meta_title": fresh.get("meta_title", ""),
                          "meta_description": fresh.get("meta_description", "")}
         exp["entity"] = {k: fresh[k] for k in
-                         ("entity_type", "sku", "category_id", "name") if k in fresh}
+                         ("entity_type", "sku", "category_id", "name",
+                          "attribute_set_id", "type_id") if k in fresh}
         mc.write_meta(fresh, exp["after"]["meta_title"],
                       exp["after"]["meta_description"])
     except MagentoError as e:
@@ -10931,6 +10933,25 @@ def _loop_apply(exp_id):
 def _loop_revert(exp, state, reason):
     from src.analysis import seo_loop as sl
     from src.data_sources.magento_client import MagentoClient, MagentoError
+    if exp.get("manual"):
+        # Applied by hand → reverted by hand. Record the verdict and hand the
+        # operator the exact values to restore.
+        exp["status"] = "reverted"
+        exp["reverted_at"] = datetime.now().isoformat(timespec="seconds")
+        exp["verdicts"].append({
+            "at": datetime.now().isoformat(timespec="seconds"),
+            "verdict": "reverted",
+            "detail": (f"Revert BY HAND in admin (this row was hand-applied): "
+                       f"meta_title → \"{exp['before'].get('meta_title', '')}\"; "
+                       f"meta_description → \"{exp['before'].get('meta_description', '')}\". "
+                       + reason)})
+        _save_notification({"type": "seo_loop", "severity": "warning",
+                            "url": exp["url"],
+                            "message": f"SEO loop: revert {exp['url']} BY HAND in admin "
+                                       "— it was hand-applied; the old values are on "
+                                       "the Loop page."})
+        sl.save_state(state)
+        return
     mc = MagentoClient()
     try:
         mc.write_meta(exp["entity"], exp["before"]["meta_title"],
@@ -11089,6 +11110,45 @@ def api_seo_loop_revert():
     if exp.get("status") not in ("applied", "suspect", "kept", "neutral"):
         return jsonify({"error": f"Nothing live to revert (status {exp.get('status')})."}), 400
     _loop_revert(exp, state, "manual revert from dashboard")
+    return jsonify({"success": True, "experiment": exp})
+
+
+@app.route("/api/seo-loop/mark-applied", methods=["POST"])
+def api_seo_loop_mark_applied():
+    """The operator pasted the rewrite into Magento admin BY HAND (e.g. a
+    product whose REST save is broken) — record it as applied so the baseline,
+    28-day verdict, and learning still happen. Verified against the live page
+    like any other apply; counts against the write caps (it IS a live change).
+    A later revert becomes an instruction, not an API call."""
+    from src.analysis import seo_loop as sl
+    state = sl.load_state()
+    exp = next((e for e in state["experiments"]
+                if e["id"] == (request.json or {}).get("id")), None)
+    if not exp:
+        return jsonify({"error": "Experiment not found."}), 404
+    if exp.get("status") != "proposed":
+        return jsonify({"error": f"Experiment is {exp.get('status')}, not proposed."}), 400
+    if sl.writes_today(state) >= sl.WRITES_PER_DAY:
+        return jsonify({"error": f"Daily write cap ({sl.WRITES_PER_DAY}) reached."}), 400
+    if sl.open_writes_this_week(state) >= sl.WRITES_PER_WEEK:
+        return jsonify({"error": f"Weekly write cap ({sl.WRITES_PER_WEEK}) reached."}), 400
+    ok, detail = _loop_postwrite_check(exp["url"], exp["after"]["meta_title"])
+    if not ok:
+        return jsonify({"error": "Can't confirm the new title on the live page — "
+                                 "save it in admin (and flush cache) first. " + detail}), 400
+    try:
+        exp["baseline"]["page"] = _loop_page_metrics(exp["url"])
+        exp["baseline"]["site"] = _loop_site_totals()
+        exp["baseline"]["captured_at"] = datetime.now().isoformat(timespec="seconds")
+    except Exception:
+        pass  # keep the proposal-time baseline if GSC hiccups
+    exp["manual"] = True
+    sl.mark_applied(exp)
+    exp["verdicts"].append({"at": datetime.now().isoformat(timespec="seconds"),
+                            "verdict": "applied",
+                            "detail": "Applied BY HAND in admin; verified on the "
+                                      "live page. " + detail})
+    sl.save_state(state)
     return jsonify({"success": True, "experiment": exp})
 
 

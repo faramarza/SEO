@@ -111,6 +111,7 @@ function renderLoop(){
         const btns = [];
         if(e.status==='proposed'){
             btns.push(`<button class="pb-task-btn" onclick="loopApply('${e.id}',this)">Apply →</button>`);
+            btns.push(`<button class="pb-task-btn pb-task-btn-alt" title="For pages the API can't write (e.g. a product whose REST save is broken): paste the rewrite into Magento admin yourself, then click this — the loop verifies the live page, records the baseline, and measures the 28-day verdict as usual." onclick="loopMarkApplied('${e.id}',this)">✋ I applied it by hand</button>`);
             btns.push(`<button class="pb-task-btn pb-task-btn-alt" onclick="loopDismiss('${e.id}',this)">Dismiss</button>`);
         }
         if(['applied','suspect','kept','neutral'].includes(e.status)){
@@ -202,6 +203,16 @@ async function loopRetry(id, btn){
         headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
     const d2 = await r2.json();
     loopToast(d2.success?'Applied — live check passed ✓':(d2.error||'Apply failed'), !d2.success);
+    await loadLoop();
+}
+
+async function loopMarkApplied(id, btn){
+    if(!confirm('Confirm you saved this exact meta title + description in Magento admin (and flushed cache if needed)? The loop will verify the live page, snapshot the baseline, and start the 28-day clock. Counts against the write caps.')) return;
+    btn.disabled=true; btn.textContent='Verifying live page…';
+    const res = await fetch('/api/seo-loop/mark-applied',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({id})});
+    const d = await res.json();
+    loopToast(d.success?'Recorded — measuring ✓':(d.error||'Failed'), !d.success);
     await loadLoop();
 }
 

@@ -271,8 +271,9 @@ def new_experiment(candidate, entity, rewrite, hypothesis, baseline) -> dict:
         "query": candidate.get("query", ""),
         "arm": candidate.get("arm", ""),
         "selection_reason": candidate.get("reason", ""),
-        "entity": {k: entity[k] for k in ("entity_type", "sku", "category_id", "name")
-                   if k in entity},
+        "entity": {k: entity[k] for k in
+                   ("entity_type", "sku", "category_id", "name",
+                    "attribute_set_id", "type_id") if k in entity},
         "before": {"meta_title": entity.get("meta_title", ""),
                    "meta_description": entity.get("meta_description", "")},
         "after": {"meta_title": rewrite.get("meta_title", ""),
