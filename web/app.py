@@ -11348,7 +11348,7 @@ def _inst_crawl_job(states):
         researched, flagged = _inst_research(store)
         verified = sum(1 for p in store["prospects"]
                        if p.get("contact_confidence") == "verified")
-        report = inst.run_report(store, {
+        inst.run_report(store, {
             "kind": "crawl", "states": states, "rows_added": added_total,
             "dupes_skipped": dupes_total, "researched": researched,
             "flagged_for_research": flagged, "verified_contacts_total": verified,
