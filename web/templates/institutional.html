@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Institutional — Governor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🏫 Institutional Prospecting</h1>
+    <p class="page-description">
+        Builds a list of institutional buyers — Montessori/independent preschools,
+        licensed childcare centers, museums &amp; specialty retail — and drafts
+        first-contact emails. <strong>Awareness only: no prices, no discounts, ever.</strong>
+        Contacts come only from pages actually retrieved (an empty field is correct
+        output; a plausible guess is a defect). Drafts cap at 15 per run, carry the
+        CAN-SPAM footer, and <strong>nothing is ever sent</strong> — Frank sends by hand
+        from frank@alphabet-trains.com.
+    </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;">
+        <div style="min-width:340px;flex:1;">
+            <label style="font-size:12px;font-weight:600;">CAN-SPAM mailing address
+                <span style="color:#dc2626;">(required before any draft)</span></label>
+            <textarea id="inst-address" rows="2" style="width:100%;font-size:13px;"
+                placeholder="Shoptimes Inc. dba Alphabet Trains & Toys&#10;Street, City, ST ZIP"></textarea>
+            <button class="pb-task-btn pb-task-btn-alt" onclick="instSaveSettings(this)">Save address</button>
+        </div>
+        <div id="inst-stats" style="font-size:13px;color:var(--text-muted);"></div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <strong style="font-size:13px;">Crawl AMI locator:</strong>
+        <span id="inst-states"></span>
+        <button class="pb-task-btn" onclick="instCrawl(this)">🕷 Crawl selected</button>
+        <button class="pb-task-btn pb-task-btn-alt" onclick="instResearch(this)"
+            title="Second hop: visit each org's own website for a director name, email, and one specific retrieved fact.">🔎 Research contacts</button>
+        <button class="pb-task-btn pb-task-btn-alt" onclick="instDraftBatch(this)">✍️ Draft batch (≤<span id="inst-cap">15</span>)</button>
+        <a class="pb-task-btn pb-task-btn-alt" href="/api/institutional/export">⬇ Export CSV</a>
+        <span id="inst-job" style="font-size:12px;color:var(--accent-purple);"></span>
+    </div>
+    <div id="inst-report" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+    <details>
+        <summary style="cursor:pointer;font-weight:600;font-size:14px;">📥 State licensing sources — where to download each state's childcare roster
+            <button class="pb-task-btn pb-task-btn-alt" style="margin-left:10px;" onclick="event.preventDefault();instCheckSources(this)">Check links</button>
+        </summary>
+        <div id="inst-sources" style="margin-top:10px;"></div>
+    </details>
+</div>
+
+<div style="margin-bottom:8px;font-size:13px;">
+    Filter:
+    <select id="inst-filter" onchange="renderInst()">
+        <option value="">all statuses</option>
+        <option value="new">new</option>
+        <option value="researched">researched (ready to draft)</option>
+        <option value="flagged_research">flagged for research</option>
+        <option value="drafted">drafted</option>
+        <option value="contacted">contacted</option>
+        <option value="replied">replied</option>
+        <option value="opted_out">opted out</option>
+        <option value="customer">customer</option>
+    </select>
+    <label style="margin-left:10px;"><input type="checkbox" id="inst-se" onchange="renderInst()"> Southeast only</label>
+</div>
+<div id="inst-body"><p class="pb-loading">Loading…</p></div>
+
+<div id="inst-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div style="max-width:640px;margin:6vh auto;background:var(--bg-card,#fff);border-radius:12px;padding:20px;max-height:82vh;overflow:auto;">
+        <h2 style="margin-top:0;">Draft</h2>
+        <div id="inst-modal-body"></div>
+    </div>
+</div>
+<div id="inst-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let INST = null;
+function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function instToast(m,e){const t=document.getElementById('inst-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
+
+async function loadInst(){
+    const res = await fetch('/api/institutional');
+    INST = await res.json();
+    document.getElementById('inst-address').value = INST.settings.mailing_address||'';
+    document.getElementById('inst-cap').textContent = INST.drafts_per_run;
+    const s = INST.stats||{};
+    document.getElementById('inst-stats').innerHTML =
+        `<strong>${s.total||0}</strong> orgs · <strong>${s.verified||0}</strong> verified contacts · `+
+        `<strong>${s.drafted||0}</strong> drafted · <strong>${s.flagged||0}</strong> flagged for research`;
+    // State picker: Southeast pre-checked (ranked first by design).
+    const box = document.getElementById('inst-states');
+    if(!box.dataset.built){
+        box.dataset.built = '1';
+        box.innerHTML = (INST.ami_states||[]).map(st =>
+            `<label style="font-size:12px;margin-right:6px;white-space:nowrap;">
+             <input type="checkbox" value="${st}" ${INST.southeast.includes(st)?'checked':''}>${st}</label>`).join('');
+    }
+    document.getElementById('inst-job').textContent =
+        INST.job&&INST.job.running ? ('⏳ ' + (INST.job.phase||'working…')) : (INST.job&&INST.job.note||'');
+    renderReport(); renderSources(); renderInst();
+    if(INST.job&&INST.job.running) setTimeout(loadInst, 4000);
+}
+
+function renderReport(){
+    const r = (INST.runs||[])[0];
+    if(!r){ document.getElementById('inst-report').textContent=''; return; }
+    let html = `<strong>Last run</strong> (${escHtml(r.kind)}, ${escHtml(r.at||'')}): `+
+        Object.entries(r).filter(([k])=>!['kind','at','notes','zero_yield_sources','errors'].includes(k))
+              .map(([k,v])=>`${k.replace(/_/g,' ')}: <strong>${Array.isArray(v)?v.length:escHtml(String(v))}</strong>`).join(' · ');
+    if((r.zero_yield_sources||[]).length){
+        html += `<div style="color:#dc2626;font-weight:600;margin-top:4px;">⚠ ZERO-YIELD SOURCES (selector likely broken):</div>`+
+            r.zero_yield_sources.map(z=>`<div style="color:#dc2626;">• ${escHtml(z)}</div>`).join('');
+    }
+    if((r.errors||[]).length){
+        html += `<div style="margin-top:4px;">Skipped: ${r.errors.map(escHtml).join(' · ')}</div>`;
+    }
+    document.getElementById('inst-report').innerHTML = html;
+}
+
+function renderSources(){
+    const rows = Object.entries(INST.sources||{}).sort();
+    document.getElementById('inst-sources').innerHTML = rows.map(([st,src])=>{
+        const health = src.health==='alive' ? '<span style="color:var(--accent-green);">link OK ✓</span>'
+            : src.health==='dead' ? '<span style="color:#dc2626;font-weight:700;">LINK DEAD — find the new page</span>'
+            : '<span style="color:var(--text-muted);">unchecked</span>';
+        return `<div style="border-top:1px solid var(--border-color,#eee);padding:8px 0;">
+            <strong>${st}</strong> — ${escHtml(src.agency||'')} · <a href="${escHtml(src.url||'')}" target="_blank">${escHtml(src.url||'')}</a>
+            <span style="font-size:12px;color:var(--text-muted);">(${escHtml(src.kind||'')})</span> · ${health}
+            ${src.last_import?`<span style="font-size:12px;color:var(--text-muted);"> · last import ${escHtml(src.last_import)}</span>`:''}
+            <div style="margin-top:4px;">
+                <textarea id="inst-csv-${st}" rows="2" placeholder="Paste the downloaded CSV for ${st} here (with header row)…" style="width:70%;font-size:11px;vertical-align:middle;"></textarea>
+                <button class="pb-task-btn pb-task-btn-alt" onclick="instImport('${st}',this)">Import ${st}</button>
+            </div></div>`;
+    }).join('');
+}
+
+const INST_CONF = {verified:'#059669', directory:'#d97706', none:'#94a3b8'};
+function renderInst(){
+    const body = document.getElementById('inst-body');
+    const f = document.getElementById('inst-filter').value;
+    const se = document.getElementById('inst-se').checked;
+    let rows = INST.prospects||[];
+    if(f) rows = rows.filter(p=>p.status===f);
+    if(se) rows = rows.filter(p=>p.southeast);
+    if(!rows.length){ body.innerHTML='<p class="empty-state">No prospects yet — crawl AMI states or import a licensing CSV above.</p>'; return; }
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Organization</th><th>Type / state</th><th>Contact</th><th>Evidence (retrieved)</th><th>Status</th><th></th></tr></thead><tbody>`;
+    rows.slice(0, 400).forEach(p=>{
+        const conf = p.contact_confidence||'none';
+        const contact = p.email
+            ? `${escHtml(p.contact_name||'—')}${p.contact_title?` <span style="color:var(--text-muted);">(${escHtml(p.contact_title)})</span>`:''}<br>
+               <span style="font-size:12px;">${escHtml(p.email)}</span>
+               <span style="font-size:11px;color:${INST_CONF[conf]};font-weight:700;"> ${conf}</span>`
+            : `<span style="color:var(--text-muted);">none found</span>`;
+        const ev = p.evidence&&p.evidence.fact
+            ? `<span style="font-size:12px;">“${escHtml(p.evidence.fact.slice(0,140))}”</span>`
+            : '<span style="color:var(--text-muted);font-size:12px;">—</span>';
+        const btns = [];
+        if(p.draft) btns.push(`<button class="pb-task-btn" onclick="instShowDraft('${p.id}')">📄 Draft</button>`);
+        btns.push(`<select style="font-size:11px;" onchange="instStatus('${p.id}',this.value)">
+            ${['','contacted','replied','opted_out','customer','suppressed'].map(s=>`<option value="${s}" ${s===''?'selected':''}>${s||'set status…'}</option>`).join('')}</select>`);
+        html += `<tr>
+            <td><strong>${escHtml(p.school)}</strong>${p.website?`<br><a href="${escHtml(p.website)}" target="_blank" style="font-size:12px;">${escHtml(p.website.replace(/^https?:\/\//,'').slice(0,40))}</a>`:''}</td>
+            <td style="font-size:12px;">${escHtml((p.org_type||'').replace(/_/g,' '))}<br>${escHtml(p.state)}${p.southeast?' <span title="Southeast — ranked first">★</span>':''}</td>
+            <td>${contact}</td>
+            <td style="max-width:260px;">${ev}</td>
+            <td style="font-size:12px;font-weight:600;">${escHtml((p.status||'').replace(/_/g,' '))}</td>
+            <td style="white-space:nowrap;">${btns.join(' ')}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    if(rows.length>400) html += `<p style="font-size:12px;color:var(--text-muted);">Showing 400 of ${rows.length} — use filters or the CSV export.</p>`;
+    body.innerHTML = html;
+}
+
+function instShowDraft(id){
+    const p = (INST.prospects||[]).find(x=>x.id===id);
+    if(!p||!p.draft) return;
+    document.getElementById('inst-modal-body').innerHTML = `
+        <p style="font-size:13px;"><strong>To:</strong> ${escHtml(p.draft.to||p.email)}<br>
+        <strong>Subject:</strong> ${escHtml(p.draft.subject||'')}</p>
+        <pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;background:var(--bg-hover,#f6f6f6);padding:12px;border-radius:8px;">${escHtml(p.draft.body||'')}</pre>
+        <button class="pb-task-btn" onclick="instCopyDraft('${p.id}')">Copy body</button>
+        <span style="font-size:12px;color:var(--text-muted);">Send it yourself from frank@alphabet-trains.com — then set status to “contacted”.</span>`;
+    document.getElementById('inst-modal').classList.remove('hidden');
+}
+function instCopyDraft(id){
+    const p=(INST.prospects||[]).find(x=>x.id===id); if(!p||!p.draft) return;
+    const ta=document.createElement('textarea'); ta.value=p.draft.body; ta.style.cssText='position:fixed;left:-9999px';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); instToast('Copied'); }catch(e){ instToast('Copy failed',true); }
+    document.body.removeChild(ta);
+}
+
+async function instSaveSettings(btn){
+    btn.disabled=true;
+    const res = await fetch('/api/institutional/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mailing_address:document.getElementById('inst-address').value})});
+    instToast((await res.json()).success?'Saved':'Failed'); btn.disabled=false;
+}
+async function instCrawl(btn){
+    const states=[...document.querySelectorAll('#inst-states input:checked')].map(i=>i.value);
+    btn.disabled=true;
+    const res = await fetch('/api/institutional/crawl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({states})});
+    const d = await res.json();
+    instToast(d.success?`Crawling ${states.length} state(s)…`:(d.error||'Failed'),!d.success);
+    btn.disabled=false; setTimeout(loadInst,1500);
+}
+async function instResearch(btn){
+    btn.disabled=true;
+    const d = await (await fetch('/api/institutional/research',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    instToast(d.success?'Researching…':(d.error||'Failed'),!d.success);
+    btn.disabled=false; setTimeout(loadInst,1500);
+}
+async function instDraftBatch(btn){
+    btn.disabled=true;
+    const d = await (await fetch('/api/institutional/draft-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    instToast(d.success?'Drafting…':(d.error||'Failed'),!d.success);
+    btn.disabled=false; setTimeout(loadInst,1500);
+}
+async function instStatus(id,status){
+    if(!status) return;
+    const d = await (await fetch('/api/institutional/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,status})})).json();
+    instToast(d.success?'Status set':(d.error||'Failed'),!d.success); loadInst();
+}
+async function instImport(st,btn){
+    const txt=document.getElementById('inst-csv-'+st).value;
+    if(!txt.trim()){ instToast('Paste the CSV first',true); return; }
+    btn.disabled=true;
+    const d = await (await fetch('/api/institutional/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:st,csv_text:txt})})).json();
+    instToast(d.success?`${st}: +${d.added} added, ${d.dupes} dupes of ${d.total} rows`:(d.error||'Failed'),!d.success);
+    btn.disabled=false; loadInst();
+}
+async function instCheckSources(btn){
+    btn.disabled=true; btn.textContent='Checking…';
+    const d = await (await fetch('/api/institutional/check-sources',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    instToast(d.success?((d.dead||[]).length?`${d.dead.length} dead link(s): ${d.dead.join(', ')}`:'All links alive ✓'):(d.error||'Failed'),(d.dead||[]).length>0);
+    btn.disabled=false; btn.textContent='Check links'; loadInst();
+}
+loadInst();
+</script>
+{% endblock %}

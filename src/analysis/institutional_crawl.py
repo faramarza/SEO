@@ -1,0 +1,213 @@
+"""Institutional Prospecting Agent — crawling and second-hop research.
+
+Fetch discipline (per spec): respect robots.txt, >=1.5s between requests,
+identify the operator in the User-Agent. The AMI state locator is the
+enumerable anchor source; the org's own website is the only source that can
+yield a VERIFIED contact — always the second hop. Nothing here guesses:
+fields stay empty when a page didn't provide them.
+"""
+
+import re
+import time
+import urllib.robotparser
+from urllib.parse import urljoin, urlparse
+
+from src.analysis.institutional import (
+    AMI_BASE, AMI_SLUGS, FETCH_DELAY_S, USER_AGENT, new_prospect)
+
+try:
+    import httpx
+    _HTTPX = True
+except ImportError:  # pragma: no cover
+    _HTTPX = False
+
+_last_fetch = [0.0]
+_robots_cache = {}
+
+
+def _robots_ok(url: str) -> bool:
+    """Best-effort robots.txt check, cached per host. Unreachable/unparseable
+    robots => allow (the standard default), but the delay still applies."""
+    host = urlparse(url).netloc
+    if host not in _robots_cache:
+        rp = urllib.robotparser.RobotFileParser()
+        try:
+            r = httpx.get(f"{urlparse(url).scheme}://{host}/robots.txt",
+                          headers={"User-Agent": USER_AGENT}, timeout=10,
+                          follow_redirects=True)
+            rp.parse(r.text.splitlines() if r.status_code == 200 else [])
+        except Exception:
+            rp.parse([])
+        _robots_cache[host] = rp
+    return _robots_cache[host].can_fetch(USER_AGENT, url)
+
+
+def fetch(url: str, timeout=20) -> str:
+    """Polite fetch: robots check + global 1.5s pacing + identified UA.
+    Returns '' on any failure or disallow."""
+    if not _HTTPX or not url:
+        return ""
+    if not _robots_ok(url):
+        return ""
+    wait = FETCH_DELAY_S - (time.time() - _last_fetch[0])
+    if wait > 0:
+        time.sleep(wait)
+    _last_fetch[0] = time.time()
+    try:
+        r = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout,
+                      follow_redirects=True)
+        if r.status_code != 200:
+            return ""
+        return r.text or ""
+    except Exception:
+        return ""
+
+
+def _text_of(html: str) -> str:
+    html = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html or "")
+    text = re.sub(r"(?s)<[^>]+>", " ", html)
+    return re.sub(r"\s+", " ", text)
+
+
+# ------------------------------------------------------------ AMI locator
+_SOCIAL_HOSTS = ("facebook.", "instagram.", "twitter.", "x.com", "linkedin.",
+                 "youtube.", "pinterest.", "google.", "amshq.", "amiusa.",
+                 "montessori-ami.org", "mailto:", "tel:")
+
+
+def parse_ami_state_page(html: str):
+    """Extract (school_name, website) pairs from an AMI locator state page.
+    Strategy 1: heading followed by an external link. Strategy 2: external
+    links whose anchor text reads like an organization name. Returns [] when
+    nothing matches — the caller flags that loudly (selector breakage)."""
+    out, seen = [], set()
+
+    # Strategy 1: heading text + the first external href after it.
+    for m in re.finditer(r"(?is)<h[2-4][^>]*>(.*?)</h[2-4]>(.{0,600}?)"
+                         r"<a[^>]+href=[\"'](https?://[^\"']+)[\"']", html or ""):
+        name = re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ", m.group(1))).strip()
+        href = m.group(3)
+        if (not name or len(name) < 4 or len(name) > 90
+                or any(s in href.lower() for s in _SOCIAL_HOSTS)):
+            continue
+        key = name.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append((name, href))
+
+    # Strategy 2: anchors whose text looks like a school/organization name.
+    if not out:
+        for m in re.finditer(r"(?is)<a[^>]+href=[\"'](https?://[^\"']+)[\"'][^>]*>(.*?)</a>",
+                             html or ""):
+            href, inner = m.group(1), m.group(2)
+            name = re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ", inner)).strip()
+            if (len(name) < 6 or len(name) > 90
+                    or any(s in href.lower() for s in _SOCIAL_HOSTS)
+                    or not re.search(r"(?i)montessori|school|academy|children",
+                                     name)):
+                continue
+            key = name.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append((name, href))
+    return out
+
+
+def crawl_ami_state(state: str):
+    """One AMI locator state page → prospect dicts. Returns (prospects, note)."""
+    slug = AMI_SLUGS.get(state.upper())
+    if not slug:
+        return [], f"{state}: no AMI slug configured"
+    url = AMI_BASE + slug + "/"
+    html = fetch(url)
+    if not html:
+        return [], f"{state}: AMI page fetch failed or disallowed ({url})"
+    pairs = parse_ami_state_page(html)
+    if not pairs:
+        return [], (f"{state}: AMI page fetched ({len(html)} bytes) but ZERO "
+                    "entries parsed — selector likely broken, inspect " + url)
+    prospects = [new_prospect(name, "montessori_school", state,
+                              f"amiusa.org locator ({state})", site)
+                 for name, site in pairs]
+    return prospects, f"{state}: {len(prospects)} schools from AMI locator"
+
+
+# ------------------------------------------------- second hop: org website
+_CONTACT_SLUGS = ("", "contact", "contact-us", "about", "about-us", "staff",
+                  "our-team", "faculty", "admissions", "our-school")
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_EMAIL_JUNK = ("example.", "sentry", "wixpress", "godaddy", "@sentry",
+               "noreply", "no-reply", "@2x", ".png", ".jpg", ".gif", ".webp",
+               "yourdomain", "domain.com", "email.com")
+_TITLE_WORDS = (r"Head of School|Executive Director|Program Director|School "
+                r"Director|Directress|Director|Principal|Administrator|Owner|Founder")
+
+_EVIDENCE_HINTS = re.compile(
+    r"(?i)montessori|toddler|primary|preschool|pre-k|kindergarten|founded|"
+    r"since 19|since 20|AMI|AMS|accredit|classroom|reggio|nature|outdoor")
+
+
+def _find_contact(text: str, own_domain: str):
+    """(name, title, email) from a page's text — only what's actually there."""
+    email = ""
+    for cand in _EMAIL_RE.findall(text):
+        cl = cand.lower()
+        if any(j in cl for j in _EMAIL_JUNK):
+            continue
+        # Prefer an address on the org's own domain; keep the first otherwise.
+        if own_domain and own_domain in cl:
+            email = cand
+            break
+        email = email or cand
+    name, title = "", ""
+    m = re.search(r"([A-Z][a-z]+(?: [A-Z][A-Za-z'’\-.]+){1,2})\s*[,–—-]\s*"
+                  rf"({_TITLE_WORDS})", text)
+    if not m:
+        m2 = re.search(rf"({_TITLE_WORDS})[:,]?\s+"
+                       r"([A-Z][a-z]+(?: [A-Z][A-Za-z'’\-.]+){1,2})", text)
+        if m2:
+            title, name = m2.group(1), m2.group(2)
+    else:
+        name, title = m.group(1), m.group(2)
+    return name, title, email
+
+
+def _find_evidence(text: str, url: str):
+    """One distinctive, actually-retrieved sentence about the org — the raw
+    material that keeps a draft from being a mail merge."""
+    for sent in re.split(r"(?<=[.!?])\s+", text):
+        s = sent.strip()
+        if 40 <= len(s) <= 220 and _EVIDENCE_HINTS.search(s) \
+                and not _EMAIL_RE.search(s) and "cookie" not in s.lower():
+            return {"fact": s, "url": url}
+    return None
+
+
+def harvest_org(website: str):
+    """Second hop: the org's own site. Returns a dict of updates for the
+    prospect — empty fields where the site didn't provide the information."""
+    upd = {"contact_name": "", "contact_title": "", "email": "",
+           "contact_confidence": "none", "evidence": None}
+    if not website:
+        return upd
+    if not website.startswith("http"):
+        website = "https://" + website
+    own_domain = urlparse(website).netloc.lower().removeprefix("www.")
+    base = f"{urlparse(website).scheme}://{urlparse(website).netloc}"
+    for slug in _CONTACT_SLUGS:
+        url = website if slug == "" else urljoin(base + "/", slug)
+        html = fetch(url)
+        if not html or len(html) < 300:
+            continue
+        text = _text_of(html)
+        if upd["evidence"] is None:
+            upd["evidence"] = _find_evidence(text, url)
+        name, title, email = _find_contact(text, own_domain)
+        if email and not upd["email"]:
+            upd["email"] = email
+            upd["contact_confidence"] = "verified"  # from the org's own site
+        if name and not upd["contact_name"]:
+            upd["contact_name"], upd["contact_title"] = name, title
+        if upd["email"] and upd["contact_name"] and upd["evidence"]:
+            break
+    return upd

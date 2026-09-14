@@ -11232,6 +11232,331 @@ def api_seo_loop_dismiss():
 
 
 # ============================================================
+# INSTITUTIONAL PROSPECTING AGENT (B2B — data + drafts, human sends)
+# ============================================================
+# Core rules enforced in code, not prompts: no invented contacts (emails come
+# only from retrieved pages), no prices/discounts anywhere, drafts capped at
+# 15/run, CAN-SPAM footer (physical address + opt-out) appended
+# programmatically and REQUIRED before any draft generates.
+
+INST_DRAFT_SYSTEM = (
+    "You draft a short first-contact email from Frank at Alphabet Trains & "
+    "Toys (alphabet-trains.com), an online RETAILER that supplies personalized "
+    "name trains and name puzzles, classroom rugs and carpets, step stools, "
+    "Montessori materials, and personalized story books — including classroom "
+    "and institutional orders. The goal is AWARENESS ONLY: the recipient "
+    "should learn Alphabet Trains exists and supplies this category. Hard "
+    "rules: NEVER mention price, discounts, shipping costs, freight, or "
+    "urgency. Reference the specific retrieved fact about their organization "
+    "naturally in the first two sentences — if it reads like a mail merge "
+    "that merely names the school, it has failed. One low-friction ask only: "
+    "may Frank send a catalog, or a 10-minute call. Body UNDER 110 words, "
+    "plain professional tone, no salesiness, no exclamation marks. Do NOT "
+    "write a signature or footer — those are appended separately. Respond "
+    "ONLY with JSON: {\"subject\": \"...\", \"body\": \"...\"}"
+)
+
+_inst_job = {"running": False, "phase": "", "note": ""}
+
+
+def _inst_footer(settings):
+    addr = (settings or {}).get("mailing_address", "").strip()
+    if not addr:
+        return None
+    return ("\n\nFrank\nfrank@alphabet-trains.com\n"
+            "Shoptimes Inc. dba Alphabet Trains & Toys\n" + addr +
+            "\n\nIf you'd prefer not to receive email from us, reply "
+            "\"unsubscribe\" and we won't contact you again.")
+
+
+def _inst_generate_draft(p, settings, config):
+    """Draft for one prospect — refuses without a verified contact, retrieved
+    evidence, or the CAN-SPAM mailing address. Returns (draft, error)."""
+    footer = _inst_footer(settings)
+    if footer is None:
+        return None, ("Set the CAN-SPAM mailing address first (Settings) — "
+                      "no draft is legal without it.")
+    if p.get("contact_confidence") != "verified" or not p.get("email"):
+        return None, "No verified contact — flag for research, don't draft."
+    ev = p.get("evidence") or {}
+    if not ev.get("fact"):
+        return None, "No retrieved evidence about this org — research first."
+    greet_name = (p.get("contact_name") or "").split(" ")[0]
+    user = (f"Organization: {p['school']} ({p['org_type']}, {p['state']})\n"
+            f"Website: {p.get('website', '')}\n"
+            f"Recipient: {p.get('contact_name') or '(no name — open without one)'}"
+            f"{', ' + p['contact_title'] if p.get('contact_title') else ''}\n"
+            f"Retrieved fact about them (source {ev.get('url', '')}):\n"
+            f"“{ev['fact']}”\n"
+            + (f"Open with 'Hi {greet_name},'." if greet_name else
+               "Open with a plain 'Hello,' — no invented names."))
+    rewrite, err = _llm_json(INST_DRAFT_SYSTEM, user, config, max_tokens=500)
+    if err or not rewrite or not rewrite.get("body"):
+        return None, err or "Draft generation returned nothing."
+    body = rewrite["body"].strip()
+    if len(body.split()) > 120:
+        return None, f"Draft over the 120-word cap ({len(body.split())}) — rejected."
+    return {"subject": rewrite.get("subject", "").strip()[:120],
+            "body": body + footer,
+            "to": p["email"], "generated_at": datetime.now().isoformat(timespec="seconds"),
+            }, None
+
+
+def _inst_research(store, limit=40):
+    """Second-hop research for rows that still lack a verified contact.
+    Southeast/Montessori first (same ranking as the table)."""
+    from src.analysis import institutional as inst
+    from src.analysis.institutional_crawl import harvest_org
+    todo = [p for p in sorted(store["prospects"], key=inst.rank_key)
+            if p.get("status") in ("new", "flagged_research")
+            and p.get("website") and p.get("contact_confidence") != "verified"]
+    researched = flagged = 0
+    for p in todo[:limit]:
+        _inst_job["phase"] = f"researching {p['school'][:40]}…"
+        upd = harvest_org(p["website"])
+        p.update({k: v for k, v in upd.items() if v})
+        if upd.get("contact_confidence") == "verified":
+            p["contact_confidence"] = "verified"
+        p["status"] = ("researched" if p.get("email") and p.get("evidence")
+                       else "flagged_research")
+        p["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        researched += 1
+        if p["status"] == "flagged_research":
+            flagged += 1
+        inst.save_store(store)  # persist as we go — crawls are interruptible
+    return researched, flagged
+
+
+def _inst_crawl_job(states):
+    from src.analysis import institutional as inst
+    from src.analysis.institutional_crawl import crawl_ami_state
+    try:
+        store = inst.load_store()
+        added_total, dupes_total, notes, zero_yield = 0, 0, [], []
+        for st in states:
+            _inst_job["phase"] = f"AMI locator: {st}"
+            prospects, note = crawl_ami_state(st)
+            notes.append(note)
+            if not prospects:
+                zero_yield.append(note)
+                continue
+            added, dupes = inst.add_prospects(store, prospects)
+            added_total += len(added)
+            dupes_total += dupes
+            inst.save_store(store)
+        _inst_job["phase"] = "second-hop research"
+        researched, flagged = _inst_research(store)
+        verified = sum(1 for p in store["prospects"]
+                       if p.get("contact_confidence") == "verified")
+        report = inst.run_report(store, {
+            "kind": "crawl", "states": states, "rows_added": added_total,
+            "dupes_skipped": dupes_total, "researched": researched,
+            "flagged_for_research": flagged, "verified_contacts_total": verified,
+            "zero_yield_sources": zero_yield, "notes": notes,
+        })
+        inst.save_store(store)
+        if zero_yield:
+            _save_notification({"type": "institutional", "severity": "warning",
+                                "message": "Institutional crawl: ZERO yield from "
+                                           f"{len(zero_yield)} source(s) — selector "
+                                           "likely broken. See the B2B page report."})
+        _inst_job["note"] = f"Done: +{added_total} rows, {researched} researched."
+    except Exception as e:
+        _inst_job["note"] = f"Crawl failed: {e}"
+    finally:
+        _inst_job["running"] = False
+        _inst_job["phase"] = ""
+
+
+def _inst_draft_batch_job():
+    from src.analysis import institutional as inst
+    try:
+        config = load_config()
+        store = inst.load_store()
+        eligible = [p for p in sorted(store["prospects"], key=inst.rank_key)
+                    if p.get("status") == "researched" and not p.get("draft")
+                    and p.get("contact_confidence") == "verified"]
+        done = 0
+        errors = []
+        for p in eligible[:inst.DRAFTS_PER_RUN]:
+            _inst_job["phase"] = f"drafting {p['school'][:40]}…"
+            draft, err = _inst_generate_draft(p, store.get("settings"), config)
+            if err:
+                errors.append(f"{p['school']}: {err}")
+                continue
+            p["draft"] = draft
+            p["status"] = "drafted"
+            p["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            done += 1
+            inst.save_store(store)
+        inst.run_report(store, {"kind": "drafts", "drafts_queued": done,
+                                "errors": errors[:10]})
+        inst.save_store(store)
+        _inst_job["note"] = f"{done} draft(s) queued" + \
+            (f", {len(errors)} skipped" if errors else "")
+    except Exception as e:
+        _inst_job["note"] = f"Draft batch failed: {e}"
+    finally:
+        _inst_job["running"] = False
+        _inst_job["phase"] = ""
+
+
+def _inst_start(target, *args):
+    if _inst_job["running"]:
+        return False
+    _inst_job.update({"running": True, "phase": "starting…", "note": ""})
+    threading.Thread(target=target, args=args, daemon=True).start()
+    return True
+
+
+@app.route("/institutional")
+def institutional_page():
+    return render_template("institutional.html")
+
+
+@app.route("/api/institutional")
+def api_institutional():
+    from src.analysis import institutional as inst
+    store = inst.load_store()
+    prospects = sorted(store["prospects"], key=inst.rank_key)
+    return jsonify({
+        "settings": store.get("settings", {}),
+        "sources": store.get("sources", {}),
+        "prospects": prospects,
+        "runs": (store.get("runs") or [])[-5:][::-1],
+        "job": _inst_job,
+        "drafts_per_run": inst.DRAFTS_PER_RUN,
+        "southeast": sorted(inst.SOUTHEAST),
+        "ami_states": sorted(inst.AMI_SLUGS.keys()),
+        "stats": {
+            "total": len(prospects),
+            "verified": sum(1 for p in prospects
+                            if p.get("contact_confidence") == "verified"),
+            "drafted": sum(1 for p in prospects if p.get("status") == "drafted"),
+            "flagged": sum(1 for p in prospects
+                           if p.get("status") == "flagged_research"),
+        },
+    })
+
+
+@app.route("/api/institutional/settings", methods=["POST"])
+def api_institutional_settings():
+    from src.analysis import institutional as inst
+    store = inst.load_store()
+    body = request.json or {}
+    if "mailing_address" in body:
+        store["settings"]["mailing_address"] = str(body["mailing_address"]).strip()
+    inst.save_store(store)
+    return jsonify({"success": True, "settings": store["settings"]})
+
+
+@app.route("/api/institutional/crawl", methods=["POST"])
+def api_institutional_crawl():
+    from src.analysis import institutional as inst
+    states = [(s or "").upper() for s in (request.json or {}).get("states", [])
+              if (s or "").upper() in inst.AMI_SLUGS]
+    if not states:
+        return jsonify({"error": "Pick at least one state with an AMI locator page."}), 400
+    if not _inst_start(_inst_crawl_job, states):
+        return jsonify({"error": "A job is already running."}), 400
+    return jsonify({"success": True, "states": states})
+
+
+@app.route("/api/institutional/research", methods=["POST"])
+def api_institutional_research():
+    from src.analysis import institutional as inst
+    limit = int((request.json or {}).get("limit") or 40)  # read BEFORE the thread
+
+    def _job():
+        try:
+            store = inst.load_store()
+            researched, flagged = _inst_research(store, limit=limit)
+            inst.run_report(store, {"kind": "research", "researched": researched,
+                                    "flagged_for_research": flagged})
+            inst.save_store(store)
+            _inst_job["note"] = f"Researched {researched}, flagged {flagged}."
+        except Exception as e:
+            _inst_job["note"] = f"Research failed: {e}"
+        finally:
+            _inst_job["running"] = False
+            _inst_job["phase"] = ""
+    if not _inst_start(_job):
+        return jsonify({"error": "A job is already running."}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/api/institutional/draft-batch", methods=["POST"])
+def api_institutional_draft_batch():
+    if not _inst_start(_inst_draft_batch_job):
+        return jsonify({"error": "A job is already running."}), 400
+    return jsonify({"success": True})
+
+
+@app.route("/api/institutional/status", methods=["POST"])
+def api_institutional_status():
+    from src.analysis import institutional as inst
+    body = request.json or {}
+    store = inst.load_store()
+    p = next((x for x in store["prospects"] if x["id"] == body.get("id")), None)
+    if not p:
+        return jsonify({"error": "Prospect not found."}), 404
+    if body.get("status") not in inst.STATUSES:
+        return jsonify({"error": "Unknown status."}), 400
+    p["status"] = body["status"]
+    p["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    inst.save_store(store)
+    return jsonify({"success": True})
+
+
+@app.route("/api/institutional/import", methods=["POST"])
+def api_institutional_import():
+    from src.analysis import institutional as inst
+    body = request.json or {}
+    state = (body.get("state") or "").upper()
+    if len(state) != 2:
+        return jsonify({"error": "Pick the state this file belongs to."}), 400
+    store = inst.load_store()
+    added, dupes, total, err = inst.import_csv(
+        store, body.get("csv_text") or "", state,
+        f"state_licensing:{state}")
+    if err:
+        return jsonify({"error": err}), 400
+    inst.run_report(store, {"kind": "import", "state": state,
+                            "rows_in_file": total, "rows_added": added,
+                            "dupes_skipped": dupes})
+    inst.save_store(store)
+    return jsonify({"success": True, "added": added, "dupes": dupes,
+                    "total": total})
+
+
+@app.route("/api/institutional/export")
+def api_institutional_export():
+    from src.analysis import institutional as inst
+    csv_text = inst.export_csv(inst.load_store())
+    return Response(csv_text, mimetype="text/csv",
+                    headers={"Content-Disposition":
+                             "attachment; filename=institutional_prospects.csv"})
+
+
+@app.route("/api/institutional/check-sources", methods=["POST"])
+def api_institutional_check_sources():
+    """Health-check the state source links — a dead link gets flagged loudly
+    instead of rotting (same principle as selector-breakage reporting)."""
+    from src.analysis import institutional as inst
+    from src.analysis.institutional_crawl import fetch
+    store = inst.load_store()
+    dead = []
+    for st, src in store["sources"].items():
+        html = fetch(src.get("url", ""), timeout=15)
+        src["health"] = "alive" if html else "dead"
+        src["checked_at"] = datetime.now().isoformat(timespec="seconds")
+        if not html:
+            dead.append(st)
+    inst.save_store(store)
+    return jsonify({"success": True, "dead": dead})
+
+
+# ============================================================
 # RUN SERVER
 # ============================================================
 
