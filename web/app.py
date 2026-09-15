@@ -569,6 +569,21 @@ def _run_autoreview_scheduler():
                     _process_seo_loop()
                 except Exception as _le:
                     print(f"[SEOLoop] Error: {_le}")
+                # Link Targets: top up gap measurements with whatever backlink
+                # budget the new day brings — no button-pressing required.
+                try:
+                    from src.analysis import link_targets as _lt
+                    from src.data_sources.dataforseo_client import \
+                        get_backlinks_remaining_quota as _blq
+                    _pending = any(not _lt.is_fresh(t) for t in
+                                   _lt.load_store().get("targets", {}).values())
+                    if _pending and _blq() > 0 and not _lt_job["running"]:
+                        _lt_job.update({"running": True,
+                                        "phase": "daily top-up…", "note": ""})
+                        threading.Thread(target=_lt_refresh_job,
+                                         daemon=True).start()
+                except Exception as _lte:
+                    print(f"[LinkTargets] Error: {_lte}")
         except Exception as e:
             print(f"[AutoReview] Error: {e}")
         time.sleep(3600)  # re-check hourly; the day-marker ensures once/day
