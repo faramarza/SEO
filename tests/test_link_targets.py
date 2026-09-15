@@ -44,7 +44,39 @@ def test_gap_verdict_parity_says_links_not_the_fix():
     v, lo, hi, note = lt.gap_verdict(own_rd=40, comp_rds=[9, 14, 31],
                                      emulable_slots=3, total_slots=8)
     assert v == "parity" and lo == hi == 0
-    assert "NOT the constraint" in note
+    assert "content/relevance" in note
+
+
+def test_gap_verdict_zero_page_links_needs_domain_data():
+    # Competitor pages with ~no direct links must NOT produce a parity
+    # verdict from page counts alone (the bug this model version fixes).
+    v, _, _, note = lt.gap_verdict(own_rd=41, comp_rds=[0, 0, 0],
+                                   emulable_slots=3, total_slots=8)
+    assert v == "unknown" and "domain-level" in note.lower()
+
+
+def test_gap_verdict_domain_gap():
+    v, lo, hi, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 1],
+                                     emulable_slots=3, total_slots=8,
+                                     own_dom_rd=150,
+                                     comp_dom_rds=[300, 900, 2400])
+    assert v == "domain_gap" and (lo, hi) == (150, 2250)
+    assert "DOMAIN authority" in note and "ANY strong page" in note
+
+
+def test_gap_verdict_domain_parity():
+    v, _, _, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 0],
+                                   emulable_slots=3, total_slots=8,
+                                   own_dom_rd=500, comp_dom_rds=[120, 300, 450])
+    assert v == "parity" and "NOT the constraint" in note
+
+
+def test_model_version_invalidates_old_measurements():
+    from datetime import datetime
+    entry = {"computed_at": datetime.now().isoformat(), "model": 1}
+    assert not lt.is_fresh(entry)
+    entry["model"] = lt.MODEL_VERSION
+    assert lt.is_fresh(entry)
 
 
 def test_gap_verdict_marketplace_locked():
@@ -97,6 +129,38 @@ def test_compute_target_pipeline():
     assert t["own_rd"] == 3 and t["non_emulable_slots"] == 1
     assert (t["gap_lo"], t["gap_hi"]) == (5, 17)
     assert len(t["competitors"]) == 3
+    assert t["model"] == lt.MODEL_VERSION
+
+
+def test_compute_target_domain_level_path():
+    target = {"url": "https://x.com/montessori-toys.html",
+              "keywords": [{"query": "montessori toys", "position": 14,
+                            "impressions": 1976}]}
+
+    def serp(q):
+        return {"organic_results": [
+            {"position": 1, "url": "https://compa.com/toys"},
+            {"position": 2, "url": "https://compa.com/other"},   # dup domain
+            {"position": 3, "url": "https://compb.com/guide"},
+            {"position": 4, "url": "https://compc.com/list"},
+        ]}
+
+    rd_map = {"https://x.com/montessori-toys.html": 41,
+              "https://compa.com/toys": 0, "https://compb.com/guide": 0,
+              "https://compc.com/list": 1,
+              "x.com": 150, "compa.com": 900, "compb.com": 300,
+              "compc.com": 2400}
+
+    def rd(u):
+        return {"available": True, "links": [{}] * rd_map[u]}
+
+    t = lt.compute_target(target, serp, rd)
+    # Duplicate competitor domain removed; page zeros → domain-level verdict.
+    assert [c["domain"] for c in t["competitors"]] == \
+        ["compa.com", "compb.com", "compc.com"]
+    assert t["verdict"] == "domain_gap"
+    assert t["own_domain_rd"] == 150
+    assert (t["gap_lo"], t["gap_hi"]) == (150, 2250)
 
 
 def test_compute_target_budget_exhaustion_is_visible():

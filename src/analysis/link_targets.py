@@ -85,10 +85,28 @@ def build_targets(striking_rows):
     return sorted(by_url.values(), key=lambda t: -t["total_impressions"])
 
 
-def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots):
-    """(verdict, gap_lo, gap_hi, explanation). comp_rds = referring-domain
-    counts of the emulable top-ranking pages, own_rd = ours. Deliberately a
-    range and deliberately allowed to conclude links are NOT the fix."""
+# Bump when the verdict model changes — old measurements re-measure instead
+# of displaying conclusions the current model would not draw.
+MODEL_VERSION = 2
+
+# Below this, competitor PAGES effectively carry no direct links and rankings
+# ride DOMAIN authority + internal links instead — the common case for
+# category/product pages.
+PAGE_LINKS_MEANINGFUL = 5
+
+
+def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots,
+                own_dom_rd=None, comp_dom_rds=None):
+    """(verdict, gap_lo, gap_hi, explanation).
+
+    Two-level model: when the ranking PAGES genuinely earn direct links,
+    compare page-to-page. When they don't (deep pages usually don't — zeros
+    across the board), the deciding variable is DOMAIN-level referring
+    domains, theirs vs ours, and the verdict says to build links to the
+    domain's most linkable pages rather than falsely declaring parity.
+    Deliberately ranged, and deliberately allowed to conclude links are NOT
+    the fix."""
+    comp_dom_rds = comp_dom_rds or []
     if not comp_rds:
         if total_slots and emulable_slots == 0:
             return ("marketplace_locked", 0, 0,
@@ -97,32 +115,59 @@ def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots):
                     "keyword; win the remaining organic slots or its "
                     "long-tail variants instead.")
         return ("unknown", 0, 0, "No competitor link data yet.")
+
     lo, hi = min(comp_rds), max(comp_rds)
     med = sorted(comp_rds)[len(comp_rds) // 2]
-    if own_rd >= hi:
-        return ("parity", 0, 0,
-                f"Your page already has {own_rd} referring domains vs the top "
-                f"pages' {lo}–{hi}. More links are NOT the constraint here — "
-                "the gap is content/relevance/intent. Spend effort on-page.")
-    gap_lo = max(1, lo - own_rd)
-    gap_hi = max(gap_lo, hi - own_rd)
-    if gap_hi <= 5:
-        v = "close"
-        note = (f"Small gap: top pages hold {lo}–{hi} referring domains "
-                f"(median {med}) vs your {own_rd}. A handful of good links "
-                "puts you in their company — highest-feasibility target.")
-    else:
-        v = "authority_gap"
-        note = (f"Top-5 pages hold {lo}–{hi} referring domains (median {med}) "
+
+    if hi >= PAGE_LINKS_MEANINGFUL:
+        # Their pages genuinely earn direct links — page-level comparison.
+        if own_rd >= hi:
+            return ("parity", 0, 0,
+                    f"Your page has {own_rd} referring domains vs the top "
+                    f"pages' {lo}–{hi} — link parity at page AND ranking "
+                    "level. The gap is content/relevance/intent; spend "
+                    "effort on-page.")
+        gap_lo = max(1, lo - own_rd)
+        gap_hi = max(gap_lo, hi - own_rd)
+        if gap_hi <= 5:
+            return ("close", gap_lo, gap_hi,
+                    f"Small gap: top pages hold {lo}–{hi} referring domains "
+                    f"(median {med}) vs your {own_rd}. A handful of good "
+                    "links puts you in their company — highest-feasibility "
+                    "target.")
+        return ("authority_gap", gap_lo, gap_hi,
+                f"Top pages hold {lo}–{hi} referring domains (median {med}) "
                 f"vs your {own_rd}. Roughly {gap_lo}–{gap_hi} more quality "
                 "referring domains puts this page in their company — "
                 "necessary, not sufficient: content must stay competitive.")
-    return (v, gap_lo, gap_hi, note)
+
+    # Their pages carry ~no direct links — the ranking driver is the DOMAIN.
+    if not comp_dom_rds or own_dom_rd is None:
+        return ("unknown", 0, 0,
+                "Competitor pages carry ~no direct links (normal for deep "
+                "pages) — domain-level data needed and not yet measured.")
+    d_lo, d_hi = min(comp_dom_rds), max(comp_dom_rds)
+    if own_dom_rd >= d_hi:
+        return ("parity", 0, 0,
+                f"Neither their pages nor yours carry direct links, and your "
+                f"DOMAIN ({own_dom_rd} referring domains) matches or exceeds "
+                f"theirs ({d_lo}–{d_hi}). Links are NOT the constraint — the "
+                "gap is content/relevance. Spend effort on-page.")
+    g_lo = max(1, d_lo - own_dom_rd)
+    g_hi = max(g_lo, d_hi - own_dom_rd)
+    return ("domain_gap", g_lo, g_hi,
+            f"Their pages, like yours, have ~no direct links — rankings here "
+            f"ride DOMAIN authority: their domains hold {d_lo}–{d_hi} "
+            f"referring domains vs your {own_dom_rd}. Build links to ANY "
+            "strong page of your site (guides and linkable content work "
+            "best) and funnel internal links to this page — the gap is at "
+            "domain level, ≈ {}–{} more referring domains.".format(g_lo, g_hi))
 
 
 # Effort ordering: feasible-and-valuable first, don't-bother last.
-_VERDICT_RANK = {"close": 0, "authority_gap": 1, "unknown": 2, "pending": 2,
-                 "parity": 3, "marketplace_locked": 4}
+_VERDICT_RANK = {"close": 0, "authority_gap": 1, "domain_gap": 2,
+                 "unknown": 3, "pending": 3,
+                 "parity": 4, "marketplace_locked": 5}
 
 
 def rank_targets(targets):
@@ -132,7 +177,12 @@ def rank_targets(targets):
 
 
 def is_fresh(entry) -> bool:
+    """Fresh = recent AND measured by the current verdict model — a model
+    change invalidates old conclusions so they re-measure instead of
+    displaying verdicts the current logic would not draw."""
     try:
+        if entry.get("model") != MODEL_VERSION:
+            return False
         return (datetime.now() - datetime.fromisoformat(entry["computed_at"])
                 ) < timedelta(days=FRESH_DAYS)
     except (KeyError, ValueError, TypeError):
@@ -153,15 +203,17 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn):
         return target
     organic = (serp.get("organic_results") or serp.get("organic") or [])[:8]
     own_dom = _domain(target["url"])
-    comps, non_emulable = [], 0
+    comps, non_emulable, seen_domains = [], 0, set()
     for r in organic:
         u = r.get("url", "")
-        if not u or _domain(u) == own_dom:
+        d = _domain(u)
+        if not u or d == own_dom or d in seen_domains:
             continue
         if not is_emulable(u):
             non_emulable += 1
             continue
-        comps.append({"url": u, "domain": _domain(u),
+        seen_domains.add(d)
+        comps.append({"url": u, "domain": d,
                       "position": r.get("position", 0)})
         if len(comps) >= 3:
             break
@@ -191,7 +243,36 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn):
         comp_rds.append(c["rd"])
         target["competitors"].append(c)
 
-    v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(organic))
+    # When competitor PAGES carry ~no direct links (the deep-page norm),
+    # rankings ride the DOMAIN — measure domain-level RDs on both sides.
+    # Domain lookups are cached in the client and shared across targets.
+    own_dom_rd = comp_dom_rds = None
+    if comp_rds and max(comp_rds) < PAGE_LINKS_MEANINGFUL:
+        own_res = fetch_rd_fn(own_dom)
+        if not own_res.get("available"):
+            target.update({"verdict": "pending",
+                           "note": f"Domain-level lookup ran out of budget: "
+                                   f"{own_res.get('reason', '')} — resumes next run."})
+            return target
+        own_dom_rd = len(own_res.get("links") or [])
+        target["own_domain_rd"] = own_dom_rd
+        target["own_domain_rd_capped"] = own_dom_rd >= RD_LOOKUP_LIMIT
+        comp_dom_rds = []
+        for c in target["competitors"]:
+            res = fetch_rd_fn(c["domain"])
+            if not res.get("available"):
+                target.update({"verdict": "pending",
+                               "note": f"Domain-level lookup ran out mid-target: "
+                                       f"{res.get('reason', '')} — resumes next run."})
+                return target
+            c["domain_rd"] = len(res.get("links") or [])
+            c["domain_rd_capped"] = c["domain_rd"] >= RD_LOOKUP_LIMIT
+            comp_dom_rds.append(c["domain_rd"])
+
+    v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(organic),
+                                  own_dom_rd=own_dom_rd,
+                                  comp_dom_rds=comp_dom_rds)
     target.update({"verdict": v, "gap_lo": lo, "gap_hi": hi, "note": note,
+                   "model": MODEL_VERSION,
                    "computed_at": datetime.now().isoformat(timespec="seconds")})
     return target

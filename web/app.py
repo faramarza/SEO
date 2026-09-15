@@ -11640,6 +11640,13 @@ def api_link_targets():
         merged = []
         for t in live:
             m = dict(stored.get(t["url"]) or {})
+            # Never display conclusions from an outdated verdict model — show
+            # the row as unmeasured and let the refresh re-measure it.
+            if m.get("verdict") not in (None, "unknown", "pending") \
+                    and m.get("model") != lt.MODEL_VERSION:
+                for k in ("verdict", "note", "gap_lo", "gap_hi", "competitors",
+                          "own_rd", "own_rd_capped", "computed_at"):
+                    m.pop(k, None)
             m.update(t)
             m.setdefault("verdict", "unknown")
             merged.append(m)

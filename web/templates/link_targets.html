@@ -39,12 +39,13 @@ function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').
 function ltToast(m,e){const t=document.getElementById('lt-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
 
 const LT_VERDICT = {
-    close:            {label:'CLOSE — few links needed',     color:'#059669'},
-    authority_gap:    {label:'AUTHORITY GAP',                color:'#d97706'},
-    parity:           {label:'PARITY — links not the fix',   color:'#2563eb'},
-    marketplace_locked:{label:'MARKETPLACE-LOCKED',          color:'#94a3b8'},
-    pending:          {label:'AWAITING BUDGET',              color:'#7c3aed'},
-    unknown:          {label:'NOT MEASURED YET',             color:'#94a3b8'},
+    close:            {label:'CLOSE — few links needed',       color:'#059669'},
+    authority_gap:    {label:'PAGE AUTHORITY GAP',             color:'#d97706'},
+    domain_gap:       {label:'DOMAIN AUTHORITY GAP',           color:'#b45309'},
+    parity:           {label:'PARITY — links not the fix',     color:'#2563eb'},
+    marketplace_locked:{label:'MARKETPLACE-LOCKED',            color:'#94a3b8'},
+    pending:          {label:'AWAITING BUDGET',                color:'#7c3aed'},
+    unknown:          {label:'NOT MEASURED YET',               color:'#94a3b8'},
 };
 
 async function loadLT(){
@@ -79,10 +80,12 @@ function render(){
             `<div style="font-size:12px;">“${escHtml(k.query)}” <span style="color:var(--text-muted);">#${k.position} · ${(k.impressions||0).toLocaleString()} impr</span></div>`).join('')
             + ((t.keywords||[]).length>4?`<div style="font-size:11px;color:var(--text-muted);">+${t.keywords.length-4} more</div>`:'');
         const comps = (t.competitors||[]).map(c=>
-            `<div style="font-size:11px;">${escHtml(c.domain)} — <strong>${c.rd}${c.rd_capped?'+':''}</strong></div>`).join('')
+            `<div style="font-size:11px;">${escHtml(c.domain)} — page <strong>${c.rd}${c.rd_capped?'+':''}</strong>${c.domain_rd!=null?` · domain <strong>${c.domain_rd}${c.domain_rd_capped?'+':''}</strong>`:''}</div>`).join('')
             + (t.non_emulable_slots?`<div style="font-size:11px;color:var(--text-muted);">${t.non_emulable_slots} marketplace/social slot(s) excluded</div>`:'');
         const gap = (t.verdict==='authority_gap'||t.verdict==='close')
             ? `<span style="font-weight:700;color:${v.color};white-space:nowrap;">≈ +${t.gap_lo}–${t.gap_hi} RDs</span>`
+            : (t.verdict==='domain_gap')
+            ? `<span style="font-weight:700;color:${v.color};white-space:nowrap;">≈ +${t.gap_lo}–${t.gap_hi} RDs<br><span style="font-weight:400;font-size:10px;">(domain level)</span></span>`
             : '<span style="color:var(--text-muted);">—</span>';
         const pr = t.prospects_ready
             ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready} ready</a>`
@@ -91,7 +94,7 @@ function render(){
             <td><a href="${escHtml(t.url)}" target="_blank" title="${escHtml(t.url)}">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a>
                 <div style="font-size:11px;color:var(--text-muted);">${(t.total_impressions||0).toLocaleString()} impr across ${(t.keywords||[]).length} keyword(s)</div></td>
             <td>${kws}</td>
-            <td class="pb-num">${t.own_rd!=null?`${t.own_rd}${t.own_rd_capped?'+':''}`:'—'}</td>
+            <td class="pb-num">${t.own_rd!=null?`page ${t.own_rd}${t.own_rd_capped?'+':''}`:'—'}${t.own_domain_rd!=null?`<br><span style="font-size:11px;">domain ${t.own_domain_rd}${t.own_domain_rd_capped?'+':''}</span>`:''}</td>
             <td>${comps||'<span style="color:var(--text-muted);">—</span>'}</td>
             <td>${gap}</td>
             <td>${pr}</td>
