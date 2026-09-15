@@ -11622,7 +11622,30 @@ def link_targets_page():
 def api_link_targets():
     from src.analysis import link_targets as lt
     store = lt.load_store()
-    targets = lt.rank_targets(list(store.get("targets", {}).values()))
+    # The QUEUE (which pages, which keywords) is knowable instantly from the
+    # latest evaluation — only the RD numbers need budgeted lookups. Build it
+    # live and merge whatever measurements the store already has, so the page
+    # is never empty just because "Measure gaps" hasn't run yet.
+    live = []
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+        from src.analysis.growth_playbook import find_striking_distance
+        live = lt.build_targets(find_striking_distance(
+            results, system_disallow=_robots_disallow_rules()))
+    except Exception:
+        pass
+    if live:
+        stored = store.get("targets", {})
+        merged = []
+        for t in live:
+            m = dict(stored.get(t["url"]) or {})
+            m.update(t)
+            m.setdefault("verdict", "unknown")
+            merged.append(m)
+        targets = lt.rank_targets(merged)
+    else:
+        targets = lt.rank_targets(list(store.get("targets", {}).values()))
     # Join: how many qualified link prospects already point at each page.
     try:
         from src.analysis.link_prospects import load_link_prospects, load_statuses

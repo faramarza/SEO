@@ -65,7 +65,7 @@ function render(){
     const body = document.getElementById('lt-body');
     const ts = LT.targets||[];
     if(!ts.length){
-        body.innerHTML = '<p class="empty-state">No authority-blocked pages found yet. This list is fed by Striking Distance rows whose only remaining lever is external links — run an evaluation, then hit “Measure gaps”.</p>';
+        body.innerHTML = '<p class="empty-state">No authority-blocked pages in the current evaluation — every striking-distance query still has a cheaper lever (internal links or on-page) available. This list fills itself from your normal evaluations; nothing to run here.</p>';
         return;
     }
     let html = `<table class="pb-table"><thead><tr>
