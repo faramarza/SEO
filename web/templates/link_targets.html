@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Link Targets — Governor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🎯 Link Targets</h1>
+    <p class="page-description">
+        The surgical view of your link building: every page the tool has diagnosed as
+        <strong>authority-blocked</strong>, with its keywords, the referring-domain counts of the
+        pages actually ranking top-5, and a <strong>ranged gap estimate</strong> — e.g. “≈ 10–30 more
+        referring domains puts this page in their company.” It's a gap measure, not a promise:
+        links are necessary there, not sufficient. The verdict is allowed to say the opposite —
+        <em>parity</em> means more links are NOT the fix (spend effort on content), and
+        <em>marketplace-locked</em> means no link count displaces Amazon/Etsy from those slots.
+    </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+        <button class="pb-task-btn" onclick="ltRefresh(this)">📏 Measure gaps</button>
+        <span id="lt-job" style="font-size:12px;color:var(--accent-purple);"></span>
+        <span id="lt-budget" style="font-size:12px;color:var(--text-muted);"></span>
+        <span id="lt-updated" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;">
+        Each page costs 1 SERP lookup + up to 4 backlink lookups, all cached ~30 days and
+        capped daily — a full refresh spreads across a few days and resumes on its own.
+        Rows are ordered by where your outreach effort pays first: small feasible gaps on
+        high-demand pages at the top, don't-bother verdicts at the bottom.</p>
+</div>
+
+<div id="lt-body"><p class="pb-loading">Loading…</p></div>
+<div id="lt-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let LT = null;
+function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function ltToast(m,e){const t=document.getElementById('lt-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
+
+const LT_VERDICT = {
+    close:            {label:'CLOSE — few links needed',     color:'#059669'},
+    authority_gap:    {label:'AUTHORITY GAP',                color:'#d97706'},
+    parity:           {label:'PARITY — links not the fix',   color:'#2563eb'},
+    marketplace_locked:{label:'MARKETPLACE-LOCKED',          color:'#94a3b8'},
+    pending:          {label:'AWAITING BUDGET',              color:'#7c3aed'},
+    unknown:          {label:'NOT MEASURED YET',             color:'#94a3b8'},
+};
+
+async function loadLT(){
+    const res = await fetch('/api/link-targets');
+    LT = await res.json();
+    document.getElementById('lt-job').textContent =
+        LT.job&&LT.job.running ? '⏳ '+(LT.job.phase||'working…') : (LT.job&&LT.job.note||'');
+    const b = LT.budget||{};
+    document.getElementById('lt-budget').textContent =
+        (b.backlinks_today!=null) ? `Budget left today: ${b.backlinks_today} backlink · ${b.serps_today} SERP lookups` : '';
+    document.getElementById('lt-updated').textContent =
+        LT.updated_at ? ('Updated '+LT.updated_at.replace('T',' ')) : '';
+    render();
+    if(LT.job&&LT.job.running) setTimeout(loadLT, 4000);
+}
+
+function render(){
+    const body = document.getElementById('lt-body');
+    const ts = LT.targets||[];
+    if(!ts.length){
+        body.innerHTML = '<p class="empty-state">No authority-blocked pages found yet. This list is fed by Striking Distance rows whose only remaining lever is external links — run an evaluation, then hit “Measure gaps”.</p>';
+        return;
+    }
+    let html = `<table class="pb-table"><thead><tr>
+        <th>Page</th><th>Blocked keywords</th>
+        <th title="Referring domains pointing at YOUR page (page-level, one per domain)">Your RDs</th>
+        <th title="Referring-domain counts of the pages ranking top-5 for the primary keyword (marketplace/social slots excluded — they can't be displaced by links)">Top-5 pages' RDs</th>
+        <th>Est. gap</th><th>Prospects ready</th><th>Verdict</th></tr></thead><tbody>`;
+    ts.forEach(t=>{
+        const v = LT_VERDICT[t.verdict]||LT_VERDICT.unknown;
+        const kws = (t.keywords||[]).slice(0,4).map(k=>
+            `<div style="font-size:12px;">“${escHtml(k.query)}” <span style="color:var(--text-muted);">#${k.position} · ${(k.impressions||0).toLocaleString()} impr</span></div>`).join('')
+            + ((t.keywords||[]).length>4?`<div style="font-size:11px;color:var(--text-muted);">+${t.keywords.length-4} more</div>`:'');
+        const comps = (t.competitors||[]).map(c=>
+            `<div style="font-size:11px;">${escHtml(c.domain)} — <strong>${c.rd}${c.rd_capped?'+':''}</strong></div>`).join('')
+            + (t.non_emulable_slots?`<div style="font-size:11px;color:var(--text-muted);">${t.non_emulable_slots} marketplace/social slot(s) excluded</div>`:'');
+        const gap = (t.verdict==='authority_gap'||t.verdict==='close')
+            ? `<span style="font-weight:700;color:${v.color};white-space:nowrap;">≈ +${t.gap_lo}–${t.gap_hi} RDs</span>`
+            : '<span style="color:var(--text-muted);">—</span>';
+        const pr = t.prospects_ready
+            ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready} ready</a>`
+            : '<span style="color:var(--text-muted);">none yet</span>';
+        html += `<tr>
+            <td><a href="${escHtml(t.url)}" target="_blank" title="${escHtml(t.url)}">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a>
+                <div style="font-size:11px;color:var(--text-muted);">${(t.total_impressions||0).toLocaleString()} impr across ${(t.keywords||[]).length} keyword(s)</div></td>
+            <td>${kws}</td>
+            <td class="pb-num">${t.own_rd!=null?`${t.own_rd}${t.own_rd_capped?'+':''}`:'—'}</td>
+            <td>${comps||'<span style="color:var(--text-muted);">—</span>'}</td>
+            <td>${gap}</td>
+            <td>${pr}</td>
+            <td style="max-width:240px;"><span style="color:${v.color};font-weight:700;font-size:12px;">${v.label}</span>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${escHtml(t.note||'')}</div></td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+}
+
+async function ltRefresh(btn){
+    btn.disabled = true;
+    const d = await (await fetch('/api/link-targets/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    ltToast(d.success?'Measuring — a few pages per day within API budget…':(d.error||'Failed'),!d.success);
+    btn.disabled = false; setTimeout(loadLT, 1500);
+}
+loadLT();
+</script>
+{% endblock %}

@@ -11557,6 +11557,109 @@ def api_institutional_check_sources():
 
 
 # ============================================================
+# LINK TARGETS — surgical link-gap analysis per authority-blocked page
+# ============================================================
+
+_lt_job = {"running": False, "phase": "", "note": ""}
+
+
+def _lt_refresh_job():
+    from src.analysis import link_targets as lt
+    from src.analysis.growth_playbook import find_striking_distance
+    from src.data_sources.serp_client import fetch_serp
+    from src.data_sources.dataforseo_client import fetch_referring_links
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+        striking = find_striking_distance(results,
+                                          system_disallow=_robots_disallow_rules())
+        targets = lt.build_targets(striking)
+        store = lt.load_store()
+        # One entry per page CURRENTLY authority-blocked: cached numbers carry
+        # forward, departed pages drop off, never-measured pages stay listed
+        # as 'unknown' so the screen shows the full queue.
+        fresh_map = {}
+        for t in targets:
+            cached = store["targets"].get(t["url"]) or {}
+            cached.update({k: t[k] for k in
+                           ("url", "keywords", "total_impressions", "asset_type")})
+            cached.setdefault("verdict", "unknown")
+            fresh_map[t["url"]] = cached
+        store["targets"] = fresh_map
+        lt.save_store(store)
+
+        computed, budget_out = 0, False
+        for url, t in fresh_map.items():
+            if budget_out or lt.is_fresh(t):
+                continue
+            _lt_job["phase"] = f"measuring {url.rsplit('/', 1)[-1][:40]}…"
+            fresh_map[url] = lt.compute_target(
+                t, fetch_serp,
+                lambda u: fetch_referring_links(u, limit=lt.RD_LOOKUP_LIMIT))
+            store["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            lt.save_store(store)
+            note = (fresh_map[url].get("note") or "").lower()
+            if fresh_map[url].get("verdict") != "pending":
+                computed += 1
+            elif "cap" in note or "quota" in note or "unavailable" in note:
+                budget_out = True  # resume on the next refresh/day
+        _lt_job["note"] = (f"{computed} page(s) measured this run; "
+                           f"{sum(1 for v in store['targets'].values() if v.get('verdict') == 'pending')} "
+                           "awaiting budget.")
+    except Exception as e:
+        _lt_job["note"] = f"Refresh failed: {e}"
+    finally:
+        _lt_job["running"] = False
+        _lt_job["phase"] = ""
+
+
+@app.route("/link-targets")
+def link_targets_page():
+    return render_template("link_targets.html")
+
+
+@app.route("/api/link-targets")
+def api_link_targets():
+    from src.analysis import link_targets as lt
+    store = lt.load_store()
+    targets = lt.rank_targets(list(store.get("targets", {}).values()))
+    # Join: how many qualified link prospects already point at each page.
+    try:
+        from src.analysis.link_prospects import load_link_prospects, load_statuses
+        lp = load_link_prospects() or {}
+        st = load_statuses()
+        by_url = {}
+        for p in lp.get("prospects", []):
+            if (p.get("tier") or 0) <= 0:
+                continue
+            if st.get((p.get("domain") or "").lower(), {}).get("status") == "skipped":
+                continue
+            by_url[p.get("target_url", "")] = by_url.get(p.get("target_url", ""), 0) + 1
+        for t in targets:
+            t["prospects_ready"] = by_url.get(t["url"], 0)
+    except Exception:
+        pass
+    try:
+        from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
+        from src.data_sources.serp_client import get_remaining_quota
+        budget = {"backlinks_today": get_backlinks_remaining_quota(),
+                  "serps_today": get_remaining_quota()}
+    except Exception:
+        budget = {}
+    return jsonify({"targets": targets, "updated_at": store.get("updated_at"),
+                    "job": _lt_job, "budget": budget})
+
+
+@app.route("/api/link-targets/refresh", methods=["POST"])
+def api_link_targets_refresh():
+    if _lt_job["running"]:
+        return jsonify({"error": "A refresh is already running."}), 400
+    _lt_job.update({"running": True, "phase": "starting…", "note": ""})
+    threading.Thread(target=_lt_refresh_job, daemon=True).start()
+    return jsonify({"success": True})
+
+
+# ============================================================
 # RUN SERVER
 # ============================================================
 
