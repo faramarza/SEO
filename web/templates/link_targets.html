@@ -84,9 +84,9 @@ function render(){
             + (t.non_emulable_slots?`<div style="font-size:11px;color:var(--text-muted);">${t.non_emulable_slots} marketplace/social slot(s) excluded</div>`:'');
         const gapTip = 'RD = referring domain: one distinct website linking to you, counted once no matter how many links it gives. The low number matches the weakest site outranking you (your working target); the high number matches the strongest.';
         const gap = (t.verdict==='authority_gap'||t.verdict==='close')
-            ? `<span style="font-weight:700;color:${v.color};" title="${gapTip}">needs ${t.gap_lo}–${t.gap_hi} more<br><span style="font-weight:400;font-size:10px;">referring domains, to this page<br>(yours: ${t.own_rd!=null?t.own_rd:'?'})</span></span>`
+            ? `<span style="font-weight:700;color:${v.color};" title="${gapTip}">needs ${t.gap_lo}–${t.gap_hi} more<br><span style="font-weight:400;font-size:10px;">websites linking to this page<br>(it has: ${t.own_rd!=null?t.own_rd:'?'})</span></span>`
             : (t.verdict==='domain_gap')
-            ? `<span style="font-weight:700;color:${v.color};" title="${gapTip}">needs ${t.gap_lo}–${t.gap_hi} more<br><span style="font-weight:400;font-size:10px;">referring domains, to your SITE — any strong page counts<br>(yours: ${t.own_domain_rd!=null?t.own_domain_rd:'?'})</span></span>`
+            ? `<span style="font-weight:700;color:${v.color};" title="${gapTip}">needs ${t.gap_lo}–${t.gap_hi} more<br><span style="font-weight:400;font-size:10px;">websites linking to your site — any page counts<br>(you have: ${t.own_domain_rd!=null?t.own_domain_rd:'?'})</span></span>`
             : '<span style="color:var(--text-muted);">—</span>';
         const pr = t.prospects_ready
             ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready} ready</a>`
