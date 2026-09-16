@@ -27,17 +27,18 @@ def test_build_targets_groups_by_page():
     assert a["keywords"][0]["query"] == "kw two"  # highest impressions first
 
 
-def test_gap_verdict_range():
+def test_gap_verdict_single_number_on_median():
+    # median of [9,14,31] is 14; own 2 → aim for ~12, ONE number.
     v, lo, hi, note = lt.gap_verdict(own_rd=2, comp_rds=[9, 14, 31],
                                      emulable_slots=3, total_slots=8)
-    assert v == "authority_gap" and (lo, hi) == (7, 29)
-    assert "9–31" in note and "necessary, not sufficient" in note
+    assert v == "authority_gap" and lo == hi == 12
+    assert "about 12 more" in note
 
 
 def test_gap_verdict_close():
-    v, lo, hi, _ = lt.gap_verdict(own_rd=8, comp_rds=[9, 10, 12],
+    v, lo, hi, _ = lt.gap_verdict(own_rd=10, comp_rds=[9, 12, 14],
                                   emulable_slots=3, total_slots=8)
-    assert v == "close" and lo == 1 and hi == 4
+    assert v == "close" and lo == hi == 2  # median 12 - 10
 
 
 def test_gap_verdict_parity_says_links_not_the_fix():
@@ -45,6 +46,15 @@ def test_gap_verdict_parity_says_links_not_the_fix():
                                      emulable_slots=3, total_slots=8)
     assert v == "parity" and lo == hi == 0
     assert "content/relevance" in note
+
+
+def test_gap_verdict_mixed_when_dispersed():
+    # A 3-link page and a 9000-link page both rank → link count isn't the
+    # lever; refuse to invent a target.
+    v, lo, hi, note = lt.gap_verdict(own_rd=5, comp_rds=[3, 40, 9000],
+                                     emulable_slots=3, total_slots=8)
+    assert v == "mixed" and lo == hi == 0
+    assert "isn't what's sorting" in note
 
 
 def test_gap_verdict_zero_page_links_needs_domain_data():
@@ -56,12 +66,13 @@ def test_gap_verdict_zero_page_links_needs_domain_data():
 
 
 def test_gap_verdict_domain_gap():
+    # domain median of [300,900,2400] is 900; own 150 → ~750, one number.
     v, lo, hi, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 1],
                                      emulable_slots=3, total_slots=8,
                                      own_dom_rd=150,
-                                     comp_dom_rds=[300, 900, 2400])
-    assert v == "domain_gap" and (lo, hi) == (150, 2250)
-    assert "DOMAIN authority" in note and "ANY strong page" in note
+                                     comp_dom_rds=[300, 900, 1200])
+    assert v == "domain_gap" and lo == hi == 750
+    assert "DOMAIN authority" in note and "any strong page" in note.lower()
 
 
 def test_gap_verdict_domain_parity():
@@ -127,7 +138,7 @@ def test_compute_target_pipeline():
     t = lt.compute_target(target, serp, rd)
     assert t["verdict"] == "authority_gap"
     assert t["own_rd"] == 3 and t["non_emulable_slots"] == 1
-    assert (t["gap_lo"], t["gap_hi"]) == (5, 17)
+    assert t["gap_lo"] == t["gap_hi"]  # single number (median-anchored)
     assert len(t["competitors"]) == 3
     assert t["model"] == lt.MODEL_VERSION
 
@@ -160,7 +171,7 @@ def test_compute_target_domain_level_path():
         ["compa.com", "compb.com", "compc.com"]
     assert t["verdict"] == "domain_gap"
     assert t["own_domain_rd"] == 150
-    assert (t["gap_lo"], t["gap_hi"]) == (150, 2250)
+    assert t["gap_lo"] == t["gap_hi"]  # single median-anchored number
 
 
 def test_compute_target_budget_exhaustion_is_visible():

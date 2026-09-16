@@ -25,10 +25,15 @@ FRESH_DAYS = 30
 RD_LOOKUP_LIMIT = 300          # counts above this display as "300+"
 
 # Results whose ranking cannot be emulated by earning links to a shop page:
-# marketplaces (their authority is the platform) and social/UGC platforms.
+# marketplaces (their authority is the platform), social/UGC, and Q&A/reference
+# mega-sites whose referring-domain totals are so large they poison a gap
+# estimate (you don't out-link Quora — you don't compete with it at all).
 NON_EMULABLE = ("amazon.", "etsy.", "walmart.", "target.com", "ebay.",
                 "wayfair.", "temu.", "aliexpress.", "pinterest.", "youtube.",
-                "facebook.", "instagram.", "reddit.", "wikipedia.", "tiktok.")
+                "facebook.", "instagram.", "reddit.", "wikipedia.", "tiktok.",
+                "quora.", "wikihow.", "medium.com", "linkedin.", "yelp.",
+                "nytimes.", "goodhousekeeping.", "parents.com", "verywell",
+                "healthline.", "webmd.", "britannica.")
 
 
 def load_store(path: Path = STORE_PATH) -> dict:
@@ -61,16 +66,27 @@ def is_emulable(url: str) -> bool:
     return bool(d) and not any(n in d for n in NON_EMULABLE)
 
 
+# URL patterns that are never worth a link-building target: author bylines,
+# tag/category listing pages, pagination, search, and feeds.
+_NON_TARGET_PAT = re.compile(
+    r"/(author|tag|tags|category|categories|page|search|feed|rss)/", re.I)
+
+
+def _worth_targeting(url: str) -> bool:
+    return bool(url) and not _NON_TARGET_PAT.search(url)
+
+
 def build_targets(striking_rows):
     """Group authority-blocked striking rows by PAGE → one target per page
     with all its blocked keywords. This is the 'which pages, which keywords'
-    list; the gap fill adds the numbers."""
+    list; the gap fill adds the numbers. Author/tag/listing pages are dropped
+    — you don't build links to a byline page."""
     by_url = {}
     for r in striking_rows or []:
         if r.get("lever") != "external":
             continue
         url = r.get("url", "")
-        if not url:
+        if not url or not _worth_targeting(url):
             continue
         t = by_url.setdefault(url, {"url": url,
                                     "asset_type": r.get("asset_type", "other"),
@@ -87,11 +103,32 @@ def build_targets(striking_rows):
 
 # Bump when the verdict model changes — old measurements re-measure instead
 # of displaying conclusions the current model would not draw.
-# v3: exact referring-domain totals from the summary endpoint (the capped
-# link-list counting saturated at the fetch limit and faked parity between
-# any two large sites), and the page-level path keys on the MEDIAN
-# competitor page (one outlier page no longer sets the model).
-MODEL_VERSION = 3
+# v4: ONE number anchored on the MEDIAN (typical) competitor, not a min-to-max
+# range that spanned six orders of magnitude and read as noise. Plus a
+# mixed-signals verdict when the ranking pages' link counts are wildly
+# dispersed — then link count doesn't decide that SERP and no honest target
+# exists (it's a content/relevance play).
+MODEL_VERSION = 4
+
+
+def _median(xs):
+    s = sorted(xs)
+    n = len(s)
+    if not n:
+        return 0
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+def _dispersed(vals):
+    """True when the ranking pages' link counts are too spread out for link
+    count to be what's sorting the SERP — e.g. a 2-link blog and a 9000-link
+    site both ranking. No honest link target can come from such a SERP."""
+    vals = [v for v in vals if v is not None]
+    if len(vals) < 2:
+        return False
+    lo, hi = min(vals), max(vals)
+    med = _median(vals) or 1
+    return hi >= 20 * med and lo <= med / 4
 
 # Below this, competitor PAGES effectively carry no direct links and rankings
 # ride DOMAIN authority + internal links instead — the common case for
@@ -120,58 +157,62 @@ def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots,
                     "long-tail variants instead.")
         return ("unknown", 0, 0, "No competitor link data yet.")
 
-    lo, hi = min(comp_rds), max(comp_rds)
-    med = sorted(comp_rds)[len(comp_rds) // 2]
+    med_page = _median(comp_rds)
 
-    if med >= PAGE_LINKS_MEANINGFUL:
+    if med_page >= PAGE_LINKS_MEANINGFUL:
         # Their pages genuinely earn direct links — page-level comparison.
-        if own_rd >= hi:
+        if _dispersed(comp_rds):
+            return ("mixed", 0, 0,
+                    f"The pages ranking here span {min(comp_rds)}–"
+                    f"{max(comp_rds)} referring domains — link count isn't "
+                    "what's sorting this result, so there's no honest link "
+                    "target. It's a content/relevance/intent play.")
+        med = round(med_page)
+        if own_rd >= med:
             return ("parity", 0, 0,
-                    f"Your page has {own_rd} referring domains vs the top "
-                    f"pages' {lo}–{hi} — link parity at page AND ranking "
-                    "level. The gap is content/relevance/intent; spend "
+                    f"Your page ({own_rd} referring domains) already matches "
+                    f"the typical page-1 competitor (~{med}). More links "
+                    "won't move it — the gap is content/relevance. Spend "
                     "effort on-page.")
-        gap_lo = max(1, lo - own_rd)
-        gap_hi = max(gap_lo, hi - own_rd)
-        if gap_hi <= 5:
-            return ("close", gap_lo, gap_hi,
-                    f"Small gap: top pages hold {lo}–{hi} referring domains "
-                    f"(median {med}) vs your {own_rd}. A handful of good "
-                    "links puts you in their company — highest-feasibility "
-                    "target.")
-        return ("authority_gap", gap_lo, gap_hi,
-                f"Top pages hold {lo}–{hi} referring domains (median {med}) "
-                f"vs your {own_rd}. Roughly {gap_lo}–{gap_hi} more quality "
-                "referring domains puts this page in their company — "
-                "necessary, not sufficient: content must stay competitive.")
+        gap = max(1, round(med - own_rd))
+        v = "close" if gap <= 5 else "authority_gap"
+        return (v, gap, gap,
+                f"The typical page ranking here has ~{med} referring domains; "
+                f"yours has {own_rd}. Aim for about {gap} more websites "
+                "linking to this page. Necessary, not sufficient — content "
+                "must stay competitive.")
 
     # Their pages carry ~no direct links — the ranking driver is the DOMAIN.
     if not comp_dom_rds or own_dom_rd is None:
         return ("unknown", 0, 0,
                 "Competitor pages carry ~no direct links (normal for deep "
                 "pages) — domain-level data needed and not yet measured.")
-    d_lo, d_hi = min(comp_dom_rds), max(comp_dom_rds)
-    if own_dom_rd >= d_hi:
+    if _dispersed(comp_dom_rds):
+        return ("mixed", 0, 0,
+                f"The sites ranking here span {min(comp_dom_rds)}–"
+                f"{max(comp_dom_rds)} referring domains — domain strength "
+                "isn't what's sorting this result, so there's no honest link "
+                "target. It's a content/relevance play.")
+    d_med = round(_median(comp_dom_rds))
+    if own_dom_rd >= d_med:
         return ("parity", 0, 0,
-                f"Neither their pages nor yours carry direct links, and your "
-                f"DOMAIN ({own_dom_rd} referring domains) matches or exceeds "
-                f"theirs ({d_lo}–{d_hi}). Links are NOT the constraint — the "
-                "gap is content/relevance. Spend effort on-page.")
-    g_lo = max(1, d_lo - own_dom_rd)
-    g_hi = max(g_lo, d_hi - own_dom_rd)
-    return ("domain_gap", g_lo, g_hi,
-            f"Their pages, like yours, have ~no direct links — rankings here "
-            f"ride DOMAIN authority: their domains hold {d_lo}–{d_hi} "
-            f"referring domains vs your {own_dom_rd}. Build links to ANY "
-            "strong page of your site (guides and linkable content work "
-            "best) and funnel internal links to this page — the gap is at "
-            "domain level, ≈ {}–{} more referring domains.".format(g_lo, g_hi))
+                f"Your DOMAIN ({own_dom_rd} referring domains) already matches "
+                f"the typical competitor here (~{d_med}). Links are NOT the "
+                "constraint — the gap is content/relevance. Spend effort "
+                "on-page.")
+    g = max(1, round(d_med - own_dom_rd))
+    return ("domain_gap", g, g,
+            f"Their pages, like yours, have ~no direct links — rankings ride "
+            f"DOMAIN authority. The typical competitor's site has ~{d_med} "
+            f"referring domains vs your {own_dom_rd}. Aim for about {g} more "
+            "websites linking to your site (any strong page — guides and "
+            "linkable content work best), then funnel internal links here.")
 
 
 # Effort ordering: feasible-and-valuable first, don't-bother last.
 _VERDICT_RANK = {"close": 0, "authority_gap": 1, "domain_gap": 2,
                  "unknown": 3, "pending": 3,
-                 "parity": 4, "marketplace_locked": 5}
+                 "mixed": 4, "parity": 5, "marketplace_locked": 6}
 
 
 def rank_targets(targets):
