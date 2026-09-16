@@ -11664,7 +11664,8 @@ def api_link_targets():
             if m.get("verdict") not in (None, "unknown", "pending") \
                     and m.get("model") != lt.MODEL_VERSION:
                 for k in ("verdict", "note", "gap_lo", "gap_hi", "competitors",
-                          "own_rd", "own_rd_capped", "computed_at"):
+                          "own_rd", "own_rd_capped", "own_domain_rd",
+                          "own_domain_rd_capped", "computed_at"):
                     m.pop(k, None)
             m.update(t)
             m.setdefault("verdict", "unknown")
