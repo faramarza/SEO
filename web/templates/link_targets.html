@@ -1,119 +1,133 @@
 {% extends "base.html" %}
 {% block title %}Link Targets — Governor{% endblock %}
 {% block content %}
+<style>#lt-modal.hidden{display:none;}</style>
 <div class="page-header">
     <h1>🎯 Link Targets</h1>
     <p class="page-description">
-        The surgical view of your link building: every page the tool has diagnosed as
-        <strong>authority-blocked</strong>, with its keywords, the referring-domain counts of the
-        pages actually ranking top-5, and a <strong>ranged gap estimate</strong> — e.g. “≈ 10–30 more
-        referring domains puts this page in their company.” It's a gap measure, not a promise:
-        links are necessary there, not sufficient. The verdict is allowed to say the opposite —
-        <em>parity</em> means more links are NOT the fix (spend effort on content), and
-        <em>marketplace-locked</em> means no link count displaces Amazon/Etsy from those slots.
+        Every page the tool has diagnosed (from your own GSC data) as
+        <strong>authority-blocked</strong> — ranking just off page 1 with the on-page
+        levers exhausted — with its keywords and how many link prospects are ready.
+        <strong>The referring-domain numbers come from Ahrefs, not this tool.</strong>
+        DataForSEO's backlink index is a fraction of Ahrefs' and gave wrong numbers, so
+        the gap is now computed from an Ahrefs export you paste in — authoritative data
+        you already own. Click <em>Open in Ahrefs</em> on any row to read its SERP
+        overview, then paste the export to record the real gap.
     </p>
 </div>
 
-<div class="card" style="margin-bottom:14px;">
-    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
-        <button class="pb-task-btn" onclick="ltRefresh(this)">📏 Measure gaps</button>
-        <span id="lt-job" style="font-size:12px;color:var(--accent-purple);"></span>
-        <span id="lt-budget" style="font-size:12px;color:var(--text-muted);"></span>
-        <span id="lt-updated" style="font-size:12px;color:var(--text-muted);"></span>
-    </div>
-    <p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;">
-        Each page costs 1 SERP lookup + up to 4 backlink lookups, all cached ~30 days and
-        capped daily — a full refresh spreads across a few days and resumes on its own.
-        Rows are ordered by where your outreach effort pays first: small feasible gaps on
-        high-demand pages at the top, don't-bother verdicts at the bottom.</p>
+<div class="card" style="margin-bottom:14px;font-size:13px;">
+    <strong>How to get the real number for a page (30 seconds):</strong>
+    <ol style="margin:6px 0 0 18px;line-height:1.6;">
+        <li>Click <strong>Open in Ahrefs</strong> on a row → its keyword opens in Keywords Explorer.</li>
+        <li>Scroll to the <strong>SERP overview</strong> → click <strong>Export</strong> (CSV).</li>
+        <li>Back here, click <strong>Paste Ahrefs export</strong> on that row and drop the CSV in.</li>
+    </ol>
+    <p style="margin:8px 0 0;color:var(--text-muted);">The tool reads the <em>Domains</em> column
+    (referring domains) for each ranking page vs your own, and computes the gap on Ahrefs data —
+    the same median math, now on numbers you can trust. Or just read the gap straight off the
+    SERP overview's Domains column yourself; the import is only for recording it here.</p>
 </div>
 
+<div id="lt-updated" style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"></div>
 <div id="lt-body"><p class="pb-loading">Loading…</p></div>
+
+<div id="lt-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div style="max-width:600px;margin:8vh auto;background:var(--bg-card,#fff);border-radius:12px;padding:20px;">
+        <h2 style="margin-top:0;" id="lt-modal-title">Paste Ahrefs SERP-overview export</h2>
+        <p style="font-size:13px;color:var(--text-muted);">Keywords Explorer → your keyword → SERP overview → Export → paste the CSV below.</p>
+        <textarea id="lt-csv" rows="8" style="width:100%;font-size:11px;font-family:monospace;"></textarea>
+        <div style="margin-top:10px;">
+            <button class="pb-task-btn" onclick="ltImport(this)">Compute gap from Ahrefs</button>
+            <button class="pb-task-btn pb-task-btn-alt" onclick="document.getElementById('lt-modal').classList.add('hidden')">Cancel</button>
+        </div>
+    </div>
+</div>
 <div id="lt-toast" class="pb-toast"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-let LT = null;
+let LT = null, LT_TARGET = null;
 function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function ltToast(m,e){const t=document.getElementById('lt-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
 
 const LT_VERDICT = {
     close:            {label:'CLOSE — few links needed',       color:'#059669'},
     authority_gap:    {label:'PAGE AUTHORITY GAP',             color:'#d97706'},
-    domain_gap:       {label:'DOMAIN AUTHORITY GAP',           color:'#b45309'},
     mixed:            {label:'LINKS AREN’T THE LEVER',    color:'#2563eb'},
     parity:           {label:'PARITY — links not the fix',     color:'#2563eb'},
     out_of_reach:     {label:'OUT OF REACH — chase long-tail', color:'#94a3b8'},
     marketplace_locked:{label:'MARKETPLACE-LOCKED',            color:'#94a3b8'},
-    pending:          {label:'AWAITING BUDGET',                color:'#7c3aed'},
-    unknown:          {label:'NOT MEASURED YET',               color:'#94a3b8'},
+    pending:          {label:'NEEDS AHREFS DATA',              color:'#7c3aed'},
+    unknown:          {label:'NOT YET CHECKED',                color:'#94a3b8'},
 };
 
 async function loadLT(){
-    const res = await fetch('/api/link-targets');
-    LT = await res.json();
-    document.getElementById('lt-job').textContent =
-        LT.job&&LT.job.running ? '⏳ '+(LT.job.phase||'working…') : (LT.job&&LT.job.note||'');
-    const b = LT.budget||{};
-    document.getElementById('lt-budget').textContent =
-        (b.backlinks_today!=null) ? `Budget left today: ${b.backlinks_today} backlink · ${b.serps_today} SERP lookups` : '';
+    LT = await (await fetch('/api/link-targets')).json();
     document.getElementById('lt-updated').textContent =
-        LT.updated_at ? ('Updated '+LT.updated_at.replace('T',' ')) : '';
+        LT.updated_at ? ('Last import ' + LT.updated_at.replace('T',' ')) : '';
     render();
-    if(LT.job&&LT.job.running) setTimeout(loadLT, 4000);
 }
 
 function render(){
     const body = document.getElementById('lt-body');
     const ts = LT.targets||[];
-    if(!ts.length){
-        body.innerHTML = '<p class="empty-state">No authority-blocked pages in the current evaluation — every striking-distance query still has a cheaper lever (internal links or on-page) available. This list fills itself from your normal evaluations; nothing to run here.</p>';
-        return;
-    }
+    if(!ts.length){ body.innerHTML='<p class="empty-state">No authority-blocked pages in the current evaluation — every striking-distance query still has a cheaper on-page lever. This fills from your normal evaluations.</p>'; return; }
     let html = `<table class="pb-table"><thead><tr>
-        <th>Page</th><th>Blocked keywords</th>
-        <th title="Referring domains pointing at YOUR page (page-level, one per domain)">Your RDs</th>
-        <th title="Referring-domain counts of the pages ranking top-5 for the primary keyword (marketplace/social slots excluded — they can't be displaced by links)">Top-5 pages' RDs</th>
-        <th>Est. gap</th><th>Prospects ready</th><th>Verdict</th></tr></thead><tbody>`;
+        <th>Page</th><th>Blocked keyword</th><th>Gap (from Ahrefs)</th><th>Prospects</th><th>Verdict</th><th></th></tr></thead><tbody>`;
     ts.forEach(t=>{
         const v = LT_VERDICT[t.verdict]||LT_VERDICT.unknown;
-        const kws = (t.keywords||[]).slice(0,4).map(k=>
+        const kw = (t.keywords||[])[0]||{};
+        const kws = (t.keywords||[]).slice(0,3).map(k=>
             `<div style="font-size:12px;">“${escHtml(k.query)}” <span style="color:var(--text-muted);">#${k.position} · ${(k.impressions||0).toLocaleString()} impr</span></div>`).join('')
-            + ((t.keywords||[]).length>4?`<div style="font-size:11px;color:var(--text-muted);">+${t.keywords.length-4} more</div>`:'');
-        const comps = (t.competitors||[]).map(c=>
-            `<div style="font-size:11px;">${escHtml(c.domain)} — page <strong>${c.rd}${c.rd_capped?'+':''}</strong>${c.domain_rd!=null?` · domain <strong>${c.domain_rd}${c.domain_rd_capped?'+':''}</strong>`:''}</div>`).join('')
-            + (t.non_emulable_slots?`<div style="font-size:11px;color:var(--text-muted);">${t.non_emulable_slots} marketplace/social slot(s) excluded</div>`:'');
-        const gapTip = 'RD = referring domain: one distinct website linking to you, counted once no matter how many links it gives. The low number matches the weakest site outranking you (your working target); the high number matches the strongest.';
-        const gap = (t.verdict==='authority_gap'||t.verdict==='close')
-            ? `<span style="font-weight:700;color:${v.color};" title="${gapTip}">~${t.gap_lo} more<br><span style="font-weight:400;font-size:10px;">websites linking to this page<br>(it has: ${t.own_rd!=null?t.own_rd:'?'})</span></span>`
-            : (t.verdict==='domain_gap')
-            ? `<span style="font-weight:700;color:${v.color};" title="${gapTip}">~${t.gap_lo} more<br><span style="font-weight:400;font-size:10px;">websites linking to your site — any page counts<br>(you have: ${t.own_domain_rd!=null?t.own_domain_rd:'?'})</span></span>`
-            : '<span style="color:var(--text-muted);">—</span>';
+            + ((t.keywords||[]).length>3?`<div style="font-size:11px;color:var(--text-muted);">+${t.keywords.length-3} more</div>`:'');
+        let gap = '<span style="color:var(--text-muted);">—</span>';
+        if((t.verdict==='authority_gap'||t.verdict==='close') && t.gap_lo){
+            gap = `<span style="font-weight:700;color:${v.color};">~${t.gap_lo} more<br><span style="font-weight:400;font-size:10px;">websites linking to this page (it has ${t.own_rd})</span></span>`;
+        } else if(['parity','mixed','out_of_reach'].includes(t.verdict) && t.own_rd!=null){
+            gap = `<span style="font-size:11px;color:${v.color};">your page: ${t.own_rd} linking sites</span>`;
+        }
         const pr = t.prospects_ready
-            ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready} ready</a>`
-            : '<span style="color:var(--text-muted);">none yet</span>';
+            ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready}</a>`
+            : '<span style="color:var(--text-muted);">—</span>';
         html += `<tr>
-            <td><a href="${escHtml(t.url)}" target="_blank" title="${escHtml(t.url)}">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a>
-                <div style="font-size:11px;color:var(--text-muted);">${(t.total_impressions||0).toLocaleString()} impr across ${(t.keywords||[]).length} keyword(s)</div></td>
+            <td><a href="${escHtml(t.url)}" target="_blank">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a></td>
             <td>${kws}</td>
-            <td class="pb-num">${t.own_rd!=null?`page ${t.own_rd}${t.own_rd_capped?'+':''}`:'—'}${t.own_domain_rd!=null?`<br><span style="font-size:11px;">domain ${t.own_domain_rd}${t.own_domain_rd_capped?'+':''}</span>`:''}</td>
-            <td>${comps||'<span style="color:var(--text-muted);">—</span>'}</td>
             <td>${gap}</td>
             <td>${pr}</td>
             <td style="max-width:240px;"><span style="color:${v.color};font-weight:700;font-size:12px;">${v.label}</span>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${escHtml(t.note||'')}</div></td>
+                ${t.note?`<div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${escHtml(t.note)}</div>`:''}</td>
+            <td style="white-space:nowrap;">
+                ${t.ahrefs_url?`<a class="pb-task-btn pb-task-btn-alt" href="${escHtml(t.ahrefs_url)}" target="_blank">Open in Ahrefs ↗</a>`:''}
+                <button class="pb-task-btn" onclick='ltOpenImport(${JSON.stringify(t.url)}, ${JSON.stringify(kw.query||"")})'>Paste Ahrefs export</button>
+            </td>
         </tr>`;
     });
     html += '</tbody></table>';
     body.innerHTML = html;
 }
 
-async function ltRefresh(btn){
-    btn.disabled = true;
-    const d = await (await fetch('/api/link-targets/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
-    ltToast(d.success?'Measuring — a few pages per day within API budget…':(d.error||'Failed'),!d.success);
-    btn.disabled = false; setTimeout(loadLT, 1500);
+function ltOpenImport(url, kw){
+    LT_TARGET = url;
+    document.getElementById('lt-modal-title').textContent = 'Paste Ahrefs SERP export for “'+kw+'”';
+    document.getElementById('lt-csv').value = '';
+    document.getElementById('lt-modal').classList.remove('hidden');
+}
+async function ltImport(btn){
+    const csv = document.getElementById('lt-csv').value;
+    if(!csv.trim()){ ltToast('Paste the CSV first', true); return; }
+    btn.disabled=true;
+    const d = await (await fetch('/api/link-targets/import',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:LT_TARGET, csv_text:csv})})).json();
+    btn.disabled=false;
+    if(d.success){
+        document.getElementById('lt-modal').classList.add('hidden');
+        const t=d.target;
+        ltToast(t.verdict==='pending' ? (t.note||'Could not read that export') :
+                (t.gap_lo ? `Gap: ~${t.gap_lo} more linking sites` : 'Recorded: '+(LT_VERDICT[t.verdict]||{}).label), t.verdict==='pending');
+        loadLT();
+    } else { ltToast(d.error||'Failed', true); }
 }
 loadLT();
 </script>

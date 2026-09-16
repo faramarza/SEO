@@ -569,21 +569,8 @@ def _run_autoreview_scheduler():
                     _process_seo_loop()
                 except Exception as _le:
                     print(f"[SEOLoop] Error: {_le}")
-                # Link Targets: top up gap measurements with whatever backlink
-                # budget the new day brings — no button-pressing required.
-                try:
-                    from src.analysis import link_targets as _lt
-                    from src.data_sources.dataforseo_client import \
-                        get_backlinks_remaining_quota as _blq
-                    _pending = any(not _lt.is_fresh(t) for t in
-                                   _lt.load_store().get("targets", {}).values())
-                    if _pending and _blq() > 0 and not _lt_job["running"]:
-                        _lt_job.update({"running": True,
-                                        "phase": "daily top-up…", "note": ""})
-                        threading.Thread(target=_lt_refresh_job,
-                                         daemon=True).start()
-                except Exception as _lte:
-                    print(f"[LinkTargets] Error: {_lte}")
+                # Link Targets now runs on operator-pasted Ahrefs exports, not
+                # a DataForSEO polling job — nothing to schedule here.
         except Exception as e:
             print(f"[AutoReview] Error: {e}")
         time.sleep(3600)  # re-check hourly; the day-marker ensures once/day
@@ -11575,63 +11562,6 @@ def api_institutional_check_sources():
 # LINK TARGETS — surgical link-gap analysis per authority-blocked page
 # ============================================================
 
-_lt_job = {"running": False, "phase": "", "note": ""}
-
-
-def _lt_refresh_job():
-    from src.analysis import link_targets as lt
-    from src.analysis.growth_playbook import find_striking_distance
-    from src.data_sources.serp_client import fetch_serp
-    from src.data_sources.dataforseo_client import fetch_backlinks_summary
-
-    def _rd_count(u):
-        s = fetch_backlinks_summary(u)
-        return {"available": s.get("available"),
-                "count": s.get("referring_domains"),
-                "reason": s.get("reason", "")}
-    try:
-        with open(DATA_PATH / "latest_evaluation.json") as f:
-            results = json.load(f).get("results", [])
-        striking = find_striking_distance(results,
-                                          system_disallow=_robots_disallow_rules())
-        targets = lt.build_targets(striking)
-        store = lt.load_store()
-        # One entry per page CURRENTLY authority-blocked: cached numbers carry
-        # forward, departed pages drop off, never-measured pages stay listed
-        # as 'unknown' so the screen shows the full queue.
-        fresh_map = {}
-        for t in targets:
-            cached = store["targets"].get(t["url"]) or {}
-            cached.update({k: t[k] for k in
-                           ("url", "keywords", "total_impressions", "asset_type")})
-            cached.setdefault("verdict", "unknown")
-            fresh_map[t["url"]] = cached
-        store["targets"] = fresh_map
-        lt.save_store(store)
-
-        computed, budget_out = 0, False
-        for url, t in fresh_map.items():
-            if budget_out or lt.is_fresh(t):
-                continue
-            _lt_job["phase"] = f"measuring {url.rsplit('/', 1)[-1][:40]}…"
-            fresh_map[url] = lt.compute_target(t, fetch_serp, _rd_count)
-            store["updated_at"] = datetime.now().isoformat(timespec="seconds")
-            lt.save_store(store)
-            note = (fresh_map[url].get("note") or "").lower()
-            if fresh_map[url].get("verdict") != "pending":
-                computed += 1
-            elif "cap" in note or "quota" in note or "unavailable" in note:
-                budget_out = True  # resume on the next refresh/day
-        _lt_job["note"] = (f"{computed} page(s) measured this run; "
-                           f"{sum(1 for v in store['targets'].values() if v.get('verdict') == 'pending')} "
-                           "awaiting budget.")
-    except Exception as e:
-        _lt_job["note"] = f"Refresh failed: {e}"
-    finally:
-        _lt_job["running"] = False
-        _lt_job["phase"] = ""
-
-
 @app.route("/link-targets")
 def link_targets_page():
     return render_template("link_targets.html")
@@ -11659,13 +11589,11 @@ def api_link_targets():
         merged = []
         for t in live:
             m = dict(stored.get(t["url"]) or {})
-            # Never display conclusions from an outdated verdict model — show
-            # the row as unmeasured and let the refresh re-measure it.
-            if m.get("verdict") not in (None, "unknown", "pending") \
-                    and m.get("model") != lt.MODEL_VERSION:
+            # Only Ahrefs-sourced measurements are shown; anything from the old
+            # DataForSEO model is discarded so a wrong number never resurfaces.
+            if m.get("source") != "ahrefs" or m.get("model") != lt.MODEL_VERSION:
                 for k in ("verdict", "note", "gap_lo", "gap_hi", "competitors",
-                          "own_rd", "own_rd_capped", "own_domain_rd",
-                          "own_domain_rd_capped", "computed_at"):
+                          "own_rd", "own_domain_rd", "computed_at", "source"):
                     m.pop(k, None)
             m.update(t)
             m.setdefault("verdict", "unknown")
@@ -11673,6 +11601,14 @@ def api_link_targets():
         targets = lt.rank_targets(merged)
     else:
         targets = lt.rank_targets(list(store.get("targets", {}).values()))
+    # Deep-link each keyword straight into Ahrefs Keywords Explorer (US) so the
+    # operator reads the authoritative SERP overview in one click.
+    for t in targets:
+        kw = (t.get("keywords") or [{}])[0].get("query", "")
+        if kw:
+            from urllib.parse import quote
+            t["ahrefs_url"] = ("https://app.ahrefs.com/keywords-explorer/google/us/"
+                               "overview?keyword=" + quote(kw))
     # Join: how many qualified link prospects already point at each page.
     try:
         from src.analysis.link_prospects import load_link_prospects, load_statuses
@@ -11689,24 +11625,54 @@ def api_link_targets():
             t["prospects_ready"] = by_url.get(t["url"], 0)
     except Exception:
         pass
+    return jsonify({"targets": targets, "updated_at": store.get("updated_at")})
+
+
+@app.route("/api/link-targets/import", methods=["POST"])
+def api_link_targets_import():
+    """Compute one page's real link gap from an Ahrefs SERP-overview CSV export
+    (Keywords Explorer → export). Authoritative data the operator owns; no
+    DataForSEO. Body: {url, csv_text}."""
+    from src.analysis import link_targets as lt
+    body = request.json or {}
+    url = body.get("url", "")
+    store = lt.load_store()
+    t = store["targets"].get(url)
+    if not t:
+        # Rebuild the queue so a just-appeared page can still be imported.
+        try:
+            with open(DATA_PATH / "latest_evaluation.json") as f:
+                results = json.load(f).get("results", [])
+            from src.analysis.growth_playbook import find_striking_distance
+            for cand in lt.build_targets(find_striking_distance(
+                    results, system_disallow=_robots_disallow_rules())):
+                store["targets"].setdefault(cand["url"], cand)
+            t = store["targets"].get(url)
+        except Exception:
+            t = None
+    if not t:
+        return jsonify({"error": "That page isn't in the target list."}), 404
+    own_domain = _re_own_domain()
+    t = lt.gap_from_ahrefs(t, body.get("csv_text") or "", own_domain)
+    store["targets"][url] = t
+    store["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    lt.save_store(store)
+    return jsonify({"success": True, "target": t})
+
+
+def _re_own_domain():
+    """The store's own bare domain, for matching the operator's page in an
+    Ahrefs export."""
     try:
-        from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
-        from src.data_sources.serp_client import get_remaining_quota
-        budget = {"backlinks_today": get_backlinks_remaining_quota(),
-                  "serps_today": get_remaining_quota()}
+        cfg = load_config()
+        url = cfg.get("data_sources", {}).get("gsc", {}).get("property_url", "") \
+            or cfg.get("site_url", "") or "alphabet-trains.com"
+        import re as _re
+        m = _re.search(r"([a-z0-9-]+\.[a-z.]+)$", url.lower().rstrip("/").split("/")[2]
+                       if "//" in url else url.lower())
+        return m.group(1) if m else "alphabet-trains.com"
     except Exception:
-        budget = {}
-    return jsonify({"targets": targets, "updated_at": store.get("updated_at"),
-                    "job": _lt_job, "budget": budget})
-
-
-@app.route("/api/link-targets/refresh", methods=["POST"])
-def api_link_targets_refresh():
-    if _lt_job["running"]:
-        return jsonify({"error": "A refresh is already running."}), 400
-    _lt_job.update({"running": True, "phase": "starting…", "note": ""})
-    threading.Thread(target=_lt_refresh_job, daemon=True).start()
-    return jsonify({"success": True})
+        return "alphabet-trains.com"
 
 
 # ============================================================

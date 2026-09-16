@@ -195,6 +195,37 @@ def test_compute_target_budget_exhaustion_is_visible():
     assert t2["verdict"] == "pending" and "cap" in t2["note"]
 
 
+def test_gap_from_ahrefs_real_data():
+    # Mirrors the montessori-toys SERP overview: your page 55, competitors 37/25,
+    # a marketplace and a 563-domain brand homepage that get handled.
+    csv_text = (
+        "Position,URL,Domains\n"
+        "2,https://montessorigeneration.com/,563\n"
+        "3,https://www.amazon.com/montessori-toys,9000\n"
+        "5,https://hazelandfawn.com/collections/montessori-toys,37\n"
+        "8,https://montessorimethod.com/toys/,25\n"
+        "14,https://alphabet-trains.com/montessori-toys.html,55\n")
+    t = {"url": "https://alphabet-trains.com/montessori-toys.html",
+         "keywords": [{"query": "montessori toys"}]}
+    out = lt.gap_from_ahrefs(t, csv_text, "alphabet-trains.com")
+    assert out["own_rd"] == 55
+    # amazon excluded; competitors 563/37/25 → median 37; you have 55 > 37 → parity
+    assert out["verdict"] == "parity", (out["verdict"], out["note"])
+    assert out["source"] == "ahrefs"
+
+
+def test_gap_from_ahrefs_real_gap():
+    csv_text = ("Position,URL,Referring Domains\n"
+                "1,https://compa.com/x,90\n"
+                "2,https://compb.com/y,70\n"
+                "3,https://compc.com/z,80\n"
+                "9,https://alphabet-trains.com/p.html,20\n")
+    t = {"url": "https://alphabet-trains.com/p.html", "keywords": [{"query": "kw"}]}
+    out = lt.gap_from_ahrefs(t, csv_text, "alphabet-trains.com")
+    # median competitor 80, you 20 -> ~60 more, page-level authority_gap
+    assert out["own_rd"] == 20 and out["gap_lo"] == 60 and out["verdict"] == "authority_gap"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

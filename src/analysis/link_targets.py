@@ -259,11 +259,96 @@ def is_fresh(entry) -> bool:
         return False
 
 
+def _find_col(fieldnames, *aliases):
+    for f in fieldnames or []:
+        if (f or "").strip().lower() in aliases:
+            return f
+    return None
+
+
+def gap_from_ahrefs(target, csv_text, own_domain):
+    """Compute the link gap for ONE keyword from an Ahrefs 'SERP overview'
+    CSV export — the authoritative source the operator already owns. The
+    export lists each ranking page with its referring-domain count ('Domains'
+    column) and its URL. We read the competitors' counts and the operator's
+    own page count straight from Ahrefs; DataForSEO is not involved. Returns
+    the enriched target (verdict from the same median math, now on real data).
+    """
+    import csv
+    import io
+    try:
+        reader = csv.DictReader(io.StringIO(csv_text))
+        rows = list(reader)
+    except csv.Error as e:
+        target.update({"verdict": "pending", "note": f"Couldn't read the CSV: {e}"})
+        return target
+    if not rows:
+        target.update({"verdict": "pending",
+                       "note": "No rows in that export — is it the SERP overview CSV?"})
+        return target
+    fn = reader.fieldnames or []
+    c_url = _find_col(fn, "url", "target url", "page url")
+    c_dom = _find_col(fn, "domains", "referring domains", "ref domains", "ref. domains")
+    c_pos = _find_col(fn, "position", "pos", "#")
+    if not c_url or not c_dom:
+        target.update({"verdict": "pending",
+                       "note": "That CSV has no URL / Domains columns — export the "
+                               "SERP overview (Keywords Explorer), not a different report."})
+        return target
+
+    own_rd = None
+    comps, seen = [], set()
+    for r in rows:
+        url = (r.get(c_url) or "").strip()
+        dom = _domain(url)
+        try:
+            rd = int(float((r.get(c_dom) or "0").replace(",", "") or 0))
+        except ValueError:
+            continue
+        if not dom:
+            continue
+        if own_domain in dom:                     # our own ranking page
+            own_rd = rd if own_rd is None else max(own_rd, rd)
+            continue
+        if not is_emulable(url) or dom in seen:   # skip marketplaces/dupes
+            continue
+        seen.add(dom)
+        try:
+            pos = int(float(r.get(c_pos) or 0)) if c_pos else 0
+        except ValueError:
+            pos = 0
+        comps.append({"url": url, "domain": dom, "position": pos, "rd": rd})
+
+    comps = sorted(comps, key=lambda c: c.get("position") or 99)[:3]
+    if own_rd is None:
+        target.update({"verdict": "pending",
+                       "note": "Your page isn't in that SERP export — check your own "
+                               "page's referring domains in Site Explorer and note it, "
+                               "or export a SERP overview where your page appears."})
+        return target
+    if not comps:
+        target.update({"verdict": "pending",
+                       "note": "No emulable competitors in the export (all "
+                               "marketplaces/social)."})
+        return target
+
+    comp_rds = [c["rd"] for c in comps]
+    # Ahrefs 'Domains' is page-level referring domains — use the page path of
+    # gap_verdict directly (real per-page counts, no domain fallback needed).
+    v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(rows))
+    target.update({
+        "verdict": v, "gap_lo": lo, "gap_hi": hi, "note": note,
+        "own_rd": own_rd, "competitors": comps, "source": "ahrefs",
+        "model": MODEL_VERSION,
+        "computed_at": datetime.now().isoformat(timespec="seconds"),
+    })
+    return target
+
+
 def compute_target(target, fetch_serp_fn, fetch_rd_fn):
-    """Fill one target with SERP + link-gap data. fetch_serp_fn(query) →
-    serp dict or None; fetch_rd_fn(url) → {"available", "links", "reason"}.
-    Returns the enriched target; on budget exhaustion marks it pending with
-    the reason so the screen shows WHY instead of silently missing data."""
+    """DEPRECATED — DataForSEO-backed measurement. Retained only so existing
+    tests exercise the median math; the live feature uses gap_from_ahrefs()
+    with authoritative Ahrefs data. Do not wire this back into the app."""
     kw = target["keywords"][0]["query"] if target.get("keywords") else ""
     serp = fetch_serp_fn(kw) if kw else None
     if not serp:
