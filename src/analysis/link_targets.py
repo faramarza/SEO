@@ -276,11 +276,23 @@ def gap_from_ahrefs(target, csv_text, own_domain):
     """
     import csv
     import io
-    try:
-        reader = csv.DictReader(io.StringIO(csv_text))
-        rows = list(reader)
-    except csv.Error as e:
-        target.update({"verdict": "pending", "note": f"Couldn't read the CSV: {e}"})
+    # Accept whatever the operator pastes: a raw Ahrefs CSV (comma) OR a copy
+    # from Excel/Numbers/Sheets (tab). Sniff, then fall back to trying both.
+    sample = "\n".join((csv_text or "").splitlines()[:5])
+    delim = "\t" if sample.count("\t") > sample.count(",") else ","
+    rows, reader = [], None
+    for d in (delim, "," if delim != "," else "\t"):
+        try:
+            reader = csv.DictReader(io.StringIO(csv_text), delimiter=d)
+            rows = list(reader)
+        except csv.Error:
+            continue
+        if reader.fieldnames and len(reader.fieldnames) > 1:
+            break
+    if not rows or not reader:
+        target.update({"verdict": "pending",
+                       "note": "Couldn't read that paste — copy the whole CSV "
+                               "(header row included)."})
         return target
     if not rows:
         target.update({"verdict": "pending",
