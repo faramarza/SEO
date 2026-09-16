@@ -108,7 +108,9 @@ def build_targets(striking_rows):
 # mixed-signals verdict when the ranking pages' link counts are wildly
 # dispersed — then link count doesn't decide that SERP and no honest target
 # exists (it's a content/relevance play).
-MODEL_VERSION = 4
+# v5: distinguish a reachable gap from a wall — a domain gap larger than a
+# small store can realistically earn is "out of reach", not a number to chase.
+MODEL_VERSION = 5
 
 
 def _median(xs):
@@ -134,6 +136,12 @@ def _dispersed(vals):
 # ride DOMAIN authority + internal links instead — the common case for
 # category/product pages.
 PAGE_LINKS_MEANINGFUL = 5
+
+# A realistic ceiling on new referring domains a small store can earn through
+# deliberate outreach in a reasonable horizon (~a year of real effort). A gap
+# larger than this is not a to-do — it's a wall, and the honest verdict is
+# "compete on long-tail and content, not links."
+REACHABLE_DOMAINS = 60
 
 
 def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots,
@@ -175,6 +183,13 @@ def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots,
                     "won't move it — the gap is content/relevance. Spend "
                     "effort on-page.")
         gap = max(1, round(med - own_rd))
+        if gap > REACHABLE_DOMAINS:
+            return ("out_of_reach", 0, 0,
+                    f"The pages ranking here have ~{med} referring domains vs "
+                    f"your {own_rd} — a ~{gap}-domain gap that isn't "
+                    "realistically closable for a store this size. Chase the "
+                    "long-tail variants of this keyword instead, where the "
+                    "competing pages are smaller.")
         v = "close" if gap <= 5 else "authority_gap"
         return (v, gap, gap,
                 f"The typical page ranking here has ~{med} referring domains; "
@@ -201,18 +216,28 @@ def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots,
                 "constraint — the gap is content/relevance. Spend effort "
                 "on-page.")
     g = max(1, round(d_med - own_dom_rd))
+    if g > REACHABLE_DOMAINS:
+        return ("out_of_reach", 0, 0,
+                f"The sites ranking here are far larger domains (~{d_med} "
+                f"referring domains vs your {own_dom_rd}). That ~{g}-domain "
+                "gap isn't realistically closable with outreach for a store "
+                "this size — this head term is won on domain scale you don't "
+                "have. Don't spend links here: chase the long-tail variants "
+                "of this keyword (where the competing pages are smaller) and "
+                "make this page the best content for them.")
     return ("domain_gap", g, g,
             f"Their pages, like yours, have ~no direct links — rankings ride "
             f"DOMAIN authority. The typical competitor's site has ~{d_med} "
             f"referring domains vs your {own_dom_rd}. Aim for about {g} more "
-            "websites linking to your site (any strong page — guides and "
+            "websites linking to your SITE (any strong page — guides and "
             "linkable content work best), then funnel internal links here.")
 
 
 # Effort ordering: feasible-and-valuable first, don't-bother last.
 _VERDICT_RANK = {"close": 0, "authority_gap": 1, "domain_gap": 2,
                  "unknown": 3, "pending": 3,
-                 "mixed": 4, "parity": 5, "marketplace_locked": 6}
+                 "mixed": 4, "parity": 5, "out_of_reach": 6,
+                 "marketplace_locked": 7}
 
 
 def rank_targets(targets):

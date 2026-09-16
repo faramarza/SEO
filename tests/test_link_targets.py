@@ -65,14 +65,24 @@ def test_gap_verdict_zero_page_links_needs_domain_data():
     assert v == "unknown" and "domain-level" in note.lower()
 
 
-def test_gap_verdict_domain_gap():
-    # domain median of [300,900,2400] is 900; own 150 → ~750, one number.
+def test_gap_verdict_domain_gap_reachable():
+    # domain median of [180,200,210] is 200; own 160 → ~40 (<=60) reachable.
+    v, lo, hi, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 1],
+                                     emulable_slots=3, total_slots=8,
+                                     own_dom_rd=160,
+                                     comp_dom_rds=[180, 200, 210])
+    assert v == "domain_gap" and lo == hi == 40
+    assert "DOMAIN authority" in note and "any strong page" in note.lower()
+
+
+def test_gap_verdict_out_of_reach():
+    # a 750-domain gap is a wall, not a target.
     v, lo, hi, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 1],
                                      emulable_slots=3, total_slots=8,
                                      own_dom_rd=150,
                                      comp_dom_rds=[300, 900, 1200])
-    assert v == "domain_gap" and lo == hi == 750
-    assert "DOMAIN authority" in note and "any strong page" in note.lower()
+    assert v == "out_of_reach" and lo == hi == 0
+    assert "long-tail" in note
 
 
 def test_gap_verdict_domain_parity():
@@ -169,9 +179,8 @@ def test_compute_target_domain_level_path():
     # Duplicate competitor domain removed; page zeros → domain-level verdict.
     assert [c["domain"] for c in t["competitors"]] == \
         ["compa.com", "compb.com", "compc.com"]
-    assert t["verdict"] == "domain_gap"
+    assert t["verdict"] == "out_of_reach"  # 750-domain gap is a wall
     assert t["own_domain_rd"] == 150
-    assert t["gap_lo"] == t["gap_hi"]  # single median-anchored number
 
 
 def test_compute_target_budget_exhaustion_is_visible():
