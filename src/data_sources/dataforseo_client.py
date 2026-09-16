@@ -318,6 +318,61 @@ def fetch_referring_links(target: str, limit: int = 25) -> dict:
     return out
 
 
+_BACKLINKS_SUMMARY_ENDPOINT = "https://api.dataforseo.com/v3/backlinks/summary/live"
+
+
+def fetch_backlinks_summary(target: str) -> dict:
+    """EXACT referring-domain totals for a domain or page — the right tool for
+    link-gap comparisons (the link-list endpoint caps at its fetch limit, which
+    saturates and fakes parity between any two large sites). Returns
+    {"available": True, "referring_domains": int, "backlinks": int,
+    "rank": int} or {"available": False, "reason": ...}. Cached and counted
+    against the same daily backlink budget."""
+    target = (target or "").strip().lower().rstrip("/")
+    if not target:
+        return {"available": False, "reason": "empty target"}
+    if not is_configured():
+        return {"available": False, "reason": "DataForSEO not configured — set "
+                "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD."}
+    cache = _load_cache()
+    entry = cache.get("backlinks_summary", {}).get(target)
+    if entry and _is_fresh(entry):
+        return entry
+    if get_backlinks_remaining_quota() <= 0:
+        return {"available": False, "reason": "DataForSEO backlinks daily cap reached "
+                f"({BACKLINKS_DAILY_LIMIT}/day). Raise DATAFORSEO_BACKLINKS_DAILY_LIMIT "
+                "or wait for reset."}
+    import httpx
+    token = _auth_token()
+    body = [{"target": target, "include_subdomains": True,
+             "exclude_internal_backlinks": True}]
+    try:
+        resp = httpx.post(_BACKLINKS_SUMMARY_ENDPOINT,
+                          headers={"Authorization": f"Basic {token}",
+                                   "Content-Type": "application/json"},
+                          json=body, timeout=30.0)
+        if resp.status_code in (401, 403):
+            return {"available": False, "reason": "DataForSEO auth failed."}
+        if resp.status_code != 200:
+            return {"available": False, "reason": f"DataForSEO API error {resp.status_code}."}
+        data = resp.json()
+    except Exception as e:
+        return {"available": False, "reason": f"DataForSEO request failed: {e}"}
+    try:
+        result0 = ((data.get("tasks") or [])[0].get("result") or [])[0] or {}
+    except (IndexError, AttributeError, TypeError):
+        result0 = {}
+    out = {"available": True, "target": target,
+           "fetched_at": datetime.now(timezone.utc).isoformat(),
+           "referring_domains": int(result0.get("referring_domains") or 0),
+           "backlinks": int(result0.get("backlinks") or 0),
+           "rank": int(result0.get("rank") or 0)}
+    cache.setdefault("backlinks_summary", {})[target] = out
+    cache.setdefault("backlinks_daily", {})[_today()] = get_backlinks_daily_usage() + 1
+    _save_cache(cache)
+    return out
+
+
 def check_aio_batch(queries: list, own_domain: str = "") -> dict:
     """Check AI-Overview citations for several queries, respecting the daily cap.
     Returns a summary: which queries have an AIO, where you're cited vs not, and

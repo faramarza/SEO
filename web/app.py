@@ -11582,7 +11582,13 @@ def _lt_refresh_job():
     from src.analysis import link_targets as lt
     from src.analysis.growth_playbook import find_striking_distance
     from src.data_sources.serp_client import fetch_serp
-    from src.data_sources.dataforseo_client import fetch_referring_links
+    from src.data_sources.dataforseo_client import fetch_backlinks_summary
+
+    def _rd_count(u):
+        s = fetch_backlinks_summary(u)
+        return {"available": s.get("available"),
+                "count": s.get("referring_domains"),
+                "reason": s.get("reason", "")}
     try:
         with open(DATA_PATH / "latest_evaluation.json") as f:
             results = json.load(f).get("results", [])
@@ -11608,9 +11614,7 @@ def _lt_refresh_job():
             if budget_out or lt.is_fresh(t):
                 continue
             _lt_job["phase"] = f"measuring {url.rsplit('/', 1)[-1][:40]}…"
-            fresh_map[url] = lt.compute_target(
-                t, fetch_serp,
-                lambda u: fetch_referring_links(u, limit=lt.RD_LOOKUP_LIMIT))
+            fresh_map[url] = lt.compute_target(t, fetch_serp, _rd_count)
             store["updated_at"] = datetime.now().isoformat(timespec="seconds")
             lt.save_store(store)
             note = (fresh_map[url].get("note") or "").lower()

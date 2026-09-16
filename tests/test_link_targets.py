@@ -122,7 +122,7 @@ def test_compute_target_pipeline():
                  "https://compc.com/list": 20}
 
     def rd(u):
-        return {"available": True, "links": [{}] * rd_counts[u]}
+        return {"available": True, "count": rd_counts[u]}
 
     t = lt.compute_target(target, serp, rd)
     assert t["verdict"] == "authority_gap"
@@ -152,7 +152,7 @@ def test_compute_target_domain_level_path():
               "compc.com": 2400}
 
     def rd(u):
-        return {"available": True, "links": [{}] * rd_map[u]}
+        return {"available": True, "count": rd_map[u]}
 
     t = lt.compute_target(target, serp, rd)
     # Duplicate competitor domain removed; page zeros → domain-level verdict.

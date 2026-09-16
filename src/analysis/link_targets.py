@@ -87,7 +87,11 @@ def build_targets(striking_rows):
 
 # Bump when the verdict model changes — old measurements re-measure instead
 # of displaying conclusions the current model would not draw.
-MODEL_VERSION = 2
+# v3: exact referring-domain totals from the summary endpoint (the capped
+# link-list counting saturated at the fetch limit and faked parity between
+# any two large sites), and the page-level path keys on the MEDIAN
+# competitor page (one outlier page no longer sets the model).
+MODEL_VERSION = 3
 
 # Below this, competitor PAGES effectively carry no direct links and rankings
 # ride DOMAIN authority + internal links instead — the common case for
@@ -119,7 +123,7 @@ def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots,
     lo, hi = min(comp_rds), max(comp_rds)
     med = sorted(comp_rds)[len(comp_rds) // 2]
 
-    if hi >= PAGE_LINKS_MEANINGFUL:
+    if med >= PAGE_LINKS_MEANINGFUL:
         # Their pages genuinely earn direct links — page-level comparison.
         if own_rd >= hi:
             return ("parity", 0, 0,
@@ -221,14 +225,15 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn):
     target["non_emulable_slots"] = non_emulable
     target["competitors"] = []
 
+    # fetch_rd_fn returns EXACT totals: {"available", "count", "reason"} —
+    # backed by the summary endpoint, so large sites never saturate a cap.
     own = fetch_rd_fn(target["url"])
     if not own.get("available"):
         target.update({"verdict": "pending",
                        "note": f"Backlink data unavailable: {own.get('reason', '')}"})
         return target
-    own_rd = len(own.get("links") or [])
+    own_rd = int(own.get("count") or 0)
     target["own_rd"] = own_rd
-    target["own_rd_capped"] = own_rd >= RD_LOOKUP_LIMIT
 
     comp_rds = []
     for c in comps:
@@ -238,25 +243,24 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn):
                            "note": f"Backlink data ran out mid-target: "
                                    f"{res.get('reason', '')} — resumes next run."})
             return target
-        c["rd"] = len(res.get("links") or [])
-        c["rd_capped"] = c["rd"] >= RD_LOOKUP_LIMIT
+        c["rd"] = int(res.get("count") or 0)
         comp_rds.append(c["rd"])
         target["competitors"].append(c)
 
-    # When competitor PAGES carry ~no direct links (the deep-page norm),
-    # rankings ride the DOMAIN — measure domain-level RDs on both sides.
+    # When the TYPICAL competitor page carries ~no direct links (the deep-page
+    # norm), rankings ride the DOMAIN — measure domain totals on both sides.
     # Domain lookups are cached in the client and shared across targets.
     own_dom_rd = comp_dom_rds = None
-    if comp_rds and max(comp_rds) < PAGE_LINKS_MEANINGFUL:
+    med_page = sorted(comp_rds)[len(comp_rds) // 2] if comp_rds else 0
+    if comp_rds and med_page < PAGE_LINKS_MEANINGFUL:
         own_res = fetch_rd_fn(own_dom)
         if not own_res.get("available"):
             target.update({"verdict": "pending",
                            "note": f"Domain-level lookup ran out of budget: "
                                    f"{own_res.get('reason', '')} — resumes next run."})
             return target
-        own_dom_rd = len(own_res.get("links") or [])
+        own_dom_rd = int(own_res.get("count") or 0)
         target["own_domain_rd"] = own_dom_rd
-        target["own_domain_rd_capped"] = own_dom_rd >= RD_LOOKUP_LIMIT
         comp_dom_rds = []
         for c in target["competitors"]:
             res = fetch_rd_fn(c["domain"])
@@ -265,8 +269,7 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn):
                                "note": f"Domain-level lookup ran out mid-target: "
                                        f"{res.get('reason', '')} — resumes next run."})
                 return target
-            c["domain_rd"] = len(res.get("links") or [])
-            c["domain_rd_capped"] = c["domain_rd"] >= RD_LOOKUP_LIMIT
+            c["domain_rd"] = int(res.get("count") or 0)
             comp_dom_rds.append(c["domain_rd"])
 
     v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(organic),
