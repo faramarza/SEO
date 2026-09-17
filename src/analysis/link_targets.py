@@ -131,7 +131,12 @@ def build_targets(striking_rows, include_all_levers=False):
 # v6: attach the raw worksheet numbers (you / page1 / links_needed) to every
 # measurement so the outreach worksheet always shows a number, whatever the
 # verdict — old v5 rows re-measure to gain those fields.
-MODEL_VERSION = 6
+# v7: STANDARD FORMULA. Links needed = median referring domains of the top
+# ranking PAGES minus your PAGE's (Ahrefs-KD method), page-level throughout.
+# Removed the domain-total fallback that produced "you out-link them but don't
+# rank" — when the ranking pages have ~no links it's now an honest
+# content/relevance verdict, not a bogus domain comparison.
+MODEL_VERSION = 7
 
 
 def _median(xs):
@@ -142,20 +147,9 @@ def _median(xs):
     return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
 
 
-def _dispersed(vals):
-    """True when the ranking pages' link counts are too spread out for link
-    count to be what's sorting the SERP — e.g. a 2-link blog and a 9000-link
-    site both ranking. No honest link target can come from such a SERP."""
-    vals = [v for v in vals if v is not None]
-    if len(vals) < 2:
-        return False
-    lo, hi = min(vals), max(vals)
-    med = _median(vals) or 1
-    return hi >= 20 * med and lo <= med / 4
-
-# Below this, competitor PAGES effectively carry no direct links and rankings
-# ride DOMAIN authority + internal links instead — the common case for
-# category/product pages.
+# At or below this median PAGE-level referring-domain count, the ranking pages
+# essentially have no backlinks, so links aren't what's sorting the SERP — the
+# honest verdict is content/relevance, not a link target.
 PAGE_LINKS_MEANINGFUL = 5
 
 # A realistic ceiling on new referring domains a small store can earn through
@@ -165,99 +159,54 @@ PAGE_LINKS_MEANINGFUL = 5
 REACHABLE_DOMAINS = 60
 
 
-def gap_verdict(own_rd, comp_rds, emulable_slots, total_slots,
-                own_dom_rd=None, comp_dom_rds=None):
-    """(verdict, gap_lo, gap_hi, explanation).
+def standard_gap(own_rd, comp_rds, emulable_slots=None, total_slots=None):
+    """The recognized guesstimate — Ahrefs' Keyword-Difficulty method:
 
-    Two-level model: when the ranking PAGES genuinely earn direct links,
-    compare page-to-page. When they don't (deep pages usually don't — zeros
-    across the board), the deciding variable is DOMAIN-level referring
-    domains, theirs vs ours, and the verdict says to build links to the
-    domain's most linkable pages rather than falsely declaring parity.
-    Deliberately ranged, and deliberately allowed to conclude links are NOT
-    the fix."""
-    comp_dom_rds = comp_dom_rds or []
+        links needed ≈ MEDIAN referring domains of the top ranking PAGES
+                       − YOUR page's referring domains,   floored at 0.
+
+    Page-level throughout (your page vs their pages, never domain totals). The
+    median makes it robust to one giant outlier. Returns (verdict,
+    links_needed, note). A guesstimate — links are necessary, not sufficient —
+    and it is allowed to conclude links are NOT the lever."""
     if not comp_rds:
         if total_slots and emulable_slots == 0:
-            return ("marketplace_locked", 0, 0,
-                    "The top slots are marketplaces/platforms — no link count "
-                    "displaces Amazon or Etsy. Cap expectations for this "
-                    "keyword; win the remaining organic slots or its "
-                    "long-tail variants instead.")
-        return ("unknown", 0, 0, "No competitor link data yet.")
+            return ("marketplace_locked", 0,
+                    "The top slots are marketplaces/platforms — no link count displaces "
+                    "Amazon or Etsy. Win the remaining organic slots or long-tail variants.")
+        return ("unknown", 0, "No competitor link data yet.")
+    med = round(_median(comp_rds))
+    if med < PAGE_LINKS_MEANINGFUL:
+        # The ranking pages themselves have almost no backlinks — links are not
+        # what's sorting this SERP. Don't invent a number.
+        return ("content_gap", 0,
+                f"The pages ranking here have almost no backlinks (median ~{med} referring "
+                "domains to the ranking page). Links aren't the lever for this term — it's "
+                "relevance/content. Build a page that genuinely targets it.")
+    if own_rd >= med:
+        return ("parity", 0,
+                f"Your page ({own_rd} referring domains) already matches the typical page-1 "
+                f"page (~{med}). More links won't move it — the gap is content/relevance.")
+    gap = max(1, med - own_rd)
+    if gap > REACHABLE_DOMAINS:
+        return ("out_of_reach", 0,
+                f"The pages ranking here have a median ~{med} referring domains vs your "
+                f"{own_rd} — a ~{gap}-domain gap that isn't realistically closable for a store "
+                "this size. Chase easier long-tail variants instead.")
+    v = "close" if gap <= 5 else "authority_gap"
+    return (v, gap,
+            f"Guesstimate (Ahrefs-KD method): the median page ranking here has ~{med} "
+            f"referring domains; yours has {own_rd}. Aim for about {gap} more websites "
+            "linking to THIS page. Necessary, not sufficient — content must stay competitive.")
 
-    med_page = _median(comp_rds)
 
-    if med_page >= PAGE_LINKS_MEANINGFUL:
-        # Their pages genuinely earn direct links — page-level comparison.
-        if _dispersed(comp_rds):
-            return ("mixed", 0, 0,
-                    f"The pages ranking here span {min(comp_rds)}–"
-                    f"{max(comp_rds)} referring domains — link count isn't "
-                    "what's sorting this result, so there's no honest link "
-                    "target. It's a content/relevance/intent play.")
-        med = round(med_page)
-        if own_rd >= med:
-            return ("parity", 0, 0,
-                    f"Your page ({own_rd} referring domains) already matches "
-                    f"the typical page-1 competitor (~{med}). More links "
-                    "won't move it — the gap is content/relevance. Spend "
-                    "effort on-page.")
-        gap = max(1, round(med - own_rd))
-        if gap > REACHABLE_DOMAINS:
-            return ("out_of_reach", 0, 0,
-                    f"The pages ranking here have ~{med} referring domains vs "
-                    f"your {own_rd} — a ~{gap}-domain gap that isn't "
-                    "realistically closable for a store this size. Chase the "
-                    "long-tail variants of this keyword instead, where the "
-                    "competing pages are smaller.")
-        v = "close" if gap <= 5 else "authority_gap"
-        return (v, gap, gap,
-                f"The typical page ranking here has ~{med} referring domains; "
-                f"yours has {own_rd}. Aim for about {gap} more websites "
-                "linking to this page. Necessary, not sufficient — content "
-                "must stay competitive.")
-
-    # Their pages carry ~no direct links — the ranking driver is the DOMAIN.
-    if not comp_dom_rds or own_dom_rd is None:
-        return ("unknown", 0, 0,
-                "Competitor pages carry ~no direct links (normal for deep "
-                "pages) — domain-level data needed and not yet measured.")
-    if _dispersed(comp_dom_rds):
-        return ("mixed", 0, 0,
-                f"The sites ranking here span {min(comp_dom_rds)}–"
-                f"{max(comp_dom_rds)} referring domains — domain strength "
-                "isn't what's sorting this result, so there's no honest link "
-                "target. It's a content/relevance play.")
-    d_med = round(_median(comp_dom_rds))
-    if own_dom_rd >= d_med:
-        return ("parity", 0, 0,
-                f"Your DOMAIN ({own_dom_rd} referring domains) already matches "
-                f"the typical competitor here (~{d_med}). Links are NOT the "
-                "constraint — the gap is content/relevance. Spend effort "
-                "on-page.")
-    g = max(1, round(d_med - own_dom_rd))
-    if g > REACHABLE_DOMAINS:
-        return ("out_of_reach", 0, 0,
-                f"The sites ranking here are far larger domains (~{d_med} "
-                f"referring domains vs your {own_dom_rd}). That ~{g}-domain "
-                "gap isn't realistically closable with outreach for a store "
-                "this size — this head term is won on domain scale you don't "
-                "have. Don't spend links here: chase the long-tail variants "
-                "of this keyword (where the competing pages are smaller) and "
-                "make this page the best content for them.")
-    return ("domain_gap", g, g,
-            f"Their pages, like yours, have ~no direct links — rankings ride "
-            f"DOMAIN authority. The typical competitor's site has ~{d_med} "
-            f"referring domains vs your {own_dom_rd}. Aim for about {g} more "
-            "websites linking to your SITE (any strong page — guides and "
-            "linkable content work best), then funnel internal links here.")
-
+# Verdicts where MORE links to the page would plausibly move it.
+REACHABLE_VERDICTS = ("close", "authority_gap")
 
 # Effort ordering: feasible-and-valuable first, don't-bother last.
-_VERDICT_RANK = {"close": 0, "authority_gap": 1, "domain_gap": 2,
+_VERDICT_RANK = {"close": 0, "authority_gap": 1, "already_ranking": 2,
                  "unknown": 3, "pending": 3,
-                 "mixed": 4, "parity": 5, "out_of_reach": 6,
+                 "content_gap": 4, "parity": 5, "out_of_reach": 6,
                  "marketplace_locked": 7}
 
 
@@ -291,41 +240,16 @@ def _pending(note):
     return {"verdict": "pending", "note": note}
 
 
-def _display(own_rd, comp_rds, own_dom_rd=None, comp_dom_rds=None):
-    """The raw numbers to ALWAYS show on the outreach worksheet, whatever the
-    verdict: (you, page1, links_needed, scope). `you` and `page1` are referring
-    domains — yours vs the median page-1 competitor — measured at whichever
-    level actually decides the ranking (page-level when the ranking pages carry
-    real direct links, else domain-level). `links_needed` = max(0, page1-you):
-    how many more referring domains to MATCH the page-1 sites. This is the
-    honest proxy for 'links to reach page 1' — necessary, not a guarantee."""
-    med_page = _median(comp_rds) if comp_rds else 0
-    if comp_rds and med_page >= PAGE_LINKS_MEANINGFUL:
-        you, page1, scope = own_rd, round(med_page), "page"
-    elif comp_dom_rds and own_dom_rd is not None:
-        you, page1, scope = own_dom_rd, round(_median(comp_dom_rds)), "domain"
-    else:
-        you, page1, scope = own_rd, round(med_page), "page"
-    return you, page1, max(0, page1 - you), scope
-
-
-def _result(verdict, lo, hi, note, own_rd, comps, own_dom_rd=None,
-            comp_rds=None, comp_dom_rds=None):
-    r = {"verdict": verdict, "gap_lo": lo, "gap_hi": hi, "note": note,
-         "own_rd": own_rd, "competitors": comps, "model": MODEL_VERSION,
-         "computed_at": datetime.now().isoformat(timespec="seconds")}
-    if own_dom_rd is not None:
-        r["own_domain_rd"] = own_dom_rd
-    # Always-present raw numbers for the worksheet (independent of verdict).
-    if comps is not None:
-        crds = comp_rds if comp_rds is not None else [c.get("rd", 0) for c in comps]
-        cdoms = comp_dom_rds
-        if cdoms is None:
-            dl = [c.get("domain_rd") for c in comps if c.get("domain_rd") is not None]
-            cdoms = dl or None
-        you, page1, need, scope = _display(own_rd, crds, own_dom_rd, cdoms)
-        r.update(you=you, page1=page1, links_needed=need, scope=scope)
-    return r
+def _result(verdict, links_needed, note, own_rd, comps, page1):
+    """One measurement, page-level throughout. `own_rd`/`you` = YOUR page's
+    referring domains; `page1` = median referring domains of the ranking pages;
+    `links_needed` = how many more (floored at 0). Domain totals are never the
+    number here — that was the old apples-to-oranges bug."""
+    return {"verdict": verdict, "gap_lo": links_needed, "gap_hi": links_needed,
+            "note": note, "own_rd": own_rd, "you": own_rd, "page1": page1,
+            "links_needed": links_needed, "scope": "page", "competitors": comps,
+            "model": MODEL_VERSION,
+            "computed_at": datetime.now().isoformat(timespec="seconds")}
 
 
 def gap_from_ahrefs(target, csv_text, own_domain):
@@ -384,23 +308,18 @@ def gap_from_ahrefs(target, csv_text, own_domain):
             pos = 0
         comps.append({"url": url, "domain": dom, "position": pos, "rd": rd})
 
-    comps = sorted(comps, key=lambda c: c.get("position") or 99)[:3]
+    comps = sorted(comps, key=lambda c: c.get("position") or 99)[:10]
     if own_rd is None:
         return _pending("Your page isn't in that SERP export — export a SERP overview where "
                         "your page appears (or note its referring domains from Site Explorer).")
     if not comps:
         return _pending("No emulable competitors in the export (all marketplaces/social).")
     comp_rds = [c["rd"] for c in comps]
-    # Ahrefs 'Domains' is page-level referring domains — use the page path of
-    # gap_verdict directly (real per-page counts, no domain fallback needed).
-    v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(rows))
-    return _result(v, lo, hi, note, own_rd, comps)
-
-
-# Verdicts where MORE links would actually move the ranking — the opposite of
-# parity/out_of_reach/mixed/marketplace. These are the "point outreach here"
-# opportunities, whether on a head term or (usually) a long-tail one.
-REACHABLE_VERDICTS = ("close", "authority_gap", "domain_gap")
+    # Ahrefs 'Domains' is page-level referring domains — exactly the input the
+    # standard (Ahrefs-KD) formula wants, on real data.
+    v, need, note = standard_gap(own_rd, comp_rds, len(comps), len(rows))
+    page1 = round(_median(comp_rds)) if comp_rds else 0
+    return _result(v, need, note, own_rd, comps, page1)
 
 
 def is_budget_note(note) -> bool:
@@ -496,8 +415,12 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn, keyword=None):
     serp = fetch_serp_fn(kw) if kw else None
     if not serp:
         return _pending("SERP fetch unavailable (Serper quota or key) — will retry next run.")
-    organic = (serp.get("organic_results") or serp.get("organic") or [])[:8]
+    organic = (serp.get("organic_results") or serp.get("organic") or [])[:10]
     own_dom = _domain(target["url"])
+    # Pre-filter the outliers the median shouldn't see at all: marketplaces,
+    # social, and mega Q&A/reference sites (Amazon, Wikipedia, Quora…) are
+    # excluded up front via is_emulable — you don't out-link them and their
+    # link profiles would distort any estimate. Up to 6 emulable ranking pages.
     comps, non_emulable, seen_domains = [], 0, set()
     for r in organic:
         u = r.get("url", "")
@@ -508,13 +431,11 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn, keyword=None):
             non_emulable += 1
             continue
         seen_domains.add(d)
-        comps.append({"url": u, "domain": d,
-                      "position": r.get("position", 0)})
-        if len(comps) >= 3:
+        comps.append({"url": u, "domain": d, "position": r.get("position", 0)})
+        if len(comps) >= 6:
             break
     result_comps = []
-    # fetch_rd_fn returns EXACT totals: {"available","count","reason"} — the
-    # summary endpoint, so large sites never saturate a cap.
+    # fetch_rd_fn returns EXACT PAGE-level totals: {"available","count","reason"}.
     own = fetch_rd_fn(target["url"])
     if not own.get("available"):
         return _pending(f"Backlink data unavailable: {own.get('reason', '')}")
@@ -529,24 +450,9 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn, keyword=None):
         comp_rds.append(c["rd"])
         result_comps.append(c)
 
-    # When the TYPICAL competitor page carries ~no direct links (the deep-page
-    # norm), rankings ride the DOMAIN — measure domain totals on both sides.
-    # Domain lookups are cached in the client and shared across targets.
-    own_dom_rd = comp_dom_rds = None
-    med_page = sorted(comp_rds)[len(comp_rds) // 2] if comp_rds else 0
-    if comp_rds and med_page < PAGE_LINKS_MEANINGFUL:
-        own_res = fetch_rd_fn(own_dom)
-        if not own_res.get("available"):
-            return _pending(f"Domain lookup ran out of budget: {own_res.get('reason','')} — resumes next run.")
-        own_dom_rd = int(own_res.get("count") or 0)
-        comp_dom_rds = []
-        for c in result_comps:
-            res = fetch_rd_fn(c["domain"])
-            if not res.get("available"):
-                return _pending(f"Domain lookup ran out mid-target: {res.get('reason','')} — resumes next run.")
-            c["domain_rd"] = int(res.get("count") or 0)
-            comp_dom_rds.append(c["domain_rd"])
-
-    v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(organic),
-                                  own_dom_rd=own_dom_rd, comp_dom_rds=comp_dom_rds)
-    return _result(v, lo, hi, note, own_rd, result_comps, own_dom_rd=own_dom_rd)
+    # The standard Ahrefs-KD guesstimate on PAGE-level referring domains. The
+    # median is inherently outlier-robust (one giant can't move it), and the
+    # marketplaces/mega-sites were already removed above.
+    v, need, note = standard_gap(own_rd, comp_rds, len(comps), len(organic))
+    page1 = round(_median(comp_rds)) if comp_rds else 0
+    return _result(v, need, note, own_rd, result_comps, page1)

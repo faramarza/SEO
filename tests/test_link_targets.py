@@ -46,69 +46,48 @@ def test_build_targets_all_levers_shows_full_board_with_lever():
     assert d["lever"] == "external" and set(d["levers"]) == {"on_page", "external"}
 
 
-def test_gap_verdict_single_number_on_median():
-    # median of [9,14,31] is 14; own 2 → aim for ~12, ONE number.
-    v, lo, hi, note = lt.gap_verdict(own_rd=2, comp_rds=[9, 14, 31],
-                                     emulable_slots=3, total_slots=8)
-    assert v == "authority_gap" and lo == hi == 12
+def test_standard_gap_single_number_on_median():
+    # median of [9,14,31] is 14; own 2 → aim for ~12.
+    v, need, note = lt.standard_gap(own_rd=2, comp_rds=[9, 14, 31])
+    assert v == "authority_gap" and need == 12
     assert "about 12 more" in note
 
 
-def test_gap_verdict_close():
-    v, lo, hi, _ = lt.gap_verdict(own_rd=10, comp_rds=[9, 12, 14],
-                                  emulable_slots=3, total_slots=8)
-    assert v == "close" and lo == hi == 2  # median 12 - 10
+def test_standard_gap_close():
+    v, need, _ = lt.standard_gap(own_rd=10, comp_rds=[9, 12, 14])
+    assert v == "close" and need == 2  # median 12 - 10
 
 
-def test_gap_verdict_parity_says_links_not_the_fix():
-    v, lo, hi, note = lt.gap_verdict(own_rd=40, comp_rds=[9, 14, 31],
-                                     emulable_slots=3, total_slots=8)
-    assert v == "parity" and lo == hi == 0
+def test_standard_gap_parity_says_links_not_the_fix():
+    v, need, note = lt.standard_gap(own_rd=40, comp_rds=[9, 14, 31])
+    assert v == "parity" and need == 0
     assert "content/relevance" in note
 
 
-def test_gap_verdict_mixed_when_dispersed():
-    # A 3-link page and a 9000-link page both rank → link count isn't the
-    # lever; refuse to invent a target.
-    v, lo, hi, note = lt.gap_verdict(own_rd=5, comp_rds=[3, 40, 9000],
-                                     emulable_slots=3, total_slots=8)
-    assert v == "mixed" and lo == hi == 0
-    assert "isn't what's sorting" in note
+def test_standard_gap_median_ignores_one_giant_outlier():
+    # Three small pages + one 53,000-domain giant → the median stays small, so
+    # no bogus "+52,000 links" number. (median of [8,12,20,53000] = 16 → +11)
+    v, need, _ = lt.standard_gap(own_rd=5, comp_rds=[8, 12, 20, 53000])
+    assert v == "authority_gap" and need == 11
 
 
-def test_gap_verdict_zero_page_links_needs_domain_data():
-    # Competitor pages with ~no direct links must NOT produce a parity
-    # verdict from page counts alone (the bug this model version fixes).
-    v, _, _, note = lt.gap_verdict(own_rd=41, comp_rds=[0, 0, 0],
-                                   emulable_slots=3, total_slots=8)
-    assert v == "unknown" and "domain-level" in note.lower()
+def test_standard_gap_content_when_pages_have_no_links():
+    # Competitor pages carry ~no direct links → links aren't the lever; it's a
+    # content/relevance gap, NOT a domain-total comparison.
+    v, need, note = lt.standard_gap(own_rd=41, comp_rds=[0, 0, 1])
+    assert v == "content_gap" and need == 0
+    assert "content" in note.lower() and "aren't the lever" in note
 
 
-def test_gap_verdict_domain_gap_reachable():
-    # domain median of [180,200,210] is 200; own 160 → ~40 (<=60) reachable.
-    v, lo, hi, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 1],
-                                     emulable_slots=3, total_slots=8,
-                                     own_dom_rd=160,
-                                     comp_dom_rds=[180, 200, 210])
-    assert v == "domain_gap" and lo == hi == 40
-    assert "DOMAIN authority" in note and "any strong page" in note.lower()
+def test_standard_gap_out_of_reach():
+    v, need, note = lt.standard_gap(own_rd=1, comp_rds=[300, 900, 1200])
+    assert v == "out_of_reach" and need == 0
 
 
-def test_gap_verdict_out_of_reach():
-    # a 750-domain gap is a wall, not a target.
-    v, lo, hi, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 1],
-                                     emulable_slots=3, total_slots=8,
-                                     own_dom_rd=150,
-                                     comp_dom_rds=[300, 900, 1200])
-    assert v == "out_of_reach" and lo == hi == 0
-    assert "long-tail" in note
-
-
-def test_gap_verdict_domain_parity():
-    v, _, _, note = lt.gap_verdict(own_rd=1, comp_rds=[0, 0, 0],
-                                   emulable_slots=3, total_slots=8,
-                                   own_dom_rd=500, comp_dom_rds=[120, 300, 450])
-    assert v == "parity" and "NOT the constraint" in note
+def test_standard_gap_marketplace_locked():
+    v, need, note = lt.standard_gap(own_rd=2, comp_rds=[],
+                                    emulable_slots=0, total_slots=8)
+    assert v == "marketplace_locked" and "Amazon" in note
 
 
 def test_model_version_invalidates_old_measurements():
@@ -117,12 +96,6 @@ def test_model_version_invalidates_old_measurements():
     assert not lt.is_fresh(entry)
     entry["model"] = lt.MODEL_VERSION
     assert lt.is_fresh(entry)
-
-
-def test_gap_verdict_marketplace_locked():
-    v, _, _, note = lt.gap_verdict(own_rd=2, comp_rds=[],
-                                   emulable_slots=0, total_slots=8)
-    assert v == "marketplace_locked" and "Amazon" in note
 
 
 def test_rank_targets_effort_order():
@@ -195,11 +168,13 @@ def test_compute_target_domain_level_path():
         return {"available": True, "count": rd_map[u]}
 
     t = lt.compute_target(target, serp, rd)
-    # Duplicate competitor domain removed; page zeros → domain-level verdict.
+    # Duplicate competitor domain removed; the ranking pages have ~no links →
+    # content/relevance verdict, page-level only (no domain-total fallback).
     assert [c["domain"] for c in t["competitors"]] == \
         ["compa.com", "compb.com", "compc.com"]
-    assert t["verdict"] == "out_of_reach"  # 750-domain gap is a wall
-    assert t["own_domain_rd"] == 150
+    assert t["verdict"] == "content_gap"
+    assert "own_domain_rd" not in t
+    assert t["links_needed"] == 0
 
 
 def test_compute_target_budget_exhaustion_is_visible():

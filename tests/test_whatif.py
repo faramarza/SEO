@@ -71,8 +71,8 @@ def test_measure_candidate_uses_engine_and_reports_position():
             {"position": 2, "url": "https://compb.com/b"},
             {"position": 14, "url": "https://x.com/p.html"},
         ]}
-    rd = {"https://x.com/p.html": 20, "https://compa.com/a": 90,
-          "https://compb.com/b": 80}
+    rd = {"https://x.com/p.html": 20, "https://compa.com/a": 45,
+          "https://compb.com/b": 40}
 
     def rdfn(u):
         return {"available": True, "count": rd[u]}
@@ -80,8 +80,9 @@ def test_measure_candidate_uses_engine_and_reports_position():
     res = wf.measure_candidate("https://x.com/p.html", "montessori lock box", serp, rdfn)
     assert res["query"] == "montessori lock box"
     assert res["own_position"] == 14
-    # engine produced real numbers: page1 median 85 vs you 20 → +65
-    assert res["you"] == 20 and res["page1"] == 85 and res["links_needed"] == 65
+    # standard formula: page1 median 42 vs your page's 20 → +22 (reachable)
+    assert res["you"] == 20 and res["page1"] == 42 and res["links_needed"] == 22
+    assert res["verdict"] == "authority_gap"
 
 
 def test_measure_candidate_already_ranking_never_demands_links():
