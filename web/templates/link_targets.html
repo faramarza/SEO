@@ -80,7 +80,8 @@ const LT_VERDICT = {
 async function loadLT(){
     LT = await (await fetch('/api/link-targets')).json();
     document.getElementById('lt-job').textContent =
-        LT.job&&LT.job.running ? ('⏳ '+(LT.job.phase||'working…')) : (LT.job&&LT.job.note||'');
+        LT.job&&LT.job.running ? ('⏳ '+(LT.job.phase||'working…'))
+        : (LT.job&&LT.job.note ? ('✓ '+LT.job.note) : '');
     document.getElementById('lt-budget').textContent =
         (LT.dataforseo_budget!=null) ? `DataForSEO budget left today: ${LT.dataforseo_budget}` : '';
     document.getElementById('lt-updated').textContent =
@@ -114,6 +115,22 @@ function kwChip(g){
         return ` <span style="font-size:10px;font-weight:700;color:#059669;" title="${escHtml(g.note||'')}">🎯 ~${g.gap_lo} more</span>`;
     }
     return ` <span style="font-size:10px;color:${v.color};" title="${escHtml(g.note||'')}">${v.label}</span>`;
+}
+
+// The gap cell for one source on one row. When there's no measurement, an
+// EXPLICIT reason — so a blank never reads as "the scan failed":
+//  • non-link-target page → we don't spend budget measuring it (cheaper fix).
+//  • link-target page, not yet measured → it's in the queue.
+function gapCell(t, srcs, key){
+    const s = srcs[key];
+    if(s) return sourceCell(s);
+    if(t.lever !== 'external'){
+        return `<span style="font-size:10px;color:var(--text-muted);" title="This page's cheaper lever is ${t.lever==='internal'?'internal links':'an on-page fix'} — links aren't the play, so we don't spend measurement budget here. Upload an Ahrefs export if you want to check anyway.">not a link target</span>`;
+    }
+    if(key==='dataforseo'){
+        return `<span style="font-size:10px;color:#7c3aed;" title="A link target awaiting its turn in the DataForSEO scan (daily-capped, spreads over a few days).">in queue…</span>`;
+    }
+    return '<span style="color:var(--text-muted);">—</span>';
 }
 
 // One source's cell: the gap number + its own verdict.
@@ -178,8 +195,8 @@ function render(){
                 <div style="margin-top:2px;">${leverBadge(t.lever)}</div>
                 ${opp?`<div style="font-size:10px;color:#059669;font-weight:700;margin-top:2px;" title="${escHtml(opp.note||'')}">🎯 reachable on “${escHtml(opp.query||'')}”: ~${opp.gap_lo} more</div>`:''}</td>
             <td>${kws}</td>
-            <td>${sourceCell(srcs.dataforseo)}</td>
-            <td>${sourceCell(srcs.ahrefs)}</td>
+            <td>${gapCell(t, srcs, 'dataforseo')}</td>
+            <td>${gapCell(t, srcs, 'ahrefs')}</td>
             <td>${pr}</td>
             <td style="white-space:nowrap;">
                 ${t.ahrefs_url?`<a class="pb-task-btn pb-task-btn-alt" href="${escHtml(t.ahrefs_url)}" target="_blank">Ahrefs ↗</a>`:''}
@@ -194,7 +211,7 @@ function render(){
 async function ltScan(btn){
     btn.disabled=true;
     const d = await (await fetch('/api/link-targets/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
-    ltToast(d.success?'Measuring via DataForSEO — a few pages per day within budget…':(d.error||'Failed'),!d.success);
+    ltToast(d.success?'Scan started — measuring the 🔗 link-target pages now. Watch the status line; rows fill in as it works through them.':(d.error||'Failed'),!d.success);
     btn.disabled=false; setTimeout(loadLT,1500);
 }
 function ltOpenImport(url, kw){

@@ -11744,14 +11744,16 @@ def _lt_scan_job():
             store["targets"].setdefault(t["url"], {}).update(t)
         lt.save_store(store)
         done, opps, budget_out = 0, 0, False
-        for url in [t["url"] for t in targets]:
+        urls = [t["url"] for t in targets]
+        total = len(urls)
+        for i, url in enumerate(urls, 1):
             row = store["targets"][url]
             cur = (row.get("sources") or {}).get("dataforseo")
             gaps_fresh = all(lt.is_fresh(g) for g in (row.get("keyword_gaps") or [])) \
                 and bool(row.get("keyword_gaps"))
             if budget_out or (cur and lt.is_fresh(cur) and gaps_fresh):
                 continue
-            _lt_job["phase"] = f"measuring {url.rsplit('/',1)[-1][:36]}"
+            _lt_job["phase"] = f"page {i} of {total}: {url.rsplit('/',1)[-1][:36]}"
             # Measure the page's top keywords (head term + long-tail), not just
             # the head term — so reachable long-tail opportunities surface.
             gaps, budget_out = lt.compute_page_gaps(row, fetch_serp, _rd)
