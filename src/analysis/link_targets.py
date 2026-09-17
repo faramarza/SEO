@@ -266,6 +266,19 @@ def _find_col(fieldnames, *aliases):
     return None
 
 
+def _pending(note):
+    return {"verdict": "pending", "note": note}
+
+
+def _result(verdict, lo, hi, note, own_rd, comps, own_dom_rd=None):
+    r = {"verdict": verdict, "gap_lo": lo, "gap_hi": hi, "note": note,
+         "own_rd": own_rd, "competitors": comps, "model": MODEL_VERSION,
+         "computed_at": datetime.now().isoformat(timespec="seconds")}
+    if own_dom_rd is not None:
+        r["own_domain_rd"] = own_dom_rd
+    return r
+
+
 def gap_from_ahrefs(target, csv_text, own_domain):
     """Compute the link gap for ONE keyword from an Ahrefs 'SERP overview'
     CSV export — the authoritative source the operator already owns. The
@@ -290,23 +303,14 @@ def gap_from_ahrefs(target, csv_text, own_domain):
         if reader.fieldnames and len(reader.fieldnames) > 1:
             break
     if not rows or not reader:
-        target.update({"verdict": "pending",
-                       "note": "Couldn't read that paste — copy the whole CSV "
-                               "(header row included)."})
-        return target
-    if not rows:
-        target.update({"verdict": "pending",
-                       "note": "No rows in that export — is it the SERP overview CSV?"})
-        return target
+        return _pending("Couldn't read that paste — copy the whole CSV (header row included).")
     fn = reader.fieldnames or []
     c_url = _find_col(fn, "url", "target url", "page url")
     c_dom = _find_col(fn, "domains", "referring domains", "ref domains", "ref. domains")
     c_pos = _find_col(fn, "position", "pos", "#")
     if not c_url or not c_dom:
-        target.update({"verdict": "pending",
-                       "note": "That CSV has no URL / Domains columns — export the "
-                               "SERP overview (Keywords Explorer), not a different report."})
-        return target
+        return _pending("That CSV has no URL / Domains columns — export the SERP overview "
+                        "(Keywords Explorer), not a different report.")
 
     own_rd = None
     comps, seen = [], set()
@@ -333,41 +337,25 @@ def gap_from_ahrefs(target, csv_text, own_domain):
 
     comps = sorted(comps, key=lambda c: c.get("position") or 99)[:3]
     if own_rd is None:
-        target.update({"verdict": "pending",
-                       "note": "Your page isn't in that SERP export — check your own "
-                               "page's referring domains in Site Explorer and note it, "
-                               "or export a SERP overview where your page appears."})
-        return target
+        return _pending("Your page isn't in that SERP export — export a SERP overview where "
+                        "your page appears (or note its referring domains from Site Explorer).")
     if not comps:
-        target.update({"verdict": "pending",
-                       "note": "No emulable competitors in the export (all "
-                               "marketplaces/social)."})
-        return target
-
+        return _pending("No emulable competitors in the export (all marketplaces/social).")
     comp_rds = [c["rd"] for c in comps]
     # Ahrefs 'Domains' is page-level referring domains — use the page path of
     # gap_verdict directly (real per-page counts, no domain fallback needed).
     v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(rows))
-    target.update({
-        "verdict": v, "gap_lo": lo, "gap_hi": hi, "note": note,
-        "own_rd": own_rd, "competitors": comps, "source": "ahrefs",
-        "model": MODEL_VERSION,
-        "computed_at": datetime.now().isoformat(timespec="seconds"),
-    })
-    return target
+    return _result(v, lo, hi, note, own_rd, comps)
 
 
 def compute_target(target, fetch_serp_fn, fetch_rd_fn):
-    """DEPRECATED — DataForSEO-backed measurement. Retained only so existing
-    tests exercise the median math; the live feature uses gap_from_ahrefs()
-    with authoritative Ahrefs data. Do not wire this back into the app."""
+    """DataForSEO-backed measurement — returns a result dict for the
+    'dataforseo' source (same median math as the Ahrefs path). fetch_rd_fn(u)
+    -> {"available","count","reason"} (referring-domain total, uncapped)."""
     kw = target["keywords"][0]["query"] if target.get("keywords") else ""
     serp = fetch_serp_fn(kw) if kw else None
     if not serp:
-        target.update({"verdict": "pending",
-                       "note": "SERP fetch unavailable (Serper quota or key) — "
-                               "will retry on the next refresh."})
-        return target
+        return _pending("SERP fetch unavailable (Serper quota or key) — will retry next run.")
     organic = (serp.get("organic_results") or serp.get("organic") or [])[:8]
     own_dom = _domain(target["url"])
     comps, non_emulable, seen_domains = [], 0, set()
@@ -384,31 +372,22 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn):
                       "position": r.get("position", 0)})
         if len(comps) >= 3:
             break
-    target["serp_features"] = serp.get("serp_features") or serp.get("features") or []
-    target["non_emulable_slots"] = non_emulable
-    target["competitors"] = []
-
-    # fetch_rd_fn returns EXACT totals: {"available", "count", "reason"} —
-    # backed by the summary endpoint, so large sites never saturate a cap.
+    result_comps = []
+    # fetch_rd_fn returns EXACT totals: {"available","count","reason"} — the
+    # summary endpoint, so large sites never saturate a cap.
     own = fetch_rd_fn(target["url"])
     if not own.get("available"):
-        target.update({"verdict": "pending",
-                       "note": f"Backlink data unavailable: {own.get('reason', '')}"})
-        return target
+        return _pending(f"Backlink data unavailable: {own.get('reason', '')}")
     own_rd = int(own.get("count") or 0)
-    target["own_rd"] = own_rd
 
     comp_rds = []
     for c in comps:
         res = fetch_rd_fn(c["url"])
         if not res.get("available"):
-            target.update({"verdict": "pending",
-                           "note": f"Backlink data ran out mid-target: "
-                                   f"{res.get('reason', '')} — resumes next run."})
-            return target
+            return _pending(f"Backlink data ran out mid-target: {res.get('reason','')} — resumes next run.")
         c["rd"] = int(res.get("count") or 0)
         comp_rds.append(c["rd"])
-        target["competitors"].append(c)
+        result_comps.append(c)
 
     # When the TYPICAL competitor page carries ~no direct links (the deep-page
     # norm), rankings ride the DOMAIN — measure domain totals on both sides.
@@ -418,27 +397,16 @@ def compute_target(target, fetch_serp_fn, fetch_rd_fn):
     if comp_rds and med_page < PAGE_LINKS_MEANINGFUL:
         own_res = fetch_rd_fn(own_dom)
         if not own_res.get("available"):
-            target.update({"verdict": "pending",
-                           "note": f"Domain-level lookup ran out of budget: "
-                                   f"{own_res.get('reason', '')} — resumes next run."})
-            return target
+            return _pending(f"Domain lookup ran out of budget: {own_res.get('reason','')} — resumes next run.")
         own_dom_rd = int(own_res.get("count") or 0)
-        target["own_domain_rd"] = own_dom_rd
         comp_dom_rds = []
-        for c in target["competitors"]:
+        for c in result_comps:
             res = fetch_rd_fn(c["domain"])
             if not res.get("available"):
-                target.update({"verdict": "pending",
-                               "note": f"Domain-level lookup ran out mid-target: "
-                                       f"{res.get('reason', '')} — resumes next run."})
-                return target
+                return _pending(f"Domain lookup ran out mid-target: {res.get('reason','')} — resumes next run.")
             c["domain_rd"] = int(res.get("count") or 0)
             comp_dom_rds.append(c["domain_rd"])
 
     v, lo, hi, note = gap_verdict(own_rd, comp_rds, len(comps), len(organic),
-                                  own_dom_rd=own_dom_rd,
-                                  comp_dom_rds=comp_dom_rds)
-    target.update({"verdict": v, "gap_lo": lo, "gap_hi": hi, "note": note,
-                   "model": MODEL_VERSION,
-                   "computed_at": datetime.now().isoformat(timespec="seconds")})
-    return target
+                                  own_dom_rd=own_dom_rd, comp_dom_rds=comp_dom_rds)
+    return _result(v, lo, hi, note, own_rd, result_comps, own_dom_rd=own_dom_rd)

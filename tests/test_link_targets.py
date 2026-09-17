@@ -147,7 +147,7 @@ def test_compute_target_pipeline():
 
     t = lt.compute_target(target, serp, rd)
     assert t["verdict"] == "authority_gap"
-    assert t["own_rd"] == 3 and t["non_emulable_slots"] == 1
+    assert t["own_rd"] == 3
     assert t["gap_lo"] == t["gap_hi"]  # single number (median-anchored)
     assert len(t["competitors"]) == 3
     assert t["model"] == lt.MODEL_VERSION
@@ -211,7 +211,6 @@ def test_gap_from_ahrefs_real_data():
     assert out["own_rd"] == 55
     # amazon excluded; competitors 563/37/25 → median 37; you have 55 > 37 → parity
     assert out["verdict"] == "parity", (out["verdict"], out["note"])
-    assert out["source"] == "ahrefs"
 
 
 def test_gap_from_ahrefs_real_gap():

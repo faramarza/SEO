@@ -11561,6 +11561,12 @@ def api_institutional_check_sources():
 # ============================================================
 # LINK TARGETS — surgical link-gap analysis per authority-blocked page
 # ============================================================
+# Two sources side by side: automated DataForSEO (self-refreshing) and pasted
+# Ahrefs exports. Neither is "the truth" — the two indexes count referring
+# domains differently, so the page shows both and lets the operator compare.
+
+_lt_job = {"running": False, "phase": "", "note": ""}
+
 
 @app.route("/link-targets")
 def link_targets_page():
@@ -11589,14 +11595,15 @@ def api_link_targets():
         merged = []
         for t in live:
             m = dict(stored.get(t["url"]) or {})
-            # Only Ahrefs-sourced measurements are shown; anything from the old
-            # DataForSEO model is discarded so a wrong number never resurfaces.
-            if m.get("source") != "ahrefs" or m.get("model") != lt.MODEL_VERSION:
-                for k in ("verdict", "note", "gap_lo", "gap_hi", "competitors",
-                          "own_rd", "own_domain_rd", "computed_at", "source"):
-                    m.pop(k, None)
-            m.update(t)
-            m.setdefault("verdict", "unknown")
+            # Keep per-source results (dataforseo / ahrefs) if computed by the
+            # current model; drop stale-model ones so a wrong number never
+            # resurfaces.
+            srcs = {k: v for k, v in (m.get("sources") or {}).items()
+                    if v.get("model") == lt.MODEL_VERSION or v.get("verdict") == "pending"}
+            m.update(t)  # refresh keywords/impressions
+            m["sources"] = srcs
+            # Rank by the best verdict across sources (prefer a real measurement).
+            m["verdict"] = _lt_best_verdict(srcs)
             merged.append(m)
         targets = lt.rank_targets(merged)
     else:
@@ -11625,7 +11632,13 @@ def api_link_targets():
             t["prospects_ready"] = by_url.get(t["url"], 0)
     except Exception:
         pass
-    return jsonify({"targets": targets, "updated_at": store.get("updated_at")})
+    try:
+        from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
+        dfs_budget = get_backlinks_remaining_quota()
+    except Exception:
+        dfs_budget = None
+    return jsonify({"targets": targets, "updated_at": store.get("updated_at"),
+                    "job": _lt_job, "dataforseo_budget": dfs_budget})
 
 
 @app.route("/api/link-targets/import", methods=["POST"])
@@ -11653,11 +11666,77 @@ def api_link_targets_import():
     if not t:
         return jsonify({"error": "That page isn't in the target list."}), 404
     own_domain = _re_own_domain()
-    t = lt.gap_from_ahrefs(t, body.get("csv_text") or "", own_domain)
+    res = lt.gap_from_ahrefs(t, body.get("csv_text") or "", own_domain)
+    t.setdefault("sources", {})["ahrefs"] = res
     store["targets"][url] = t
     store["updated_at"] = datetime.now().isoformat(timespec="seconds")
     lt.save_store(store)
-    return jsonify({"success": True, "target": t})
+    return jsonify({"success": True, "result": res})
+
+
+def _lt_best_verdict(sources):
+    """The verdict to rank/sort a row by, across its sources — prefer a real
+    (non-pending/unknown) measurement, DataForSEO or Ahrefs."""
+    real = [s.get("verdict") for s in (sources or {}).values()
+            if s.get("verdict") not in (None, "pending", "unknown")]
+    return real[0] if real else "unknown"
+
+
+def _lt_scan_job():
+    """Automated DataForSEO link-gap measurement for every authority-blocked
+    page (Serper SERP + DataForSEO referring-domain totals). Stores under each
+    target's sources['dataforseo']; the Ahrefs import fills sources['ahrefs']
+    independently, so the page shows both side by side."""
+    from src.analysis import link_targets as lt
+    from src.analysis.growth_playbook import find_striking_distance
+    from src.data_sources.serp_client import fetch_serp
+    from src.data_sources.dataforseo_client import fetch_backlinks_summary
+
+    def _rd(u):
+        s = fetch_backlinks_summary(u)
+        return {"available": s.get("available"),
+                "count": s.get("referring_domains"), "reason": s.get("reason", "")}
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+        targets = lt.build_targets(find_striking_distance(
+            results, system_disallow=_robots_disallow_rules()))
+        store = lt.load_store()
+        for t in targets:
+            store["targets"].setdefault(t["url"], {}).update(t)
+        lt.save_store(store)
+        done, budget_out = 0, False
+        for url in [t["url"] for t in targets]:
+            row = store["targets"][url]
+            cur = (row.get("sources") or {}).get("dataforseo")
+            if budget_out or (cur and lt.is_fresh(cur)):
+                continue
+            _lt_job["phase"] = f"measuring {url.rsplit('/',1)[-1][:36]}"
+            res = lt.compute_target(row, fetch_serp, _rd)
+            row.setdefault("sources", {})["dataforseo"] = res
+            store["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            lt.save_store(store)
+            note = (res.get("note") or "").lower()
+            if res.get("verdict") != "pending":
+                done += 1
+            elif "cap" in note or "quota" in note or "budget" in note or "unavailable" in note:
+                budget_out = True
+        _lt_job["note"] = (f"{done} page(s) measured via DataForSEO"
+                           + ("; more awaiting budget." if budget_out else "."))
+    except Exception as e:
+        _lt_job["note"] = f"Scan failed: {e}"
+    finally:
+        _lt_job["running"] = False
+        _lt_job["phase"] = ""
+
+
+@app.route("/api/link-targets/scan", methods=["POST"])
+def api_link_targets_scan():
+    if _lt_job["running"]:
+        return jsonify({"error": "A scan is already running."}), 400
+    _lt_job.update({"running": True, "phase": "starting…", "note": ""})
+    threading.Thread(target=_lt_scan_job, daemon=True).start()
+    return jsonify({"success": True})
 
 
 def _re_own_domain():
