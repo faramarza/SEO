@@ -91,35 +91,50 @@ const LT_VERDICT = {
     unknown:          {label:'—',                color:'#94a3b8'},
 };
 
+let ltScanStart = 0;      // when the operator last hit Measure
+let ltWasRunning = false; // to detect the running → done transition
 function updateJobUI(){
     LT = LT || {};
     const running = !!(LT.job && LT.job.running);
+    // Keep the banner up for at least 2.5s so a fast (cached) scan is still
+    // visible instead of flashing by.
+    const withinMin = ltScanStart && (Date.now() - ltScanStart < 2500);
+    const showBanner = running || withinMin;
     const btn = document.getElementById('lt-scan-btn');
     const banner = document.getElementById('lt-running');
     if(btn){
-        btn.disabled = running;
-        btn.textContent = running ? '⏳ Measuring…' : '🔄 Measure via DataForSEO';
-        btn.style.opacity = running ? '.6' : '';
-        btn.style.cursor = running ? 'progress' : '';
+        btn.disabled = showBanner;
+        btn.textContent = showBanner ? '⏳ Measuring…' : '🔄 Measure via DataForSEO';
+        btn.style.opacity = showBanner ? '.6' : '';
+        btn.style.cursor = showBanner ? 'progress' : '';
     }
     if(banner){
-        banner.classList.toggle('on', running);
+        banner.classList.toggle('on', showBanner);
         document.getElementById('lt-running-text').textContent =
-            running ? ('Measuring ' + (LT.job.phase || 'pages…')) : 'Measuring…';
+            running ? ('Measuring ' + (LT.job.phase || 'pages…')) : 'Finishing…';
+        if(showBanner && !running) setTimeout(updateJobUI, 400);  // re-check to hide after the window
     }
     document.getElementById('lt-job').textContent =
-        running ? '' : (LT.job && LT.job.note ? ('✓ ' + LT.job.note) : '');
+        showBanner ? '' : (LT.job && LT.job.note ? ('✓ ' + LT.job.note) : '');
 }
 
 async function loadLT(){
     LT = await (await fetch('/api/link-targets')).json();
+    const running = !!(LT.job && LT.job.running);
+    // Announce completion (and surface any 'Scan failed: …') the moment it ends.
+    if(ltWasRunning && !running && LT.job && LT.job.note){
+        ltToast((/fail|error/i.test(LT.job.note) ? '⚠ ' : '✓ ') + LT.job.note,
+                /fail|error/i.test(LT.job.note));
+    }
+    ltWasRunning = running;
     updateJobUI();
     document.getElementById('lt-budget').textContent =
         (LT.dataforseo_budget!=null) ? `DataForSEO budget left today: ${LT.dataforseo_budget}` : '';
     document.getElementById('lt-updated').textContent =
         LT.updated_at ? ('Updated '+LT.updated_at.replace('T',' ')) : '';
     render();
-    if(LT.job&&LT.job.running) setTimeout(loadLT, 2500);
+    if(running) setTimeout(loadLT, 1500);
+    else if(ltScanStart && Date.now() - ltScanStart < 4000) setTimeout(loadLT, 1000);  // catch a fast scan's finish
 }
 
 // Diagnosed lever per page — why it is or isn't primarily a link play.
@@ -289,6 +304,7 @@ async function ltScan(btn){
     const d = await (await fetch('/api/link-targets/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
     if(d.success){
         // Show the running banner immediately; polling takes over from here.
+        ltScanStart = Date.now(); ltWasRunning = true;
         LT = LT||{}; LT.job = {running:true, phase:'starting…'};
         updateJobUI();
         ltToast('Scan started — measuring now. The progress bar above shows it running; rows fill in as it goes.');
