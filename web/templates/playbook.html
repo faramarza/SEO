@@ -401,8 +401,21 @@ async function loadPlaybook() {
         PB_ADDED.clear();
         (data.existing_task_keys || []).forEach(k => PB_ADDED.add(k));
         const d = data.timestamp ? new Date(data.timestamp).toLocaleString() : '—';
+        let ageDays = null;
+        if (data.timestamp) {
+            ageDays = Math.floor((Date.now() - new Date(data.timestamp).getTime()) / 86400000);
+        }
+        // Content diagnostics (headings, word count, GEO, schema) are read from
+        // the crawl — a stale crawl shows OLD page content as if current (this
+        // caused the "0 headings" false alarm). Warn loudly past 10 days.
+        const stale = ageDays != null && ageDays > 10
+            ? `<div style="margin-top:4px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;font-size:12px;">
+                ⚠ This evaluation is <strong>${ageDays} days old</strong>. Content diagnostics here
+                (headings, word count, GEO, schema) reflect the pages <em>as crawled then</em>, not their
+                current state — re-run <strong>Run with Crawl</strong> before trusting them for pages you've since edited.</div>`
+            : '';
         document.getElementById('pb-meta').innerHTML =
-            `Based on ${data.page_count} pages · evaluation ${escHtml(d)}`;
+            `Based on ${data.page_count} pages · evaluation ${escHtml(d)}` + stale;
         // Render each section independently: one section's failure must not
         // strand the sections after it at "Loading…" — show the error IN that
         // section instead, so the screen diagnoses itself.
