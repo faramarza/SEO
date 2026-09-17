@@ -11620,6 +11620,15 @@ def api_link_targets():
             gaps = [g for g in (m.get("keyword_gaps") or [])
                     if g.get("model") == lt.MODEL_VERSION]
             m.update(t)  # refresh keywords/impressions
+            # Keep any keywords promoted from the What-if tester (manual_keywords)
+            # visible in the worksheet even though they aren't striking rows.
+            manual = (stored.get(t["url"]) or {}).get("manual_keywords") or []
+            if manual:
+                have = {(k.get("query") or "").lower() for k in m.get("keywords", [])}
+                for mk in manual:
+                    if (mk.get("query") or "").lower() not in have:
+                        m.setdefault("keywords", []).append(mk)
+                m["manual_keywords"] = manual
             m["sources"] = srcs
             m["keyword_gaps"] = gaps
             # The single best REACHABLE opportunity across this page's keywords,
@@ -11884,12 +11893,17 @@ def _whatif_single(url):
     return {"head_query": queries[0] if queries else "", "gsc_queries": queries}
 
 
+_wf_job = {"running": False, "phase": "", "note": "", "url": "",
+           "progress": 0, "total": 0}
+WHATIF_MAX_BATCH = int(os.environ.get("WHATIF_MAX_BATCH", "30"))
+
+
 @app.route("/api/whatif")
 def api_whatif():
-    """?url=… → that page's editable candidate list, computed from that one page
-    only (fast). ?pages=1 (or no url) → the page picker list (slower, builds the
-    striking-distance index). The two are separate so opening a chosen page
-    never waits on the full list."""
+    """?url=… → that page's tester payload: the keyword list to prepopulate the
+    textarea (last-measured list, else fresh suggestions), any stored
+    measurements, and the running job. No url → the page picker/switcher list
+    (builds the striking index, so it's a separate, non-blocking call)."""
     from src.analysis import whatif as wf
     try:
         from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
@@ -11897,73 +11911,116 @@ def api_whatif():
     except Exception:
         budget = None
     url = request.args.get("url", "")
-    if url:
-        meta = _whatif_single(url)
-        store = wf.load_store()
-        cands = wf.page_candidates(store, url, meta["gsc_queries"], meta["head_query"])
-        return jsonify({"url": url, "head_query": meta["head_query"],
-                        "candidates": cands, "dataforseo_budget": budget,
-                        "updated_at": store["pages"].get(url, {}).get("updated_at")})
-    # Picker / switcher list.
-    idx = _whatif_page_index()
-    pages = [{"url": u, "head_query": v["head_query"], "lever": v["lever"]}
-             for u, v in idx.items()]
-    return jsonify({"pages": pages, "dataforseo_budget": budget})
-
-
-@app.route("/api/whatif/add", methods=["POST"])
-def api_whatif_add():
-    from src.analysis import whatif as wf
-    b = request.json or {}
-    url, query = b.get("url", ""), wf._norm(b.get("query", ""))
-    if not url or not query:
-        return jsonify({"error": "url and query required"}), 400
+    if not url:
+        idx = _whatif_page_index()
+        pages = [{"url": u, "head_query": v["head_query"], "lever": v["lever"]}
+                 for u, v in idx.items()]
+        return jsonify({"pages": pages, "dataforseo_budget": budget})
+    meta = _whatif_single(url)
     store = wf.load_store()
-    p = wf._page(store, url)
-    if query not in [wf._norm(q) for q in p["added"]]:
-        p["added"].append(query)
-    # Re-adding something previously ignored un-ignores it.
-    p["removed"] = [q for q in p["removed"] if wf._norm(q) != query]
-    store["pages"][url]["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    wf.save_store(store)
-    return jsonify({"success": True})
+    p = store["pages"].get(url, {})
+    keywords = p.get("keywords") or [c["query"] for c in wf.suggest_candidates(
+        url, meta["gsc_queries"], meta["head_query"])]
+    return jsonify({
+        "url": url, "head_query": meta["head_query"],
+        "suggested_text": ", ".join(keywords),
+        "measurements": p.get("measurements", {}),
+        "job": _wf_job if _wf_job.get("url") == url else {"running": False},
+        "dataforseo_budget": budget, "updated_at": p.get("updated_at")})
 
 
-@app.route("/api/whatif/dismiss", methods=["POST"])
-def api_whatif_dismiss():
-    """Ignore a candidate (or un-ignore with undo:true)."""
-    from src.analysis import whatif as wf
-    b = request.json or {}
-    url, query = b.get("url", ""), wf._norm(b.get("query", ""))
-    if not url or not query:
-        return jsonify({"error": "url and query required"}), 400
-    store = wf.load_store()
-    p = wf._page(store, url)
-    if b.get("undo"):
-        p["removed"] = [q for q in p["removed"] if wf._norm(q) != query]
-    elif query not in [wf._norm(q) for q in p["removed"]]:
-        p["removed"].append(query)
-    wf.save_store(store)
-    return jsonify({"success": True})
-
-
-@app.route("/api/whatif/measure", methods=["POST"])
-def api_whatif_measure():
-    """Measure ONE candidate on demand (SERP + backlink lookups)."""
+def _wf_measure_job(url, keywords):
     from src.analysis import whatif as wf
     from src.data_sources.serp_client import fetch_serp
+    try:
+        total = len(keywords)
+        _wf_job.update(total=total, progress=0)
+        done = 0
+        for i, q in enumerate(keywords, 1):
+            _wf_job.update(phase=f"{i} of {total}: {q[:38]}", progress=i - 1)
+            res = wf.measure_candidate(url, q, fetch_serp, _whatif_rd)
+            store = wf.load_store()
+            pg = wf._page(store, url)
+            pg["measurements"][wf._norm(q)] = res
+            pg["keywords"] = keywords
+            store["pages"][url]["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            wf.save_store(store)
+            _wf_job["progress"] = i
+            if res.get("verdict") != "pending":
+                done += 1
+            elif wf.lt.is_budget_note(res.get("note")):
+                _wf_job["note"] = f"measured {done}/{total} — budget ran out; retry later for the rest."
+                break
+        else:
+            _wf_job["note"] = f"measured {done} of {total} keyword(s)."
+    except Exception as e:
+        _wf_job["note"] = f"failed: {e}"
+    finally:
+        _wf_job["running"] = False
+        _wf_job["phase"] = ""
+
+
+@app.route("/api/whatif/measure-batch", methods=["POST"])
+def api_whatif_measure_batch():
+    """Measure a WHOLE list of candidate keywords for a page in one background
+    job with progress — instead of one click per keyword."""
+    from src.analysis import whatif as wf
+    if _wf_job["running"]:
+        return jsonify({"error": "A measurement is already running."}), 400
     b = request.json or {}
-    url, query = b.get("url", ""), wf._norm(b.get("query", ""))
-    if not url or not query:
-        return jsonify({"error": "url and query required"}), 400
-    res = wf.measure_candidate(url, query, fetch_serp, _whatif_rd)
-    store = wf.load_store()
-    p = wf._page(store, url)
-    p["measurements"][query] = res
-    store["pages"][url]["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    wf.save_store(store)
-    return jsonify({"success": res.get("verdict") != "pending",
-                    "result": res})
+    url = b.get("url", "")
+    raw = b.get("keywords") or []
+    if isinstance(raw, str):
+        raw = re.split(r"[,\n]", raw)
+    keywords, seen = [], set()
+    for q in raw:
+        q = wf._norm(q)
+        if q and len(q) > 2 and q not in seen:
+            seen.add(q)
+            keywords.append(q)
+    if not url or not keywords:
+        return jsonify({"error": "url and at least one keyword required"}), 400
+    keywords = keywords[:WHATIF_MAX_BATCH]
+    _wf_job.update(running=True, phase="starting…", note="", url=url,
+                   progress=0, total=len(keywords))
+    threading.Thread(target=_wf_measure_job, args=(url, keywords), daemon=True).start()
+    return jsonify({"success": True, "count": len(keywords)})
+
+
+@app.route("/api/whatif/promote", methods=["POST"])
+def api_whatif_promote():
+    """Add the selected measured keywords to the main Link Targets worksheet as
+    manual keywords on that page, carrying their measurement across."""
+    from src.analysis import whatif as wf
+    from src.analysis import link_targets as lt
+    b = request.json or {}
+    url = b.get("url", "")
+    picked = [wf._norm(q) for q in (b.get("keywords") or [])]
+    if not url or not picked:
+        return jsonify({"error": "url and keywords required"}), 400
+    meas = wf.load_store()["pages"].get(url, {}).get("measurements", {})
+    lstore = lt.load_store()
+    t = lstore["targets"].setdefault(url, {"url": url, "keywords": [],
+                                           "total_impressions": 0})
+    t.setdefault("manual_keywords", [])
+    t.setdefault("keyword_gaps", [])
+    have = {k.get("query", "").lower() for k in t["manual_keywords"]}
+    added = 0
+    for q in picked:
+        m = meas.get(q)
+        if not m or m.get("verdict") == "pending":
+            continue
+        if q.lower() not in have:
+            t["manual_keywords"].append({"query": q, "position": m.get("own_position") or 0,
+                                         "impressions": 0, "source": "what-if"})
+            have.add(q.lower())
+        t["keyword_gaps"] = [g for g in t["keyword_gaps"] if wf._norm(g.get("query")) != q]
+        t["keyword_gaps"].append(m)
+        added += 1
+    lstore["targets"][url] = t
+    lstore["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    lt.save_store(lstore)
+    return jsonify({"success": True, "added": added})
 
 
 # ============================================================
