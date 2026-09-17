@@ -104,7 +104,19 @@ def measure_candidate(url, query, fetch_serp_fn, fetch_rd_fn):
     target = {"url": url, "keywords": [{"query": query}]}
     res = lt.compute_target(target, fetch_serp_fn, fetch_rd_fn, keyword=query)
     res["query"] = _norm(query)
-    res["own_position"] = _own_position(fetch_serp_fn(query), lt._domain(url))
+    pos = _own_position(fetch_serp_fn(query), lt._domain(url))
+    res["own_position"] = pos
+    # Sanity guard: if the page ALREADY ranks on page 1, links are provably not
+    # the barrier — you're there on your current links. Never show a
+    # links-needed number that contradicts the ranking (the classic "you rank
+    # #9 but need 52,000 links" nonsense, caused by one giant domain poisoning
+    # the page-1 median).
+    if pos is not None and pos <= 10 and res.get("verdict") != "pending":
+        res["verdict"] = "already_ranking"
+        res["links_needed"] = 0
+        res["note"] = (f"You already rank #{int(round(pos))} for this on your current links — "
+                       "links aren't the barrier. It's an on-page / relevance nudge to climb, "
+                       "not a link-building job.")
     return res
 
 

@@ -64,11 +64,12 @@ def test_page_candidates_sorts_winnable_first():
 
 
 def test_measure_candidate_uses_engine_and_reports_position():
+    # Own page ranks #14 (off page 1) → normal gap math applies.
     def serp(q):
         return {"organic_results": [
             {"position": 1, "url": "https://compa.com/a"},
             {"position": 2, "url": "https://compb.com/b"},
-            {"position": 4, "url": "https://x.com/p.html"},  # own page ranks #4
+            {"position": 14, "url": "https://x.com/p.html"},
         ]}
     rd = {"https://x.com/p.html": 20, "https://compa.com/a": 90,
           "https://compb.com/b": 80}
@@ -78,9 +79,31 @@ def test_measure_candidate_uses_engine_and_reports_position():
 
     res = wf.measure_candidate("https://x.com/p.html", "montessori lock box", serp, rdfn)
     assert res["query"] == "montessori lock box"
-    assert res["own_position"] == 4
+    assert res["own_position"] == 14
     # engine produced real numbers: page1 median 85 vs you 20 → +65
     assert res["you"] == 20 and res["page1"] == 85 and res["links_needed"] == 65
+
+
+def test_measure_candidate_already_ranking_never_demands_links():
+    # The '#9 but +52,000 links' bug: if the page already ranks on page 1, the
+    # links-needed number must be suppressed no matter how big the (poisoned)
+    # page-1 median is.
+    def serp(q):
+        return {"organic_results": [
+            {"position": 1, "url": "https://giant.com/a"},
+            {"position": 9, "url": "https://x.com/p.html"},   # own page ranks #9
+        ]}
+    rd = {"https://x.com/p.html": 695, "https://giant.com/a": 53029,
+          "giant.com": 53029, "x.com": 695}
+
+    def rdfn(u):
+        return {"available": True, "count": rd.get(u, 0)}
+
+    res = wf.measure_candidate("https://x.com/p.html", "childs lockable box", serp, rdfn)
+    assert res["own_position"] == 9
+    assert res["verdict"] == "already_ranking"
+    assert res["links_needed"] == 0
+    assert "already rank" in res["note"].lower()
 
 
 if __name__ == "__main__":
