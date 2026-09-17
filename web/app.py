@@ -11674,7 +11674,11 @@ def api_link_targets():
         dfs_budget = get_backlinks_remaining_quota()
     except Exception:
         dfs_budget = None
-    return jsonify({"targets": targets, "updated_at": store.get("updated_at"),
+    # Flat, ranked outreach worksheet: one row per (page, keyword) with its
+    # links-needed number — the thing you build outreach from.
+    worksheet = lt.worksheet_rows(targets)
+    return jsonify({"targets": targets, "worksheet": worksheet,
+                    "updated_at": store.get("updated_at"),
                     "job": _lt_job, "dataforseo_budget": dfs_budget})
 
 
@@ -11737,8 +11741,12 @@ def _lt_scan_job():
     try:
         with open(DATA_PATH / "latest_evaluation.json") as f:
             results = json.load(f).get("results", [])
+        # Measure EVERY striking-distance page (all levers), highest search
+        # demand first — the operator decides what to target for outreach, not
+        # the tool. Budget-bounded; resumes next run.
         targets = lt.build_targets(find_striking_distance(
-            results, system_disallow=_robots_disallow_rules()))
+            results, system_disallow=_robots_disallow_rules()),
+            include_all_levers=True)
         store = lt.load_store()
         for t in targets:
             store["targets"].setdefault(t["url"], {}).update(t)

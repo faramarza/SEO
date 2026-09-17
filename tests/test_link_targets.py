@@ -244,6 +244,50 @@ def test_gap_from_ahrefs_real_gap():
     assert out["own_rd"] == 20 and out["gap_lo"] == 60 and out["verdict"] == "authority_gap"
 
 
+def test_result_always_carries_worksheet_numbers():
+    # Parity page: you 55, competitors 37/25 → page1 median 37, needs 0.
+    csv_text = ("Position,URL,Domains\n"
+                "5,https://compa.com/x,37\n"
+                "8,https://compb.com/y,25\n"
+                "14,https://alphabet-trains.com/p.html,55\n")
+    t = {"url": "https://alphabet-trains.com/p.html", "keywords": [{"query": "kw"}]}
+    out = lt.gap_from_ahrefs(t, csv_text, "alphabet-trains.com")
+    assert out["verdict"] == "parity"
+    # The worksheet still gets real numbers even though the verdict is parity.
+    assert out["you"] == 55 and out["page1"] == 31 and out["links_needed"] == 0
+
+    # A real gap: you 20, competitors 90/70/80 → page1 median 80, needs 60.
+    csv2 = ("Position,URL,Referring Domains\n"
+            "1,https://c1.com/a,90\n2,https://c2.com/b,70\n3,https://c3.com/c,80\n"
+            "9,https://alphabet-trains.com/p.html,20\n")
+    out2 = lt.gap_from_ahrefs({"url": "https://alphabet-trains.com/p.html",
+                               "keywords": [{"query": "kw"}]}, csv2, "alphabet-trains.com")
+    assert out2["you"] == 20 and out2["page1"] == 80 and out2["links_needed"] == 60
+
+
+def test_worksheet_rows_flattens_and_ranks():
+    targets = [{
+        "url": "https://x.com/a.html", "lever": "external",
+        "keywords": [{"query": "head", "position": 12, "impressions": 2000},
+                     {"query": "long tail", "position": 8, "impressions": 300}],
+        "keyword_gaps": [
+            {"query": "head", "verdict": "parity", "you": 700, "page1": 400,
+             "links_needed": 0, "impressions": 2000, "position": 12},
+            {"query": "long tail", "verdict": "authority_gap", "you": 20,
+             "page1": 28, "links_needed": 8, "impressions": 300, "position": 8}],
+    }, {
+        "url": "https://x.com/b.html", "lever": "internal",
+        "keywords": [{"query": "unmeasured kw", "position": 9, "impressions": 500}],
+        "keyword_gaps": [],
+    }]
+    rows = lt.worksheet_rows(targets)
+    # Reachable win ranks first, then other measured by demand, then unmeasured.
+    assert rows[0]["query"] == "long tail" and rows[0]["links_needed"] == 8
+    assert rows[1]["query"] == "head" and rows[1]["status"] == "measured"
+    assert rows[2]["query"] == "unmeasured kw" and rows[2]["status"] == "unmeasured"
+    assert rows[2]["links_needed"] is None
+
+
 def test_best_opportunity_finds_reachable_longtail():
     # Head term is parity; a long-tail keyword is a reachable authority_gap.
     gaps = [

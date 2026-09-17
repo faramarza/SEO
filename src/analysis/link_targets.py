@@ -128,7 +128,10 @@ def build_targets(striking_rows, include_all_levers=False):
 # exists (it's a content/relevance play).
 # v5: distinguish a reachable gap from a wall — a domain gap larger than a
 # small store can realistically earn is "out of reach", not a number to chase.
-MODEL_VERSION = 5
+# v6: attach the raw worksheet numbers (you / page1 / links_needed) to every
+# measurement so the outreach worksheet always shows a number, whatever the
+# verdict — old v5 rows re-measure to gain those fields.
+MODEL_VERSION = 6
 
 
 def _median(xs):
@@ -288,12 +291,40 @@ def _pending(note):
     return {"verdict": "pending", "note": note}
 
 
-def _result(verdict, lo, hi, note, own_rd, comps, own_dom_rd=None):
+def _display(own_rd, comp_rds, own_dom_rd=None, comp_dom_rds=None):
+    """The raw numbers to ALWAYS show on the outreach worksheet, whatever the
+    verdict: (you, page1, links_needed, scope). `you` and `page1` are referring
+    domains — yours vs the median page-1 competitor — measured at whichever
+    level actually decides the ranking (page-level when the ranking pages carry
+    real direct links, else domain-level). `links_needed` = max(0, page1-you):
+    how many more referring domains to MATCH the page-1 sites. This is the
+    honest proxy for 'links to reach page 1' — necessary, not a guarantee."""
+    med_page = _median(comp_rds) if comp_rds else 0
+    if comp_rds and med_page >= PAGE_LINKS_MEANINGFUL:
+        you, page1, scope = own_rd, round(med_page), "page"
+    elif comp_dom_rds and own_dom_rd is not None:
+        you, page1, scope = own_dom_rd, round(_median(comp_dom_rds)), "domain"
+    else:
+        you, page1, scope = own_rd, round(med_page), "page"
+    return you, page1, max(0, page1 - you), scope
+
+
+def _result(verdict, lo, hi, note, own_rd, comps, own_dom_rd=None,
+            comp_rds=None, comp_dom_rds=None):
     r = {"verdict": verdict, "gap_lo": lo, "gap_hi": hi, "note": note,
          "own_rd": own_rd, "competitors": comps, "model": MODEL_VERSION,
          "computed_at": datetime.now().isoformat(timespec="seconds")}
     if own_dom_rd is not None:
         r["own_domain_rd"] = own_dom_rd
+    # Always-present raw numbers for the worksheet (independent of verdict).
+    if comps is not None:
+        crds = comp_rds if comp_rds is not None else [c.get("rd", 0) for c in comps]
+        cdoms = comp_dom_rds
+        if cdoms is None:
+            dl = [c.get("domain_rd") for c in comps if c.get("domain_rd") is not None]
+            cdoms = dl or None
+        you, page1, need, scope = _display(own_rd, crds, own_dom_rd, cdoms)
+        r.update(you=you, page1=page1, links_needed=need, scope=scope)
     return r
 
 
@@ -391,6 +422,45 @@ def best_opportunity(keyword_gaps):
         return None
     return sorted(reach, key=lambda g: (_VERDICT_RANK.get(g.get("verdict"), 9),
                                         -(g.get("impressions") or 0)))[0]
+
+
+def worksheet_rows(targets):
+    """Flatten pages → one row per (page, keyword) for the outreach worksheet.
+    EVERY candidate term is a row, whether measured yet or not, so the operator
+    sees the whole board and its numbers. Measured rows carry you/page1/
+    links_needed; unmeasured rows carry status so a blank is never ambiguous.
+    Ranked: measured reachable opportunities (most search demand) first, then
+    everything else by demand — the operator decides, the order just helps."""
+    rows = []
+    for t in targets or []:
+        gaps_by_q = {(g.get("query") or "").lower(): g
+                     for g in (t.get("keyword_gaps") or [])}
+        for k in t.get("keywords") or []:
+            q = k.get("query", "")
+            g = gaps_by_q.get(q.lower())
+            row = {"url": t["url"], "lever": t.get("lever", "external"),
+                   "query": q, "position": k.get("position", 0),
+                   "impressions": k.get("impressions", 0) or 0,
+                   "you": None, "page1": None, "links_needed": None,
+                   "scope": None, "verdict": None, "note": "", "status": "unmeasured"}
+            if g and g.get("verdict") == "pending":
+                row["status"] = "pending"
+                row["note"] = g.get("note", "")
+            elif g:
+                row.update(status="measured", verdict=g.get("verdict"),
+                           you=g.get("you"), page1=g.get("page1"),
+                           links_needed=g.get("links_needed"),
+                           scope=g.get("scope"), note=g.get("note", ""))
+            rows.append(row)
+
+    def _score(r):
+        measured = r["status"] == "measured"
+        reachable = measured and (r.get("links_needed") or 0) > 0 \
+            and r.get("verdict") in REACHABLE_VERDICTS
+        # 0 = reachable opportunity, 1 = other measured, 2 = not yet measured
+        tier = 0 if reachable else (1 if measured else 2)
+        return (tier, -(r.get("impressions") or 0))
+    return sorted(rows, key=_score)
 
 
 def compute_page_gaps(target, fetch_serp_fn, fetch_rd_fn, max_keywords=3):

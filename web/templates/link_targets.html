@@ -5,21 +5,16 @@
 <div class="page-header">
     <h1>🎯 Link Targets</h1>
     <p class="page-description">
-        <strong>Every</strong> striking-distance page (ranking position 6–20 with real demand),
-        nothing filtered out. Each is tagged with its <strong>diagnosed lever</strong> so you see
-        the whole board and decide for yourself:
-        <span style="color:#d97706;font-weight:600;">🔗 needs backlinks</span> (the real link
-        targets, measured automatically),
-        <span style="color:#059669;font-weight:600;">↩︎ cheaper: internal links</span>, or
-        <span style="color:#2563eb;font-weight:600;">✎ cheaper: on-page fix</span>. Use the
-        <em>All / Link-targets-only</em> toggle to collapse to just the link plays. Each page is
-        measured on its <strong>top few keywords, not just the head term</strong>, so a page can
-        read “parity on the head term, <span style="color:#059669;font-weight:600;">🎯 reachable
-        on a long-tail one</span>” — that green chip is where outreach actually moves a ranking.
-        The referring-domain gap is shown from <strong>two sources side by side: DataForSEO</strong>
-        (measured automatically) and <strong>Ahrefs</strong> (pasted from a SERP-overview export).
-        The two indexes count referring domains differently, so the numbers will differ — that's
-        normal between backlink tools; use whichever you trust or compare them.
+        Your <strong>outreach worksheet</strong>: one row per page + keyword, ranked, with a number
+        on every row — <strong>how many more referring domains</strong> that page needs to match the
+        sites on page 1 for that term. This is what you build outreach from: the pages, the terms,
+        and the link count for each. Nothing is filtered and no verdict hides a number — a
+        <span style="color:var(--text-muted);font-weight:600;">0</span> means you already out-link
+        the competition (so links won't be the lever there), a
+        <span style="color:#059669;font-weight:600;">🎯 +N</span> is a reachable win, and a big
+        <span style="color:#b45309;font-weight:600;">+N</span> is a gap you can see and judge yourself.
+        Measured via DataForSEO; paste an Ahrefs SERP export on any row to cross-check with a second
+        index (they count referring domains differently, so numbers will differ — that's normal).
     </p>
 </div>
 
@@ -146,66 +141,89 @@ function sourceCell(s){
     return `<span style="font-size:11px;color:${v.color};font-weight:600;" title="${escHtml(s.note||'')}">${v.label}${(s.own_rd!=null||s.own_domain_rd!=null)?`<br><span style="font-weight:400;">you: ${s.own_domain_rd!=null?s.own_domain_rd:s.own_rd}</span>`:''}</span>`;
 }
 
+function ahrefsUrl(q){ return 'https://app.ahrefs.com/keywords-explorer/google/us/overview?keyword='+encodeURIComponent(q||''); }
+function shortUrl(u){ return (u||'').replace(/^https?:\/\/[^/]+/,'')||'/'; }
+
+// The "links needed" cell — ALWAYS a number when measured, never a verdict
+// that hides it. Green = a reachable win, grey 0 = you already lead, amber =
+// a big gap you can see and judge for yourself.
+function needCell(r){
+    if(r.status==='pending') return `<span style="font-size:11px;color:#7c3aed;">measuring…</span>`;
+    if(r.status!=='measured') return `<span style="font-size:11px;color:#7c3aed;" title="In the DataForSEO scan queue (daily-capped).">in queue</span>`;
+    const n = r.links_needed;
+    if(n==null) return '<span style="color:var(--text-muted);">—</span>';
+    if(n<=0) return `<span style="font-weight:600;color:var(--text-muted);" title="${escHtml(r.note||'')}">0 · you already out-link them</span>`;
+    const reach = REACHABLE.includes(r.verdict) && n<=60;
+    const col = reach ? '#059669' : (n>60 ? '#b45309' : '#d97706');
+    return `<span style="font-weight:800;color:${col};font-size:15px;" title="${escHtml(r.note||'')}">${reach?'🎯 ':''}+${n}</span>`
+        + `<div style="font-size:10px;color:var(--text-muted);">referring domains</div>`;
+}
+
 function render(){
     const body = document.getElementById('lt-body');
-    const all = LT.targets||[];
-    if(!all.length){ body.innerHTML='<p class="empty-state">No striking-distance pages in the current evaluation yet — this fills from your normal evaluations.</p>'; return; }
-    const nLinks = all.filter(t=>t.lever==='external').length;
-    const nAll = all.length;
-    const ts = LT_FILTER==='links' ? all.filter(t=>t.lever==='external'||t.best_opportunity) : all;
-    const nOpp = ts.filter(t=>t.best_opportunity).length;
-    const nMeasured = ts.filter(t=>(t.keyword_gaps||[]).some(g=>g.verdict&&g.verdict!=='pending')).length;
-    let html = '';
-    // Filter: full board vs. link targets only. Nothing is deleted — the
-    // cheaper-lever pages are one click away either direction.
-    html += `<div style="margin-bottom:10px;font-size:13px;">
-        <span style="color:var(--text-muted);">Showing</span>
-        <button onclick="LT_FILTER='all';render();" style="font-weight:${LT_FILTER==='all'?700:400};background:none;border:none;cursor:pointer;color:${LT_FILTER==='all'?'var(--accent-purple)':'var(--text-muted)'};">All ${nAll} striking-distance pages</button>
-        <span style="color:var(--text-muted);">·</span>
-        <button onclick="LT_FILTER='links';render();" style="font-weight:${LT_FILTER==='links'?700:400};background:none;border:none;cursor:pointer;color:${LT_FILTER==='links'?'var(--accent-purple)':'var(--text-muted)'};">Link targets only (${nLinks})</button>
-    </div>`;
-    if(nMeasured){
-        html += `<div class="card" style="margin-bottom:12px;font-size:13px;">` +
-            (nOpp
-              ? `<strong style="color:#059669;">🎯 ${nOpp} page${nOpp>1?'s have':' has'} a reachable link opportunity</strong> — a keyword (usually long-tail) where the competitors are small enough that a few links would actually move it. Look for the green <strong>🎯 ~N more</strong> chips below; those are where outreach pays off.`
-              : `Every measured keyword across these pages is <strong>parity / out-of-reach</strong> — on none of them are more links the lever. That's the honest read: point outreach at content and the B2B channel, not these pages.`) +
-            `</div>`;
-    }
+    const rows = LT.worksheet||[];
+    if(!rows.length){ body.innerHTML='<p class="empty-state">No striking-distance keywords in the current evaluation yet — this fills from your normal evaluations.</p>'; return; }
+
+    const nAll = rows.length;
+    const nLinks = rows.filter(r=>r.lever==='external').length;
+    const nReach = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict)).length;
+    let view = rows;
+    if(LT_FILTER==='links') view = rows.filter(r=>r.lever==='external');
+    else if(LT_FILTER==='reachable') view = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
+
+    const tab = (id,label)=>`<button onclick="LT_FILTER='${id}';render();" style="font-weight:${LT_FILTER===id?700:400};background:none;border:none;cursor:pointer;font-size:13px;color:${LT_FILTER===id?'var(--accent-purple)':'var(--text-muted)'};">${label}</button>`;
+    let html = `<div style="margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <span style="color:var(--text-muted);font-size:13px;">Show:</span>
+        ${tab('all','All '+nAll+' keywords')}<span style="color:var(--text-muted);">·</span>
+        ${tab('links','Link-target pages ('+nLinks+')')}<span style="color:var(--text-muted);">·</span>
+        ${tab('reachable','🎯 Reachable wins ('+nReach+')')}
+        <button class="pb-task-btn pb-task-btn-alt" style="margin-left:auto;" onclick='ltCopy()'>⧉ Copy worksheet</button>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;">
+        One row per page + keyword. <strong>“+N referring domains”</strong> = how many more sites need to link to that page to
+        <em>match</em> the sites currently on page 1 for that term (necessary, not a guarantee). Ranked so the
+        <span style="color:#059669;font-weight:600;">🎯 reachable wins</span> sit up top. Sort or copy to build your outreach list.</p>`;
+
     html += `<table class="pb-table"><thead><tr>
-        <th>Page</th><th>Blocked keyword</th>
-        <th title="Automated, from DataForSEO">DataForSEO gap</th>
-        <th title="From your pasted Ahrefs SERP export">Ahrefs gap</th>
-        <th>Prospects</th><th></th></tr></thead><tbody>`;
-    ts.forEach(t=>{
-        const kw = (t.keywords||[])[0]||{};
-        // Map each measured keyword to its own gap verdict, so long-tail wins
-        // show next to the head-term parity instead of being hidden behind it.
-        const gapBy = {};
-        (t.keyword_gaps||[]).forEach(g=>{ if(g.query) gapBy[g.query.toLowerCase()] = g; });
-        const kws = (t.keywords||[]).slice(0,3).map(k=>
-            `<div style="font-size:12px;">“${escHtml(k.query)}” <span style="color:var(--text-muted);">#${k.position} · ${(k.impressions||0).toLocaleString()} impr</span>${kwChip(gapBy[(k.query||'').toLowerCase()])}</div>`).join('')
-            + ((t.keywords||[]).length>3?`<div style="font-size:11px;color:var(--text-muted);">+${t.keywords.length-3} more</div>`:'');
-        const opp = t.best_opportunity;
-        const srcs = t.sources||{};
-        const pr = t.prospects_ready
-            ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready}</a>`
-            : '<span style="color:var(--text-muted);">—</span>';
+        <th>Page</th><th>Keyword</th><th>Pos</th><th>Impr/mo</th>
+        <th title="Your referring domains for this page">You</th>
+        <th title="Median referring domains of the sites on page 1">Page-1 sites</th>
+        <th>Links needed</th><th></th></tr></thead><tbody>`;
+    view.forEach(r=>{
+        const you = r.you!=null ? r.you : '—';
+        const p1  = r.page1!=null ? r.page1 : '—';
         html += `<tr>
-            <td><a href="${escHtml(t.url)}" target="_blank">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a>
-                <div style="margin-top:2px;">${leverBadge(t.lever)}</div>
-                ${opp?`<div style="font-size:10px;color:#059669;font-weight:700;margin-top:2px;" title="${escHtml(opp.note||'')}">🎯 reachable on “${escHtml(opp.query||'')}”: ~${opp.gap_lo} more</div>`:''}</td>
-            <td>${kws}</td>
-            <td>${gapCell(t, srcs, 'dataforseo')}</td>
-            <td>${gapCell(t, srcs, 'ahrefs')}</td>
-            <td>${pr}</td>
+            <td style="max-width:220px;"><a href="${escHtml(r.url)}" target="_blank">${escHtml(shortUrl(r.url))}</a>
+                <div style="margin-top:2px;">${leverBadge(r.lever)}</div></td>
+            <td style="font-size:13px;">“${escHtml(r.query)}”</td>
+            <td>${r.position}</td>
+            <td>${(r.impressions||0).toLocaleString()}</td>
+            <td>${you}</td>
+            <td>${p1}${r.scope==='domain'?'<div style="font-size:9px;color:var(--text-muted);">domain-level</div>':''}</td>
+            <td>${needCell(r)}</td>
             <td style="white-space:nowrap;">
-                ${t.ahrefs_url?`<a class="pb-task-btn pb-task-btn-alt" href="${escHtml(t.ahrefs_url)}" target="_blank">Ahrefs ↗</a>`:''}
-                <button class="pb-task-btn" onclick='ltOpenImport(${JSON.stringify(t.url)}, ${JSON.stringify(kw.query||"")})'>Upload Ahrefs CSV</button>
+                <a class="pb-task-btn pb-task-btn-alt" href="${ahrefsUrl(r.query)}" target="_blank">Ahrefs ↗</a>
+                <button class="pb-task-btn" onclick='ltOpenImport(${JSON.stringify(r.url)}, ${JSON.stringify(r.query||"")})'>Upload CSV</button>
             </td>
         </tr>`;
     });
     html += '</tbody></table>';
     body.innerHTML = html;
+}
+
+// Copy the current view as TSV for pasting into a sheet / outreach tracker.
+function ltCopy(){
+    const rows = LT.worksheet||[];
+    let view = rows;
+    if(LT_FILTER==='links') view = rows.filter(r=>r.lever==='external');
+    else if(LT_FILTER==='reachable') view = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
+    const head = ['Page','Keyword','Position','Impressions/mo','Your ref domains','Page-1 ref domains','Links needed'].join('\t');
+    const body = view.map(r=>[shortUrl(r.url), r.query, r.position, r.impressions,
+        r.you!=null?r.you:'', r.page1!=null?r.page1:'',
+        r.status==='measured'?(r.links_needed||0):r.status].join('\t')).join('\n');
+    navigator.clipboard.writeText(head+'\n'+body).then(
+        ()=>ltToast('Worksheet copied ('+view.length+' rows) — paste into a sheet'),
+        ()=>ltToast('Copy failed', true));
 }
 
 async function ltScan(btn){
