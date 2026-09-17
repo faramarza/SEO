@@ -18,12 +18,31 @@
     </p>
 </div>
 
+<style>
+@keyframes lt-spin{to{transform:rotate(360deg);}}
+@keyframes lt-stripe{to{background-position:24px 0;}}
+.lt-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--accent-purple);
+    border-top-color:transparent;border-radius:50%;animation:lt-spin .8s linear infinite;vertical-align:-2px;}
+#lt-running{display:none;margin-top:10px;padding:10px 12px;border-radius:8px;
+    background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.35);}
+#lt-running.on{display:block;}
+#lt-bar{height:6px;border-radius:4px;margin-top:8px;overflow:hidden;background:rgba(124,58,237,.15);}
+#lt-bar > i{display:block;height:100%;width:100%;
+    background-image:linear-gradient(45deg,rgba(124,58,237,.55) 25%,transparent 25%,transparent 50%,rgba(124,58,237,.55) 50%,rgba(124,58,237,.55) 75%,transparent 75%);
+    background-size:24px 24px;animation:lt-stripe .7s linear infinite;}
+</style>
 <div class="card" style="margin-bottom:14px;font-size:13px;">
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
-        <button class="pb-task-btn" onclick="ltScan(this)">🔄 Measure via DataForSEO</button>
+        <button id="lt-scan-btn" class="pb-task-btn" onclick="ltScan(this)">🔄 Measure via DataForSEO</button>
         <span id="lt-job" style="font-size:12px;color:var(--accent-purple);"></span>
         <span id="lt-budget" style="font-size:12px;color:var(--text-muted);"></span>
         <span id="lt-updated" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <div id="lt-running">
+        <div style="font-weight:600;color:var(--accent-purple);">
+            <span class="lt-spinner"></span> <span id="lt-running-text">Measuring…</span></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">Runs in the background — you can leave this page; rows fill in as it goes.</div>
+        <div id="lt-bar"><i></i></div>
     </div>
     <p style="margin:8px 0 0;color:var(--text-muted);">
         DataForSEO runs on the Serper SERP + backlink totals (cached, daily-capped — a full pass
@@ -72,17 +91,35 @@ const LT_VERDICT = {
     unknown:          {label:'—',                color:'#94a3b8'},
 };
 
+function updateJobUI(){
+    LT = LT || {};
+    const running = !!(LT.job && LT.job.running);
+    const btn = document.getElementById('lt-scan-btn');
+    const banner = document.getElementById('lt-running');
+    if(btn){
+        btn.disabled = running;
+        btn.textContent = running ? '⏳ Measuring…' : '🔄 Measure via DataForSEO';
+        btn.style.opacity = running ? '.6' : '';
+        btn.style.cursor = running ? 'progress' : '';
+    }
+    if(banner){
+        banner.classList.toggle('on', running);
+        document.getElementById('lt-running-text').textContent =
+            running ? ('Measuring ' + (LT.job.phase || 'pages…')) : 'Measuring…';
+    }
+    document.getElementById('lt-job').textContent =
+        running ? '' : (LT.job && LT.job.note ? ('✓ ' + LT.job.note) : '');
+}
+
 async function loadLT(){
     LT = await (await fetch('/api/link-targets')).json();
-    document.getElementById('lt-job').textContent =
-        LT.job&&LT.job.running ? ('⏳ '+(LT.job.phase||'working…'))
-        : (LT.job&&LT.job.note ? ('✓ '+LT.job.note) : '');
+    updateJobUI();
     document.getElementById('lt-budget').textContent =
         (LT.dataforseo_budget!=null) ? `DataForSEO budget left today: ${LT.dataforseo_budget}` : '';
     document.getElementById('lt-updated').textContent =
         LT.updated_at ? ('Updated '+LT.updated_at.replace('T',' ')) : '';
     render();
-    if(LT.job&&LT.job.running) setTimeout(loadLT, 4000);
+    if(LT.job&&LT.job.running) setTimeout(loadLT, 2500);
 }
 
 // Diagnosed lever per page — why it is or isn't primarily a link play.
@@ -227,10 +264,18 @@ function ltCopy(){
 }
 
 async function ltScan(btn){
-    btn.disabled=true;
+    btn.disabled=true; btn.textContent='⏳ Starting…';
     const d = await (await fetch('/api/link-targets/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
-    ltToast(d.success?'Scan started — measuring the 🔗 link-target pages now. Watch the status line; rows fill in as it works through them.':(d.error||'Failed'),!d.success);
-    btn.disabled=false; setTimeout(loadLT,1500);
+    if(d.success){
+        // Show the running banner immediately; polling takes over from here.
+        LT = LT||{}; LT.job = {running:true, phase:'starting…'};
+        updateJobUI();
+        ltToast('Scan started — measuring now. The progress bar above shows it running; rows fill in as it goes.');
+        setTimeout(loadLT, 800);
+    } else {
+        updateJobUI();  // restores the button
+        ltToast(d.error||'Failed', true);
+    }
 }
 function ltOpenImport(url, kw){
     LT_TARGET = url;
