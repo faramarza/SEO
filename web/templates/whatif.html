@@ -93,10 +93,10 @@ function wfRender(){
         text = seed + (text ? ', ' + text : '');
 
     const meas = WF.measurements || {};
-    // Every keyword from the last-measured list, in order — so NOTHING vanishes.
-    // Match measurements by normalized key.
-    const listed = (WF.suggested_text||'').split(/[,\n]/).map(wfNorm).filter(q=>q.length>2);
-    Object.keys(meas).forEach(q=>{ if(listed.indexOf(q)<0) listed.push(q); });
+    // Show exactly the keywords currently in the box — what the operator is
+    // testing right now — joined with any measurement. Editing the list to 3
+    // keywords shows 3 rows, not the whole history.
+    const listed = text.split(/[,\n]/).map(wfNorm).filter(q=>q.length>2);
     const seen=new Set(); const uniq=[]; listed.forEach(q=>{ if(!seen.has(q)){seen.add(q); uniq.push(q);} });
     const rows = uniq.map(q=>({query:q, m:meas[q]||null}));
     const isMeasured = m => m && m.verdict!=='pending';
