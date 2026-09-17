@@ -77,6 +77,32 @@ def test_ams_algolia_extract_and_filter():
     assert "accreditated" in p["source"].lower() and "AMS" in p["source"]
 
 
+def test_public_schools_extract_filter_and_website_clean():
+    page0 = {"total_count": 2, "results": [
+        {"name": "LAMAR COUNTY ELEMENTARY", "state": "GA", "city": "BARNESVILLE",
+         "telephone": "(770) 358-8641", "level": "ELEMENTARY",
+         "st_grade": "KG", "end_grade": "05", "enrollment": "500",
+         "website": "http://lamar.k12.ga.us\\webpages\\lchs"},
+        {"name": "SOME HIGH SCHOOL", "state": "GA", "level": "HIGH",
+         "website": "NOT AVAILABLE"},
+    ]}
+    orig = ic.fetch
+    ic.fetch = lambda url, timeout=20: __import__("json").dumps(page0)
+    try:
+        prospects, note = ic.crawl_public_schools({"GA"}, levels=("ELEMENTARY",))
+    finally:
+        ic.fetch = orig
+    # both returned by the stub, but they're kept regardless of level here since
+    # the stub ignores the where-clause; the crawler keeps them by state.
+    lamar = next(p for p in prospects if p["school"] == "Lamar County Elementary")
+    assert lamar["state"] == "GA" and lamar["org_type"] == "public_school"
+    assert lamar["website"] == "http://lamar.k12.ga.us"     # backslash path stripped
+    assert "grades KG-05" in lamar["notes"] and "(770) 358-8641" in lamar["notes"]
+    # 'NOT AVAILABLE' website becomes empty, never a bad URL
+    hs = next(p for p in prospects if p["school"] == "Some High School")
+    assert hs["website"] == ""
+
+
 def test_dedup_by_domain_and_name():
     store = {"prospects": [], "sources": {}, "settings": {}, "runs": []}
     a = inst.new_prospect("Casa Montessori", "montessori_school", "GA",

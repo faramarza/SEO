@@ -32,7 +32,9 @@
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
         <strong style="font-size:13px;">Crawl Montessori directories (AMI + AMS):</strong>
         <span id="inst-states"></span>
-        <button id="inst-btn-crawl" class="pb-task-btn" onclick="instCrawl(this)">🕷 Crawl selected</button>
+        <button id="inst-btn-crawl" class="pb-task-btn" onclick="instCrawl(this)">🕷 Crawl Montessori</button>
+        <button id="inst-btn-schools" class="pb-task-btn pb-task-btn-alt" onclick="instCrawlSchools(this)"
+            title="NCES public ELEMENTARY schools in the selected states — a name/phone/address list for the classroom-rug line (no emails in this data).">🏫 Public elementary</button>
         <button id="inst-btn-research" class="pb-task-btn pb-task-btn-alt" onclick="instResearch(this)"
             title="Second hop: visit each org's own website for a director name, email, and one specific retrieved fact.">🔎 Research contacts</button>
         <button id="inst-btn-draft" class="pb-task-btn pb-task-btn-alt" onclick="instDraftBatch(this)">✍️ Draft batch (≤<span id="inst-cap">15</span>)</button>
@@ -157,7 +159,7 @@ async function instLoadLog(btn){
 // One shared job across the 3 buttons: disable all while running, show one
 // spinner banner with the phase, and the final note when idle.
 function instJobUI(running){
-    ['inst-btn-crawl','inst-btn-research','inst-btn-draft'].forEach(id=>{
+    ['inst-btn-crawl','inst-btn-schools','inst-btn-research','inst-btn-draft'].forEach(id=>{
         const b = document.getElementById(id);
         if(b){ b.disabled = running; b.classList.toggle('gov-busy', running); }
     });
@@ -287,6 +289,13 @@ async function instCrawl(btn){
     instJobUI(true);
     const d = await (await fetch('/api/institutional/crawl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({states})})).json();
     instStart(d, `crawling ${states.length} state(s)…`);
+}
+async function instCrawlSchools(btn){
+    const states=[...document.querySelectorAll('#inst-states input:checked')].map(i=>i.value);
+    if(!states.length){ instToast('Pick at least one state', true); return; }
+    instJobUI(true);
+    const d = await (await fetch('/api/institutional/crawl-schools',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({states})})).json();
+    instStart(d, `public elementary schools, ${states.length} state(s)…`);
 }
 async function instResearch(btn){
     instJobUI(true);

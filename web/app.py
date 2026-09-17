@@ -11494,6 +11494,44 @@ def api_institutional_crawl():
     return jsonify({"success": True, "states": states})
 
 
+def _inst_crawl_schools_job(states):
+    from src.analysis import institutional as inst
+    from src.analysis.institutional_crawl import crawl_public_schools, log as _clog
+    try:
+        _clog(f"===== PUBLIC SCHOOLS CRAWL START — states: {', '.join(states)} =====")
+        store = inst.load_store()
+        prospects, note = crawl_public_schools(set(states))
+        added, dupes = inst.add_prospects(store, prospects) if prospects else ([], 0)
+        inst.save_store(store)
+        inst.run_report(store, {"kind": "public_schools", "states": states,
+                                "rows_added": len(added), "dupes_skipped": dupes,
+                                "note": note})
+        inst.save_store(store)
+        _clog(f"===== PUBLIC SCHOOLS DONE — +{len(added)} rows ({note}) =====")
+        _inst_job["note"] = f"Public schools: +{len(added)} rows. {note}"
+    except Exception as e:
+        import traceback
+        _clog(f"===== PUBLIC SCHOOLS FAILED: {e} =====\n{traceback.format_exc()}")
+        _inst_job["note"] = f"Public schools crawl failed: {e}"
+    finally:
+        _inst_job["running"] = False
+        _inst_job["phase"] = ""
+
+
+@app.route("/api/institutional/crawl-schools", methods=["POST"])
+def api_institutional_crawl_schools():
+    """NCES public elementary schools for the selected states (classroom-rug
+    list). Separate from the Montessori crawl; no auto-research (no emails)."""
+    states = [(s or "").upper() for s in (request.json or {}).get("states", [])
+              if isinstance(s, str) and len(s) == 2 and s.isalpha()]
+    if not states:
+        return jsonify({"error": "Pick at least one state."}), 400
+    _inst_job["phase"] = f"NCES public schools ({len(states)} state(s))"
+    if not _inst_start(_inst_crawl_schools_job, states):
+        return jsonify({"error": "A job is already running."}), 400
+    return jsonify({"success": True, "states": states})
+
+
 @app.route("/api/institutional/research", methods=["POST"])
 def api_institutional_research():
     from src.analysis import institutional as inst

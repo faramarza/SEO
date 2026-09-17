@@ -418,6 +418,87 @@ def crawl_ams_schools(states=None, max_pages=20):
     return prospects, note
 
 
+# --------------------------------------- Public schools (NCES via Opendatasoft)
+# Every US public school from NCES's Common Core of Data, mirrored as a clean
+# JSON API. name/address/phone/level/enrollment are present; website is often
+# "NOT AVAILABLE" and there is NO email — so this is a phone/mail list (best fit
+# for the classroom-rug line, elementary/pre-K), not an email-draft channel.
+_ODS_URL = ("https://public.opendatasoft.com/api/explore/v2.1/catalog/"
+            "datasets/us-public-schools/records")
+
+
+def _clean_school_site(raw) -> str:
+    """The NCES 'website' field is often 'NOT AVAILABLE' or a malformed path
+    with backslashes — keep just scheme+host."""
+    raw = (raw or "").strip()
+    if not raw or raw.upper() == "NOT AVAILABLE":
+        return ""
+    raw = raw.replace("\\", "/")
+    if not raw.startswith("http"):
+        raw = "http://" + raw
+    m = re.match(r"(https?://[^/\\]+)", raw)
+    return m.group(1) if m else ""
+
+
+def crawl_public_schools(states=None, levels=("ELEMENTARY",), max_pages=120):
+    """Public schools from NCES/Opendatasoft, filtered to `states` and grade
+    `levels` (default ELEMENTARY). Returns (prospects, note). No email in the
+    data, so contacts stay empty — correct output, not a defect."""
+    import json as _json
+    from urllib.parse import quote
+    want = {s.upper() for s in states} if states else None
+    if not want:
+        return [], "Public schools: pick at least one state"
+    lv = " or ".join(f'level="{x}"' for x in levels)
+    st = " or ".join(f'state="{s}"' for s in sorted(want))
+    where = quote(f"({st}) and ({lv})")
+    prospects, seen, offset, total = [], set(), 0, None
+    for _ in range(max_pages):
+        url = f"{_ODS_URL}?where={where}&limit=100&offset={offset}"
+        log(f"NCES public schools: offset {offset}")
+        raw = fetch(url)
+        if not raw:
+            return (prospects, f"Public schools fetch failed — {last_fetch_reason()}") \
+                if offset == 0 else (prospects, "")
+        try:
+            data = _json.loads(raw)
+        except ValueError:
+            return prospects, "Public schools API returned non-JSON"
+        if total is None:
+            total = data.get("total_count")
+        results = data.get("results") or []
+        if not results:
+            break
+        for r in results:
+            name = (r.get("name") or "").strip().title()
+            stc = (r.get("state") or "").upper()
+            if not name or name.lower() in seen or (want and stc not in want):
+                continue
+            seen.add(name.lower())
+            p = new_prospect(name, "public_school", stc,
+                             "NCES public-school directory",
+                             _clean_school_site(r.get("website")))
+            bits = [x for x in (r.get("city"), r.get("telephone"),
+                                f"grades {r.get('st_grade')}-{r.get('end_grade')}"
+                                if r.get("st_grade") else None,
+                                f"enrollment {r.get('enrollment')}"
+                                if r.get("enrollment") else None) if x]
+            p["notes"] = " · ".join(bits)
+            prospects.append(p)
+        offset += 100
+        if total is not None and offset >= total:
+            break
+        if offset >= 9900:   # Opendatasoft offset ceiling
+            break
+    log(f"NCES public schools: kept {len(prospects)}"
+        + (f" for {sorted(want)}" if want else "")
+        + (f" of {total} matched" if total is not None else ""))
+    return prospects, (f"NCES public schools: {len(prospects)} "
+                       + "/".join(levels).lower()
+                       + f" in {', '.join(sorted(want))}"
+                       + (f" (of {total} matched)" if total is not None else ""))
+
+
 # ------------------------------------------------- second hop: org website
 _CONTACT_SLUGS = ("", "contact", "contact-us", "about", "about-us", "staff",
                   "our-team", "faculty", "admissions", "our-school")

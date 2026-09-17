@@ -33,10 +33,11 @@ USER_AGENT = ("AlphabetTrains-Institutional/1.0 "
 
 SOUTHEAST = {"GA", "FL", "SC", "NC", "TN", "AL", "MS", "LA", "VA", "KY", "AR"}
 
-ORG_TYPES = ("montessori_school", "childcare_center", "museum_retail", "federal_prime")
+ORG_TYPES = ("montessori_school", "childcare_center", "public_school",
+             "museum_retail", "federal_prime")
 # Segment priority for ranking (spec: Montessori primary).
 _SEGMENT_RANK = {"montessori_school": 0, "childcare_center": 1,
-                 "museum_retail": 2, "federal_prime": 3}
+                 "public_school": 2, "museum_retail": 3, "federal_prime": 4}
 
 STATUSES = ("new", "researched", "flagged_research", "drafted", "contacted",
             "replied", "opted_out", "customer", "suppressed")
