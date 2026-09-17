@@ -25,6 +25,10 @@ except ImportError:  # pragma: no cover
 
 _last_fetch = [0.0]
 _robots_cache = {}
+# The reason the most recent fetch() returned nothing, so callers can report
+# the SPECIFIC cause (robots vs HTTP status vs network) instead of a vague
+# "failed or disallowed".
+_last_reason = [""]
 
 # A plain-text activity log so the operator can SEE the crawl really fetching
 # pages (every request, its outcome, and what was extracted) — instead of a
@@ -80,11 +84,14 @@ def fetch(url: str, timeout=20) -> str:
     Returns '' on any failure or disallow. Every outcome is logged so the
     operator can see real network activity."""
     if not _HTTPX:
+        _last_reason[0] = "httpx not installed"
         log("FETCH skipped — httpx not installed (crawling disabled)")
         return ""
     if not url:
+        _last_reason[0] = "empty url"
         return ""
     if not _robots_ok(url):
+        _last_reason[0] = "robots.txt disallowed"
         log(f"ROBOTS blocked  {url}")
         return ""
     wait = FETCH_DELAY_S - (time.time() - _last_fetch[0])
@@ -97,15 +104,22 @@ def fetch(url: str, timeout=20) -> str:
                       follow_redirects=True)
         ms = int((time.time() - t0) * 1000)
         if r.status_code != 200:
+            _last_reason[0] = f"HTTP {r.status_code}"
             log(f"HTTP {r.status_code}  {url}  ({ms} ms)")
             return ""
         body = r.text or ""
+        _last_reason[0] = "ok"
         log(f"OK   {len(body):>7} bytes  {ms:>5} ms  {url}")
         return body
     except Exception as e:
+        _last_reason[0] = f"network error: {type(e).__name__}"
         ms = int((time.time() - t0) * 1000)
         log(f"FAIL  {type(e).__name__}: {str(e)[:120]}  {url}  ({ms} ms)")
         return ""
+
+
+def last_fetch_reason() -> str:
+    return _last_reason[0]
 
 
 def _text_of(html: str) -> str:
@@ -168,8 +182,9 @@ def crawl_ami_state(state: str):
     log(f"STATE {state}: fetching AMI locator {url}")
     html = fetch(url)
     if not html:
-        log(f"STATE {state}: locator fetch FAILED/blocked")
-        return [], f"{state}: AMI page fetch failed or disallowed ({url})"
+        reason = last_fetch_reason()
+        log(f"STATE {state}: locator fetch FAILED — {reason}")
+        return [], f"{state}: AMI fetch failed — {reason} ({url})"
     pairs = parse_ami_state_page(html)
     log(f"STATE {state}: parsed {len(pairs)} school(s) from {len(html)} bytes")
     if not pairs:
