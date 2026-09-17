@@ -106,6 +106,28 @@ def test_measure_candidate_already_ranking_never_demands_links():
     assert "already rank" in res["note"].lower()
 
 
+def test_measure_candidate_not_ranking_but_outlinks_is_content_gap():
+    # 'Not ranking, yet you out-link them' must NOT read as a win — it's a
+    # content/relevance gap (you have the authority, not the page).
+    def serp(q):
+        return {"organic_results": [
+            {"position": 1, "url": "https://compa.com/a"},
+            {"position": 2, "url": "https://compb.com/b"},
+        ]}  # own page absent → not ranking
+    rd = {"https://x.com/p.html": 695, "https://compa.com/a": 200,
+          "https://compb.com/b": 214, "x.com": 695, "compa.com": 200,
+          "compb.com": 214}
+
+    def rdfn(u):
+        return {"available": True, "count": rd.get(u, 0)}
+
+    res = wf.measure_candidate("https://x.com/p.html", "wooden lock box", serp, rdfn)
+    assert res["own_position"] is None
+    assert res["links_needed"] == 0
+    assert res["verdict"] == "content_gap"
+    assert "content" in res["note"].lower() and "not" in res["note"].lower()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

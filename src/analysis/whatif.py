@@ -111,12 +111,29 @@ def measure_candidate(url, query, fetch_serp_fn, fetch_rd_fn):
     # links-needed number that contradicts the ranking (the classic "you rank
     # #9 but need 52,000 links" nonsense, caused by one giant domain poisoning
     # the page-1 median).
-    if pos is not None and pos <= 10 and res.get("verdict") != "pending":
+    if res.get("verdict") == "pending":
+        return res
+    you, page1 = res.get("you"), res.get("page1")
+    if pos is not None and pos <= 10:
         res["verdict"] = "already_ranking"
         res["links_needed"] = 0
         res["note"] = (f"You already rank #{int(round(pos))} for this on your current links — "
                        "links aren't the barrier. It's an on-page / relevance nudge to climb, "
                        "not a link-building job.")
+    elif (res.get("links_needed") or 0) <= 0:
+        # You meet or beat the page-1 sites on links, so links are NOT the gap.
+        # What the gap actually is depends on whether you rank at all:
+        if pos is None:
+            res["verdict"] = "content_gap"
+            res["note"] = (
+                f"You're NOT ranking for this, yet your domain already out-links the page-1 "
+                f"sites (you {you} vs ~{page1} referring domains). So links aren't the gap — "
+                "you don't have a page actually targeting this term. The lever is CONTENT / "
+                "relevance: give this (or a new) page real content for the keyword, not links.")
+        else:
+            res["note"] = (
+                f"You rank #{int(round(pos))} and already out-link the page-1 sites — to climb "
+                "it's an on-page / relevance nudge, not links.")
     return res
 
 

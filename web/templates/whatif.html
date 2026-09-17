@@ -37,6 +37,8 @@ function wfNeed(m){
     if(!m || m.verdict==='pending') return `<span style="font-size:11px;color:#7c3aed;">—</span>`;
     if(m.verdict==='already_ranking')
         return `<span style="font-weight:700;color:#059669;" title="${escHtml(m.note||'')}">✓ already on page 1 — links aren’t the barrier</span>`;
+    if(m.verdict==='content_gap')
+        return `<span style="font-size:11px;color:#2563eb;font-weight:600;" title="${escHtml(m.note||'')}">not links — content/relevance gap</span>`;
     if(m.verdict==='out_of_reach')
         return `<span style="font-size:11px;color:#94a3b8;" title="${escHtml(m.note||'')}">out of reach — page-1 sites are giant domains (${m.page1!=null?m.page1.toLocaleString():'?'} ref-domains)</span>`;
     const n = m.links_needed;
