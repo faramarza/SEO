@@ -11942,6 +11942,15 @@ def _wf_measure_job(url, keywords):
         _wf_job.update(total=total, progress=0)
         done = 0
         for i, q in enumerate(keywords, 1):
+            # Skip keywords already measured on the current formula — re-clicking
+            # Measure all then just continues with the unmeasured ones (and only
+            # spends budget on those).
+            prev = (wf.load_store()["pages"].get(url, {}).get("measurements", {})
+                    or {}).get(wf._norm(q))
+            if prev and prev.get("model") == wf.lt.MODEL_VERSION and prev.get("verdict") != "pending":
+                done += 1
+                _wf_job["progress"] = i
+                continue
             _wf_job.update(phase=f"{i} of {total}: {q[:38]}", progress=i - 1)
             res = wf.measure_candidate(url, q, fetch_serp, _whatif_rd)
             store = wf.load_store()
@@ -11986,6 +11995,16 @@ def api_whatif_measure_batch():
     if not url or not keywords:
         return jsonify({"error": "url and at least one keyword required"}), 400
     keywords = keywords[:WHATIF_MAX_BATCH]
+    # If the daily budget is gone, don't start a job that instantly stops with
+    # nothing measured — say so plainly.
+    try:
+        from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
+        if get_backlinks_remaining_quota() <= 0:
+            return jsonify({"error": "DataForSEO’s daily backlink budget is used up (0 left "
+                            "today). It resets tomorrow — the keywords already measured stay "
+                            "shown; the rest will fill in then."}), 429
+    except Exception:
+        pass
     _wf_job.update(running=True, phase="starting…", note="", url=url,
                    progress=0, total=len(keywords))
     threading.Thread(target=_wf_measure_job, args=(url, keywords), daemon=True).start()
