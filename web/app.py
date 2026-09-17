@@ -11613,10 +11613,21 @@ def api_link_targets():
             # resurfaces.
             srcs = {k: v for k, v in (m.get("sources") or {}).items()
                     if v.get("model") == lt.MODEL_VERSION or v.get("verdict") == "pending"}
+            # Per-keyword gaps (head term + long-tail) — drop stale-model ones.
+            gaps = [g for g in (m.get("keyword_gaps") or [])
+                    if g.get("model") == lt.MODEL_VERSION]
             m.update(t)  # refresh keywords/impressions
             m["sources"] = srcs
-            # Rank by the best verdict across sources (prefer a real measurement).
-            m["verdict"] = _lt_best_verdict(srcs)
+            m["keyword_gaps"] = gaps
+            # The single best REACHABLE opportunity across this page's keywords,
+            # even when the head term itself is parity/out-of-reach.
+            opp = lt.best_opportunity(gaps)
+            m["best_opportunity"] = opp
+            head_v = _lt_best_verdict(srcs)
+            # Rank by the reachable opportunity when there is one, else by the
+            # head-term verdict — so "parity on the head term, gap on a
+            # long-tail" pages rise instead of sinking with the parity rows.
+            m["verdict"] = opp["verdict"] if opp else head_v
             merged.append(m)
         targets = lt.rank_targets(merged)
     else:
@@ -11718,24 +11729,33 @@ def _lt_scan_job():
         for t in targets:
             store["targets"].setdefault(t["url"], {}).update(t)
         lt.save_store(store)
-        done, budget_out = 0, False
+        done, opps, budget_out = 0, 0, False
         for url in [t["url"] for t in targets]:
             row = store["targets"][url]
             cur = (row.get("sources") or {}).get("dataforseo")
-            if budget_out or (cur and lt.is_fresh(cur)):
+            gaps_fresh = all(lt.is_fresh(g) for g in (row.get("keyword_gaps") or [])) \
+                and bool(row.get("keyword_gaps"))
+            if budget_out or (cur and lt.is_fresh(cur) and gaps_fresh):
                 continue
             _lt_job["phase"] = f"measuring {url.rsplit('/',1)[-1][:36]}"
-            res = lt.compute_target(row, fetch_serp, _rd)
-            row.setdefault("sources", {})["dataforseo"] = res
-            store["updated_at"] = datetime.now().isoformat(timespec="seconds")
-            lt.save_store(store)
-            note = (res.get("note") or "").lower()
-            if res.get("verdict") != "pending":
-                done += 1
-            elif "cap" in note or "quota" in note or "budget" in note or "unavailable" in note:
-                budget_out = True
-        _lt_job["note"] = (f"{done} page(s) measured via DataForSEO"
-                           + ("; more awaiting budget." if budget_out else "."))
+            # Measure the page's top keywords (head term + long-tail), not just
+            # the head term — so reachable long-tail opportunities surface.
+            gaps, budget_out = lt.compute_page_gaps(row, fetch_serp, _rd)
+            if gaps:
+                # keep the head-term result in sources for the side-by-side column
+                row.setdefault("sources", {})["dataforseo"] = gaps[0]
+                row["keyword_gaps"] = gaps
+                store["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                lt.save_store(store)
+                measured = [g for g in gaps if g.get("verdict") != "pending"]
+                if measured:
+                    done += 1
+                if lt.best_opportunity(gaps):
+                    opps += 1
+        _lt_job["note"] = (
+            f"{done} page(s) measured via DataForSEO"
+            + (f"; {opps} with a reachable link opportunity" if opps else "")
+            + ("; more awaiting budget." if budget_out else "."))
     except Exception as e:
         _lt_job["note"] = f"Scan failed: {e}"
     finally:

@@ -7,11 +7,15 @@
     <p class="page-description">
         Every page the tool has diagnosed (from your own GSC data) as
         <strong>authority-blocked</strong> — ranking just off page 1 with the on-page levers
-        exhausted — with its keywords and how many link prospects are ready. The referring-domain
-        gap is shown from <strong>two sources side by side: DataForSEO</strong> (measured
-        automatically) and <strong>Ahrefs</strong> (pasted from a SERP-overview export). The two
-        indexes count referring domains differently, so the numbers will differ — that's normal
-        between backlink tools; use whichever you trust or compare them.
+        exhausted — with its keywords and how many link prospects are ready. Nothing is hidden:
+        parity and out-of-reach pages stay listed. But each page is now measured on its
+        <strong>top few keywords, not just the head term</strong>, so a page can read
+        “parity on the head term, <span style="color:#059669;font-weight:600;">🎯 reachable
+        on a long-tail one</span>” — that green chip is where outreach actually moves a ranking.
+        The referring-domain gap is shown from <strong>two sources side by side: DataForSEO</strong>
+        (measured automatically) and <strong>Ahrefs</strong> (pasted from a SERP-overview export).
+        The two indexes count referring domains differently, so the numbers will differ — that's
+        normal between backlink tools; use whichever you trust or compare them.
     </p>
 </div>
 
@@ -81,6 +85,18 @@ async function loadLT(){
     if(LT.job&&LT.job.running) setTimeout(loadLT, 4000);
 }
 
+const REACHABLE = ['close','authority_gap','domain_gap'];
+// A compact per-keyword verdict chip shown next to each keyword.
+function kwChip(g){
+    if(!g) return '';
+    const v = LT_VERDICT[g.verdict]||LT_VERDICT.unknown;
+    if(g.verdict==='pending') return ` <span style="font-size:10px;color:#7c3aed;">measuring…</span>`;
+    if(REACHABLE.includes(g.verdict) && g.gap_lo){
+        return ` <span style="font-size:10px;font-weight:700;color:#059669;" title="${escHtml(g.note||'')}">🎯 ~${g.gap_lo} more</span>`;
+    }
+    return ` <span style="font-size:10px;color:${v.color};" title="${escHtml(g.note||'')}">${v.label}</span>`;
+}
+
 // One source's cell: the gap number + its own verdict.
 function sourceCell(s){
     if(!s) return '<span style="color:var(--text-muted);">—</span>';
@@ -98,22 +114,37 @@ function render(){
     const body = document.getElementById('lt-body');
     const ts = LT.targets||[];
     if(!ts.length){ body.innerHTML='<p class="empty-state">No authority-blocked pages in the current evaluation — every striking-distance query still has a cheaper on-page lever. This fills from your normal evaluations.</p>'; return; }
-    let html = `<table class="pb-table"><thead><tr>
+    const nOpp = ts.filter(t=>t.best_opportunity).length;
+    const nMeasured = ts.filter(t=>(t.keyword_gaps||[]).some(g=>g.verdict&&g.verdict!=='pending')).length;
+    let html = '';
+    if(nMeasured){
+        html += `<div class="card" style="margin-bottom:12px;font-size:13px;">` +
+            (nOpp
+              ? `<strong style="color:#059669;">🎯 ${nOpp} page${nOpp>1?'s have':' has'} a reachable link opportunity</strong> — a keyword (usually long-tail) where the competitors are small enough that a few links would actually move it. Look for the green <strong>🎯 ~N more</strong> chips below; those are where outreach pays off.`
+              : `Every measured keyword across these pages is <strong>parity / out-of-reach</strong> — on none of them are more links the lever. That's the honest read: point outreach at content and the B2B channel, not these pages.`) +
+            `</div>`;
+    }
+    html += `<table class="pb-table"><thead><tr>
         <th>Page</th><th>Blocked keyword</th>
         <th title="Automated, from DataForSEO">DataForSEO gap</th>
         <th title="From your pasted Ahrefs SERP export">Ahrefs gap</th>
         <th>Prospects</th><th></th></tr></thead><tbody>`;
     ts.forEach(t=>{
         const kw = (t.keywords||[])[0]||{};
+        // Map each measured keyword to its own gap verdict, so long-tail wins
+        // show next to the head-term parity instead of being hidden behind it.
+        const gapBy = {};
+        (t.keyword_gaps||[]).forEach(g=>{ if(g.query) gapBy[g.query.toLowerCase()] = g; });
         const kws = (t.keywords||[]).slice(0,3).map(k=>
-            `<div style="font-size:12px;">“${escHtml(k.query)}” <span style="color:var(--text-muted);">#${k.position} · ${(k.impressions||0).toLocaleString()} impr</span></div>`).join('')
+            `<div style="font-size:12px;">“${escHtml(k.query)}” <span style="color:var(--text-muted);">#${k.position} · ${(k.impressions||0).toLocaleString()} impr</span>${kwChip(gapBy[(k.query||'').toLowerCase()])}</div>`).join('')
             + ((t.keywords||[]).length>3?`<div style="font-size:11px;color:var(--text-muted);">+${t.keywords.length-3} more</div>`:'');
+        const opp = t.best_opportunity;
         const srcs = t.sources||{};
         const pr = t.prospects_ready
             ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready}</a>`
             : '<span style="color:var(--text-muted);">—</span>';
         html += `<tr>
-            <td><a href="${escHtml(t.url)}" target="_blank">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a></td>
+            <td><a href="${escHtml(t.url)}" target="_blank">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a>${opp?`<div style="font-size:10px;color:#059669;font-weight:700;margin-top:2px;" title="${escHtml(opp.note||'')}">🎯 reachable on “${escHtml(opp.query||'')}”: ~${opp.gap_lo} more</div>`:''}</td>
             <td>${kws}</td>
             <td>${sourceCell(srcs.dataforseo)}</td>
             <td>${sourceCell(srcs.ahrefs)}</td>

@@ -348,11 +348,63 @@ def gap_from_ahrefs(target, csv_text, own_domain):
     return _result(v, lo, hi, note, own_rd, comps)
 
 
-def compute_target(target, fetch_serp_fn, fetch_rd_fn):
-    """DataForSEO-backed measurement — returns a result dict for the
-    'dataforseo' source (same median math as the Ahrefs path). fetch_rd_fn(u)
-    -> {"available","count","reason"} (referring-domain total, uncapped)."""
-    kw = target["keywords"][0]["query"] if target.get("keywords") else ""
+# Verdicts where MORE links would actually move the ranking — the opposite of
+# parity/out_of_reach/mixed/marketplace. These are the "point outreach here"
+# opportunities, whether on a head term or (usually) a long-tail one.
+REACHABLE_VERDICTS = ("close", "authority_gap", "domain_gap")
+
+
+def is_budget_note(note) -> bool:
+    """A pending result caused by running out of daily SERP/backlink budget
+    (as opposed to a permanent problem) — the caller should stop and resume
+    next run rather than keep burning calls."""
+    n = (note or "").lower()
+    return any(w in n for w in ("cap", "quota", "budget", "unavailable", "ran out"))
+
+
+def best_opportunity(keyword_gaps):
+    """Across a page's measured keywords, the single best REACHABLE link
+    opportunity (feasible verdict, most impressions) — or None when every
+    measured keyword is parity/out-of-reach/mixed. This is what lets a page
+    read 'parity on the head term, but a reachable gap on a long-tail one'."""
+    reach = [g for g in (keyword_gaps or [])
+             if g.get("verdict") in REACHABLE_VERDICTS]
+    if not reach:
+        return None
+    return sorted(reach, key=lambda g: (_VERDICT_RANK.get(g.get("verdict"), 9),
+                                        -(g.get("impressions") or 0)))[0]
+
+
+def compute_page_gaps(target, fetch_serp_fn, fetch_rd_fn, max_keywords=3):
+    """Measure the link gap for a page's top `max_keywords` keywords, not just
+    the head term — so long-tail queries (where competitors are small and a
+    couple of links win) surface alongside the head-term verdict instead of
+    being hidden behind it.
+
+    Returns (gaps, budget_out): `gaps` is a per-keyword list of result dicts
+    (each tagged with its query/impressions/position); `budget_out` is True
+    when daily SERP/backlink budget ran out mid-page, so the caller stops and
+    resumes next run with the remaining keywords still to do."""
+    gaps, budget_out = [], False
+    for k in (target.get("keywords") or [])[:max_keywords]:
+        res = compute_target(target, fetch_serp_fn, fetch_rd_fn, keyword=k["query"])
+        res["query"] = k.get("query", "")
+        res["impressions"] = k.get("impressions", 0) or 0
+        res["position"] = k.get("position", 0) or 0
+        gaps.append(res)
+        if res.get("verdict") == "pending" and is_budget_note(res.get("note")):
+            budget_out = True
+            break
+    return gaps, budget_out
+
+
+def compute_target(target, fetch_serp_fn, fetch_rd_fn, keyword=None):
+    """DataForSEO-backed measurement for ONE keyword — returns a result dict
+    for the 'dataforseo' source (same median math as the Ahrefs path).
+    `keyword` defaults to the page's head term (keywords[0]) for backward
+    compatibility. fetch_rd_fn(u) -> {"available","count","reason"}
+    (referring-domain total, uncapped)."""
+    kw = keyword or (target["keywords"][0]["query"] if target.get("keywords") else "")
     serp = fetch_serp_fn(kw) if kw else None
     if not serp:
         return _pending("SERP fetch unavailable (Serper quota or key) — will retry next run.")

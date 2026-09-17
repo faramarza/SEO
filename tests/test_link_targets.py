@@ -225,6 +225,78 @@ def test_gap_from_ahrefs_real_gap():
     assert out["own_rd"] == 20 and out["gap_lo"] == 60 and out["verdict"] == "authority_gap"
 
 
+def test_best_opportunity_finds_reachable_longtail():
+    # Head term is parity; a long-tail keyword is a reachable authority_gap.
+    gaps = [
+        {"verdict": "parity", "query": "montessori toys", "impressions": 1976,
+         "gap_lo": 0},
+        {"verdict": "authority_gap", "query": "wooden montessori toys 2 year old",
+         "impressions": 210, "gap_lo": 8},
+        {"verdict": "out_of_reach", "query": "montessori", "impressions": 5000,
+         "gap_lo": 0},
+    ]
+    opp = lt.best_opportunity(gaps)
+    assert opp and opp["query"] == "wooden montessori toys 2 year old"
+    assert opp["gap_lo"] == 8
+
+
+def test_best_opportunity_none_when_all_parity():
+    gaps = [{"verdict": "parity", "impressions": 100},
+            {"verdict": "out_of_reach", "impressions": 50},
+            {"verdict": "mixed", "impressions": 30}]
+    assert lt.best_opportunity(gaps) is None
+
+
+def test_best_opportunity_prefers_feasibility_then_impressions():
+    # A 'close' (cheaper) win outranks an 'authority_gap' even with fewer impr.
+    gaps = [{"verdict": "authority_gap", "impressions": 900, "gap_lo": 40},
+            {"verdict": "close", "impressions": 100, "gap_lo": 3}]
+    assert lt.best_opportunity(gaps)["verdict"] == "close"
+
+
+def test_compute_page_gaps_measures_multiple_keywords():
+    target = {"url": "https://x.com/p.html", "keywords": [
+        {"query": "head term", "position": 12, "impressions": 2000},
+        {"query": "long tail", "position": 9, "impressions": 200}]}
+
+    serps = {
+        "head term": {"organic_results": [
+            {"position": 1, "url": "https://compa.com/a"},
+            {"position": 2, "url": "https://compb.com/b"}]},
+        "long tail": {"organic_results": [
+            {"position": 1, "url": "https://smalla.com/a"},
+            {"position": 2, "url": "https://smallb.com/b"}]},
+    }
+    rd = {"https://x.com/p.html": 20,
+          "https://compa.com/a": 90, "https://compb.com/b": 80,
+          "https://smalla.com/a": 25, "https://smallb.com/b": 28}
+
+    gaps, budget_out = lt.compute_page_gaps(
+        target, lambda q: serps.get(q), lambda u: {"available": True, "count": rd[u]})
+    assert not budget_out and len(gaps) == 2
+    assert gaps[0]["query"] == "head term" and gaps[1]["query"] == "long tail"
+    # head: median 85 vs 20 -> big gap (out_of_reach); long-tail: median ~26 vs
+    # 20 -> a small reachable gap.
+    assert gaps[1]["verdict"] in lt.REACHABLE_VERDICTS
+
+
+def test_compute_page_gaps_stops_on_budget():
+    target = {"url": "https://x.com/p.html", "keywords": [
+        {"query": "k1", "impressions": 500}, {"query": "k2", "impressions": 400},
+        {"query": "k3", "impressions": 300}]}
+
+    def serp(q):
+        if q == "k1":
+            return {"organic_results": [{"position": 1, "url": "https://c.com/p"}]}
+        return {"organic_results": [{"position": 1, "url": "https://c.com/p"}]}
+
+    def rd(u):
+        return {"available": False, "reason": "daily cap reached (30/day)"}
+
+    gaps, budget_out = lt.compute_page_gaps(target, serp, rd)
+    assert budget_out and len(gaps) == 1  # stopped after the first pending
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
