@@ -200,6 +200,119 @@ def crawl_ami_state(state: str):
     return prospects, f"{state}: {len(prospects)} schools from AMI locator"
 
 
+# ---------------------------------------------------- AMI locator via JSON
+# The live AMI locator is a Squarespace collection; ?format=json-pretty returns
+# every school as a structured item (title, address, categories, and a body
+# containing the school's website + administrator + email). We page through it
+# once nationally and filter locally — far more reliable than scraping HTML.
+_AMI_JSON_URL = "https://www.amiusa.org/school-locator1"
+_US_STATE_ABBR = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN",
+    "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE",
+    "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+    "new mexico": "NM", "new york": "NY", "north carolina": "NC",
+    "north dakota": "ND", "ohio": "OH", "oklahoma": "OK", "oregon": "OR",
+    "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA",
+    "washington dc": "DC", "west virginia": "WV", "wisconsin": "WI",
+    "wyoming": "WY",
+}
+
+
+def _item_state(item) -> str:
+    """2-letter state for an AMI item: from the address ('City, ST, ZIP') first,
+    then the first category ('Georgia', 'Washington DC')."""
+    loc = item.get("location") or {}
+    a2 = loc.get("addressLine2") or loc.get("addressTitle") or ""
+    m = re.search(r",\s*([A-Za-z]{2})\b(?:\s*,?\s*\d{5})?\s*$", a2.strip())
+    if m and m.group(1).upper() in set(_US_STATE_ABBR.values()):
+        return m.group(1).upper()
+    for cat in (item.get("categories") or []):
+        ab = _US_STATE_ABBR.get(cat.strip().lower())
+        if ab:
+            return ab
+    return ""
+
+
+def _item_website(item) -> str:
+    """The school's own website — the first external, non-Squarespace/social
+    link in the item body."""
+    for href in re.findall(r'href=[\"\'](https?://[^\"\']+)[\"\']', item.get("body") or ""):
+        h = href.lower()
+        if ("squarespace" in h or "amiusa.org" in h
+                or any(s in h for s in _SOCIAL_HOSTS)):
+            continue
+        return href
+    return ""
+
+
+def crawl_ami_schools(states=None, max_pages=100):
+    """Fetch the national AMI locator (Squarespace JSON), page through it, and
+    return (prospects, note). `states` = set of 2-letter abbrevs to keep, or
+    None for all. Contact name/email/evidence found in the AMI listing itself
+    are captured as 'listed' (the second hop still verifies from the org site)."""
+    import json as _json
+    want = {s.upper() for s in states} if states else None
+    url = _AMI_JSON_URL + "?format=json-pretty"
+    prospects, seen, pages, scanned, kept_states = [], set(), 0, 0, set()
+    while url and pages < max_pages:
+        pages += 1
+        log(f"AMI: fetching locator JSON page {pages}")
+        raw = fetch(url)
+        if not raw:
+            if pages == 1:
+                return [], f"AMI locator fetch failed — {last_fetch_reason()}"
+            break
+        try:
+            data = _json.loads(raw)
+        except ValueError:
+            return [], "AMI locator did not return JSON (Squarespace format change?)"
+        items = data.get("items") or []
+        scanned += len(items)
+        for it in items:
+            name = (it.get("title") or "").strip()
+            if not name or name.lower() in seen:
+                continue
+            st = _item_state(it)
+            if want and st not in want:
+                continue
+            seen.add(name.lower())
+            kept_states.add(st)
+            site = _item_website(it)
+            p = new_prospect(name, "montessori_school", st,
+                             "amiusa.org AMI school locator", site)
+            # AMI lists the administrator + email right in the body — capture
+            # them as a starting contact (the org's own site verifies later).
+            btext = _text_of(it.get("body") or "")
+            own_domain = urlparse(site).netloc.lower().removeprefix("www.") if site else ""
+            cname, ctitle, cemail = _find_contact(btext, own_domain)
+            if cemail:
+                p["email"] = cemail
+                p["contact_confidence"] = "listed"
+            if cname:
+                p["contact_name"], p["contact_title"] = cname, ctitle
+            detail = "https://www.amiusa.org" + (it.get("fullUrl") or "")
+            p["evidence"] = _find_evidence(btext, detail)
+            prospects.append(p)
+        pag = data.get("pagination") or {}
+        if pag.get("nextPage") and pag.get("nextPageOffset"):
+            url = _AMI_JSON_URL + f"?format=json-pretty&offset={pag['nextPageOffset']}"
+        else:
+            url = None
+    log(f"AMI: scanned {scanned} schools across {pages} page(s); kept "
+        f"{len(prospects)}" + (f" for {sorted(want)}" if want else " (all states)"))
+    note = (f"AMI locator: {len(prospects)} schools"
+            + (f" in {', '.join(sorted(want))}" if want else "")
+            + f" (scanned {scanned} nationally)")
+    return prospects, note
+
+
 # ------------------------------------------------- second hop: org website
 _CONTACT_SLUGS = ("", "contact", "contact-us", "about", "about-us", "staff",
                   "our-team", "faculty", "admissions", "our-school")

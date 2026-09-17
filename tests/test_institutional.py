@@ -6,9 +6,48 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import json as _json                                     # noqa: E402
 from src.analysis import institutional as inst           # noqa: E402
+from src.analysis import institutional_crawl as ic       # noqa: E402
 from src.analysis.institutional_crawl import (           # noqa: E402
     parse_ami_state_page, _find_contact, _find_evidence)
+
+
+def test_ami_json_extract_and_paginate(monkeypatch=None):
+    # Two pages of the Squarespace collection; state filter keeps only GA/DC.
+    def _item(title, addr, cats, site):
+        return {"title": title, "fullUrl": "/school-locator1/x",
+                "categories": cats, "location": {"addressLine2": addr},
+                "body": f'School Administrator: Pat Lee 100 Main Street Email: '
+                        f'p@{site.split("//")[1].rstrip("/")} '
+                        f'<a href="{site}">site</a>'}
+    page1 = {"items": [_item("Aidan Montessori", "Washington, DC, 20008",
+                             ["Washington DC"], "http://aidanschool.org/"),
+                       _item("Arbor Montessori", "Decatur, GA, 30030",
+                             ["Georgia"], "https://arbormontessori.org")],
+             "pagination": {"nextPage": True, "nextPageOffset": 999}}
+    page2 = {"items": [_item("Bay Montessori", "Oakland, CA, 94601",
+                             ["California"], "https://baymontessori.org")],
+             "pagination": {"nextPage": False}}
+    calls = []
+
+    def fake_fetch(url, timeout=20):
+        calls.append(url)
+        return _json.dumps(page2 if "offset=999" in url else page1)
+
+    orig = ic.fetch
+    ic.fetch = fake_fetch
+    try:
+        prospects, note = ic.crawl_ami_schools({"GA", "DC"})
+    finally:
+        ic.fetch = orig
+    names = sorted(p["school"] for p in prospects)
+    assert names == ["Aidan Montessori", "Arbor Montessori"]      # CA filtered out
+    assert len(calls) == 2                                         # both pages fetched
+    ga = next(p for p in prospects if p["school"] == "Arbor Montessori")
+    assert ga["state"] == "GA" and ga["website"] == "https://arbormontessori.org"
+    assert ga["email"] == "p@arbormontessori.org" and ga["contact_confidence"] == "listed"
+    assert ga["contact_name"] == "Pat Lee"
 
 
 def test_dedup_by_domain_and_name():

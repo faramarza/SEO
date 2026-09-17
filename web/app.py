@@ -11344,18 +11344,19 @@ def _inst_research(store, limit=40):
 
 def _inst_crawl_job(states):
     from src.analysis import institutional as inst
-    from src.analysis.institutional_crawl import crawl_ami_state, log as _clog
+    from src.analysis.institutional_crawl import crawl_ami_schools, log as _clog
     try:
         _clog(f"===== CRAWL START — states: {', '.join(states)} =====")
         store = inst.load_store()
         added_total, dupes_total, notes, zero_yield = 0, 0, [], []
-        for st in states:
-            _inst_job["phase"] = f"AMI locator: {st}"
-            prospects, note = crawl_ami_state(st)
-            notes.append(note)
-            if not prospects:
-                zero_yield.append(note)
-                continue
+        # One national pass over the AMI locator JSON, filtered to the selected
+        # states (the old per-state URLs 404'd — this is the reliable source).
+        _inst_job["phase"] = f"AMI locator ({len(states)} state(s))"
+        prospects, note = crawl_ami_schools(set(states))
+        notes.append(note)
+        if not prospects:
+            zero_yield.append(note)
+        else:
             added, dupes = inst.add_prospects(store, prospects)
             added_total += len(added)
             dupes_total += dupes
@@ -11372,13 +11373,10 @@ def _inst_crawl_job(states):
         })
         inst.save_store(store)
         if zero_yield:
-            gone = sum(1 for z in zero_yield if "404" in z or "no per-state page" in z)
-            msg = ("Institutional crawl: AMI locator has no per-state pages any more "
-                   "(single interactive map) — use the State licensing roster import instead."
-                   if gone else
-                   f"Institutional crawl: ZERO yield from {len(zero_yield)} source(s). "
-                   "See the B2B page report.")
-            _save_notification({"type": "institutional", "severity": "warning", "message": msg})
+            _save_notification({"type": "institutional", "severity": "warning",
+                                "message": "Institutional crawl returned no schools — "
+                                           + "; ".join(zero_yield)[:200]
+                                           + ". See the 📜 crawl log on the B2B page."})
         _clog(f"===== CRAWL DONE — +{added_total} rows, {researched} researched, "
               f"{len(zero_yield)} zero-yield source(s) =====")
         _inst_job["note"] = f"Done: +{added_total} rows, {researched} researched."
