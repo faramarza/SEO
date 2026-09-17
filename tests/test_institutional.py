@@ -87,7 +87,7 @@ def test_public_schools_extract_filter_and_website_clean():
          "website": "NOT AVAILABLE"},
     ]}
     orig = ic.fetch
-    ic.fetch = lambda url, timeout=20: __import__("json").dumps(page0)
+    ic.fetch = lambda url, timeout=20, respect_robots=True: __import__("json").dumps(page0)
     try:
         prospects, note = ic.crawl_public_schools({"GA"}, levels=("ELEMENTARY",))
     finally:
