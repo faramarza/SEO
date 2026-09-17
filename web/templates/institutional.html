@@ -74,7 +74,11 @@
 </div>
 
 <div style="margin-bottom:8px;font-size:13px;">
-    Filter:
+    Type:
+    <select id="inst-type" onchange="renderInst()">
+        <option value="">all types</option>
+    </select>
+    &nbsp; Status:
     <select id="inst-filter" onchange="renderInst()">
         <option value="">all statuses</option>
         <option value="new">new</option>
@@ -207,14 +211,39 @@ function renderSources(){
 }
 
 const INST_CONF = {verified:'#059669', directory:'#d97706', none:'#94a3b8'};
+// Which segment a prospect belongs to (Montessori AMI vs AMS, public school,
+// childcare, …) — for the Type filter and the per-row tag.
+function instSegment(p){
+    const src=(p.source||'').toLowerCase();
+    if(p.org_type==='montessori_school'){
+        if(src.includes('amiusa')||src.includes('ami ')) return {key:'mont_ami', label:'Montessori · AMI/USA'};
+        if(src.includes('amshq')||src.includes('ams '))  return {key:'mont_ams', label:'Montessori · AMS'};
+        return {key:'mont', label:'Montessori'};
+    }
+    if(p.org_type==='public_school')     return {key:'public',    label:'Public elementary'};
+    if(p.org_type==='childcare_center')  return {key:'childcare', label:'Childcare / preschool'};
+    if(p.org_type==='museum_retail')     return {key:'museum',    label:'Museum / retail'};
+    return {key:(p.org_type||'other'), label:(p.org_type||'other').replace(/_/g,' ')};
+}
 function renderInst(){
     const body = document.getElementById('inst-body');
+    const all = INST.prospects||[];
+    // Populate the Type dropdown from the segments actually present (+counts),
+    // preserving the current selection.
+    const counts={}, labels={};
+    all.forEach(p=>{const s=instSegment(p); counts[s.key]=(counts[s.key]||0)+1; labels[s.key]=s.label;});
+    const typeSel=document.getElementById('inst-type');
+    const t=typeSel.value;
+    typeSel.innerHTML=`<option value="">all types (${all.length})</option>`+
+        Object.keys(labels).sort().map(k=>`<option value="${k}">${escHtml(labels[k])} (${counts[k]})</option>`).join('');
+    typeSel.value=t;
     const f = document.getElementById('inst-filter').value;
     const se = document.getElementById('inst-se').checked;
-    let rows = INST.prospects||[];
+    let rows = all;
+    if(t) rows = rows.filter(p=>instSegment(p).key===t);
     if(f) rows = rows.filter(p=>p.status===f);
     if(se) rows = rows.filter(p=>p.southeast);
-    if(!rows.length){ body.innerHTML='<p class="empty-state">No prospects yet — crawl AMI states or import a licensing CSV above.</p>'; return; }
+    if(!rows.length){ body.innerHTML='<p class="empty-state">No prospects match this filter. Crawl Montessori / public schools above, or clear the filters.</p>'; return; }
     let html = `<table class="pb-table"><thead><tr>
         <th>Organization</th><th>Type / state</th><th>Contact</th><th>Evidence (retrieved)</th><th>Status</th><th></th></tr></thead><tbody>`;
     rows.slice(0, 400).forEach(p=>{
@@ -233,7 +262,7 @@ function renderInst(){
             ${['','contacted','replied','opted_out','customer','suppressed'].map(s=>`<option value="${s}" ${s===''?'selected':''}>${s||'set status…'}</option>`).join('')}</select>`);
         html += `<tr>
             <td><strong>${escHtml(p.school)}</strong>${p.website?`<br><a href="${escHtml(p.website)}" target="_blank" style="font-size:12px;">${escHtml(p.website.replace(/^https?:\/\//,'').slice(0,40))}</a>`:''}</td>
-            <td style="font-size:12px;">${escHtml((p.org_type||'').replace(/_/g,' '))}<br>${escHtml(p.state)}${p.southeast?' <span title="Southeast — ranked first">★</span>':''}</td>
+            <td style="font-size:12px;"><span style="font-weight:600;">${escHtml(instSegment(p).label)}</span><br>${escHtml(p.state)}${p.southeast?' <span title="Southeast — ranked first">★</span>':''}</td>
             <td>${contact}</td>
             <td style="max-width:260px;">${ev}</td>
             <td style="font-size:12px;font-weight:600;">${escHtml((p.status||'').replace(/_/g,' '))}</td>
