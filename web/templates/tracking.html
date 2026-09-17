@@ -504,9 +504,9 @@ async function runDiagnostics() {
 
     const title = document.getElementById('status-title');
     const message = document.getElementById('status-message');
-    btn.disabled = true;
-    const origLabel = btn.textContent;
-    btn.textContent = 'Running…';
+    const origLabel = btn.dataset.idleLabel || btn.textContent;
+    govJobUI(btn, true, {idleLabel: origLabel, runningLabel:'⏳ Running…', phase:'starting…',
+        sub:'Full evaluation with crawl — a few minutes. You can leave this page.'});
     if (message) message.textContent = 'Starting evaluation…';
 
     try {
@@ -518,8 +518,7 @@ async function runDiagnostics() {
         const data = await res.json();
         if (data.status === 'busy') {
             if (message) message.textContent = 'Another job is already running — try again shortly.';
-            btn.disabled = false;
-            btn.textContent = origLabel;
+            govJobUI(btn, false, {idleLabel: origLabel});
             return;
         }
 
@@ -528,10 +527,9 @@ async function runDiagnostics() {
                 const statusRes = await fetch('/api/job-status');
                 const status = await statusRes.json();
                 if (message) message.textContent = status.message || 'Processing…';
+                govJobUI(btn, status.running, {idleLabel: origLabel, runningLabel:'⏳ Running…', phase: status.message});
                 if (!status.running) {
                     clearInterval(pollInterval);
-                    btn.disabled = false;
-                    btn.textContent = origLabel;
                     if (status.error) {
                         if (title) title.textContent = 'ERROR';
                         if (message) message.textContent = 'Error: ' + String(status.error).split('\n')[0];
@@ -542,14 +540,12 @@ async function runDiagnostics() {
                 }
             } catch (e) {
                 clearInterval(pollInterval);
-                btn.disabled = false;
-                btn.textContent = origLabel;
+                govJobUI(btn, false, {idleLabel: origLabel});
                 if (message) message.textContent = 'Lost connection while polling job status.';
             }
         }, 2000);
     } catch (e) {
-        btn.disabled = false;
-        btn.textContent = origLabel;
+        govJobUI(btn, false, {idleLabel: origLabel});
         if (message) message.textContent = 'Failed to start evaluation.';
     }
 }

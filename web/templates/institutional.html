@@ -32,12 +32,17 @@
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
         <strong style="font-size:13px;">Crawl AMI locator:</strong>
         <span id="inst-states"></span>
-        <button class="pb-task-btn" onclick="instCrawl(this)">🕷 Crawl selected</button>
-        <button class="pb-task-btn pb-task-btn-alt" onclick="instResearch(this)"
+        <button id="inst-btn-crawl" class="pb-task-btn" onclick="instCrawl(this)">🕷 Crawl selected</button>
+        <button id="inst-btn-research" class="pb-task-btn pb-task-btn-alt" onclick="instResearch(this)"
             title="Second hop: visit each org's own website for a director name, email, and one specific retrieved fact.">🔎 Research contacts</button>
-        <button class="pb-task-btn pb-task-btn-alt" onclick="instDraftBatch(this)">✍️ Draft batch (≤<span id="inst-cap">15</span>)</button>
+        <button id="inst-btn-draft" class="pb-task-btn pb-task-btn-alt" onclick="instDraftBatch(this)">✍️ Draft batch (≤<span id="inst-cap">15</span>)</button>
         <a class="pb-task-btn pb-task-btn-alt" href="/api/institutional/export">⬇ Export CSV</a>
         <span id="inst-job" style="font-size:12px;color:var(--accent-purple);"></span>
+    </div>
+    <div id="inst-running" class="gov-running">
+        <div class="gov-run-head"><span class="gov-spinner"></span> <span id="inst-run-text">Working…</span></div>
+        <div class="gov-run-sub">Runs in the background — you can leave this page; results fill in as it goes.</div>
+        <div class="gov-bar"><i></i></div>
     </div>
     <div id="inst-report" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
 </div>
@@ -100,10 +105,26 @@ async function loadInst(){
             `<label style="font-size:12px;margin-right:6px;white-space:nowrap;">
              <input type="checkbox" value="${st}" ${INST.southeast.includes(st)?'checked':''}>${st}</label>`).join('');
     }
-    document.getElementById('inst-job').textContent =
-        INST.job&&INST.job.running ? ('⏳ ' + (INST.job.phase||'working…')) : (INST.job&&INST.job.note||'');
+    instJobUI(!!(INST.job&&INST.job.running));
     renderReport(); renderSources(); renderInst();
-    if(INST.job&&INST.job.running) setTimeout(loadInst, 4000);
+    if(INST.job&&INST.job.running) setTimeout(loadInst, 2500);
+}
+
+// One shared job across the 3 buttons: disable all while running, show one
+// spinner banner with the phase, and the final note when idle.
+function instJobUI(running){
+    ['inst-btn-crawl','inst-btn-research','inst-btn-draft'].forEach(id=>{
+        const b = document.getElementById(id);
+        if(b){ b.disabled = running; b.classList.toggle('gov-busy', running); }
+    });
+    const banner = document.getElementById('inst-running');
+    if(banner){
+        banner.classList.toggle('on', running);
+        document.getElementById('inst-run-text').textContent =
+            running ? ('Working — ' + ((INST.job&&INST.job.phase)||'…')) : 'Working…';
+    }
+    document.getElementById('inst-job').textContent =
+        running ? '' : (INST.job&&INST.job.note ? ('✓ '+INST.job.note) : '');
 }
 
 function renderReport(){
@@ -203,25 +224,32 @@ async function instSaveSettings(btn){
         body:JSON.stringify({mailing_address:document.getElementById('inst-address').value})});
     instToast((await res.json()).success?'Saved':'Failed'); btn.disabled=false;
 }
+function instStart(d, phase){
+    if(d.success){
+        INST.job = {running:true, phase:phase};
+        instJobUI(true);
+        instToast('Started — the progress bar shows it running.');
+        setTimeout(loadInst, 800);
+    } else {
+        instJobUI(false);
+        instToast(d.error||'Failed', true);
+    }
+}
 async function instCrawl(btn){
     const states=[...document.querySelectorAll('#inst-states input:checked')].map(i=>i.value);
-    btn.disabled=true;
-    const res = await fetch('/api/institutional/crawl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({states})});
-    const d = await res.json();
-    instToast(d.success?`Crawling ${states.length} state(s)…`:(d.error||'Failed'),!d.success);
-    btn.disabled=false; setTimeout(loadInst,1500);
+    instJobUI(true);
+    const d = await (await fetch('/api/institutional/crawl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({states})})).json();
+    instStart(d, `crawling ${states.length} state(s)…`);
 }
 async function instResearch(btn){
-    btn.disabled=true;
+    instJobUI(true);
     const d = await (await fetch('/api/institutional/research',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
-    instToast(d.success?'Researching…':(d.error||'Failed'),!d.success);
-    btn.disabled=false; setTimeout(loadInst,1500);
+    instStart(d, 'researching contacts…');
 }
 async function instDraftBatch(btn){
-    btn.disabled=true;
+    instJobUI(true);
     const d = await (await fetch('/api/institutional/draft-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
-    instToast(d.success?'Drafting…':(d.error||'Failed'),!d.success);
-    btn.disabled=false; setTimeout(loadInst,1500);
+    instStart(d, 'drafting…');
 }
 async function instStatus(id,status){
     if(!status) return;

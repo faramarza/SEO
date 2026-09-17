@@ -16,7 +16,7 @@
 
 <div class="card" style="margin-bottom:14px;">
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
-        <button class="pb-task-btn" onclick="dupScan(this)">🔍 Scan for duplicates</button>
+        <button id="dup-scan-btn" class="pb-task-btn" onclick="dupScan(this)">🔍 Scan for duplicates</button>
         <label style="font-size:13px;">Threshold:
             <input id="dup-thr" type="number" min="3" max="90" step="1" style="width:60px;" onchange="dupSetThr(this.value)">% shared passages
         </label>
@@ -47,8 +47,12 @@ async function loadDup(){
     DUP = await (await fetch('/api/duplication')).json();
     document.getElementById('dup-n').textContent = DUP.shingle_n;
     document.getElementById('dup-thr').value = DUP.threshold;
-    document.getElementById('dup-job').textContent =
-        DUP.job&&DUP.job.running ? ('⏳ '+(DUP.job.phase||'working…')) : (DUP.job&&DUP.job.note||'');
+    const _r = !!(DUP.job && DUP.job.running);
+    govJobUI('dup-scan-btn', _r, {
+        idleLabel:'🔍 Scan for duplicates', runningLabel:'⏳ Scanning…',
+        phase: DUP.job && DUP.job.phase,
+        sub:'Fetches your live pages to compare passages — a few minutes. You can leave this page.',
+        doneNote: DUP.job && DUP.job.note ? ('✓ '+DUP.job.note) : ''});
     const ls = DUP.last_scan;
     document.getElementById('dup-last').textContent = ls
         ? `Last scan ${ls.at.replace('T',' ')}: ${ls.pages_fetched} pages, ${ls.clusters_found} clusters`
@@ -97,10 +101,17 @@ function render(){
 }
 
 async function dupScan(btn){
-    btn.disabled=true;
+    btn.disabled=true; btn.textContent='⏳ Starting…';
     const d = await (await fetch('/api/duplication/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
-    dupToast(d.success?'Scanning live pages — a few minutes…':(d.error||'Failed'),!d.success);
-    btn.disabled=false; setTimeout(loadDup,1500);
+    if(d.success){
+        govJobUI('dup-scan-btn', true, {idleLabel:'🔍 Scan for duplicates', runningLabel:'⏳ Scanning…', phase:'starting…',
+            sub:'Fetches your live pages to compare passages — a few minutes. You can leave this page.'});
+        dupToast('Scan started — the progress bar shows it running.');
+        setTimeout(loadDup, 800);
+    } else {
+        govJobUI('dup-scan-btn', false, {idleLabel:'🔍 Scan for duplicates'});
+        dupToast(d.error||'Failed', true);
+    }
 }
 async function dupSetThr(v){
     const d = await (await fetch('/api/duplication/threshold',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({threshold:v})})).json();

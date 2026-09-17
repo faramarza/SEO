@@ -5,6 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Governor{% endblock %} — Alphabet Trains</title>
     <link rel="stylesheet" href="{{ static_url('style.css') }}">
+    <style>
+    /* Shared "a background job is running" indicator (see govJobUI in base.html). */
+    @keyframes gov-spin{to{transform:rotate(360deg);}}
+    @keyframes gov-stripe{to{background-position:24px 0;}}
+    .gov-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--accent-purple,#7c3aed);
+        border-top-color:transparent;border-radius:50%;animation:gov-spin .8s linear infinite;vertical-align:-2px;}
+    .gov-running{display:none;margin-top:10px;padding:10px 12px;border-radius:8px;
+        background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.35);}
+    .gov-running.on{display:block;}
+    .gov-run-head{font-weight:600;color:var(--accent-purple,#7c3aed);}
+    .gov-run-sub{font-size:12px;color:var(--text-muted);margin-top:3px;}
+    .gov-bar{height:6px;border-radius:4px;margin-top:8px;overflow:hidden;background:rgba(124,58,237,.15);}
+    .gov-bar > i{display:block;height:100%;width:100%;
+        background-image:linear-gradient(45deg,rgba(124,58,237,.55) 25%,transparent 25%,transparent 50%,rgba(124,58,237,.55) 50%,rgba(124,58,237,.55) 75%,transparent 75%);
+        background-size:24px 24px;animation:gov-stripe .7s linear infinite;}
+    button:disabled.gov-busy{opacity:.6;cursor:progress;}
+    </style>
 </head>
 <body>
     <nav class="sidebar">
@@ -62,6 +79,51 @@
     <script src="{{ static_url('app.js') }}"></script>
     <script>
     function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+    /* ── Shared background-job UI ──────────────────────────────────────────
+       Any page that kicks off a server job and polls a status endpoint uses
+       this so "is it running?" looks the SAME everywhere: the button disables
+       and relabels to a working state, and a spinner+progress banner appears
+       under it. Call govJobUI(button, running, {phase, idleLabel, runningLabel,
+       doneNote, sub}) on page load and on every poll tick.
+         running    : boolean — is the job running right now?
+         phase      : optional progress text ("page 3 of 40")
+         idleLabel  : the button's normal label (captured automatically if unset)
+         runningLabel: button text while running (default "⏳ Working…")
+         doneNote   : text to show once (idle) after a run, e.g. "✓ 12 measured"
+         sub        : the small grey line under the spinner
+       The banner is created lazily as the next sibling of the button. */
+    function govJobUI(btn, running, opts){
+        opts = opts || {};
+        if(typeof btn === 'string') btn = document.getElementById(btn);
+        if(!btn) return;
+        if(!btn.dataset.idleLabel) btn.dataset.idleLabel = opts.idleLabel || btn.textContent;
+        btn.disabled = !!running;
+        btn.classList.toggle('gov-busy', !!running);
+        btn.textContent = running ? (opts.runningLabel || '⏳ Working…')
+                                   : (opts.idleLabel || btn.dataset.idleLabel);
+        // Lazily create the banner right after the button.
+        let b = btn._govBanner;
+        if(!b){
+            b = document.createElement('div');
+            b.className = 'gov-running';
+            b.innerHTML = '<div class="gov-run-head"><span class="gov-spinner"></span> '
+                + '<span class="gov-run-text"></span></div>'
+                + '<div class="gov-run-sub">' + escHtml(opts.sub || 'Runs in the background — you can leave this page.') + '</div>'
+                + '<div class="gov-bar"><i></i></div>';
+            btn.insertAdjacentElement('afterend', b);
+            btn._govBanner = b;
+        }
+        b.classList.toggle('on', !!running);
+        b.querySelector('.gov-run-text').textContent =
+            running ? (opts.phase ? ('Working — ' + opts.phase) : (opts.runningLabel || 'Working…')) : '';
+        if(opts.doneNote != null){
+            let n = btn._govDone;
+            if(!n){ n = document.createElement('span'); n.style.cssText='font-size:12px;color:var(--text-muted);margin-left:8px;';
+                    btn.insertAdjacentElement('afterend', n); btn._govDone = n; }
+            n.textContent = running ? '' : (opts.doneNote || '');
+        }
+    }
     // Check for tasks ready for measurement and notifications (runs on every page)
     fetch('/api/dashboard').then(r => r.json()).then(data => {
         const alerts = data.task_alerts || [];
