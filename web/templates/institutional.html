@@ -30,7 +30,7 @@
 
 <div class="card" style="margin-bottom:14px;">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-        <strong style="font-size:13px;">Crawl AMI locator:</strong>
+        <strong style="font-size:13px;">Crawl Montessori directories (AMI + AMS):</strong>
         <span id="inst-states"></span>
         <button id="inst-btn-crawl" class="pb-task-btn" onclick="instCrawl(this)">🕷 Crawl selected</button>
         <button id="inst-btn-research" class="pb-task-btn pb-task-btn-alt" onclick="instResearch(this)"
@@ -40,10 +40,11 @@
         <span id="inst-job" style="font-size:12px;color:var(--accent-purple);"></span>
     </div>
     <div style="margin-top:8px;font-size:12px;color:var(--text-muted);">
-        🕷 <strong>Crawl</strong> pulls the national AMI school locator (amiusa.org) once and keeps
-        the schools in the state(s) you select — name, website, and the administrator/email AMI
-        lists. Then <strong>🔎 Research</strong> visits each school's own site to verify a contact,
-        and <strong>✍️ Draft</strong> writes the outreach. Watch it work in the 📜 log below. (For
+        🕷 <strong>Crawl</strong> pulls both authentic-Montessori directories — <strong>AMI/USA</strong>
+        (~180 schools) and <strong>AMS</strong> (~1,000 schools) — filtered to the state(s) you select,
+        with name, website and state (AMS also tags each school's affiliation tier: accredited /
+        verified / member). Then <strong>🔎 Research</strong> visits each school's own site to verify a
+        contact, and <strong>✍️ Draft</strong> writes the outreach. Watch it in the 📜 log below. (For
         non-Montessori childcare, use the State licensing roster import further down.)
     </div>
     <div id="inst-running" class="gov-running">

@@ -313,6 +313,111 @@ def crawl_ami_schools(states=None, max_pages=100):
     return prospects, note
 
 
+# ------------------------------------------- AMS locator (Algolia-backed)
+# The American Montessori Society directory (~1,000 recognized schools) is a
+# WordPress site whose search runs on Algolia. The search-only key below is
+# PUBLIC — shipped to every browser that loads amshq.org/schools — so using it
+# is the same as loading the page. Records carry name, state code, address and
+# affiliation tier directly; the school's own website comes from the record
+# content or its AMS page.
+AMS_ALGOLIA_APP = "LXRNR2F5AY"
+AMS_ALGOLIA_KEY = "abe5876978942b899cf75f800380468e"   # public search-only key
+AMS_ALGOLIA_INDEX = "kinsta_ams_searchable_posts"
+
+
+def _algolia_query(params: str, timeout=25):
+    """One Algolia query (paced + logged). Returns parsed JSON or None."""
+    if not _HTTPX:
+        return None
+    import json as _json
+    wait = FETCH_DELAY_S - (time.time() - _last_fetch[0])
+    if wait > 0:
+        time.sleep(wait)
+    _last_fetch[0] = time.time()
+    url = f"https://{AMS_ALGOLIA_APP}-dsn.algolia.net/1/indexes/{AMS_ALGOLIA_INDEX}/query"
+    t0 = time.time()
+    try:
+        r = httpx.post(url, headers={
+            "X-Algolia-Application-Id": AMS_ALGOLIA_APP,
+            "X-Algolia-API-Key": AMS_ALGOLIA_KEY,
+            "Content-Type": "application/json", "User-Agent": USER_AGENT},
+            content=_json.dumps({"params": params}), timeout=timeout)
+        ms = int((time.time() - t0) * 1000)
+        if r.status_code != 200:
+            log(f"AMS Algolia HTTP {r.status_code}  ({ms} ms)")
+            return None
+        return r.json()
+    except Exception as e:
+        log(f"AMS Algolia FAIL {type(e).__name__}: {str(e)[:120]}")
+        return None
+
+
+def _ams_website(hit) -> str:
+    """The school's own website: the first external link in the record content,
+    else fetched from its AMS detail page."""
+    for href in re.findall(r'https?://[^\s"\'<>]+', hit.get("content") or ""):
+        h = href.lower()
+        if "amshq.org" not in h and not any(s in h for s in _SOCIAL_HOSTS):
+            return href.rstrip('.,);')
+    perm = hit.get("permalink")
+    if perm:
+        html = fetch(perm)
+        for href in re.findall(r'href=[\"\'](https?://[^\"\']+)[\"\']', html or ""):
+            h = href.lower()
+            if "amshq.org" in h or any(s in h for s in _SOCIAL_HOSTS):
+                continue
+            return href
+    return ""
+
+
+def crawl_ams_schools(states=None, max_pages=20):
+    """Fetch AMS schools from Algolia (post_type:schools), filtered to `states`
+    (server-side by address_state_code). Returns (prospects, note)."""
+    import json as _json
+    from urllib.parse import urlencode
+    want = {s.upper() for s in states} if states else None
+    facet = [["post_type:schools"]]
+    if want:
+        facet.append([f"address_state_code:{s}" for s in sorted(want)])
+    prospects, seen, page, total = [], set(), 0, None
+    while page < max_pages:
+        params = urlencode({"query": "", "hitsPerPage": 1000, "page": page,
+                            "facetFilters": _json.dumps(facet)})
+        log(f"AMS: Algolia query page {page + 1}")
+        data = _algolia_query(params)
+        if not data:
+            return (prospects, "AMS Algolia query failed") if page == 0 else (prospects, "")
+        hits = data.get("hits") or []
+        if total is None:
+            total = data.get("nbHits")
+        for h in hits:
+            name = (h.get("post_title") or "").strip()
+            st = (h.get("address_state_code") or "").upper()
+            if not name or name.lower() in seen:
+                continue
+            if want and st not in want:
+                continue
+            seen.add(name.lower())
+            site = _ams_website(h)
+            tier = (h.get("pathway") or "").lower().replace("_", " ")
+            p = new_prospect(name, "montessori_school", st,
+                             f"amshq.org AMS directory ({tier})" if tier
+                             else "amshq.org AMS directory", site)
+            if h.get("address"):
+                p["notes"] = h["address"]
+            prospects.append(p)
+        page += 1
+        if page >= (data.get("nbPages") or 1):
+            break
+    log(f"AMS: kept {len(prospects)} schools"
+        + (f" for {sorted(want)}" if want else " (all states)")
+        + (f" of {total} matched" if total is not None else ""))
+    note = (f"AMS directory: {len(prospects)} schools"
+            + (f" in {', '.join(sorted(want))}" if want else "")
+            + (f" (of {total} matched)" if total is not None else ""))
+    return prospects, note
+
+
 # ------------------------------------------------- second hop: org website
 _CONTACT_SLUGS = ("", "contact", "contact-us", "about", "about-us", "staff",
                   "our-team", "faculty", "admissions", "our-school")

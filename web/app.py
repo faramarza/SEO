@@ -11344,19 +11344,21 @@ def _inst_research(store, limit=40):
 
 def _inst_crawl_job(states):
     from src.analysis import institutional as inst
-    from src.analysis.institutional_crawl import crawl_ami_schools, log as _clog
+    from src.analysis.institutional_crawl import (
+        crawl_ami_schools, crawl_ams_schools, log as _clog)
     try:
         _clog(f"===== CRAWL START — states: {', '.join(states)} =====")
         store = inst.load_store()
         added_total, dupes_total, notes, zero_yield = 0, 0, [], []
-        # One national pass over the AMI locator JSON, filtered to the selected
-        # states (the old per-state URLs 404'd — this is the reliable source).
-        _inst_job["phase"] = f"AMI locator ({len(states)} state(s))"
-        prospects, note = crawl_ami_schools(set(states))
-        notes.append(note)
-        if not prospects:
-            zero_yield.append(note)
-        else:
+        # Both Montessori directories, filtered to the selected states: AMI/USA
+        # (Squarespace JSON) and AMS (Algolia). Dedup merges any school in both.
+        for label, fn in (("AMI", crawl_ami_schools), ("AMS", crawl_ams_schools)):
+            _inst_job["phase"] = f"{label} locator ({len(states)} state(s))"
+            prospects, note = fn(set(states))
+            notes.append(note)
+            if not prospects:
+                zero_yield.append(note)
+                continue
             added, dupes = inst.add_prospects(store, prospects)
             added_total += len(added)
             dupes_total += dupes

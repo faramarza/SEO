@@ -50,6 +50,33 @@ def test_ami_json_extract_and_paginate(monkeypatch=None):
     assert ga["contact_name"] == "Pat Lee"
 
 
+def test_ams_algolia_extract_and_filter():
+    # Stub the Algolia call; verify state filtering, website from content,
+    # and affiliation tier in the source.
+    def _hit(title, state, site, tier, content_site=None):
+        c = f'<a href="{content_site}">web</a>' if content_site else ""
+        return {"post_title": title, "address_state_code": state, "pathway": tier,
+                "permalink": f"https://amshq.org/schools/{title.lower().replace(' ','-')}/",
+                "address": f"1 Main St, {state}", "content": c}
+    page0 = {"hits": [
+        _hit("Arbor Montessori", "GA", None, "ACCREDITATED",
+             content_site="https://arbormontessori.org"),
+        _hit("Yakima Montessori", "WA", None, "MEMBERSHIP",
+             content_site="https://yakima-m.org"),
+    ], "nbHits": 2, "nbPages": 1}
+
+    orig = ic._algolia_query
+    ic._algolia_query = lambda params, timeout=25: page0
+    try:
+        prospects, note = ic.crawl_ams_schools({"GA"})
+    finally:
+        ic._algolia_query = orig
+    assert [p["school"] for p in prospects] == ["Arbor Montessori"]   # WA filtered out
+    p = prospects[0]
+    assert p["state"] == "GA" and p["website"] == "https://arbormontessori.org"
+    assert "accreditated" in p["source"].lower() and "AMS" in p["source"]
+
+
 def test_dedup_by_domain_and_name():
     store = {"prospects": [], "sources": {}, "settings": {}, "runs": []}
     a = inst.new_prospect("Casa Montessori", "montessori_school", "GA",
