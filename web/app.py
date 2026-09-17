@@ -11676,6 +11676,113 @@ def _re_own_domain():
 
 
 # ============================================================
+# DUPLICATION — near-duplicate / thin-variation page detector
+# ============================================================
+# Uses n-gram passage shingling (the correct near-dup method), on FULL live
+# page content (nav/header/footer stripped) — not a stored preview. Finds
+# clusters of templated pages and recommends which to keep vs consolidate.
+
+_dup_job = {"running": False, "phase": "", "note": ""}
+DUP_MAX_PAGES = int(os.environ.get("DUP_MAX_PAGES", "400"))
+DUP_MIN_IMPRESSIONS = int(os.environ.get("DUP_MIN_IMPRESSIONS", "0"))
+
+
+def _dup_scan_job():
+    from src.analysis import duplication as dup
+    from src.analysis.institutional_crawl import fetch as polite_fetch
+    from src.analysis.growth_playbook import _is_system_page
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+        # Content pages only (product/category/blog), crawled, over the demand
+        # floor, worst-ranking-demand first, capped — keeps the fetch bounded.
+        cand = [r for r in results
+                if (r.get("asset_type") or "") in ("product", "category", "blog")
+                and (r.get("page_metadata", {}) or {}).get("has_crawl_data")
+                and not _is_system_page(r.get("url", ""))
+                and (r.get("gsc_impressions", 0) or 0) >= DUP_MIN_IMPRESSIONS]
+        cand.sort(key=lambda r: -(r.get("gsc_impressions", 0) or 0))
+        cand = cand[:DUP_MAX_PAGES]
+        pages, fetched = [], 0
+        for i, r in enumerate(cand):
+            _dup_job["phase"] = f"fetching {i+1}/{len(cand)}: {r['url'].rsplit('/',1)[-1][:36]}"
+            html = polite_fetch(r["url"], timeout=25)
+            if not html:
+                continue
+            words = dup.page_words(html)
+            if len(words) < dup.MIN_WORDS:
+                continue
+            sh = dup.shingles(words)
+            if not sh:
+                continue
+            pages.append({
+                "url": r["url"], "shingles": sh,
+                "impressions": r.get("gsc_impressions", 0) or 0,
+                "title": (r.get("page_metadata", {}) or {}).get("title", ""),
+            })
+            fetched += 1
+        _dup_job["phase"] = "finding duplicate clusters…"
+        store = dup.load_store()
+        thr = float(store.get("settings", {}).get("threshold", dup.DUP_THRESHOLD))
+        clusters = dup.find_clusters(pages, threshold=thr)
+        store["clusters"] = clusters
+        dup.run_report(store, len(cand), fetched, len(clusters))
+        dup.save_store(store)
+        _dup_job["note"] = (f"Scanned {fetched} pages → {len(clusters)} "
+                            "duplicate cluster(s) found.")
+        if clusters:
+            _save_notification({
+                "type": "duplication", "severity": "info",
+                "message": f"Duplication scan: {len(clusters)} cluster(s) of "
+                           "templated pages found — see the Duplication page."})
+    except Exception as e:
+        _dup_job["note"] = f"Scan failed: {e}"
+    finally:
+        _dup_job["running"] = False
+        _dup_job["phase"] = ""
+
+
+@app.route("/duplication")
+def duplication_page():
+    return render_template("duplication.html")
+
+
+@app.route("/api/duplication")
+def api_duplication():
+    from src.analysis import duplication as dup
+    store = dup.load_store()
+    return jsonify({
+        "clusters": store.get("clusters", []),
+        "last_scan": store.get("last_scan"),
+        "threshold": store.get("settings", {}).get("threshold", dup.DUP_THRESHOLD),
+        "shingle_n": dup.SHINGLE_N,
+        "job": _dup_job,
+    })
+
+
+@app.route("/api/duplication/scan", methods=["POST"])
+def api_duplication_scan():
+    if _dup_job["running"]:
+        return jsonify({"error": "A scan is already running."}), 400
+    _dup_job.update({"running": True, "phase": "starting…", "note": ""})
+    threading.Thread(target=_dup_scan_job, daemon=True).start()
+    return jsonify({"success": True})
+
+
+@app.route("/api/duplication/threshold", methods=["POST"])
+def api_duplication_threshold():
+    from src.analysis import duplication as dup
+    store = dup.load_store()
+    try:
+        thr = float((request.json or {}).get("threshold"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Bad threshold."}), 400
+    store.setdefault("settings", {})["threshold"] = max(3.0, min(90.0, thr))
+    dup.save_store(store)
+    return jsonify({"success": True, "threshold": store["settings"]["threshold"]})
+
+
+# ============================================================
 # RUN SERVER
 # ============================================================
 

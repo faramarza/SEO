@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Duplication — Governor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🧬 Duplicate &amp; Thin-Variation Pages</h1>
+    <p class="page-description">
+        Finds pages that repeat the same <strong>passages</strong> — templated
+        "X for [age/type]" pages that share sentences with a word swapped. It measures
+        shared <strong>{{ '' }}<span id="dup-n">8</span>-word sequences</strong> across the
+        full live page content (nav/header/footer stripped), which is how near-duplicate
+        detection actually works — <em>not</em> shared vocabulary, which every page on the
+        same topic has. Google dampens clusters of near-duplicate pages; consolidating them
+        concentrates the value onto one strong page.
+    </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+        <button class="pb-task-btn" onclick="dupScan(this)">🔍 Scan for duplicates</button>
+        <label style="font-size:13px;">Threshold:
+            <input id="dup-thr" type="number" min="3" max="90" step="1" style="width:60px;" onchange="dupSetThr(this.value)">% shared passages
+        </label>
+        <span id="dup-job" style="font-size:12px;color:var(--accent-purple);"></span>
+        <span id="dup-last" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;">
+        Honest calibration: genuinely distinct same-topic pages share ~0–3% of their
+        passages; <strong>above ~12–15% means real templated/repeated content.</strong> This is a
+        standard near-dup method (n-gram shingling), close to but not identical to Google's
+        proprietary system — treat clusters as strong leads, and confirm a fix by consolidating
+        and measuring position in GSC over ~4 weeks. The scan fetches live pages, so it takes a
+        few minutes.</p>
+</div>
+
+<div id="dup-body"><p class="pb-loading">Loading…</p></div>
+<div id="dup-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let DUP = null;
+function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function dupToast(m,e){const t=document.getElementById('dup-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
+function fp(u){return (u||'').replace(/^https?:\/\/[^/]+/,'')||'/';}
+
+async function loadDup(){
+    DUP = await (await fetch('/api/duplication')).json();
+    document.getElementById('dup-n').textContent = DUP.shingle_n;
+    document.getElementById('dup-thr').value = DUP.threshold;
+    document.getElementById('dup-job').textContent =
+        DUP.job&&DUP.job.running ? ('⏳ '+(DUP.job.phase||'working…')) : (DUP.job&&DUP.job.note||'');
+    const ls = DUP.last_scan;
+    document.getElementById('dup-last').textContent = ls
+        ? `Last scan ${ls.at.replace('T',' ')}: ${ls.pages_fetched} pages, ${ls.clusters_found} clusters`
+        : '';
+    render();
+    if(DUP.job&&DUP.job.running) setTimeout(loadDup, 4000);
+}
+
+function render(){
+    const body = document.getElementById('dup-body');
+    const cs = DUP.clusters||[];
+    if(!cs.length){
+        body.innerHTML = DUP.last_scan
+            ? '<p class="empty-state">No duplicate clusters above the threshold — your pages share topics but not passages. 🎉 (Lower the threshold to see weaker overlaps.)</p>'
+            : '<p class="empty-state">Not scanned yet. Hit “Scan for duplicates” — it fetches your live pages and finds templated clusters.</p>';
+        return;
+    }
+    let html = '';
+    cs.forEach((c,i)=>{
+        const others = c.consolidate||[];
+        html += `<div class="card" style="margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                <strong style="font-size:14px;">Cluster ${i+1}: ${c.page_count} templated pages · up to ${c.max_overlap}% shared passages</strong>
+            </div>
+            <div style="margin-top:8px;font-size:13px;">
+                <div style="padding:6px 10px;background:var(--accent-green,#059669)18;border-left:3px solid var(--accent-green,#059669);border-radius:4px;">
+                    ✅ <strong>KEEP as the pillar</strong> (most demand):
+                    <a href="${escHtml(c.pillar.url)}" target="_blank">${escHtml(fp(c.pillar.url))}</a>
+                    <span style="color:var(--text-muted);">${(c.pillar.impressions||0).toLocaleString()} impr — ${escHtml(c.pillar.title||'')}</span>
+                </div>
+                <div style="margin-top:6px;padding:6px 10px;background:var(--accent-red,#dc2626)12;border-left:3px solid var(--accent-red,#dc2626);border-radius:4px;">
+                    🔀 <strong>CONSOLIDATE into the pillar &amp; 301-redirect</strong> (or make genuinely distinct):
+                    <ul style="margin:4px 0 0 16px;">
+                    ${others.map(o=>`<li><a href="${escHtml(o.url)}" target="_blank">${escHtml(fp(o.url))}</a> <span style="color:var(--text-muted);">${(o.impressions||0).toLocaleString()} impr</span></li>`).join('')}
+                    </ul>
+                </div>
+            </div>
+            <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--text-muted);">shared-passage overlaps</summary>
+                <table class="pb-table" style="margin-top:6px;"><tbody>
+                ${(c.pair_overlaps||[]).map(p=>`<tr><td class="pb-num" style="width:60px;"><strong>${p.pct}%</strong></td><td style="font-size:12px;">${escHtml(fp(p.a))}</td><td style="font-size:12px;">${escHtml(fp(p.b))}</td></tr>`).join('')}
+                </tbody></table>
+            </details>
+        </div>`;
+    });
+    body.innerHTML = html;
+}
+
+async function dupScan(btn){
+    btn.disabled=true;
+    const d = await (await fetch('/api/duplication/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    dupToast(d.success?'Scanning live pages — a few minutes…':(d.error||'Failed'),!d.success);
+    btn.disabled=false; setTimeout(loadDup,1500);
+}
+async function dupSetThr(v){
+    const d = await (await fetch('/api/duplication/threshold',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({threshold:v})})).json();
+    if(d.success){ dupToast('Threshold set to '+d.threshold+'% — rescan to apply'); }
+}
+loadDup();
+</script>
+{% endblock %}
