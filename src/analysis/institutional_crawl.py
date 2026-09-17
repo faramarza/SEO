@@ -184,6 +184,10 @@ def crawl_ami_state(state: str):
     if not html:
         reason = last_fetch_reason()
         log(f"STATE {state}: locator fetch FAILED — {reason}")
+        if reason == "HTTP 404":
+            return [], (f"{state}: AMI has no per-state page (HTTP 404). Its locator is now a "
+                        "single interactive map, so crawling by state can't work — use the "
+                        "State licensing roster import below instead.")
         return [], f"{state}: AMI fetch failed — {reason} ({url})"
     pairs = parse_ami_state_page(html)
     log(f"STATE {state}: parsed {len(pairs)} school(s) from {len(html)} bytes")

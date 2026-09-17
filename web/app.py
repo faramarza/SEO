@@ -11372,10 +11372,13 @@ def _inst_crawl_job(states):
         })
         inst.save_store(store)
         if zero_yield:
-            _save_notification({"type": "institutional", "severity": "warning",
-                                "message": "Institutional crawl: ZERO yield from "
-                                           f"{len(zero_yield)} source(s) — selector "
-                                           "likely broken. See the B2B page report."})
+            gone = sum(1 for z in zero_yield if "404" in z or "no per-state page" in z)
+            msg = ("Institutional crawl: AMI locator has no per-state pages any more "
+                   "(single interactive map) — use the State licensing roster import instead."
+                   if gone else
+                   f"Institutional crawl: ZERO yield from {len(zero_yield)} source(s). "
+                   "See the B2B page report.")
+            _save_notification({"type": "institutional", "severity": "warning", "message": msg})
         _clog(f"===== CRAWL DONE — +{added_total} rows, {researched} researched, "
               f"{len(zero_yield)} zero-yield source(s) =====")
         _inst_job["note"] = f"Done: +{added_total} rows, {researched} researched."
