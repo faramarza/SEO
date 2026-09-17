@@ -15,7 +15,7 @@
 </div>
 
 <div class="card" style="margin-bottom:14px;font-size:13px;">
-    <label style="font-weight:600;">Page:
+    <label style="font-weight:600;">Switch page:
         <select id="wf-page" onchange="wfPick(this.value)" style="font-size:13px;min-width:320px;margin-left:6px;"></select>
     </label>
     <span id="wf-budget" style="font-size:12px;color:var(--text-muted);margin-left:12px;"></span>
@@ -51,24 +51,30 @@ function wfPosCell(m){
         : '<span style="color:var(--text-muted);" title="Your page is not in the top results for this term yet">not ranking</span>';
 }
 
-async function loadPages(pre){
-    const d = await (await fetch('/api/whatif')).json();
-    const sel = document.getElementById('wf-page');
-    sel.innerHTML = '<option value="">— choose a page —</option>' +
-        (d.pages||[]).map(p=>`<option value="${escHtml(p.url)}">${escHtml(wfShort(p.url))}  (“${escHtml(p.head_query)}”)</option>`).join('');
-    document.getElementById('wf-budget').textContent =
-        d.dataforseo_budget!=null ? `DataForSEO budget left today: ${d.dataforseo_budget}` : '';
-    if(pre){ sel.value = pre; if(sel.value===pre) wfPick(pre); }
+// Fills the switcher dropdown in the background — never blocks showing the
+// page the caller already chose.
+async function loadPages(){
+    try{
+        const d = await (await fetch('/api/whatif')).json();
+        const sel = document.getElementById('wf-page');
+        sel.innerHTML = '<option value="">— choose a page —</option>' +
+            (d.pages||[]).map(p=>`<option value="${escHtml(p.url)}">${escHtml(wfShort(p.url))}  (“${escHtml(p.head_query)}”)</option>`).join('');
+        if(WF_URL) sel.value = WF_URL;
+        const bud = document.getElementById('wf-budget');
+        if(d.dataforseo_budget!=null && !bud.textContent) bud.textContent = `DataForSEO budget left today: ${d.dataforseo_budget}`;
+    }catch(e){/* switcher is optional */}
 }
 
 async function wfPick(url){
     WF_URL = url;
+    const sel = document.getElementById('wf-page');
+    if(sel && sel.value !== url) sel.value = url;   // keep switcher in sync
     if(!url){ document.getElementById('wf-body').innerHTML='<p class="empty-state">Pick a page above to start testing keywords.</p>'; return; }
     const u = new URL(window.location); u.searchParams.set('url', url); history.replaceState(null,'',u);
     document.getElementById('wf-body').innerHTML='<p class="pb-loading">Loading candidates…</p>';
     WF = await (await fetch('/api/whatif?url='+encodeURIComponent(url))).json();
-    document.getElementById('wf-budget').textContent =
-        WF.dataforseo_budget!=null ? `DataForSEO budget left today: ${WF.dataforseo_budget}` : '';
+    const bud = document.getElementById('wf-budget');
+    if(WF.dataforseo_budget!=null) bud.textContent = `DataForSEO budget left today: ${WF.dataforseo_budget}`;
     wfRender();
 }
 
@@ -139,7 +145,8 @@ async function wfMeasure(q, btn){
 
 (function(){
     const pre = new URL(window.location).searchParams.get('url') || '';
-    loadPages(pre);
+    if(pre){ wfPick(pre); loadPages(); }   // show the chosen page now; fill switcher in the background
+    else { loadPages(); }
 })();
 </script>
 {% endblock %}

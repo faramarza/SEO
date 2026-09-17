@@ -11861,29 +11861,54 @@ def whatif_page():
     return render_template("whatif.html")
 
 
+def _whatif_single(url):
+    """Just ONE page's head query + full GSC query pool, straight from the
+    evaluation — no full-index build, so opening the tester for a page the
+    caller already chose is instant."""
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        return {"head_query": "", "gsc_queries": []}
+    row = next((r for r in results if r.get("url") == url), None)
+    if not row:
+        return {"head_query": "", "gsc_queries": []}
+    qs = sorted((row.get("top_queries") or []),
+                key=lambda q: -(q.get("impressions") or 0))
+    queries, seen = [], set()
+    for q in qs:
+        s = q.get("query", "")
+        if s and s not in seen:
+            seen.add(s)
+            queries.append(s)
+    return {"head_query": queries[0] if queries else "", "gsc_queries": queries}
+
+
 @app.route("/api/whatif")
 def api_whatif():
-    """?url=… → that page's editable candidate list (+ measurements). No url →
-    the page picker list."""
+    """?url=… → that page's editable candidate list, computed from that one page
+    only (fast). ?pages=1 (or no url) → the page picker list (slower, builds the
+    striking-distance index). The two are separate so opening a chosen page
+    never waits on the full list."""
     from src.analysis import whatif as wf
-    idx = _whatif_page_index()
-    url = request.args.get("url", "")
     try:
         from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
         budget = get_backlinks_remaining_quota()
     except Exception:
         budget = None
+    url = request.args.get("url", "")
+    if url:
+        meta = _whatif_single(url)
+        store = wf.load_store()
+        cands = wf.page_candidates(store, url, meta["gsc_queries"], meta["head_query"])
+        return jsonify({"url": url, "head_query": meta["head_query"],
+                        "candidates": cands, "dataforseo_budget": budget,
+                        "updated_at": store["pages"].get(url, {}).get("updated_at")})
+    # Picker / switcher list.
+    idx = _whatif_page_index()
     pages = [{"url": u, "head_query": v["head_query"], "lever": v["lever"]}
              for u, v in idx.items()]
-    if not url:
-        return jsonify({"pages": pages, "dataforseo_budget": budget})
-    meta = idx.get(url, {"head_query": "", "gsc_queries": []})
-    store = wf.load_store()
-    cands = wf.page_candidates(store, url, meta["gsc_queries"], meta["head_query"])
-    return jsonify({"url": url, "head_query": meta["head_query"],
-                    "candidates": cands, "pages": pages,
-                    "dataforseo_budget": budget,
-                    "updated_at": store["pages"].get(url, {}).get("updated_at")})
+    return jsonify({"pages": pages, "dataforseo_budget": budget})
 
 
 @app.route("/api/whatif/add", methods=["POST"])
