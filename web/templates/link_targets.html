@@ -25,17 +25,23 @@
     <p style="margin:8px 0 0;color:var(--text-muted);">
         DataForSEO runs on the Serper SERP + backlink totals (cached, daily-capped — a full pass
         spreads over a few days). For an Ahrefs number on a row: click <strong>Open in Ahrefs</strong>,
-        go to Keywords Explorer → SERP overview → Export, then <strong>Paste Ahrefs export</strong> on
-        that row.</p>
+        go to Keywords Explorer → SERP overview → Export, then <strong>Upload Ahrefs CSV</strong> on
+        that row and choose the file.</p>
 </div>
 
 <div id="lt-body"><p class="pb-loading">Loading…</p></div>
 
 <div id="lt-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;" onclick="if(event.target===this)this.classList.add('hidden')">
     <div style="max-width:600px;margin:8vh auto;background:var(--bg-card,#fff);border-radius:12px;padding:20px;">
-        <h2 style="margin-top:0;" id="lt-modal-title">Paste Ahrefs SERP-overview export</h2>
-        <p style="font-size:13px;color:var(--text-muted);">Keywords Explorer → your keyword → SERP overview → Export → paste the CSV (or copy the rows from Numbers/Excel) below.</p>
-        <textarea id="lt-csv" rows="8" style="width:100%;font-size:11px;font-family:monospace;"></textarea>
+        <h2 style="margin-top:0;" id="lt-modal-title">Upload Ahrefs SERP-overview export</h2>
+        <p style="font-size:13px;color:var(--text-muted);">Keywords Explorer → your keyword → SERP overview → Export. Then either <strong>choose the .csv file</strong> or paste the rows below — whichever is easier.</p>
+        <div style="margin-bottom:8px;">
+            <input type="file" id="lt-file" accept=".csv,text/csv,text/plain" onchange="ltFilePick(this)"
+                   style="font-size:13px;">
+            <span id="lt-file-name" style="font-size:12px;color:var(--accent-purple);margin-left:6px;"></span>
+        </div>
+        <textarea id="lt-csv" rows="8" style="width:100%;font-size:11px;font-family:monospace;"
+                  placeholder="…or paste the CSV rows here"></textarea>
         <div style="margin-top:10px;">
             <button class="pb-task-btn" onclick="ltImport(this)">Compute Ahrefs gap</button>
             <button class="pb-task-btn pb-task-btn-alt" onclick="document.getElementById('lt-modal').classList.add('hidden')">Cancel</button>
@@ -114,7 +120,7 @@ function render(){
             <td>${pr}</td>
             <td style="white-space:nowrap;">
                 ${t.ahrefs_url?`<a class="pb-task-btn pb-task-btn-alt" href="${escHtml(t.ahrefs_url)}" target="_blank">Ahrefs ↗</a>`:''}
-                <button class="pb-task-btn" onclick='ltOpenImport(${JSON.stringify(t.url)}, ${JSON.stringify(kw.query||"")})'>Paste Ahrefs</button>
+                <button class="pb-task-btn" onclick='ltOpenImport(${JSON.stringify(t.url)}, ${JSON.stringify(kw.query||"")})'>Upload Ahrefs CSV</button>
             </td>
         </tr>`;
     });
@@ -130,9 +136,24 @@ async function ltScan(btn){
 }
 function ltOpenImport(url, kw){
     LT_TARGET = url;
-    document.getElementById('lt-modal-title').textContent = 'Paste Ahrefs SERP export for “'+kw+'”';
+    document.getElementById('lt-modal-title').textContent = 'Ahrefs SERP export for “'+kw+'”';
     document.getElementById('lt-csv').value = '';
+    const f=document.getElementById('lt-file'); if(f) f.value='';
+    document.getElementById('lt-file-name').textContent = '';
     document.getElementById('lt-modal').classList.remove('hidden');
+}
+// Read a chosen .csv into the textarea so the existing import path handles it.
+function ltFilePick(input){
+    const file = input.files && input.files[0];
+    if(!file) return;
+    const nm = document.getElementById('lt-file-name');
+    const reader = new FileReader();
+    reader.onload = () => {
+        document.getElementById('lt-csv').value = reader.result || '';
+        nm.textContent = '✓ '+file.name+' loaded — click Compute Ahrefs gap';
+    };
+    reader.onerror = () => { nm.textContent = 'Could not read that file'; };
+    reader.readAsText(file);
 }
 async function ltImport(btn){
     const csv = document.getElementById('lt-csv').value;
