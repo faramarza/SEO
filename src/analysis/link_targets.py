@@ -358,6 +358,7 @@ def worksheet_rows(targets):
             q = k.get("query", "")
             g = gaps_by_q.get(q.lower())
             row = {"url": t["url"], "lever": t.get("lever", "external"),
+                   "asset_type": t.get("asset_type", "other"),
                    "query": q, "position": k.get("position", 0),
                    "impressions": k.get("impressions", 0) or 0,
                    "you": None, "page1": None, "links_needed": None,

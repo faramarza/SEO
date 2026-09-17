@@ -135,7 +135,9 @@ function leverBadge(l){
     const m = LT_LEVER[l]; if(!m) return '';
     return `<span style="font-size:10px;font-weight:600;color:${m.color};" title="${escHtml(m.tip)}">${m.label}</span>`;
 }
-let LT_FILTER = 'all';   // 'all' | 'links'
+let LT_FILTER = 'all';   // 'all' | 'links' | 'reachable'
+let LT_TYPE = 'all';     // page-type filter: 'all' | product | category | blog | …
+function ltSetType(v){ LT_TYPE = v; render(); }
 
 const REACHABLE = ['close','authority_gap','domain_gap'];
 // A compact per-keyword verdict chip shown next to each keyword.
@@ -211,16 +213,22 @@ function render(){
     const nLinks = rows.filter(r=>r.lever==='external').length;
     const nReach = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict)).length;
     const nDone = rows.filter(r=>r.status==='measured').length;
+    // Distinct page types present, for the page-type filter.
+    const types = [...new Set(rows.map(r=>r.asset_type||'other'))].sort();
     let view = rows;
-    if(LT_FILTER==='links') view = rows.filter(r=>r.lever==='external');
-    else if(LT_FILTER==='reachable') view = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
+    if(LT_TYPE!=='all') view = view.filter(r=>(r.asset_type||'other')===LT_TYPE);
+    if(LT_FILTER==='links') view = view.filter(r=>r.lever==='external');
+    else if(LT_FILTER==='reachable') view = view.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
 
     const tab = (id,label)=>`<button onclick="LT_FILTER='${id}';render();" style="font-weight:${LT_FILTER===id?700:400};background:none;border:none;cursor:pointer;font-size:13px;color:${LT_FILTER===id?'var(--accent-purple)':'var(--text-muted)'};">${label}</button>`;
+    const typeOpts = ['all', ...types].map(t=>`<option value="${escHtml(t)}" ${LT_TYPE===t?'selected':''}>${t==='all'?'All page types':escHtml(t)}</option>`).join('');
     let html = `<div style="margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
         <span style="color:var(--text-muted);font-size:13px;">Show:</span>
         ${tab('all','All '+nAll+' keywords')}<span style="color:var(--text-muted);">·</span>
         ${tab('links','Link-target pages ('+nLinks+')')}<span style="color:var(--text-muted);">·</span>
         ${tab('reachable','🎯 Reachable wins ('+nReach+')')}
+        <label style="font-size:13px;color:var(--text-muted);">Page type:
+            <select onchange="ltSetType(this.value)" style="font-size:13px;margin-left:4px;">${typeOpts}</select></label>
         <button class="pb-task-btn pb-task-btn-alt" style="margin-left:auto;" onclick='ltCopy()'>⧉ Copy worksheet</button>
     </div>
     <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;">
@@ -242,7 +250,7 @@ function render(){
         const p1  = r.page1!=null ? r.page1 : '—';
         html += `<tr>
             <td style="max-width:220px;"><a href="${escHtml(r.url)}" target="_blank">${escHtml(shortUrl(r.url))}</a>
-                <div style="margin-top:2px;">${leverBadge(r.lever)}</div></td>
+                <div style="margin-top:2px;"><span style="font-size:10px;color:var(--text-muted);background:var(--bg-subtle,rgba(0,0,0,.04));padding:1px 5px;border-radius:3px;">${escHtml(r.asset_type||'other')}</span> ${leverBadge(r.lever)}</div></td>
             <td style="font-size:13px;">“${escHtml(r.query)}”</td>
             <td>${r.position}</td>
             <td>${(r.impressions||0).toLocaleString()}</td>
@@ -264,10 +272,11 @@ function render(){
 function ltCopy(){
     const rows = LT.worksheet||[];
     let view = rows;
-    if(LT_FILTER==='links') view = rows.filter(r=>r.lever==='external');
-    else if(LT_FILTER==='reachable') view = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
-    const head = ['Page','Keyword','Position','Impressions/mo','Your ref domains','Page-1 ref domains','Links needed'].join('\t');
-    const body = view.map(r=>[shortUrl(r.url), r.query, r.position, r.impressions,
+    if(LT_TYPE!=='all') view = view.filter(r=>(r.asset_type||'other')===LT_TYPE);
+    if(LT_FILTER==='links') view = view.filter(r=>r.lever==='external');
+    else if(LT_FILTER==='reachable') view = view.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
+    const head = ['Page','Page type','Keyword','Position','Impressions/mo','Your ref domains','Page-1 ref domains','Links needed'].join('\t');
+    const body = view.map(r=>[shortUrl(r.url), r.asset_type||'other', r.query, r.position, r.impressions,
         r.you!=null?r.you:'', r.page1!=null?r.page1:'',
         r.status==='measured'?(r.links_needed||0):r.status].join('\t')).join('\n');
     navigator.clipboard.writeText(head+'\n'+body).then(
