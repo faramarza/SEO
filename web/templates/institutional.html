@@ -45,6 +45,13 @@
         <div class="gov-bar"><i></i></div>
     </div>
     <div id="inst-report" style="margin-top:8px;font-size:12px;color:var(--text-muted);"></div>
+    <details style="margin-top:10px;" id="inst-log-wrap" ontoggle="if(this.open)instLoadLog()">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;">📜 Crawl log — see every page it fetches
+            <button class="pb-task-btn pb-task-btn-alt" style="margin-left:8px;" onclick="event.preventDefault();instLoadLog(this)">↻ Refresh</button>
+            <span id="inst-log-live" style="font-size:11px;color:var(--accent-purple);margin-left:6px;"></span>
+        </summary>
+        <pre id="inst-log" style="margin-top:8px;max-height:320px;overflow:auto;background:#0b1020;color:#cfe3ff;font-size:11px;line-height:1.5;padding:10px;border-radius:8px;white-space:pre-wrap;">Open this while a crawl runs to watch it fetch pages live.</pre>
+    </details>
 </div>
 
 <div class="card" style="margin-bottom:14px;">
@@ -108,6 +115,22 @@ async function loadInst(){
     instJobUI(!!(INST.job&&INST.job.running));
     renderReport(); renderSources(); renderInst();
     if(INST.job&&INST.job.running) setTimeout(loadInst, 2500);
+}
+
+let instLogTimer = null;
+async function instLoadLog(btn){
+    const pre = document.getElementById('inst-log');
+    try{
+        const d = await (await fetch('/api/institutional/log?lines=400')).json();
+        pre.textContent = d.log || '(no crawl activity logged yet — run a crawl)';
+        pre.scrollTop = pre.scrollHeight;   // stick to the newest lines
+        document.getElementById('inst-log-live').textContent =
+            d.running ? ('⏳ live — '+(d.phase||'working')) : '';
+        // While a crawl runs and the log is open, keep refreshing.
+        clearTimeout(instLogTimer);
+        const wrap = document.getElementById('inst-log-wrap');
+        if(d.running && wrap && wrap.open) instLogTimer = setTimeout(()=>instLoadLog(), 2000);
+    }catch(e){ pre.textContent = 'Could not load the log: '+e.message; }
 }
 
 // One shared job across the 3 buttons: disable all while running, show one
@@ -229,6 +252,9 @@ function instStart(d, phase){
         INST.job = {running:true, phase:phase};
         instJobUI(true);
         instToast('Started — the progress bar shows it running.');
+        // Auto-open the crawl log so the operator sees pages being fetched live.
+        const wrap = document.getElementById('inst-log-wrap');
+        if(wrap){ wrap.open = true; instLoadLog(); }
         setTimeout(loadInst, 800);
     } else {
         instJobUI(false);

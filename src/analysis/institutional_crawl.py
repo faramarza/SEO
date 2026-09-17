@@ -10,6 +10,8 @@ fields stay empty when a page didn't provide them.
 import re
 import time
 import urllib.robotparser
+from datetime import datetime
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 from src.analysis.institutional import (
@@ -23,6 +25,37 @@ except ImportError:  # pragma: no cover
 
 _last_fetch = [0.0]
 _robots_cache = {}
+
+# A plain-text activity log so the operator can SEE the crawl really fetching
+# pages (every request, its outcome, and what was extracted) — instead of a
+# silent job that might be failing behind the scenes. Tail it live, or read it
+# from the B2B page.
+LOG_PATH = Path(__file__).parent.parent.parent / "data" / "institutional_crawl.log"
+_LOG_MAX_BYTES = 512 * 1024  # keep the last ~0.5 MB, trimmed on rotation
+
+
+def log(msg: str):
+    """Append one timestamped line. Never raises — logging must not break a
+    crawl."""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  {msg}\n"
+        with open(LOG_PATH, "a") as f:
+            f.write(line)
+        if LOG_PATH.stat().st_size > _LOG_MAX_BYTES:
+            data = LOG_PATH.read_bytes()[-_LOG_MAX_BYTES // 2:]
+            LOG_PATH.write_bytes(b"...(trimmed)...\n" + data)
+    except Exception:
+        pass
+
+
+def read_log(max_lines: int = 300) -> str:
+    """The tail of the crawl log for the UI."""
+    try:
+        lines = LOG_PATH.read_text().splitlines()
+        return "\n".join(lines[-max_lines:])
+    except Exception:
+        return ""
 
 
 def _robots_ok(url: str) -> bool:
@@ -44,22 +77,34 @@ def _robots_ok(url: str) -> bool:
 
 def fetch(url: str, timeout=20) -> str:
     """Polite fetch: robots check + global 1.5s pacing + identified UA.
-    Returns '' on any failure or disallow."""
-    if not _HTTPX or not url:
+    Returns '' on any failure or disallow. Every outcome is logged so the
+    operator can see real network activity."""
+    if not _HTTPX:
+        log("FETCH skipped — httpx not installed (crawling disabled)")
+        return ""
+    if not url:
         return ""
     if not _robots_ok(url):
+        log(f"ROBOTS blocked  {url}")
         return ""
     wait = FETCH_DELAY_S - (time.time() - _last_fetch[0])
     if wait > 0:
         time.sleep(wait)
     _last_fetch[0] = time.time()
+    t0 = time.time()
     try:
         r = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout,
                       follow_redirects=True)
+        ms = int((time.time() - t0) * 1000)
         if r.status_code != 200:
+            log(f"HTTP {r.status_code}  {url}  ({ms} ms)")
             return ""
-        return r.text or ""
-    except Exception:
+        body = r.text or ""
+        log(f"OK   {len(body):>7} bytes  {ms:>5} ms  {url}")
+        return body
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        log(f"FAIL  {type(e).__name__}: {str(e)[:120]}  {url}  ({ms} ms)")
         return ""
 
 
@@ -117,12 +162,16 @@ def crawl_ami_state(state: str):
     """One AMI locator state page → prospect dicts. Returns (prospects, note)."""
     slug = AMI_SLUGS.get(state.upper())
     if not slug:
+        log(f"STATE {state}: no AMI slug configured — skipped")
         return [], f"{state}: no AMI slug configured"
     url = AMI_BASE + slug + "/"
+    log(f"STATE {state}: fetching AMI locator {url}")
     html = fetch(url)
     if not html:
+        log(f"STATE {state}: locator fetch FAILED/blocked")
         return [], f"{state}: AMI page fetch failed or disallowed ({url})"
     pairs = parse_ami_state_page(html)
+    log(f"STATE {state}: parsed {len(pairs)} school(s) from {len(html)} bytes")
     if not pairs:
         return [], (f"{state}: AMI page fetched ({len(html)} bytes) but ZERO "
                     "entries parsed — selector likely broken, inspect " + url)
@@ -194,6 +243,7 @@ def harvest_org(website: str):
         website = "https://" + website
     own_domain = urlparse(website).netloc.lower().removeprefix("www.")
     base = f"{urlparse(website).scheme}://{urlparse(website).netloc}"
+    log(f"RESEARCH {own_domain}: visiting up to {len(_CONTACT_SLUGS)} pages")
     for slug in _CONTACT_SLUGS:
         url = website if slug == "" else urljoin(base + "/", slug)
         html = fetch(url)
@@ -210,4 +260,8 @@ def harvest_org(website: str):
             upd["contact_name"], upd["contact_title"] = name, title
         if upd["email"] and upd["contact_name"] and upd["evidence"]:
             break
+    log(f"RESEARCH {own_domain}: email={'yes' if upd['email'] else 'no'} "
+        f"name={'yes' if upd['contact_name'] else 'no'} "
+        f"evidence={'yes' if upd['evidence'] else 'no'} "
+        f"→ {upd['contact_confidence']}")
     return upd

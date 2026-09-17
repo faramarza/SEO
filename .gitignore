@@ -49,3 +49,4 @@ data/.autoeval_*
 data/.digest_*
 data/.secret_key
 data/*.lock
+data/*.log

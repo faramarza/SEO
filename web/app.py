@@ -11344,8 +11344,9 @@ def _inst_research(store, limit=40):
 
 def _inst_crawl_job(states):
     from src.analysis import institutional as inst
-    from src.analysis.institutional_crawl import crawl_ami_state
+    from src.analysis.institutional_crawl import crawl_ami_state, log as _clog
     try:
+        _clog(f"===== CRAWL START — states: {', '.join(states)} =====")
         store = inst.load_store()
         added_total, dupes_total, notes, zero_yield = 0, 0, [], []
         for st in states:
@@ -11375,8 +11376,12 @@ def _inst_crawl_job(states):
                                 "message": "Institutional crawl: ZERO yield from "
                                            f"{len(zero_yield)} source(s) — selector "
                                            "likely broken. See the B2B page report."})
+        _clog(f"===== CRAWL DONE — +{added_total} rows, {researched} researched, "
+              f"{len(zero_yield)} zero-yield source(s) =====")
         _inst_job["note"] = f"Done: +{added_total} rows, {researched} researched."
     except Exception as e:
+        import traceback
+        _clog(f"===== CRAWL FAILED: {e} =====\n{traceback.format_exc()}")
         _inst_job["note"] = f"Crawl failed: {e}"
     finally:
         _inst_job["running"] = False
@@ -11463,6 +11468,15 @@ def api_institutional_settings():
         store["settings"]["mailing_address"] = str(body["mailing_address"]).strip()
     inst.save_store(store)
     return jsonify({"success": True, "settings": store["settings"]})
+
+
+@app.route("/api/institutional/log")
+def api_institutional_log():
+    """The crawl activity log (tail) so the operator can see real fetching."""
+    from src.analysis.institutional_crawl import read_log
+    return jsonify({"log": read_log(int(request.args.get("lines") or 300)),
+                    "running": _inst_job.get("running", False),
+                    "phase": _inst_job.get("phase", "")})
 
 
 @app.route("/api/institutional/crawl", methods=["POST"])
