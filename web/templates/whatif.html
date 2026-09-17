@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}What-if — Governor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🔀 What-if keyword tester</h1>
+    <p class="page-description">
+        When a page's head term is a wall (huge <strong>links needed</strong>), test a
+        <strong>different, more specific keyword</strong> to see if it's winnable. Pick a page — the
+        tool suggests candidates from your niche words and the page's own Search Console queries, but
+        they're just a starting point: <strong>ignore any suggestion and add your own</strong>. Then
+        <strong>Measure</strong> a candidate to get the same honest numbers as Link Targets — your
+        referring domains vs the page-1 sites, and how many more links it would take to match them —
+        plus whether your page already ranks for it.
+    </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;font-size:13px;">
+    <label style="font-weight:600;">Page:
+        <select id="wf-page" onchange="wfPick(this.value)" style="font-size:13px;min-width:320px;margin-left:6px;"></select>
+    </label>
+    <span id="wf-budget" style="font-size:12px;color:var(--text-muted);margin-left:12px;"></span>
+</div>
+
+<div id="wf-body"><p class="empty-state">Pick a page above to start testing keywords.</p></div>
+<div id="wf-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let WF = null, WF_URL = '';
+function wfToast(m,e){const t=document.getElementById('wf-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3200);}
+function wfShort(u){return (u||'').replace(/^https?:\/\/[^/]+/,'')||'/';}
+function ahrefsUrl(q){return 'https://app.ahrefs.com/keywords-explorer/google/us/overview?keyword='+encodeURIComponent(q||'');}
+
+const REACHABLE = ['close','authority_gap','domain_gap'];
+// Links-needed cell — always a real number when measured, never hidden.
+function wfNeed(m){
+    if(!m) return '<button class="pb-task-btn" onclick="event.stopPropagation();">Measure</button>';
+    if(m.verdict==='pending') return `<span style="font-size:11px;color:#7c3aed;" title="${escHtml(m.note||'')}">couldn’t measure — retry</span>`;
+    const n = m.links_needed;
+    if(n==null) return '<span style="color:var(--text-muted);">—</span>';
+    if(n<=0) return `<span style="font-weight:600;color:var(--text-muted);" title="${escHtml(m.note||'')}">0 · you already out-link them</span>`;
+    const reach = REACHABLE.includes(m.verdict) && n<=60;
+    const col = reach ? '#059669' : (n>60 ? '#b45309' : '#d97706');
+    return `<span style="font-weight:800;color:${col};font-size:15px;" title="${escHtml(m.note||'')}">${reach?'🎯 ':''}+${n}</span>`;
+}
+function wfPosCell(m){
+    if(!m || m.verdict==='pending') return '<span style="color:var(--text-muted);">—</span>';
+    return m.own_position!=null
+        ? `<span title="Your page already ranks here">#${m.own_position}</span>`
+        : '<span style="color:var(--text-muted);" title="Your page is not in the top results for this term yet">not ranking</span>';
+}
+
+async function loadPages(pre){
+    const d = await (await fetch('/api/whatif')).json();
+    const sel = document.getElementById('wf-page');
+    sel.innerHTML = '<option value="">— choose a page —</option>' +
+        (d.pages||[]).map(p=>`<option value="${escHtml(p.url)}">${escHtml(wfShort(p.url))}  (“${escHtml(p.head_query)}”)</option>`).join('');
+    document.getElementById('wf-budget').textContent =
+        d.dataforseo_budget!=null ? `DataForSEO budget left today: ${d.dataforseo_budget}` : '';
+    if(pre){ sel.value = pre; if(sel.value===pre) wfPick(pre); }
+}
+
+async function wfPick(url){
+    WF_URL = url;
+    if(!url){ document.getElementById('wf-body').innerHTML='<p class="empty-state">Pick a page above to start testing keywords.</p>'; return; }
+    const u = new URL(window.location); u.searchParams.set('url', url); history.replaceState(null,'',u);
+    document.getElementById('wf-body').innerHTML='<p class="pb-loading">Loading candidates…</p>';
+    WF = await (await fetch('/api/whatif?url='+encodeURIComponent(url))).json();
+    document.getElementById('wf-budget').textContent =
+        WF.dataforseo_budget!=null ? `DataForSEO budget left today: ${WF.dataforseo_budget}` : '';
+    wfRender();
+}
+
+function wfRender(){
+    const seed = new URL(window.location).searchParams.get('seed') || '';
+    const cs = WF.candidates||[];
+    let html = `<div class="card" style="margin-bottom:12px;">
+        <div style="font-size:13px;">Testing keywords for <a href="${escHtml(WF.url)}" target="_blank"><strong>${escHtml(wfShort(WF.url))}</strong></a> — its head term is “${escHtml(WF.head_query)}”.</div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+            <input id="wf-add" placeholder="Type your own keyword to test…" value="${escHtml(seed)}"
+                   style="flex:1;min-width:240px;font-size:13px;padding:5px 8px;" onkeydown="if(event.key==='Enter')wfAdd()">
+            <button class="pb-task-btn" onclick="wfAdd()">+ Add keyword</button>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin:6px 0 0;">Suggestions below are starting points — click ✕ to ignore any, or add your own above. Nothing is committed until you Measure it.</p>
+    </div>`;
+
+    html += `<table class="pb-table"><thead><tr>
+        <th>Keyword</th><th>Source</th><th title="Your page's current rank for this term">You rank</th>
+        <th title="Your referring domains">You</th><th title="Median referring domains of the page-1 sites">Page-1 sites</th>
+        <th>Links needed</th><th></th></tr></thead><tbody>`;
+    if(!cs.length){ html += `<tr><td colspan="7" class="empty-state">No candidates — add a keyword above.</td></tr>`; }
+    cs.forEach(c=>{
+        const m = c.measurement;
+        const srcColor = c.source==='you' ? '#7c3aed' : (c.source==='suggested' ? '#94a3b8' : '#059669');
+        const measureBtn = (!m || m.verdict==='pending')
+            ? `<button class="pb-task-btn" onclick='wfMeasure(${JSON.stringify(c.query)}, this)'>${m&&m.verdict==='pending'?'Retry':'Measure'}</button>`
+            : `<button class="pb-task-btn pb-task-btn-alt" onclick='wfMeasure(${JSON.stringify(c.query)}, this)' title="Re-measure">↻</button>`;
+        html += `<tr>
+            <td style="font-size:13px;">“${escHtml(c.query)}”</td>
+            <td><span style="font-size:11px;color:${srcColor};">${escHtml(c.source)}</span></td>
+            <td>${wfPosCell(m)}</td>
+            <td>${m&&m.you!=null?m.you:'—'}</td>
+            <td>${m&&m.page1!=null?m.page1:'—'}${m&&m.scope==='domain'?'<div style="font-size:9px;color:var(--text-muted);">domain-level</div>':''}</td>
+            <td>${m&&(m.verdict&&m.verdict!=='pending')?wfNeed(m):'<span style="color:var(--text-muted);font-size:11px;">not measured</span>'}</td>
+            <td style="white-space:nowrap;">
+                ${measureBtn}
+                <a class="pb-task-btn pb-task-btn-alt" href="${ahrefsUrl(c.query)}" target="_blank" title="Check volume in Ahrefs">vol ↗</a>
+                <button class="pb-task-btn pb-task-btn-alt" onclick='wfDismiss(${JSON.stringify(c.query)})' title="Ignore this suggestion">✕</button>
+            </td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('wf-body').innerHTML = html;
+}
+
+async function wfAdd(){
+    const inp = document.getElementById('wf-add');
+    const q = (inp.value||'').trim();
+    if(!q){ wfToast('Type a keyword first', true); return; }
+    const d = await (await fetch('/api/whatif/add',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:WF_URL, query:q})})).json();
+    if(d.success){ inp.value=''; const u=new URL(window.location); u.searchParams.delete('seed'); history.replaceState(null,'',u); wfPick(WF_URL); }
+    else wfToast(d.error||'Failed', true);
+}
+async function wfDismiss(q){
+    await fetch('/api/whatif/dismiss',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:WF_URL, query:q})});
+    wfPick(WF_URL);
+}
+async function wfMeasure(q, btn){
+    if(btn){ btn.disabled=true; btn.textContent='⏳'; }
+    const d = await (await fetch('/api/whatif/measure',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:WF_URL, query:q})})).json();
+    if(d.result && d.result.verdict==='pending') wfToast(d.result.note||'Could not measure — budget or SERP issue', true);
+    else if(!d.result) wfToast(d.error||'Failed', true);
+    wfPick(WF_URL);
+}
+
+(function(){
+    const pre = new URL(window.location).searchParams.get('url') || '';
+    loadPages(pre);
+})();
+</script>
+{% endblock %}

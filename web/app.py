@@ -11812,6 +11812,136 @@ def _re_own_domain():
 
 
 # ============================================================
+# WHAT-IF — alternative-keyword tester for a page
+# ============================================================
+# For a page whose head term is a wall, test whether a different, more specific
+# keyword is winnable. Suggestions (niche vocab × the page's core phrase + its
+# real GSC queries) are only a starting point — the operator ignores/adds
+# freely — and any candidate is measured on demand with the Link Targets engine.
+
+def _whatif_page_index():
+    """Map url → {head_query, gsc_queries[], lever} for every striking-distance
+    page, so the picker lists real pages and each carries its own query pool."""
+    from src.analysis.growth_playbook import find_striking_distance
+    idx = {}
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        return idx
+    # All GSC queries per URL (grounded candidate pool), from the raw results.
+    q_by_url = {}
+    for r in results:
+        u = r.get("url", "")
+        qs = [q.get("query", "") for q in (r.get("top_queries") or []) if q.get("query")]
+        if u and qs:
+            q_by_url.setdefault(u, [])
+            for q in qs:
+                if q not in q_by_url[u]:
+                    q_by_url[u].append(q)
+    from src.analysis import link_targets as lt
+    for t in lt.build_targets(find_striking_distance(
+            results, system_disallow=_robots_disallow_rules()), include_all_levers=True):
+        u = t["url"]
+        idx[u] = {"head_query": (t.get("keywords") or [{}])[0].get("query", ""),
+                  "gsc_queries": q_by_url.get(u, []),
+                  "lever": t.get("lever", "external")}
+    return idx
+
+
+def _whatif_rd(u):
+    from src.data_sources.dataforseo_client import fetch_backlinks_summary
+    s = fetch_backlinks_summary(u)
+    return {"available": s.get("available"),
+            "count": s.get("referring_domains"), "reason": s.get("reason", "")}
+
+
+@app.route("/what-if")
+def whatif_page():
+    return render_template("whatif.html")
+
+
+@app.route("/api/whatif")
+def api_whatif():
+    """?url=… → that page's editable candidate list (+ measurements). No url →
+    the page picker list."""
+    from src.analysis import whatif as wf
+    idx = _whatif_page_index()
+    url = request.args.get("url", "")
+    try:
+        from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
+        budget = get_backlinks_remaining_quota()
+    except Exception:
+        budget = None
+    pages = [{"url": u, "head_query": v["head_query"], "lever": v["lever"]}
+             for u, v in idx.items()]
+    if not url:
+        return jsonify({"pages": pages, "dataforseo_budget": budget})
+    meta = idx.get(url, {"head_query": "", "gsc_queries": []})
+    store = wf.load_store()
+    cands = wf.page_candidates(store, url, meta["gsc_queries"], meta["head_query"])
+    return jsonify({"url": url, "head_query": meta["head_query"],
+                    "candidates": cands, "pages": pages,
+                    "dataforseo_budget": budget,
+                    "updated_at": store["pages"].get(url, {}).get("updated_at")})
+
+
+@app.route("/api/whatif/add", methods=["POST"])
+def api_whatif_add():
+    from src.analysis import whatif as wf
+    b = request.json or {}
+    url, query = b.get("url", ""), wf._norm(b.get("query", ""))
+    if not url or not query:
+        return jsonify({"error": "url and query required"}), 400
+    store = wf.load_store()
+    p = wf._page(store, url)
+    if query not in [wf._norm(q) for q in p["added"]]:
+        p["added"].append(query)
+    # Re-adding something previously ignored un-ignores it.
+    p["removed"] = [q for q in p["removed"] if wf._norm(q) != query]
+    store["pages"][url]["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    wf.save_store(store)
+    return jsonify({"success": True})
+
+
+@app.route("/api/whatif/dismiss", methods=["POST"])
+def api_whatif_dismiss():
+    """Ignore a candidate (or un-ignore with undo:true)."""
+    from src.analysis import whatif as wf
+    b = request.json or {}
+    url, query = b.get("url", ""), wf._norm(b.get("query", ""))
+    if not url or not query:
+        return jsonify({"error": "url and query required"}), 400
+    store = wf.load_store()
+    p = wf._page(store, url)
+    if b.get("undo"):
+        p["removed"] = [q for q in p["removed"] if wf._norm(q) != query]
+    elif query not in [wf._norm(q) for q in p["removed"]]:
+        p["removed"].append(query)
+    wf.save_store(store)
+    return jsonify({"success": True})
+
+
+@app.route("/api/whatif/measure", methods=["POST"])
+def api_whatif_measure():
+    """Measure ONE candidate on demand (SERP + backlink lookups)."""
+    from src.analysis import whatif as wf
+    from src.data_sources.serp_client import fetch_serp
+    b = request.json or {}
+    url, query = b.get("url", ""), wf._norm(b.get("query", ""))
+    if not url or not query:
+        return jsonify({"error": "url and query required"}), 400
+    res = wf.measure_candidate(url, query, fetch_serp, _whatif_rd)
+    store = wf.load_store()
+    p = wf._page(store, url)
+    p["measurements"][query] = res
+    store["pages"][url]["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    wf.save_store(store)
+    return jsonify({"success": res.get("verdict") != "pending",
+                    "result": res})
+
+
+# ============================================================
 # DUPLICATION — near-duplicate / thin-variation page detector
 # ============================================================
 # Uses n-gram passage shingling (the correct near-dup method), on FULL live

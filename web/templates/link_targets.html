@@ -244,6 +244,7 @@ function render(){
             <td>${p1}${r.scope==='domain'?'<div style="font-size:9px;color:var(--text-muted);">domain-level</div>':''}</td>
             <td>${needCell(r)}</td>
             <td style="white-space:nowrap;">
+                <a class="pb-task-btn pb-task-btn-alt" href="/what-if?url=${encodeURIComponent(r.url)}&seed=${encodeURIComponent(r.query||'')}" title="Try a different keyword for this page">🔀 What-if</a>
                 <a class="pb-task-btn pb-task-btn-alt" href="${ahrefsUrl(r.query)}" target="_blank">Ahrefs ↗</a>
                 <button class="pb-task-btn" onclick='ltOpenImport(${JSON.stringify(r.url)}, ${JSON.stringify(r.query||"")})'>Upload CSV</button>
             </td>
