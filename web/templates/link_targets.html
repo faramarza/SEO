@@ -186,7 +186,7 @@ function shortUrl(u){ return (u||'').replace(/^https?:\/\/[^/]+/,'')||'/'; }
 // a big gap you can see and judge for yourself.
 function needCell(r){
     if(r.status==='pending') return `<span style="font-size:11px;color:#7c3aed;">measuring…</span>`;
-    if(r.status!=='measured') return `<span style="font-size:11px;color:#7c3aed;" title="In the DataForSEO scan queue (daily-capped).">in queue</span>`;
+    if(r.status!=='measured') return `<span style="font-size:11px;color:#7c3aed;" title="Not measured by DataForSEO yet. The scan is daily-capped, so it works through the keywords over a few days (highest-traffic first). Press 'Measure via DataForSEO' to keep it going, or upload an Ahrefs CSV to fill this row now.">not measured yet ⏳</span>`;
     const n = r.links_needed;
     if(n==null) return '<span style="color:var(--text-muted);">—</span>';
     if(n<=0) return `<span style="font-weight:600;color:var(--text-muted);" title="${escHtml(r.note||'')}">0 · you already out-link them</span>`;
@@ -204,6 +204,7 @@ function render(){
     const nAll = rows.length;
     const nLinks = rows.filter(r=>r.lever==='external').length;
     const nReach = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict)).length;
+    const nDone = rows.filter(r=>r.status==='measured').length;
     let view = rows;
     if(LT_FILTER==='links') view = rows.filter(r=>r.lever==='external');
     else if(LT_FILTER==='reachable') view = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
@@ -219,7 +220,11 @@ function render(){
     <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;">
         One row per page + keyword. <strong>“+N referring domains”</strong> = how many more sites need to link to that page to
         <em>match</em> the sites currently on page 1 for that term (necessary, not a guarantee). Ranked so the
-        <span style="color:#059669;font-weight:600;">🎯 reachable wins</span> sit up top. Sort or copy to build your outreach list.</p>`;
+        <span style="color:#059669;font-weight:600;">🎯 reachable wins</span> sit up top. Sort or copy to build your outreach list.</p>
+    <div style="font-size:12px;margin:0 0 10px;padding:8px 10px;border-radius:6px;background:var(--bg-subtle,rgba(0,0,0,.03));">
+        <strong>${nDone} of ${nAll}</strong> keywords measured.
+        ${nDone<nAll?`The other ${nAll-nDone} say <em>“not measured yet ⏳”</em> — the DataForSEO scan is daily-capped and fills them in over a few days (highest-traffic first). It’s working, not stuck.`
+                    :`All measured. ✓`}</div>`;
 
     html += `<table class="pb-table"><thead><tr>
         <th>Page</th><th>Keyword</th><th>Pos</th><th>Impr/mo</th>
