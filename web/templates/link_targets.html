@@ -5,12 +5,16 @@
 <div class="page-header">
     <h1>🎯 Link Targets</h1>
     <p class="page-description">
-        Every page the tool has diagnosed (from your own GSC data) as
-        <strong>authority-blocked</strong> — ranking just off page 1 with the on-page levers
-        exhausted — with its keywords and how many link prospects are ready. Nothing is hidden:
-        parity and out-of-reach pages stay listed. But each page is now measured on its
-        <strong>top few keywords, not just the head term</strong>, so a page can read
-        “parity on the head term, <span style="color:#059669;font-weight:600;">🎯 reachable
+        <strong>Every</strong> striking-distance page (ranking position 6–20 with real demand),
+        nothing filtered out. Each is tagged with its <strong>diagnosed lever</strong> so you see
+        the whole board and decide for yourself:
+        <span style="color:#d97706;font-weight:600;">🔗 needs backlinks</span> (the real link
+        targets, measured automatically),
+        <span style="color:#059669;font-weight:600;">↩︎ cheaper: internal links</span>, or
+        <span style="color:#2563eb;font-weight:600;">✎ cheaper: on-page fix</span>. Use the
+        <em>All / Link-targets-only</em> toggle to collapse to just the link plays. Each page is
+        measured on its <strong>top few keywords, not just the head term</strong>, so a page can
+        read “parity on the head term, <span style="color:#059669;font-weight:600;">🎯 reachable
         on a long-tail one</span>” — that green chip is where outreach actually moves a ranking.
         The referring-domain gap is shown from <strong>two sources side by side: DataForSEO</strong>
         (measured automatically) and <strong>Ahrefs</strong> (pasted from a SERP-overview export).
@@ -85,6 +89,21 @@ async function loadLT(){
     if(LT.job&&LT.job.running) setTimeout(loadLT, 4000);
 }
 
+// Diagnosed lever per page — why it is or isn't primarily a link play.
+const LT_LEVER = {
+    external: {label:'🔗 Needs backlinks',       color:'#d97706',
+               tip:'Backlinks are the last lever left — this is a link target.'},
+    internal: {label:'↩︎ Cheaper: internal links', color:'#059669',
+               tip:'The page is under-linked internally — add internal links first (free); links come later if at all.'},
+    on_page:  {label:'✎ Cheaper: on-page fix',    color:'#2563eb',
+               tip:'The keyword isn\'t even in the title/H1 yet — fix on-page first; not a link target.'},
+};
+function leverBadge(l){
+    const m = LT_LEVER[l]; if(!m) return '';
+    return `<span style="font-size:10px;font-weight:600;color:${m.color};" title="${escHtml(m.tip)}">${m.label}</span>`;
+}
+let LT_FILTER = 'all';   // 'all' | 'links'
+
 const REACHABLE = ['close','authority_gap','domain_gap'];
 // A compact per-keyword verdict chip shown next to each keyword.
 function kwChip(g){
@@ -112,11 +131,22 @@ function sourceCell(s){
 
 function render(){
     const body = document.getElementById('lt-body');
-    const ts = LT.targets||[];
-    if(!ts.length){ body.innerHTML='<p class="empty-state">No authority-blocked pages in the current evaluation — every striking-distance query still has a cheaper on-page lever. This fills from your normal evaluations.</p>'; return; }
+    const all = LT.targets||[];
+    if(!all.length){ body.innerHTML='<p class="empty-state">No striking-distance pages in the current evaluation yet — this fills from your normal evaluations.</p>'; return; }
+    const nLinks = all.filter(t=>t.lever==='external').length;
+    const nAll = all.length;
+    const ts = LT_FILTER==='links' ? all.filter(t=>t.lever==='external'||t.best_opportunity) : all;
     const nOpp = ts.filter(t=>t.best_opportunity).length;
     const nMeasured = ts.filter(t=>(t.keyword_gaps||[]).some(g=>g.verdict&&g.verdict!=='pending')).length;
     let html = '';
+    // Filter: full board vs. link targets only. Nothing is deleted — the
+    // cheaper-lever pages are one click away either direction.
+    html += `<div style="margin-bottom:10px;font-size:13px;">
+        <span style="color:var(--text-muted);">Showing</span>
+        <button onclick="LT_FILTER='all';render();" style="font-weight:${LT_FILTER==='all'?700:400};background:none;border:none;cursor:pointer;color:${LT_FILTER==='all'?'var(--accent-purple)':'var(--text-muted)'};">All ${nAll} striking-distance pages</button>
+        <span style="color:var(--text-muted);">·</span>
+        <button onclick="LT_FILTER='links';render();" style="font-weight:${LT_FILTER==='links'?700:400};background:none;border:none;cursor:pointer;color:${LT_FILTER==='links'?'var(--accent-purple)':'var(--text-muted)'};">Link targets only (${nLinks})</button>
+    </div>`;
     if(nMeasured){
         html += `<div class="card" style="margin-bottom:12px;font-size:13px;">` +
             (nOpp
@@ -144,7 +174,9 @@ function render(){
             ? `<a href="/playbook?links_for=${encodeURIComponent(t.url)}" style="font-weight:600;">🔗 ${t.prospects_ready}</a>`
             : '<span style="color:var(--text-muted);">—</span>';
         html += `<tr>
-            <td><a href="${escHtml(t.url)}" target="_blank">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a>${opp?`<div style="font-size:10px;color:#059669;font-weight:700;margin-top:2px;" title="${escHtml(opp.note||'')}">🎯 reachable on “${escHtml(opp.query||'')}”: ~${opp.gap_lo} more</div>`:''}</td>
+            <td><a href="${escHtml(t.url)}" target="_blank">${escHtml(t.url.replace(/^https?:\/\/[^/]+/,'')||'/')}</a>
+                <div style="margin-top:2px;">${leverBadge(t.lever)}</div>
+                ${opp?`<div style="font-size:10px;color:#059669;font-weight:700;margin-top:2px;" title="${escHtml(opp.note||'')}">🎯 reachable on “${escHtml(opp.query||'')}”: ~${opp.gap_lo} more</div>`:''}</td>
             <td>${kws}</td>
             <td>${sourceCell(srcs.dataforseo)}</td>
             <td>${sourceCell(srcs.ahrefs)}</td>

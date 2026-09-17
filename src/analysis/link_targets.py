@@ -76,28 +76,46 @@ def _worth_targeting(url: str) -> bool:
     return bool(url) and not _NON_TARGET_PAT.search(url)
 
 
-def build_targets(striking_rows):
-    """Group authority-blocked striking rows by PAGE → one target per page
-    with all its blocked keywords. This is the 'which pages, which keywords'
-    list; the gap fill adds the numbers. Author/tag/listing pages are dropped
-    — you don't build links to a byline page."""
+def build_targets(striking_rows, include_all_levers=False):
+    """Group striking rows by PAGE → one target per page with all its
+    keywords. This is the 'which pages, which keywords' list; the gap fill
+    adds the numbers. Author/tag/listing pages are dropped — you don't build
+    links to a byline page.
+
+    By default only pages whose lever is EXTERNAL (backlinks are the last
+    lever left) are returned — the true link targets. With
+    include_all_levers=True, EVERY striking-distance page is returned, each
+    tagged with its diagnosed lever (`lever`: external / internal / on_page)
+    so nothing is hidden and the operator sees the whole board and why each
+    page is or isn't primarily a link play."""
     by_url = {}
     for r in striking_rows or []:
-        if r.get("lever") != "external":
+        lever = r.get("lever")
+        if not include_all_levers and lever != "external":
             continue
         url = r.get("url", "")
         if not url or not _worth_targeting(url):
             continue
         t = by_url.setdefault(url, {"url": url,
                                     "asset_type": r.get("asset_type", "other"),
-                                    "keywords": [], "total_impressions": 0})
+                                    "keywords": [], "total_impressions": 0,
+                                    "_levers": set()})
         t["keywords"].append({"query": r.get("query", ""),
                               "position": r.get("position", 0),
                               "impressions": r.get("impressions", 0) or 0,
-                              "upside_clicks": r.get("upside_clicks", 0) or 0})
+                              "upside_clicks": r.get("upside_clicks", 0) or 0,
+                              "lever": lever})
         t["total_impressions"] += r.get("impressions", 0) or 0
+        if lever:
+            t["_levers"].add(lever)
     for t in by_url.values():
         t["keywords"].sort(key=lambda k: -k["impressions"])
+        # Page's primary lever: EXTERNAL if any keyword needs backlinks (that's
+        # the link opportunity); otherwise the cheaper fix its top keyword has.
+        levers = t.pop("_levers")
+        t["lever"] = ("external" if "external" in levers
+                      else (t["keywords"][0].get("lever") or "on_page"))
+        t["levers"] = sorted(levers)
     return sorted(by_url.values(), key=lambda t: -t["total_impressions"])
 
 

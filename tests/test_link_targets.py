@@ -27,6 +27,25 @@ def test_build_targets_groups_by_page():
     assert a["keywords"][0]["query"] == "kw two"  # highest impressions first
 
 
+def test_build_targets_all_levers_shows_full_board_with_lever():
+    rows = [_row("http://x/a.html", "kw", 500, lever="external"),
+            _row("http://x/b.html", "kw", 400, lever="internal"),
+            _row("http://x/c.html", "kw", 300, lever="on_page")]
+    # default: only the external-lever page is a link target
+    assert [t["url"] for t in lt.build_targets(rows)] == ["http://x/a.html"]
+    # all levers: every page, each tagged with its lever
+    allp = lt.build_targets(rows, include_all_levers=True)
+    assert {t["url"]: t["lever"] for t in allp} == {
+        "http://x/a.html": "external", "http://x/b.html": "internal",
+        "http://x/c.html": "on_page"}
+    # a page with ANY external keyword is a link target even if it also has
+    # cheaper-lever keywords
+    mixed = [_row("http://x/d.html", "head", 900, lever="on_page"),
+             _row("http://x/d.html", "long tail", 200, lever="external")]
+    d = lt.build_targets(mixed, include_all_levers=True)[0]
+    assert d["lever"] == "external" and set(d["levers"]) == {"on_page", "external"}
+
+
 def test_gap_verdict_single_number_on_median():
     # median of [9,14,31] is 14; own 2 → aim for ~12, ONE number.
     v, lo, hi, note = lt.gap_verdict(own_rd=2, comp_rds=[9, 14, 31],

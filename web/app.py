@@ -11599,8 +11599,11 @@ def api_link_targets():
         with open(DATA_PATH / "latest_evaluation.json") as f:
             results = json.load(f).get("results", [])
         from src.analysis.growth_playbook import find_striking_distance
+        # Show EVERY striking-distance page, each tagged with its lever — not
+        # only the "needs backlinks" ones — so nothing is filtered out of view.
         live = lt.build_targets(find_striking_distance(
-            results, system_disallow=_robots_disallow_rules()))
+            results, system_disallow=_robots_disallow_rules()),
+            include_all_levers=True)
     except Exception:
         pass
     if live:
@@ -11629,7 +11632,17 @@ def api_link_targets():
             # long-tail" pages rise instead of sinking with the parity rows.
             m["verdict"] = opp["verdict"] if opp else head_v
             merged.append(m)
-        targets = lt.rank_targets(merged)
+
+        # Order: reachable link opportunities first, then the "needs backlinks"
+        # (external-lever) pages, then pages with a cheaper lever (on-page /
+        # internal) — each by verdict feasibility then search demand. Nothing
+        # is dropped; the cheaper-lever pages just sink below the link targets.
+        def _lt_sortkey(t):
+            has_opp = 0 if t.get("best_opportunity") else 1
+            is_ext = 0 if t.get("lever") == "external" else 1
+            vr = lt._VERDICT_RANK.get(t.get("verdict", "unknown"), 3)
+            return (has_opp, is_ext, vr, -(t.get("total_impressions") or 0))
+        targets = sorted(merged, key=_lt_sortkey)
     else:
         targets = lt.rank_targets(list(store.get("targets", {}).values()))
     # Deep-link each keyword straight into Ahrefs Keywords Explorer (US) so the
@@ -11682,7 +11695,8 @@ def api_link_targets_import():
                 results = json.load(f).get("results", [])
             from src.analysis.growth_playbook import find_striking_distance
             for cand in lt.build_targets(find_striking_distance(
-                    results, system_disallow=_robots_disallow_rules())):
+                    results, system_disallow=_robots_disallow_rules()),
+                    include_all_levers=True):
                 store["targets"].setdefault(cand["url"], cand)
             t = store["targets"].get(url)
         except Exception:
