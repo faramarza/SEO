@@ -265,7 +265,7 @@ function render(){
         const p1  = r.page1!=null ? r.page1 : '—';
         html += `<tr>
             <td style="max-width:220px;"><a href="${escHtml(r.url)}" target="_blank">${escHtml(shortUrl(r.url))}</a>
-                <div style="margin-top:2px;"><span style="font-size:10px;color:var(--text-muted);background:var(--bg-subtle,rgba(0,0,0,.04));padding:1px 5px;border-radius:3px;">${escHtml(r.asset_type||'other')}</span> ${leverBadge(r.lever)}</div></td>
+                <div style="margin-top:2px;"><span style="font-size:10px;color:var(--text-muted);background:var(--bg-subtle,rgba(0,0,0,.04));padding:1px 5px;border-radius:3px;">${escHtml(r.asset_type||'other')}</span> ${r.status!=='measured'?leverBadge(r.lever):''}</div></td>
             <td style="font-size:13px;">“${escHtml(r.query)}”</td>
             <td>${r.position}</td>
             <td>${(r.impressions||0).toLocaleString()}</td>
