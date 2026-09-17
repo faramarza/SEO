@@ -11916,15 +11916,20 @@ def api_whatif():
         pages = [{"url": u, "head_query": v["head_query"], "lever": v["lever"]}
                  for u, v in idx.items()]
         return jsonify({"pages": pages, "dataforseo_budget": budget})
+    from src.analysis import link_targets as lt
     meta = _whatif_single(url)
     store = wf.load_store()
     p = store["pages"].get(url, {})
     keywords = p.get("keywords") or [c["query"] for c in wf.suggest_candidates(
         url, meta["gsc_queries"], meta["head_query"])]
+    # Drop measurements from an older gap-formula version so a formula change
+    # never leaves stale numbers on screen — those keywords re-measure instead.
+    meas = {q: m for q, m in (p.get("measurements") or {}).items()
+            if (m or {}).get("model") == lt.MODEL_VERSION}
     return jsonify({
         "url": url, "head_query": meta["head_query"],
         "suggested_text": ", ".join(keywords),
-        "measurements": p.get("measurements", {}),
+        "measurements": meas,
         "job": _wf_job if _wf_job.get("url") == url else {"running": False},
         "dataforseo_budget": budget, "updated_at": p.get("updated_at")})
 
