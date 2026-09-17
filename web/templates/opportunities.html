@@ -1916,6 +1916,9 @@ async function runEvaluation(withCrawl) {
     progressText.textContent = withCrawl
         ? 'Starting evaluation with crawl... (loading GSC & GA4 data)'
         : 'Starting evaluation... (loading GSC & GA4 data)';
+    govJobUI(document.getElementById('btn-run'), true, {runningLabel:'⏳ Running…',
+        phase: withCrawl ? 'starting (with crawl)…' : 'starting…',
+        sub:'Loading GSC &amp; GA4 data — a few minutes. You can leave this page.'});
 
     try {
         const res = await fetch('/api/run-evaluation', {
@@ -1964,6 +1967,8 @@ async function checkJobStatus() {
             progressFill.style.width = (status.total > 0 ? pct : 100) + '%';
             const pctText = status.total > 0 ? ` (${pct}% — ${status.progress}/${status.total})` : '';
             progressText.textContent = (status.message || 'Processing...') + pctText;
+            govJobUI(document.getElementById('btn-run'), true, {runningLabel:'⏳ Running…',
+                phase: (status.message || 'processing…') + pctText});
 
             // Keep polling
             if (!jobPollInterval) {
@@ -1982,6 +1987,7 @@ async function checkJobStatus() {
             document.getElementById('btn-batch-ai').disabled = false;
             const btnSelected = document.getElementById('btn-selected-ai');
             if (btnSelected) btnSelected.disabled = false;
+            govJobUI(document.getElementById('btn-run'), false, {});
 
             if (status.error) {
                 showToast('Error: ' + status.error, 'error');
@@ -2284,6 +2290,7 @@ function resetJobUI() {
     document.getElementById('job-progress').classList.add('hidden');
     document.getElementById('progress-fill').style.width = '0%';
     document.getElementById('progress-fill').style.backgroundColor = '';
+    govJobUI(document.getElementById('btn-run'), false, {});
 }
 
 // ── Resizable columns ──────────────────────────────────

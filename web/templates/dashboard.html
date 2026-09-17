@@ -389,6 +389,8 @@ async function runEvaluation(withCrawl = false) {
     progressDiv.classList.remove('hidden');
     progressText.textContent = 'Starting evaluation...';
     progressFill.style.width = '0%';
+    govJobUI(btnRun, true, {runningLabel:'⏳ Running…', phase:'starting…',
+        sub:'Loading GSC &amp; GA4 data — a few minutes. You can leave this page.'});
 
     try {
         const res = await fetch('/api/run-evaluation', {
@@ -400,6 +402,7 @@ async function runEvaluation(withCrawl = false) {
 
         if (data.status === 'busy') {
             progressText.textContent = 'Another job is already running...';
+            govJobUI(btnRun, false, {});
             return;
         }
 
@@ -410,6 +413,7 @@ async function runEvaluation(withCrawl = false) {
                 const status = await statusRes.json();
 
                 progressText.textContent = status.message || 'Processing...';
+                govJobUI(btnRun, status.running, {runningLabel:'⏳ Running…', phase: status.message});
 
                 if (status.total > 0) {
                     const pct = Math.round((status.progress / status.total) * 100);
@@ -444,6 +448,7 @@ async function runEvaluation(withCrawl = false) {
         progressText.textContent = 'Failed to start evaluation';
         btnRun.disabled = false;
         btnCrawl.disabled = false;
+        govJobUI(btnRun, false, {});
     }
 }
 

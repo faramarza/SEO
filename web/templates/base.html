@@ -12,7 +12,10 @@
     .gov-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--accent-purple,#7c3aed);
         border-top-color:transparent;border-radius:50%;animation:gov-spin .8s linear infinite;vertical-align:-2px;}
     .gov-running{display:none;margin-top:10px;padding:10px 12px;border-radius:8px;
-        background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.35);}
+        background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.35);
+        /* When injected inside a flex toolbar, drop onto its own full-width line
+           after the buttons instead of wedging between them. */
+        width:100%;flex-basis:100%;order:99;box-sizing:border-box;}
     .gov-running.on{display:block;}
     .gov-run-head{font-weight:600;color:var(--accent-purple,#7c3aed);}
     .gov-run-sub{font-size:12px;color:var(--text-muted);margin-top:3px;}

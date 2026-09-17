@@ -1612,13 +1612,14 @@ function pbLinkRow(p) {
 
 async function pbRefreshLinkProspects(btn) {
     const body = document.getElementById('pb-links-body');
-    if (btn) { btn.disabled = true; btn.textContent = 'Discovering…'; }
+    govJobUI(btn, true, {idleLabel:'Discover Prospects', runningLabel:'⏳ Discovering…', phase:'starting…',
+        sub:'Serper + backlink lookups — ~30–60s. You can leave this page.'});
     try {
         const res = await fetch('/api/link-prospects/refresh', { method: 'POST' });
         const d = await res.json();
         if (d.status === 'busy') {
             body.innerHTML = '<p class="empty-state">Another job is running — try again in a minute.</p>';
-            if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+            govJobUI(btn, false, {idleLabel:'Discover Prospects'});
             return;
         }
         body.innerHTML = '<p class="pb-loading">Discovering prospects (Serper + backlink lookups, ~30–60s)…</p>';
@@ -1626,19 +1627,20 @@ async function pbRefreshLinkProspects(btn) {
             try {
                 const sr = await fetch('/api/job-status');
                 const st = await sr.json();
-                if (st.running) { body.innerHTML = `<p class="pb-loading">${escHtml(st.message || 'Working…')}</p>`; return; }
+                if (st.running) { body.innerHTML = `<p class="pb-loading">${escHtml(st.message || 'Working…')}</p>`;
+                    govJobUI(btn, true, {idleLabel:'Discover Prospects', runningLabel:'⏳ Discovering…', phase: st.message}); return; }
                 clearInterval(poll);
-                if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+                govJobUI(btn, false, {idleLabel:'Discover Prospects'});
                 if (st.error) { body.innerHTML = `<p class="empty-state">Error: ${escHtml(String(st.error).split('\n')[0])}</p>`; return; }
                 pbLoadLinkProspects();
             } catch (e) {
                 clearInterval(poll);
-                if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+                govJobUI(btn, false, {idleLabel:'Discover Prospects'});
                 body.innerHTML = `<p class="empty-state">Lost connection while polling.</p>`;
             }
         }, 2500);
     } catch (e) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Discover Prospects'; }
+        govJobUI(btn, false, {idleLabel:'Discover Prospects'});
         body.innerHTML = `<p class="empty-state">Failed to start: ${escHtml(e.message)}</p>`;
     }
 }
@@ -1755,28 +1757,30 @@ async function pbDraftAll(btn) {
         && (!p.draft || (PB_LINKS.draft_prompt_version && p.draft.prompt_version !== PB_LINKS.draft_prompt_version))).length;
     if (!missing) { pbToast('Every Tier 1-2 prospect already has a current draft ✓'); return; }
     if (!confirm(`Draft outreach emails for ${missing} Tier 1-2 prospect(s)? Each one fetches the prospect's page and writes a grounded draft (~15s each). Nothing is sent — you review every email.`)) return;
-    if (btn) { btn.disabled = true; btn.textContent = 'Drafting…'; }
+    const DRAFT_IDLE = '✍️ Draft All (Tier 1–2)';
+    govJobUI(btn, true, {idleLabel:DRAFT_IDLE, runningLabel:'⏳ Drafting…', phase:'starting…',
+        sub:'~15s per prospect; nothing is sent — you review every email. You can leave this page.'});
     try {
         const res = await fetch('/api/link-prospects/draft-all', { method: 'POST' });
         const d = await res.json();
-        if (d.status === 'busy') { pbToast('Another job is running — try again shortly', true); if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; } return; }
-        if (d.status === 'nothing_to_do') { pbToast(d.message); if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; } return; }
+        if (d.status === 'busy') { pbToast('Another job is running — try again shortly', true); govJobUI(btn, false, {idleLabel:DRAFT_IDLE}); return; }
+        if (d.status === 'nothing_to_do') { pbToast(d.message); govJobUI(btn, false, {idleLabel:DRAFT_IDLE}); return; }
         const poll = setInterval(async () => {
             try {
                 const sr = await fetch('/api/job-status');
                 const st = await sr.json();
-                if (st.running) { if (btn) btn.textContent = st.message || 'Drafting…'; return; }
+                if (st.running) { govJobUI(btn, true, {idleLabel:DRAFT_IDLE, runningLabel:'⏳ Drafting…', phase: st.message}); return; }
                 clearInterval(poll);
-                if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; }
+                govJobUI(btn, false, {idleLabel:DRAFT_IDLE});
                 pbToast(st.error ? ('Draft-all error: ' + String(st.error).split('\n')[0]) : (st.message || 'Drafts ready'));
                 pbLoadLinkProspects();
             } catch (e) {
                 clearInterval(poll);
-                if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; }
+                govJobUI(btn, false, {idleLabel:DRAFT_IDLE});
             }
         }, 3000);
     } catch (e) {
-        if (btn) { btn.disabled = false; btn.textContent = '✍️ Draft All (Tier 1–2)'; }
+        govJobUI(btn, false, {idleLabel:DRAFT_IDLE});
         pbToast('Failed to start: ' + e.message, true);
     }
 }

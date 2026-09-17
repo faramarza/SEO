@@ -551,6 +551,8 @@ async function runEvaluation(withCrawl) {
     btnRun.disabled = true;
     btnCrawl.disabled = true;
     msgEl.textContent = withCrawl ? 'Starting evaluation with crawl...' : 'Starting evaluation...';
+    govJobUI(btnRun, true, {runningLabel:'⏳ Running…', phase:'starting…',
+        sub:'A few minutes. You can leave this page.'});
 
     try {
         const res = await fetch('/api/run-evaluation', {
@@ -566,6 +568,7 @@ async function runEvaluation(withCrawl) {
             errorEl.textContent = data.error;
             btnRun.disabled = false;
             btnCrawl.disabled = false;
+            govJobUI(btnRun, false, {});
             return;
         }
 
@@ -576,6 +579,7 @@ async function runEvaluation(withCrawl) {
                 const job = await jr.json();
 
                 msgEl.textContent = job.message || 'Working...';
+                govJobUI(btnRun, job.running, {runningLabel:'⏳ Running…', phase: job.message});
 
                 if (job.total > 0 && job.progress > 0) {
                     fillEl.style.width = Math.round(job.progress / job.total * 100) + '%';
@@ -606,6 +610,7 @@ async function runEvaluation(withCrawl) {
         errorEl.textContent = 'Failed to start: ' + err.message;
         btnRun.disabled = false;
         btnCrawl.disabled = false;
+        govJobUI(btnRun, false, {});
     }
 }
 

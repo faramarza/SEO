@@ -249,10 +249,12 @@ async function loadGrowthData() {
         const progressFill = document.getElementById('progress-fill');
         const progressText = document.getElementById('progress-text');
 
+        const visBtn = document.querySelector('[onclick="runVisibilityCheck()"]');
         if (jobStatus.running) {
             progressDiv.classList.remove('hidden');
             progressFill.style.width = '100%';
             progressText.textContent = jobStatus.message || 'Running...';
+            govJobUI(visBtn, true, {idleLabel:'Run Check', runningLabel:'⏳ Checking…', phase: jobStatus.message});
             if (!visCheckPoll) {
                 runVisibilityCheck.__polling = true;
                 visCheckPoll = setInterval(async () => {
@@ -263,9 +265,11 @@ async function loadGrowthData() {
                             const pct = s.total > 0 ? Math.round((s.progress / s.total) * 100) : 0;
                             progressFill.style.width = (s.total > 0 ? pct : 100) + '%';
                             progressText.textContent = (s.message || 'Running...') + (s.total > 0 ? ` (${pct}%)` : '');
+                            govJobUI(visBtn, true, {idleLabel:'Run Check', runningLabel:'⏳ Checking…', phase: s.message});
                         } else {
                             clearInterval(visCheckPoll);
                             visCheckPoll = null;
+                            govJobUI(visBtn, false, {idleLabel:'Run Check'});
                             progressFill.style.width = '100%';
                             progressFill.style.backgroundColor = s.error ? '#e74c3c' : '#27ae60';
                             const ts = s.finished_at ? ` — ${s.finished_at}` : '';
@@ -724,7 +728,8 @@ async function runVisibilityCheck() {
             showToast(data.error, 'error');
             return;
         }
-        if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+        govJobUI(btn, true, {idleLabel:'Run Check', runningLabel:'⏳ Checking…', phase:'starting…',
+            sub:'Querying AI engines — a minute or two. You can leave this page.'});
         showToast('AI visibility check started...', 'info');
 
         // Poll job-status for progress
@@ -746,9 +751,11 @@ async function runVisibilityCheck() {
                     progressFill.style.width = (status.total > 0 ? pct : 100) + '%';
                     const pctText = status.total > 0 ? ` (${pct}% — ${status.progress}/${status.total})` : '';
                     progressText.textContent = (status.message || 'Checking...') + pctText;
+                    govJobUI(btn, true, {idleLabel:'Run Check', runningLabel:'⏳ Checking…', phase:(status.message||'checking…')+pctText});
                 } else {
                     clearInterval(visCheckPoll);
                     visCheckPoll = null;
+                    govJobUI(btn, false, {idleLabel:'Run Check'});
                     if (btn) { btn.disabled = false; btn.textContent = 'Run Check'; }
 
                     // Show finished state
@@ -772,6 +779,7 @@ async function runVisibilityCheck() {
 
     } catch (e) {
         showToast('Visibility check failed: ' + e.message, 'error');
+        govJobUI(btn, false, {idleLabel:'Run Check'});
         if (btn) { btn.disabled = false; btn.textContent = 'Run Check'; }
     }
 }
