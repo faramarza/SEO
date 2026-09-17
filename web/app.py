@@ -10710,29 +10710,42 @@ def _loop_postwrite_check(url, meta_title):
     serving, so scope masking vs error pages are distinguishable. Returns
     (ok, detail)."""
     from src.metrics.click_yield import _fetch
+    import html as _htmlmod
     if not meta_title:
         return True, "No title to verify."
+
+    def _norm(s):
+        # Compare on decoded, entity-neutral, whitespace-collapsed text so an
+        # "&" that Magento renders as "&amp;" (or an en-dash, curly quote, etc.)
+        # doesn't produce a FALSE "title missing". This was the carpets bug.
+        return re.sub(r"\s+", " ", _htmlmod.unescape(s or "")).strip().lower()
+
+    want = _norm(meta_title)
     seen_title = ""
     for i, delay in enumerate((0, 45, 75)):
         if delay:
             time.sleep(delay)
         buster = f"{url}{'&' if '?' in url else '?'}loopcheck={int(time.time())}"
         try:
-            html = _fetch(buster)
+            html_doc = _fetch(buster)
         except Exception as e:
             if i == 2:
                 return False, f"Live fetch failed on final attempt: {e}"
             continue
-        if not html or len(html) < 200:
+        if not html_doc or len(html_doc) < 200:
             if i == 2:
                 return False, "Live page returned empty/short content."
             continue
-        if meta_title.lower() in html.lower():
+        m = re.search(r"<title[^>]*>(.*?)</title>", html_doc, re.S | re.I)
+        page_title = _norm(m.group(1)) if m else ""
+        # Match against the <title> (decoded) OR the decoded full page, so both
+        # entity-encoding and where-the-title-lives are handled.
+        if want and (want == page_title or want in page_title
+                     or want in _norm(html_doc)):
             note = (" (took ~%ds — flat-catalog reindex lag; the public cache "
                     "refreshes on its own flush/TTL)" % (45 + 75 if i == 2 else 45)
                     if i else "")
             return True, "Write verified on a fresh render." + note
-        m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
         seen_title = (m.group(1).strip()[:120] if m else "(no <title> found)")
     return False, ("New meta_title missing from fresh renders over ~2 minutes — "
                    f"the page is serving <title>{seen_title}</title>. If that's "
