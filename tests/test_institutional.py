@@ -46,7 +46,7 @@ def test_ami_json_extract_and_paginate(monkeypatch=None):
     assert len(calls) == 2                                         # both pages fetched
     ga = next(p for p in prospects if p["school"] == "Arbor Montessori")
     assert ga["state"] == "GA" and ga["website"] == "https://arbormontessori.org"
-    assert ga["email"] == "p@arbormontessori.org" and ga["contact_confidence"] == "listed"
+    assert ga["email"] == "p@arbormontessori.org" and ga["contact_confidence"] == "directory"
     assert ga["contact_name"] == "Pat Lee"
 
 

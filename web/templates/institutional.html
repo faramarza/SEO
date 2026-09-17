@@ -102,26 +102,39 @@ let INST = null;
 function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function instToast(m,e){const t=document.getElementById('inst-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
 
+let instPollTimer = null, instPollErrs = 0;
 async function loadInst(){
-    const res = await fetch('/api/institutional');
-    INST = await res.json();
-    document.getElementById('inst-address').value = INST.settings.mailing_address||'';
-    document.getElementById('inst-cap').textContent = INST.drafts_per_run;
-    const s = INST.stats||{};
-    document.getElementById('inst-stats').innerHTML =
-        `<strong>${s.total||0}</strong> orgs · <strong>${s.verified||0}</strong> verified contacts · `+
-        `<strong>${s.drafted||0}</strong> drafted · <strong>${s.flagged||0}</strong> flagged for research`;
-    // State picker: Southeast pre-checked (ranked first by design).
-    const box = document.getElementById('inst-states');
-    if(!box.dataset.built){
-        box.dataset.built = '1';
-        box.innerHTML = (INST.ami_states||[]).map(st =>
-            `<label style="font-size:12px;margin-right:6px;white-space:nowrap;">
-             <input type="checkbox" value="${st}" ${INST.southeast.includes(st)?'checked':''}>${st}</label>`).join('');
+    // Resilient: a transient fetch error (the store is written constantly
+    // during a crawl) must NOT kill the refresh loop, or the page freezes on
+    // stale data while the crawl keeps adding prospects.
+    let keepPolling = false;
+    try{
+        const res = await fetch('/api/institutional');
+        INST = await res.json();
+        instPollErrs = 0;
+        document.getElementById('inst-address').value = INST.settings.mailing_address||'';
+        document.getElementById('inst-cap').textContent = INST.drafts_per_run;
+        const s = INST.stats||{};
+        document.getElementById('inst-stats').innerHTML =
+            `<strong>${s.total||0}</strong> orgs · <strong>${s.verified||0}</strong> verified contacts · `+
+            `<strong>${s.drafted||0}</strong> drafted · <strong>${s.flagged||0}</strong> flagged for research`;
+        const box = document.getElementById('inst-states');
+        if(!box.dataset.built){
+            box.dataset.built = '1';
+            box.innerHTML = (INST.ami_states||[]).map(st =>
+                `<label style="font-size:12px;margin-right:6px;white-space:nowrap;">
+                 <input type="checkbox" value="${st}" ${INST.southeast.includes(st)?'checked':''}>${st}</label>`).join('');
+        }
+        instJobUI(!!(INST.job&&INST.job.running));
+        renderReport(); renderSources(); renderInst();
+        keepPolling = !!(INST.job&&INST.job.running);
+    }catch(e){
+        instPollErrs++;
+        keepPolling = instPollErrs < 30;   // ride out transient blips, don't die
+    }finally{
+        clearTimeout(instPollTimer);
+        if(keepPolling) instPollTimer = setTimeout(loadInst, 2500);
     }
-    instJobUI(!!(INST.job&&INST.job.running));
-    renderReport(); renderSources(); renderInst();
-    if(INST.job&&INST.job.running) setTimeout(loadInst, 2500);
 }
 
 let instLogTimer = null;

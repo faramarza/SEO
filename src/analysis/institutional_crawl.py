@@ -294,7 +294,7 @@ def crawl_ami_schools(states=None, max_pages=100):
             cname, ctitle, cemail = _find_contact(btext, own_domain)
             if cemail:
                 p["email"] = cemail
-                p["contact_confidence"] = "listed"
+                p["contact_confidence"] = "directory"  # from AMI's listing, not yet verified
             if cname:
                 p["contact_name"], p["contact_title"] = cname, ctitle
             detail = "https://www.amiusa.org" + (it.get("fullUrl") or "")
