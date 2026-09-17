@@ -79,10 +79,15 @@ def _robots_ok(url: str) -> bool:
     return _robots_cache[host].can_fetch(USER_AGENT, url)
 
 
-def fetch(url: str, timeout=20) -> str:
+def fetch(url: str, timeout=20, respect_robots=True) -> str:
     """Polite fetch: robots check + global 1.5s pacing + identified UA.
     Returns '' on any failure or disallow. Every outcome is logged so the
-    operator can see real network activity."""
+    operator can see real network activity.
+
+    `respect_robots=False` is for DOCUMENTED public data APIs (e.g. the
+    Opendatasoft records API) whose robots.txt blocks search-engine crawling
+    of /api/ but which are explicitly meant to be called programmatically — we
+    still pace and identify ourselves."""
     if not _HTTPX:
         _last_reason[0] = "httpx not installed"
         log("FETCH skipped — httpx not installed (crawling disabled)")
@@ -90,7 +95,7 @@ def fetch(url: str, timeout=20) -> str:
     if not url:
         _last_reason[0] = "empty url"
         return ""
-    if not _robots_ok(url):
+    if respect_robots and not _robots_ok(url):
         _last_reason[0] = "robots.txt disallowed"
         log(f"ROBOTS blocked  {url}")
         return ""
@@ -456,7 +461,7 @@ def crawl_public_schools(states=None, levels=("ELEMENTARY",), max_pages=120):
     for _ in range(max_pages):
         url = f"{_ODS_URL}?where={where}&limit=100&offset={offset}"
         log(f"NCES public schools: offset {offset}")
-        raw = fetch(url)
+        raw = fetch(url, respect_robots=False)   # documented public data API
         if not raw:
             return (prospects, f"Public schools fetch failed — {last_fetch_reason()}") \
                 if offset == 0 else (prospects, "")
