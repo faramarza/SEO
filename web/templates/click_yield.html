@@ -48,6 +48,18 @@ table.cy-table th{background:var(--card-alt,#f9fafb);font-weight:700;white-space
 .cy-tag.title{background:#dbeafe;color:#1e40af;} .cy-tag.meta{background:#fef3c7;color:#92400e;}
 .cy-tag.link{background:#dcfce7;color:#166534;} .cy-tag.ok{background:#e5e7eb;color:#374151;}
 .cy-src{color:var(--text-muted,#6b7280);}
+/* Fix worksheet: OK items collapse to a ✓, actionable ones are tickable to-dos. */
+.cy-check{display:flex;flex-direction:column;gap:5px;}
+.cy-ci{display:flex;gap:7px;align-items:flex-start;font-size:12.5px;line-height:1.45;}
+.cy-ci.ok{color:var(--text-muted,#6b7280);font-size:12px;}
+.cy-ci.ok .cy-ok{color:#16a34a;font-weight:800;}
+.cy-ci label,.cy-ci.todo{cursor:pointer;}
+.cy-ci input[type=checkbox]{margin-top:2px;width:15px;height:15px;flex:0 0 auto;cursor:pointer;accent-color:#2563eb;}
+.cy-ci.done > span{text-decoration:line-through;color:var(--text-muted,#9ca3af);}
+.cy-ci .verb{font-weight:700;}
+.cy-vline{margin-top:6px;font-size:12px;}
+.cy-vbadge{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;margin-right:5px;}
+.cy-v-beat{background:#dcfce7;color:#166534;} .cy-v-hard{background:#fee2e2;color:#991b1b;} .cy-v-mix{background:#fef3c7;color:#92400e;}
 .cy-empty{padding:20px;background:var(--card-alt,#f9fafb);border-radius:8px;color:var(--text-secondary,#374151);}
 .cy-trackrow{margin-top:8px;}
 .cy-track{background:var(--accent,#2563eb);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;}
@@ -85,34 +97,66 @@ function cyTiles(cy){
   </div>`;
 }
 
+// Per-viewer tick state (localStorage) so the worksheet remembers what you did.
+function cyChecks(){ try{return JSON.parse(localStorage.getItem('cy_checks')||'{}');}catch(e){return {};} }
+function cyGetCheck(key,item){ const c=cyChecks(); return !!(c[key]&&c[key][item]); }
+function cySetCheck(el){
+  const key=el.dataset.key, item=el.dataset.item, c=cyChecks();
+  c[key]=c[key]||{}; if(el.checked) c[key][item]=1; else delete c[key][item];
+  if(!Object.keys(c[key]).length) delete c[key];
+  try{localStorage.setItem('cy_checks',JSON.stringify(c));}catch(e){}
+  const li=el.closest('.cy-ci'); if(li) li.classList.toggle('done', el.checked);
+}
+// A tickable to-do line.
+function cyTodo(key,item,html){
+  const done=cyGetCheck(key,item);
+  return `<label class="cy-ci todo ${done?'done':''}">
+    <input type="checkbox" data-key="${esc(key)}" data-item="${esc(item)}" ${done?'checked':''} onchange="cySetCheck(this)">
+    <span>${html}</span></label>`;
+}
+// An already-satisfied line: just a ✓, greyed.
+function cyOk(text){ return `<div class="cy-ci ok"><span class="cy-ok">✓</span> <span>${esc(text)}</span></div>`; }
+
 function cyFix(w){
-  let parts=[];
+  const key=w.url+'|'+w.query, out=[];
+  // Title
   if(w.title_rewrite){
-    parts.push(`<span class="cy-tag title">TITLE</span> reword naturally to <code>${esc(w.title_rewrite)}</code> <span class="cy-src">(no pipes/dashes — weave your brand in)</span>`);
-  }else{
-    parts.push(`<span class="cy-tag ok">TITLE OK</span> query already in title — fix position, not the title`);
-  }
-  if(w.meta_missing){ parts.push(`<span class="cy-tag meta">META</span> add a description leading with the query`); }
-  else if(w.meta_needs_query){ parts.push(`<span class="cy-tag meta">META</span> front-load the query into your description`); }
+    out.push(cyTodo(key,'title',
+      `<span class="verb">Retitle</span> to <code>${esc(w.title_rewrite)}</code>`));
+  } else { out.push(cyOk('Title already targets this term')); }
+  // Meta
+  if(w.meta_missing){
+    out.push(cyTodo(key,'meta',
+      `<span class="verb">Add a meta description</span> that starts with “${esc(w.query)}”`));
+  } else if(w.meta_needs_query){
+    out.push(cyTodo(key,'meta',
+      `<span class="verb">Reword the meta description</span> to start with “${esc(w.query)}”`));
+  } else { out.push(cyOk('Meta description already leads with the query')); }
+  // Internal links — the main lever
   const srcs=(w.link_sources||[]);
   if(srcs.length){
-    const names=srcs.map(s=>`<span class="cy-src">${esc(s.path)}</span>`).join(', ');
-    parts.push(`<span class="cy-tag link">LINKS</span> add anchor “${esc(w.query)}” from: ${names}`);
-  }else{
-    parts.push(`<span class="cy-tag link">LINKS</span> link from homepage + nearest hub, anchor “${esc(w.query)}”`);
+    const names=srcs.map(s=>`<code>${esc(s.path)}</code>`).join(', ');
+    out.push(cyTodo(key,'links',
+      `<span class="verb">Add internal links</span> to this page — link text “${esc(w.query)}” — from: ${names}`));
+  } else {
+    out.push(cyTodo(key,'links',
+      `<span class="verb">Add internal links</span> to this page — link text “${esc(w.query)}” — from your homepage + nearest category hub`));
   }
-  return parts.map(p=>`<div>${p}</div>`).join('');
+  return `<div class="cy-check">${out.join('')}</div>`;
 }
 
 function cySerp(x){
   const s=x.serp; if(!s) return '';
   const vcls={beatable:'cy-v-beat',hard:'cy-v-hard',mixed:'cy-v-mix'}[s.verdict]||'cy-v-mix';
-  const vlbl={beatable:'BEATABLE',hard:'HARD',mixed:'MIXED'}[s.verdict]||'';
+  const vlbl={beatable:'🎯 Winnable',hard:'⛔ Hard',mixed:'≈ Mixed'}[s.verdict]||'';
+  const plain={beatable:'the sites above you are beatable toy/content sites — no Amazon/Etsy lock',
+               hard:'a marketplace or big brand owns the top — links won’t move it much',
+               mixed:'partly marketplace-locked — expect limited movement'}[s.verdict]||'';
   const top=(s.top_domains||[]).slice(0,3).map(esc).join(', ');
-  const own=s.own_position_serp?` · <strong>you: #${s.own_position_serp}</strong>`:'';
-  const siph=(s.siphons||[]).length?`<div class="cy-siphon">⚠ click siphon: ${(s.siphons||[]).map(esc).join('; ')}</div>`:'';
-  return `<div class="cy-serp"><span class="cy-vbadge ${vcls}">${vlbl}</span> <span class="cy-src">${esc(s.verdict_note)}</span>
-    <div class="cy-src">live top 3: ${top||'—'}${own}</div>${siph}</div>`;
+  const own=s.own_position_serp?` · you sit #${s.own_position_serp}`:'';
+  const siph=(s.siphons||[]).length?`<div class="cy-src" style="color:#b45309;">⚠ ${(s.siphons||[]).map(esc).join('; ')}</div>`:'';
+  return `<div class="cy-vline"><span class="cy-vbadge ${vcls}">${vlbl}</span><span class="cy-src">${esc(plain)}</span>
+    <div class="cy-src">above you now: ${top||'—'}${own}</div>${siph}</div>`;
 }
 
 function cyTrend(x){
@@ -156,7 +200,7 @@ function cyWinnable(cy){
   ${defendNote}
   <table class="cy-table"><thead><tr>
     <th data-nosort>#</th><th>Page</th><th>Target query</th><th class="cy-num">Impr</th>
-    <th class="cy-num">Pos</th><th class="cy-num">Trend</th><th data-nosort>The fix</th>
+    <th class="cy-num">Pos</th><th class="cy-num">Trend</th><th data-nosort>Do this — tick as you go</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
