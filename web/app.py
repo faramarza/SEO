@@ -8617,6 +8617,58 @@ def api_click_yield_refresh():
     return jsonify({"success": True})
 
 
+@app.route("/api/click-yield/apply", methods=["POST"])
+def api_click_yield_apply():
+    """One-click apply a winnable page's title + meta rewrite to Magento, via the
+    SAME guarded path the SEO Loop uses (meta-only, store-view scoped, verified,
+    self-reverting, and recorded as a revertable experiment). Human-triggered
+    per page, so the unattended weekly cap doesn't gate it."""
+    from src.analysis import seo_loop as sl
+    from src.data_sources.magento_client import MagentoClient
+    b = request.get_json(silent=True) or {}
+    url, query = b.get("url", ""), b.get("query", "")
+    asset_type = b.get("asset_type", "")
+    if not url:
+        return jsonify({"error": "url required"}), 400
+    mc = MagentoClient()
+    if not mc.configured:
+        return jsonify({"error": "Magento isn't connected (MAGENTO_BASE_URL / MAGENTO_TOKEN not set)."}), 400
+    entity = mc.resolve_url(url, asset_type=asset_type)
+    if not entity:
+        try:
+            diag = mc.resolve_diag(url)
+        except Exception:
+            diag = "no unique product/category match"
+        return jsonify({"error": f"Couldn't resolve this page in Magento — {diag}"}), 400
+    if entity.get("entity_type") == "product" and (entity.get("options_count") or 0) > 0:
+        return jsonify({"error": "This product has customizable options — this store's "
+                        "Magento build can't REST-save those. Apply the title/meta by hand "
+                        "in admin."}), 400
+    config = load_config()
+    c = {"url": url, "query": query, "asset_type": asset_type,
+         "impressions": b.get("impressions"), "position": b.get("position"),
+         "ctr": b.get("ctr", 0), "reason": "Applied from Click Yield"}
+    rewrite, err = _loop_generate_rewrite(c, entity, config)
+    if err or not rewrite or not rewrite.get("meta_title"):
+        return jsonify({"error": f"Rewrite generation failed: {err or 'empty result'}"}), 500
+    try:
+        baseline = {"page": _loop_page_metrics(url), "site": _loop_site_totals(),
+                    "captured_at": datetime.now().isoformat(timespec="seconds")}
+    except Exception:
+        baseline = {"page": {}, "site": {}, "captured_at": datetime.now().isoformat(timespec="seconds")}
+    state = sl.load_state()
+    exp = sl.new_experiment(c, entity, rewrite, "Click Yield manual apply", baseline)
+    state["experiments"].append(exp)
+    sl.save_state(state)
+    res = _loop_apply(exp["id"], enforce_caps=False)   # write + verify + self-revert
+    if res.get("success"):
+        e = res["experiment"]
+        return jsonify({"success": True, "exp_id": e["id"],
+                        "applied": {"meta_title": e["after"]["meta_title"],
+                                    "meta_description": e["after"]["meta_description"]}})
+    return jsonify({"error": res.get("error", "Apply failed")}), 400
+
+
 def _winnable_plan_input():
     """Winnable pages from the cached click-yield analysis (full GSC set). Empty
     if not computed yet — the plan degrades gracefully. Never raises."""
@@ -10899,9 +10951,10 @@ def _loop_propose(config, limit=None):
     return made, notes
 
 
-def _loop_apply(exp_id):
+def _loop_apply(exp_id, enforce_caps=True):
     """Write one proposed experiment to Magento: refresh before-values, PUT,
-    live render check, revert immediately on any failure. Enforces caps."""
+    live render check, revert immediately on any failure. Enforces caps unless
+    the write is an explicit per-page human action (enforce_caps=False)."""
     from src.analysis import seo_loop as sl
     from src.data_sources.magento_client import MagentoClient, MagentoError
     state = sl.load_state()
@@ -10910,9 +10963,9 @@ def _loop_apply(exp_id):
         return {"error": "Experiment not found."}
     if exp.get("status") != "proposed":
         return {"error": f"Experiment is {exp.get('status')}, not proposed."}
-    if sl.writes_today(state) >= sl.WRITES_PER_DAY:
+    if enforce_caps and sl.writes_today(state) >= sl.WRITES_PER_DAY:
         return {"error": f"Daily write cap ({sl.WRITES_PER_DAY}) reached — try tomorrow."}
-    if sl.open_writes_this_week(state) >= sl.WRITES_PER_WEEK:
+    if enforce_caps and sl.open_writes_this_week(state) >= sl.WRITES_PER_WEEK:
         return {"error": f"Weekly write cap ({sl.WRITES_PER_WEEK}) reached."}
     mc = MagentoClient()
     if not mc.configured:

@@ -73,6 +73,9 @@ table.cy-table th{background:var(--card-alt,#f9fafb);font-weight:700;white-space
 .cy-vbadge{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:9px;letter-spacing:.02em;}
 .cy-v-beat{background:#dcfce7;color:#166534;} .cy-v-hard{background:#fee2e2;color:#991b1b;} .cy-v-mix{background:#fef3c7;color:#92400e;}
 .cy-siphon{color:#b45309;font-size:12px;margin-top:2px;}
+.cy-apply-row{margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.cy-apply{background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;}
+.cy-apply:disabled{cursor:default;} .cy-apply.done{background:#16a34a;}
 </style>
 {% endblock %}
 
@@ -142,7 +145,35 @@ function cyFix(w){
     out.push(cyTodo(key,'links',
       `<span class="verb">Add internal links</span> to this page — link text “${esc(w.query)}” — from your homepage + nearest category hub`));
   }
-  return `<div class="cy-check">${out.join('')}</div>`;
+  // One-click apply for the two Magento-writable fields (title + meta). Only for
+  // products/categories (blogs aren't Magento entities) and only when there's
+  // something to change.
+  const canApply = ['product','category'].includes(w.asset_type)
+    && (w.title_rewrite || w.meta_needs_query || w.meta_missing);
+  const applyBtn = canApply
+    ? `<div class="cy-apply-row"><button class="cy-apply" onclick='cyApply(this, ${JSON.stringify({url:w.url,query:w.query,asset_type:w.asset_type,impressions:w.impressions,position:w.position})})'>⚡ Apply title + meta to Magento</button> <span class="cy-src">writes only those 2 fields · verified · revertable in Loop</span></div>`
+    : '';
+  return `<div class="cy-check">${out.join('')}</div>${applyBtn}`;
+}
+
+async function cyApply(btn, p){
+  if(!confirm('Write a fresh title + meta description to Magento for this page?\n\nIt writes ONLY those two fields (safe), verifies the change went live, self-reverts if anything looks wrong, and is revertable any time from the Loop.')) return;
+  const old=btn.textContent; btn.disabled=true; btn.textContent='⏳ Applying…';
+  try{
+    const r=await (await fetch('/api/click-yield/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)})).json();
+    if(r.success){
+      btn.textContent='✓ Applied to Magento'; btn.classList.add('done'); btn.disabled=true;
+      // remember title+meta as done for this row
+      const key=p.url+'|'+p.query, c=cyChecks(); c[key]=c[key]||{}; c[key].title=1; c[key].meta=1;
+      try{localStorage.setItem('cy_checks',JSON.stringify(c));}catch(e){}
+      const cell=btn.closest('.cy-fix');
+      if(cell) cell.querySelectorAll('.cy-ci.todo').forEach(li=>{
+        const cb=li.querySelector('input');
+        if(cb && (cb.dataset.item==='title'||cb.dataset.item==='meta')){ cb.checked=true; li.classList.add('done'); }
+      });
+      btn.parentElement.insertAdjacentHTML('beforeend', `<div class="cy-src" style="margin-top:4px;">→ new title: “${esc(r.applied.meta_title||'')}”</div>`);
+    } else { btn.disabled=false; btn.textContent=old; alert(r.error||'Apply failed'); }
+  }catch(e){ btn.disabled=false; btn.textContent=old; alert('Apply failed: '+(e.message||e)); }
 }
 
 function cySerp(x){
