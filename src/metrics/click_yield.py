@@ -60,7 +60,8 @@ RANKING_MIN_IMPR = _env_int("CLICK_YIELD_RANKING_MIN_IMPR", 30)      # floor to 
 WINNABLE_POS = (_env_float("CLICK_YIELD_WINNABLE_POS_LO", 4.0),      # position band where a push actually pays
                 _env_float("CLICK_YIELD_WINNABLE_POS_HI", 20.0))
 WINNABLE_MIN_IMPR = _env_int("CLICK_YIELD_WINNABLE_MIN_IMPR", 150)   # a winnable query needs real demand
-MAX_WINNABLE_DEFAULT = _env_int("CLICK_YIELD_MAX_WINNABLE", 15)      # how many winnable pages to enrich/surface
+MAX_WINNABLE_DEFAULT = _env_int("CLICK_YIELD_MAX_WINNABLE", 75)      # how many winnable pages to surface
+SERP_INTEL_MAX = _env_int("CLICK_YIELD_SERP_INTEL_MAX", 25)          # only the top N get the (Serper-quota) 'who outranks you' line
 TREND_DAYS = 28                # momentum window: recent 28d vs prior 28d
 TREND_MIN_DELTA = 3.0          # ignore sub-3-position wobble (GSC position is noisy)
 MAX_TITLE = 60
@@ -206,7 +207,7 @@ def _client_from_config(config: dict):
 # ----------------------------------------------------------------- computation
 def compute_click_yield(config: dict, days: int = 90, max_winnable: Optional[int] = None,
                         fetch_titles: bool = True, extra_brand_tokens=None,
-                        fetch_serp_intel: bool = True) -> dict:
+                        fetch_serp_intel: bool = True, progress=None) -> dict:
     """Pull the full GSC page set, compute yield buckets + enriched winnable pages.
     Returns a JSON-serializable dict (also written to CACHE_PATH by save())."""
     if max_winnable is None:
@@ -253,14 +254,19 @@ def compute_click_yield(config: dict, days: int = 90, max_winnable: Optional[int
     cands = cands[:max_winnable]
 
     winnable = []
-    for url, q in cands:
+    for i, (url, q) in enumerate(cands):
+        if progress:
+            try:
+                progress(i + 1, len(cands))
+            except Exception:
+                pass
         title = meta = h1 = ""
         if fetch_titles:
             try:
                 title, meta, h1 = _extract_meta(_fetch(url))
             except Exception:
                 pass
-            time.sleep(0.35)
+            time.sleep(0.25)
         rewrite = _title_rewrite(q["query"], title)
         # internal-link sources: pages ranking for terms overlapping the query
         qtok = _tokens(q["query"])
@@ -298,7 +304,9 @@ def compute_click_yield(config: dict, days: int = 90, max_winnable: Optional[int
             from src.data_sources.serp_client import fetch_serp, get_remaining_quota
             from src.metrics.serp_intel import analyze_query
             remaining = get_remaining_quota()
-            for w in winnable:
+            # Only the top slice (by impressions) gets the live 'who outranks you'
+            # line — Serper quota shouldn't be spent on the long tail.
+            for w in winnable[:SERP_INTEL_MAX]:
                 if isinstance(remaining, int) and remaining <= 0:
                     break
                 intel = analyze_query(w["query"], _site_dom, fetch_serp)

@@ -234,21 +234,34 @@ async function cyTrack(btn){
   }catch(e){ btn.textContent='✗ error'; btn.disabled=false; }
 }
 
+let cyWasRunning=false, cyTimer=null;
 async function cyLoad(){
-  try{ const r=await fetch('/api/click-yield'); cyRender(await r.json()); }
-  catch(e){ document.getElementById('cy-body').innerHTML=`<div class="cy-empty">Failed to load.</div>`; }
+  try{
+    const cy = await (await fetch('/api/click-yield')).json();
+    const running = !!(cy.job && cy.job.running);
+    govJobUI('cy-refresh', running, {idleLabel:'↻ Refresh from GSC', runningLabel:'⏳ Building…',
+      phase: cy.job && cy.job.phase, sub:'Pulling every page from GSC and enriching winnable pages — you can leave this page.',
+      doneNote: (!running && cy.job && cy.job.note) ? ('✓ '+cy.job.note) : ''});
+    cyWasRunning = running;
+    if(cy.available || !running) cyRender(cy);
+    else if(running) document.getElementById('cy-body').innerHTML=`<p class="pb-loading">Building the full-site view…</p>`;
+    if(running){ clearTimeout(cyTimer); cyTimer=setTimeout(cyLoad, 2500); }
+  }catch(e){ document.getElementById('cy-body').innerHTML=`<div class="cy-empty">Failed to load.</div>`; }
 }
 
 async function cyRefresh(){
-  const btn=document.getElementById('cy-refresh');
-  btn.disabled=true; const old=btn.textContent; btn.textContent='↻ Building… (pulling full GSC set)';
-  document.getElementById('cy-body').innerHTML=`<p class="pb-loading">Pulling every page from GSC and fetching winnable-page titles…</p>`;
+  const btn=document.getElementById('cy-refresh'); btn.disabled=true; btn.textContent='⏳ Starting…';
   try{
-    const r=await fetch('/api/click-yield/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-    cyRender(await r.json());
-  }catch(e){
-    document.getElementById('cy-body').innerHTML=`<div class="cy-empty">Refresh failed: ${esc(e.message||e)}.</div>`;
-  }finally{ btn.disabled=false; btn.textContent=old; }
+    const r=await (await fetch('/api/click-yield/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    if(r.success){
+      cyWasRunning=true;
+      govJobUI('cy-refresh', true, {idleLabel:'↻ Refresh from GSC', runningLabel:'⏳ Building…', phase:'starting…',
+        sub:'Pulling every page from GSC — runs in the background.'});
+      setTimeout(cyLoad, 800);
+    } else { govJobUI('cy-refresh', false, {idleLabel:'↻ Refresh from GSC'});
+      document.getElementById('cy-body').innerHTML=`<div class="cy-empty">${esc(r.error||'Refresh failed')}.</div>`; }
+  }catch(e){ govJobUI('cy-refresh', false, {idleLabel:'↻ Refresh from GSC'});
+    document.getElementById('cy-body').innerHTML=`<div class="cy-empty">Refresh failed: ${esc(e.message||e)}.</div>`; }
 }
 
 cyLoad();

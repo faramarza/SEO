@@ -8554,7 +8554,7 @@ def api_click_yield():
     from src.metrics.click_yield import load_click_yield
     cy = load_click_yield()
     if not cy:
-        return jsonify({"available": False, "needs_refresh": True,
+        return jsonify({"available": False, "needs_refresh": True, "job": _cy_job,
                         "message": "No click-yield analysis yet — click Refresh to build it."})
     # Hydrate tracked state so the page reflects reality on LOAD, not only after
     # a click: a winnable page already adopted (and/or with a live board card)
@@ -8578,28 +8578,43 @@ def api_click_yield():
                 w["review_date"] = entry.get("review_date")
     except Exception as e:
         print(f"[ClickYield] tracked-state hydration failed: {e}", flush=True)
+    cy["job"] = _cy_job
     return jsonify(cy)
+
+
+_cy_job = {"running": False, "phase": "", "note": ""}
+
+
+def _cy_refresh_job(days):
+    from src.metrics.click_yield import compute_click_yield, save_click_yield
+    try:
+        def _prog(i, total):
+            _cy_job["phase"] = f"enriching winnable page {i} of {total}"
+        _cy_job["phase"] = "pulling full GSC page set…"
+        cy = compute_click_yield(load_config(), days=days, progress=_prog)
+        if cy.get("available"):
+            save_click_yield(cy)
+            _cy_job["note"] = f"{len(cy.get('winnable', []))} winnable pages found."
+        else:
+            _cy_job["note"] = "No data (GSC not configured?)."
+    except Exception as e:
+        _cy_job["note"] = f"Refresh failed: {type(e).__name__}: {e}"
+    finally:
+        _cy_job["running"] = False
+        _cy_job["phase"] = ""
 
 
 @app.route("/api/click-yield/refresh", methods=["POST"])
 def api_click_yield_refresh():
-    """Recompute click-yield from live GSC (full page set) + live title fetches for
-    the winnable pages, and cache it. Slower (pulls all pages, fetches ~15 titles),
-    so it's an explicit action, not on every page load."""
-    from src.metrics.click_yield import compute_click_yield, save_click_yield
-    config = load_config()
-    body = request.get_json(silent=True) or {}
-    days = int(body.get("days", 90))
-    try:
-        cy = compute_click_yield(config, days=days)
-    except Exception as e:
-        return jsonify({"available": False, "error": f"{type(e).__name__}: {e}"}), 500
-    if cy.get("available"):
-        try:
-            save_click_yield(cy)
-        except Exception:
-            pass
-    return jsonify(cy)
+    """Recompute click-yield from live GSC (full page set) in the BACKGROUND —
+    it enriches many winnable pages (title fetch + a Serper sample), so a large
+    list would freeze a synchronous request."""
+    if _cy_job["running"]:
+        return jsonify({"error": "A refresh is already running."}), 400
+    days = int((request.get_json(silent=True) or {}).get("days", 90))
+    _cy_job.update({"running": True, "phase": "starting…", "note": ""})
+    threading.Thread(target=_cy_refresh_job, args=(days,), daemon=True).start()
+    return jsonify({"success": True})
 
 
 def _winnable_plan_input():
