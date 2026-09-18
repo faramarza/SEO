@@ -12103,6 +12103,298 @@ def api_whatif_promote():
 
 
 # ============================================================
+# PLUMBING AUDIT — read-only technical-SEO / crawl-waste audit
+# ============================================================
+# Phase 1: indexation waste, canonicals, internal linking. READ-ONLY — it
+# crawls the live site politely (BFS from the homepage, ~1 req/s, capped),
+# reads GSC + sitemap + robots, and produces a findings report. It NEVER writes
+# to Magento and never applies a fix.
+
+_audit_job = {"running": False, "phase": "", "note": ""}
+AUDIT_MAX_URLS = int(os.environ.get("AUDIT_MAX_URLS", "1200"))
+AUDIT_MAX_DEPTH = int(os.environ.get("AUDIT_MAX_DEPTH", "6"))
+_AUDIT_UA = ("Mozilla/5.0 (compatible; AlphabetTrains-PlumbingAudit/1.0; "
+             "read-only first-party site audit)")
+
+
+def _audit_site_base():
+    cfg = load_config()
+    dom = (cfg.get("business_context", {}) or {}).get("domain") or ""
+    if not dom:
+        prop = cfg.get("data_sources", {}).get("gsc", {}).get("property_url", "")
+        dom = prop.replace("sc-domain:", "")
+    dom = (dom or "alphabet-trains.com").replace("https://", "").replace("http://", "").strip("/")
+    return "https://" + dom
+
+
+def _audit_gsc_pages():
+    try:
+        from src.data_sources.gsc_client import GSCClient
+        cfg = load_config().get("data_sources", {}).get("gsc", {})
+        gsc = GSCClient(site_url=cfg.get("property_url", ""),
+                        credentials_path=cfg.get("credentials_path"))
+        data = gsc.get_page_data(days=90) or {}
+        return [{"url": u, "clicks": d.get("clicks", 0),
+                 "impressions": d.get("impressions", 0),
+                 "position": d.get("position", 0)} for u, d in data.items()]
+    except Exception:
+        return []
+
+
+def _audit_fetch_sitemaps(base):
+    """Return {url: asset_type|None} from the sitemap(s) named in robots.txt
+    (or /sitemap.xml), following sitemap-index files."""
+    import httpx
+    import xml.etree.ElementTree as ET
+    ns = lambda t: t.split("}")[-1]  # noqa: E731
+    def _type(u):
+        l = u.lower()
+        return ("product" if "product" in l else "category" if "categor" in l
+                else "blog" if "blog" in l else "page" if ("page" in l or "cms" in l)
+                else None)
+    seeds = []
+    try:
+        r = httpx.get(base + "/robots.txt", timeout=15, follow_redirects=True,
+                      headers={"User-Agent": _AUDIT_UA})
+        seeds = [ln.split(":", 1)[1].strip() for ln in r.text.splitlines()
+                 if ln.lower().startswith("sitemap:")]
+    except Exception:
+        pass
+    if not seeds:
+        seeds = [base + "/sitemap.xml"]
+    out = {}
+    def _walk(u, depth=0):
+        if depth > 3:
+            return
+        try:
+            r = httpx.get(u, timeout=20, follow_redirects=True,
+                          headers={"User-Agent": _AUDIT_UA})
+            if r.status_code != 200:
+                return
+            root = ET.fromstring(r.content)
+        except Exception:
+            return
+        if ns(root.tag) == "sitemapindex":
+            for sm in root:
+                for ch in sm:
+                    if ns(ch.tag) == "loc" and ch.text:
+                        _walk(ch.text.strip(), depth + 1)
+        else:
+            typ = _type(u)
+            for url_el in root:
+                for ch in url_el:
+                    if ns(ch.tag) == "loc" and ch.text:
+                        out[ch.text.strip()] = typ
+                        break
+    for s in seeds:
+        _walk(s)
+    return out
+
+
+def _audit_type(url, sitemap_types):
+    from src.analysis import plumbing_audit as pa
+    t = sitemap_types.get(url)
+    if t:
+        return t
+    low = url.lower()
+    if "/blog/" in low:
+        return "blog"
+    if pa.is_system_url(url) or pa.is_parameter_url(url):
+        return "system"
+    if low.rstrip("/").endswith(".html"):
+        return "product"
+    return "other"
+
+
+def _plumbing_audit_job():
+    from src.crawlers.simple_crawler import SimpleCrawler
+    from src.analysis import plumbing_audit as pa
+    from urllib.parse import urlparse
+    try:
+        base = _audit_site_base()
+        base_host = urlparse(base).netloc.replace("www.", "")
+        _audit_job["phase"] = "reading GSC + sitemap + robots"
+        gsc_pages = _audit_gsc_pages()
+        sitemap = _audit_fetch_sitemaps(base)
+        sm_norm = {pa._norm(u) for u in sitemap}
+        robots = _robots_disallow_rules()
+
+        crawler = SimpleCrawler(request_delay=1.0, max_concurrent=2, timeout=15,
+                                user_agent=_AUDIT_UA)
+        seen, depth, rows = set(), {pa._norm(base + "/"): 0}, []
+
+        def _row(res, d):
+            u = res.url
+            return {"url": u, "status": res.status_code,
+                    "canonical": res.canonical_url or "",
+                    "robots": "" if getattr(res, "indexable", True) else "noindex",
+                    "depth": d, "title": res.title or "",
+                    "asset_type": _audit_type(u, sitemap),
+                    "in_sitemap": pa._norm(u) in sm_norm,
+                    "outlinks": [ol.get("target_url", "") for ol in (res.internal_outlinks or [])]}
+
+        frontier, d = [base + "/"], 0
+        while frontier and len(seen) < AUDIT_MAX_URLS and d <= AUDIT_MAX_DEPTH:
+            batch = [u for u in frontier if pa._norm(u) not in seen][:AUDIT_MAX_URLS - len(seen)]
+            for u in batch:
+                seen.add(pa._norm(u))
+            _audit_job["phase"] = f"crawling depth {d} ({len(seen)} URLs)"
+            nextf = []
+            for res in crawler.crawl_urls(batch, show_progress=False):
+                nd = depth.get(pa._norm(res.url), d)
+                rows.append(_row(res, nd))
+                for ol in (res.internal_outlinks or []):
+                    t = ol.get("target_url", "") or ""
+                    if not t.startswith("http"):
+                        continue
+                    if urlparse(t).netloc.replace("www.", "") != base_host:
+                        continue
+                    if any(a in t for a in pa.ACTION_PATTERNS):
+                        continue
+                    n = pa._norm(t)
+                    if n in seen:
+                        continue
+                    depth.setdefault(n, nd + 1)
+                    nextf.append(t)
+            frontier, d = nextf, d + 1
+
+        # Also crawl sitemap URLs not reached by the BFS (for sitemap/canonical checks).
+        extra = [u for u in sitemap if pa._norm(u) not in seen][:AUDIT_MAX_URLS - len(seen)]
+        if extra:
+            _audit_job["phase"] = f"crawling {len(extra)} sitemap URLs"
+            for res in crawler.crawl_urls(extra, show_progress=False):
+                seen.add(pa._norm(res.url))
+                rows.append(_row(res, None))
+
+        # Inlink counts from crawled outlinks.
+        from collections import defaultdict
+        inl = defaultdict(set)
+        for r in rows:
+            for t in r.get("outlinks", []):
+                if t:
+                    inl[pa._norm(t)].add(pa._norm(r["url"]))
+        for r in rows:
+            r["inlinks"] = len(inl.get(pa._norm(r["url"]), ()))
+
+        # Blog posts with no product/category outlink.
+        blog_nolink = [r["url"] for r in rows if r.get("asset_type") == "blog"
+                       and not any(_audit_type(t, sitemap) in ("product", "category")
+                                   for t in r.get("outlinks", []))]
+
+        _audit_job["phase"] = "GSC URL inspection sample"
+        inspections = _audit_inspect_sample(gsc_pages, rows)
+
+        result = pa.run_audit(crawl_rows=rows, gsc_pages=gsc_pages,
+                              sitemap_urls=set(sitemap), robots_disallow=robots,
+                              inspections=inspections, blog_no_commercial=blog_nolink[:50])
+        result.update({"crawled": len(rows), "gsc_pages": len(gsc_pages),
+                       "sitemap_urls": len(sitemap), "inspected": len(inspections),
+                       "generated_at": datetime.now().isoformat(timespec="seconds")})
+        _audit_save(result, rows, gsc_pages, inspections)
+        _audit_job["note"] = (f"Done: {result['counts']['findings']} findings, "
+                              f"{int(result['junk']['ratio']*100)}% junk of "
+                              f"{result['junk']['total']} URLs.")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        _audit_job["note"] = f"Audit failed: {e}"
+    finally:
+        _audit_job["running"] = False
+        _audit_job["phase"] = ""
+
+
+def _audit_inspect_sample(gsc_pages, rows, limit=40):
+    """Inspect a prioritized sample via GSC URL Inspection: top-impression pages
+    plus a few suspicious parameter URLs. Pulls google-vs-user canonical from
+    the raw result."""
+    from src.analysis import plumbing_audit as pa
+    try:
+        from src.data_sources.gsc_client import GSCClient
+        cfg = load_config().get("data_sources", {}).get("gsc", {})
+        gsc = GSCClient(site_url=cfg.get("property_url", ""),
+                        credentials_path=cfg.get("credentials_path"))
+    except Exception:
+        return {}
+    cand = [g["url"] for g in sorted(gsc_pages, key=lambda g: -(g.get("impressions") or 0))[:28]]
+    cand += [r["url"] for r in rows if pa.is_parameter_url(r["url"])][:12]
+    out, seen = {}, set()
+    for u in cand:
+        if u in seen or len(out) >= limit:
+            continue
+        seen.add(u)
+        try:
+            ins = gsc.inspect_url(u)
+        except Exception:
+            continue
+        if ins.get("error"):
+            continue
+        idx = ((ins.get("raw") or {}).get("inspectionResult") or {}).get("indexStatusResult") or {}
+        out[u] = {"coverage": ins.get("coverage_state"),
+                  "google_canonical": idx.get("googleCanonical"),
+                  "user_canonical": idx.get("userCanonical"),
+                  "robots_state": ins.get("robotstxt_state")}
+        time.sleep(0.2)
+    return out
+
+
+def _audit_save(result, rows, gsc_pages, inspections):
+    import csv as _csv
+    (DATA_PATH / "plumbing_audit.json").write_text(json.dumps(result, indent=2))
+    with open(DATA_PATH / "plumbing_crawl.csv", "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["url", "status", "canonical", "robots", "depth", "inlinks",
+                    "asset_type", "in_sitemap", "title"])
+        for r in rows:
+            w.writerow([r["url"], r.get("status"), r.get("canonical"), r.get("robots"),
+                        r.get("depth"), r.get("inlinks"), r.get("asset_type"),
+                        r.get("in_sitemap"), r.get("title")])
+    with open(DATA_PATH / "plumbing_gsc.csv", "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["url", "clicks", "impressions", "position"])
+        for g in gsc_pages:
+            w.writerow([g["url"], g["clicks"], g["impressions"], g["position"]])
+    with open(DATA_PATH / "plumbing_inspections.csv", "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["url", "coverage", "google_canonical", "user_canonical", "robots_state"])
+        for u, i in inspections.items():
+            w.writerow([u, i.get("coverage"), i.get("google_canonical"),
+                        i.get("user_canonical"), i.get("robots_state")])
+
+
+@app.route("/plumbing-audit")
+def plumbing_audit_page():
+    return render_template("plumbing_audit.html")
+
+
+@app.route("/api/plumbing-audit")
+def api_plumbing_audit():
+    try:
+        result = json.loads((DATA_PATH / "plumbing_audit.json").read_text())
+    except Exception:
+        result = None
+    return jsonify({"result": result, "job": _audit_job})
+
+
+@app.route("/api/plumbing-audit/run", methods=["POST"])
+def api_plumbing_audit_run():
+    if _audit_job["running"]:
+        return jsonify({"error": "An audit is already running."}), 400
+    _audit_job.update({"running": True, "phase": "starting…", "note": ""})
+    threading.Thread(target=_plumbing_audit_job, daemon=True).start()
+    return jsonify({"success": True})
+
+
+@app.route("/api/plumbing-audit/csv/<which>")
+def api_plumbing_audit_csv(which):
+    fname = {"crawl": "plumbing_crawl.csv", "gsc": "plumbing_gsc.csv",
+             "inspections": "plumbing_inspections.csv"}.get(which)
+    if not fname or not (DATA_PATH / fname).exists():
+        return jsonify({"error": "not found"}), 404
+    from flask import send_file
+    return send_file(DATA_PATH / fname, as_attachment=True, download_name=fname)
+
+
+# ============================================================
 # DUPLICATION — near-duplicate / thin-variation page detector
 # ============================================================
 # Uses n-gram passage shingling (the correct near-dup method), on FULL live

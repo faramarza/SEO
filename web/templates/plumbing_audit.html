@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Plumbing Audit — Governor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🔧 Plumbing Audit</h1>
+    <p class="page-description">
+        A <strong>read-only</strong> technical-SEO audit of where Google's crawl and indexing are
+        being wasted on the Magento store — parameter/filter junk, canonicals, and internal linking.
+        It crawls the live site politely (~1 request/sec, capped) and reads GSC + the sitemap + robots.
+        <strong>It never changes anything</strong> — every fix is a proposal with where it lives in
+        Magento and its risk. Impact is measured (counts + junk ratio), never invented.
+    </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;font-size:13px;">
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+        <button id="pa-run-btn" class="pb-task-btn" onclick="paRun(this)">▶ Run audit</button>
+        <span id="pa-meta" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <p style="margin:8px 0 0;color:var(--text-muted);">
+        A full run crawls up to ~1,200 URLs at 1/sec (≈20 min) plus a GSC URL-inspection sample —
+        it runs in the background; results and CSV baselines save when it finishes.</p>
+</div>
+
+<div id="pa-body"><p class="pb-loading">Loading…</p></div>
+<div id="pa-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let PA=null, paScanStart=0, paWasRunning=false, paTimer=null;
+function paToast(m,e){const t=document.getElementById('pa-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
+const SEV={high:{c:'#dc2626',l:'HIGH'}, medium:{c:'#d97706',l:'MED'}, low:{c:'#2563eb',l:'LOW'}};
+const CATLABEL={A:'Indexation waste', B:'Canonicals', C:'Internal linking'};
+
+async function loadPA(){
+    const d = await (await fetch('/api/plumbing-audit')).json();
+    PA = d;
+    const running = !!(d.job && d.job.running);
+    govJobUI('pa-run-btn', running, {idleLabel:'▶ Run audit', runningLabel:'⏳ Auditing…',
+        phase: d.job && d.job.phase, sub:'Crawling the live site ~1/sec — read-only. You can leave this page.',
+        doneNote: (!running && d.job && d.job.note) ? ('✓ '+d.job.note) : ''});
+    if(paWasRunning && !running && d.job && d.job.note)
+        paToast((/fail/i.test(d.job.note)?'⚠ ':'✓ ')+d.job.note, /fail/i.test(d.job.note));
+    paWasRunning = running;
+    render();
+    if(running){ clearTimeout(paTimer); paTimer=setTimeout(loadPA, 2500); }
+}
+
+function render(){
+    const body=document.getElementById('pa-body');
+    const r = PA && PA.result;
+    const meta=document.getElementById('pa-meta');
+    if(!r){ body.innerHTML='<p class="empty-state">No audit yet — click <strong>Run audit</strong>. It’s read-only and safe.</p>'; meta.textContent=''; return; }
+    meta.textContent = `Last run ${(r.generated_at||'').replace('T',' ')} · crawled ${r.crawled} · GSC ${r.gsc_pages} · sitemap ${r.sitemap_urls} · inspected ${r.inspected}`;
+    const jr=r.junk||{};
+    let html = `<div class="card" style="margin-bottom:12px;">
+        <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+            <div style="font-size:34px;font-weight:800;color:${jr.ratio>=0.2?'#dc2626':'#d97706'};">${Math.round((jr.ratio||0)*100)}%</div>
+            <div style="font-size:13px;max-width:760px;">${escHtml(r.summary||'')}</div>
+        </div>
+        <div style="margin-top:8px;font-size:12px;">
+            <a class="pb-task-btn pb-task-btn-alt" href="/api/plumbing-audit/csv/crawl">⬇ crawl.csv</a>
+            <a class="pb-task-btn pb-task-btn-alt" href="/api/plumbing-audit/csv/gsc">⬇ gsc.csv</a>
+            <a class="pb-task-btn pb-task-btn-alt" href="/api/plumbing-audit/csv/inspections">⬇ inspections.csv</a>
+        </div></div>`;
+
+    const fs = r.findings||[];
+    if(!fs.length){ html += '<p class="empty-state">No findings — plumbing looks clean. 🎉</p>'; body.innerHTML=html; return; }
+    html += `<table class="pb-table"><thead><tr>
+        <th>Sev</th><th>Finding</th><th>URLs</th><th>Examples</th><th>Proposed fix (not applied)</th><th>Where in Magento · risk</th></tr></thead><tbody>`;
+    fs.forEach(f=>{
+        const s=SEV[f.severity]||SEV.low;
+        const ex=(f.examples||[]).map(u=>`<div style="font-size:11px;"><a href="${escHtml(u)}" target="_blank">${escHtml(u.replace(/^https?:\/\/[^/]+/,'')||'/')}</a></div>`).join('');
+        html += `<tr>
+            <td><span style="font-size:10px;font-weight:800;color:${s.c};">${s.l}</span></td>
+            <td><strong style="font-size:13px;">${escHtml(f.title)}</strong>
+                <div style="font-size:10px;color:var(--text-muted);">${CATLABEL[f.category]||f.category} · ${escHtml(f.source||'')}</div></td>
+            <td style="font-weight:700;font-size:15px;">${f.url_count}</td>
+            <td style="max-width:240px;">${ex}</td>
+            <td style="max-width:280px;font-size:12px;">${escHtml(f.proposed_fix||'')}</td>
+            <td style="max-width:280px;font-size:11px;color:var(--text-muted);">${escHtml(f.magento_location||'')}<div style="margin-top:3px;">risk: <strong>${escHtml(f.risk||'')}</strong></div></td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    html += '<p style="font-size:11px;color:var(--text-muted);margin-top:8px;">Read-only report. Nothing here has been changed on the site — review and apply fixes yourself.</p>';
+    body.innerHTML=html;
+}
+
+async function paRun(btn){
+    btn.disabled=true; btn.textContent='⏳ Starting…';
+    const d=await (await fetch('/api/plumbing-audit/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    if(d.success){ paScanStart=Date.now(); paWasRunning=true; PA=PA||{}; PA.job={running:true,phase:'starting…'};
+        govJobUI('pa-run-btn', true, {idleLabel:'▶ Run audit', runningLabel:'⏳ Auditing…', phase:'starting…', sub:'Crawling the live site ~1/sec — read-only.'});
+        paToast('Audit started — it crawls in the background; findings appear when done.');
+        setTimeout(loadPA, 900);
+    } else { govJobUI('pa-run-btn', false, {idleLabel:'▶ Run audit'}); paToast(d.error||'Failed', true); }
+}
+loadPA();
+</script>
+{% endblock %}

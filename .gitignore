@@ -50,3 +50,4 @@ data/.digest_*
 data/.secret_key
 data/*.lock
 data/*.log
+data/*.csv
