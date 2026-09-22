@@ -218,7 +218,58 @@ class MagentoClient:
                      "check the entity's Search Engine Optimization section in admin.")
         return " ".join(parts)
 
-    # ------------------------------------------------------------ writes
+    # ---------------------------------------------------- full catalog reads
+    # Read-only. These pull whole product objects (all custom_attributes, media,
+    # stock, links) for the Agentic Commerce audit. They never build a write
+    # payload, so the two-field write denylist is untouched.
+    def iter_all_products(self, page_size=100, max_products=None,
+                          only_visible=True):
+        """Yield raw Magento product dicts across all pages. `only_visible`
+        keeps catalog/search-visible sellable products (visibility != 1)."""
+        page, seen = 1, 0
+        while True:
+            q = (f"/products?searchCriteria[pageSize]={page_size}"
+                 f"&searchCriteria[currentPage]={page}")
+            data = self._req("GET", q) or {}
+            items = data.get("items") or []
+            if not items:
+                break
+            for p in items:
+                if only_visible and str(self._attr(p, "visibility", "4")) == "1":
+                    continue  # "Not Visible Individually" — not agent-sellable
+                yield p
+                seen += 1
+                if max_products and seen >= max_products:
+                    return
+            total = data.get("total_count") or 0
+            if page * page_size >= total or len(items) < page_size:
+                break
+            page += 1
+
+    def product_attributes_meta(self):
+        """{attribute_code: {'label','input','options'}} for all product
+        attributes — lets the audit map this store's codes to agent concepts
+        (age, material, …) instead of hard-coding them."""
+        out = {}
+        try:
+            q = "/products/attributes?searchCriteria[pageSize]=500"
+            for a in (self._req("GET", q) or {}).get("items") or []:
+                code = a.get("attribute_code")
+                if not code:
+                    continue
+                opts = {str(o.get("value")): o.get("label")
+                        for o in (a.get("options") or []) if o.get("value")}
+                out[code] = {"label": a.get("default_frontend_label") or code,
+                             "input": a.get("frontend_input") or "",
+                             "options": opts}
+        except MagentoError:
+            pass
+        return out
+
+    def media_base_url(self):
+        return f"{self.base_url}/media/catalog/product"
+
+
     @staticmethod
     def _meta_payload(root_key, meta_title=None, meta_description=None):
         attrs = []
