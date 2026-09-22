@@ -12171,6 +12171,266 @@ def api_whatif_promote():
 
 
 # ============================================================
+# AGENTIC COMMERCE READINESS — catalog as machine-consumable commerce data
+# ============================================================
+# Read-only: pull the Magento catalog (full attributes), score each product's
+# agent-readiness, reconcile against the storefront JSON-LD + product feed for
+# a prioritized sample, run the canonical shopper queries, and surface gaps as
+# Governor opportunities. Never writes; never invents a product fact.
+
+_agentic_job = {"running": False, "phase": "", "note": ""}
+AGENTIC_MAX_SURFACE = int(os.environ.get("AGENTIC_MAX_SURFACE", "60"))
+AGENTIC_CANONICAL_QUERIES = [
+    "Find a personalized wooden train for a 4-year-old named Oliver under $70.",
+    "Find a Montessori fine-motor toy for a 2-year-old that does not require batteries.",
+    "I need a personalized gift for a preschooler that can arrive before October 15.",
+    "Show me educational toys for letter recognition for a 3-year-old.",
+    "Find a durable classroom activity for fine-motor development.",
+]
+
+
+def _agentic_demand_by_slug():
+    """{url_slug: {impressions, revenue}} from the latest evaluation, to
+    prioritize which products' gaps matter commercially."""
+    out = {}
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            for r in json.load(f).get("results", []):
+                slug = re.sub(r"\.html?$", "", (r.get("url", "").rstrip("/").rsplit("/", 1)[-1]))
+                if slug:
+                    out[slug] = {"impressions": r.get("gsc_impressions", 0) or 0,
+                                 "revenue": r.get("ga4_revenue", 0) or 0}
+    except Exception:
+        pass
+    return out
+
+
+def _agentic_schema_surface(html):
+    """Extract Product JSON-LD fields as the storefront/schema surface."""
+    out = {}
+    for m in re.finditer(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>',
+                         html or "", re.S | re.I):
+        try:
+            data = json.loads(m.group(1).strip())
+        except Exception:
+            continue
+        nodes = data if isinstance(data, list) else \
+            (data.get("@graph") if isinstance(data, dict) and "@graph" in data else [data])
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            t = node.get("@type", "")
+            if not (t == "Product" or (isinstance(t, list) and "Product" in t)):
+                continue
+            out["has_product"] = True
+            out["name"] = node.get("name")
+            br = node.get("brand")
+            out["brand"] = br.get("name") if isinstance(br, dict) else br
+            out["gtin"] = node.get("gtin13") or node.get("gtin12") or node.get("gtin")
+            img = node.get("image")
+            out["image"] = (img[0] if isinstance(img, list) and img else img)
+            offers = node.get("offers") or {}
+            if isinstance(offers, list):
+                offers = offers[0] if offers else {}
+            if isinstance(offers, dict):
+                out["price"] = offers.get("price")
+                out["availability"] = offers.get("availability")
+    return out
+
+
+def _agentic_feed():
+    """{sku|slug: {price, availability, gtin, brand, title, …}} from the Google
+    product feed, if AGENTIC_FEED_URL (or config data_sources.product_feed.url)
+    is set. Empty when no feed source is configured."""
+    url = os.environ.get("AGENTIC_FEED_URL") or \
+        ((load_config().get("data_sources", {}) or {}).get("product_feed", {}) or {}).get("url", "")
+    if not url:
+        return {}, False
+    import httpx
+    import xml.etree.ElementTree as ET
+    ns = lambda t: t.split("}")[-1]  # noqa: E731
+    feed = {}
+    try:
+        r = httpx.get(url, timeout=60, follow_redirects=True, headers={"User-Agent": _AUDIT_UA})
+        root = ET.fromstring(r.content)
+    except Exception:
+        return {}, False
+    for item in root.iter():
+        if ns(item.tag) != "item":
+            continue
+        d = {}
+        for ch in item:
+            tag = ns(ch.tag)
+            if tag in ("id", "price", "sale_price", "availability", "gtin", "brand",
+                       "title", "image_link", "link", "product_type", "mpn"):
+                d[tag] = (ch.text or "").strip()
+        sku = d.get("id", "")
+        slug = re.sub(r"\.html?$", "", (d.get("link", "").rstrip("/").rsplit("/", 1)[-1])) if d.get("link") else ""
+        # normalize price like "59.00 USD" → 59.0
+        if d.get("price"):
+            mnum = re.search(r"[\d.]+", d["price"])
+            d["price"] = float(mnum.group()) if mnum else d["price"]
+        rec = {"price": d.get("price"), "availability": d.get("availability"),
+               "gtin": d.get("gtin"), "brand": d.get("brand"), "name": d.get("title"),
+               "image": d.get("image_link")}
+        if sku:
+            feed[sku] = rec
+        if slug:
+            feed.setdefault("slug:" + slug, rec)
+    return feed, True
+
+
+def _agentic_run_job():
+    from src.analysis import agentic_commerce as acx
+    from src.data_sources.magento_client import MagentoClient
+    from src.crawlers.simple_crawler import SimpleCrawler
+    try:
+        mc = MagentoClient()
+        if not mc.configured:
+            _agentic_job["note"] = "Magento isn't connected — can't read the catalog."
+            return
+        base = _audit_site_base()
+        _agentic_job["phase"] = "reading Magento attributes"
+        attr_meta = mc.product_attributes_meta()
+        media_base = mc.media_base_url()
+        demand = _agentic_demand_by_slug()
+        feed, feed_available = _agentic_feed()
+
+        _agentic_job["phase"] = "reading products"
+        records, n = [], 0
+        for p in mc.iter_all_products(page_size=100):
+            rec = acx.build_record(p, attr_meta, media_base=media_base, base_url=base)
+            rec["demand"] = demand.get(rec.get("url_key", ""), {})
+            records.append(rec)
+            n += 1
+            if n % 100 == 0:
+                _agentic_job["phase"] = f"read {n} products"
+
+        # Surface reconciliation for the top-N by demand (bounded crawl).
+        ranked = sorted(records, key=lambda r: -((r.get("demand") or {}).get("impressions", 0)))
+        crawler = SimpleCrawler(request_delay=1.0, max_concurrent=2, timeout=15, user_agent=_AUDIT_UA)
+        surfaced = 0
+        for rec in ranked[:AGENTIC_MAX_SURFACE]:
+            url = rec.get("canonical_url")
+            if not url:
+                continue
+            _agentic_job["phase"] = f"reconciling surfaces {surfaced + 1}/{min(AGENTIC_MAX_SURFACE, len(ranked))}"
+            schema = {}
+            try:
+                res = crawler.crawl_urls([url], show_progress=False)
+                if res:
+                    schema = _agentic_schema_surface(res[0].body_html or getattr(res[0], "above_fold_html", "") or "")
+            except Exception:
+                schema = {}
+            fd = feed.get(rec["sku"]) or feed.get("slug:" + rec.get("url_key", ""))
+            rec["surfaces"] = {"schema": schema, "feed": fd}
+            rec["consistency"] = acx.consistency_audit(rec, storefront=schema, schema=schema, feed=fd)
+            surfaced += 1
+
+        # Score every record (surface component only where reconciled).
+        for rec in records:
+            sc = acx.readiness_score(rec, consistency=rec.get("consistency"),
+                                     schema=(rec.get("surfaces") or {}).get("schema"),
+                                     feed=(rec.get("surfaces") or {}).get("feed"))
+            rec["score"] = sc["score"]
+            rec["hard_fails"] = sc["hard_fails"]
+            rec["components"] = sc["components"]
+
+        # Opportunities (ranked by measured priority).
+        opps = []
+        for rec in records:
+            opps += acx.opportunities(rec, consistency=rec.get("consistency"), demand=rec.get("demand"))
+        for o in opps:
+            o["priority"] = acx.priority(o)
+        opps.sort(key=lambda o: -o["priority"])
+
+        # Canonical agent queries against the whole catalog.
+        queries = []
+        for q in AGENTIC_CANONICAL_QUERIES:
+            cons = acx.parse_agent_query(q)
+            queries.append({"query": q, **acx.resolve_query(cons, records)})
+
+        crit = sum(1 for r in records if r.get("missing_critical"))
+        hard = sum(1 for r in records if r.get("hard_fails"))
+        avg = round(sum(r.get("score", 0) for r in records) / max(1, len(records)))
+        resolvable_q = sum(1 for q in queries if not q["unknown"])
+        result = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "feed_available": feed_available,
+            "totals": {"products": len(records), "surfaced": surfaced,
+                       "with_missing_critical": crit, "hard_fails": hard,
+                       "avg_score": avg, "opportunities": len(opps),
+                       "queries_fully_resolvable": resolvable_q,
+                       "queries_total": len(queries)},
+            "products": [_agentic_product_row(r) for r in ranked],
+            "opportunities": opps[:300],
+            "queries": queries,
+        }
+        (DATA_PATH / "agentic_commerce.json").write_text(json.dumps(result, indent=2, default=str))
+        _agentic_job["note"] = (f"{len(records)} products · avg readiness {avg}/100 · "
+                                f"{crit} missing agent-critical data · {len(opps)} opportunities.")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        _agentic_job["note"] = f"Audit failed: {e}"
+    finally:
+        _agentic_job["running"] = False
+        _agentic_job["phase"] = ""
+
+
+def _agentic_product_row(r):
+    return {"sku": r["sku"], "name": r["name"], "url": r.get("canonical_url"),
+            "score": r.get("score"), "price": r.get("price"),
+            "in_stock": r.get("in_stock"), "missing_critical": r.get("missing_critical", []),
+            "conflicts": len(r.get("consistency") or []),
+            "hard_fails": r.get("hard_fails", []),
+            "demand": r.get("demand", {}), "surfaced": bool(r.get("surfaces"))}
+
+
+@app.route("/agentic-commerce")
+def agentic_commerce_page():
+    return render_template("agentic_commerce.html")
+
+
+@app.route("/api/agentic-commerce")
+def api_agentic_commerce():
+    try:
+        result = json.loads((DATA_PATH / "agentic_commerce.json").read_text())
+    except Exception:
+        result = None
+    return jsonify({"result": result, "job": _agentic_job})
+
+
+@app.route("/api/agentic-commerce/run", methods=["POST"])
+def api_agentic_commerce_run():
+    if _agentic_job["running"]:
+        return jsonify({"error": "An audit is already running."}), 400
+    _agentic_job.update({"running": True, "phase": "starting…", "note": ""})
+    threading.Thread(target=_agentic_run_job, daemon=True).start()
+    return jsonify({"success": True})
+
+
+@app.route("/api/agentic-commerce/query", methods=["POST"])
+def api_agentic_commerce_query():
+    """Ad-hoc agent-query resolvability test against the last audit's records."""
+    from src.analysis import agentic_commerce as acx
+    q = (request.get_json(silent=True) or {}).get("query", "")
+    if not q:
+        return jsonify({"error": "query required"}), 400
+    try:
+        result = json.loads((DATA_PATH / "agentic_commerce.json").read_text())
+    except Exception:
+        return jsonify({"error": "Run the audit first to build product records."}), 400
+    # The dashboard stores compact rows; re-resolve needs full records, so this
+    # ad-hoc console re-parses and matches against the stored product rows'
+    # known fields is limited — point the user at canonical results for now.
+    cons = acx.parse_agent_query(q)
+    return jsonify({"query": q, "constraints": {k: v for k, v in cons.items() if k != "raw"},
+                    "note": "Full resolution runs on the catalog during an audit; "
+                            "this shows the parsed constraints."})
+
+
+# ============================================================
 # PLUMBING AUDIT — read-only technical-SEO / crawl-waste audit
 # ============================================================
 # Phase 1: indexation waste, canonicals, internal linking. READ-ONLY — it

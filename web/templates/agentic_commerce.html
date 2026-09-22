@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Agentic Commerce — Governor{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🤖 Agentic Commerce</h1>
+    <p class="page-description">
+        Evaluates your Magento catalog as <strong>machine-consumable commerce data</strong> — the
+        structured facts an AI shopping agent needs to filter, compare, recommend and buy your
+        products (age, material, learning intent, personalization, price, availability). It reads
+        Magento, reconciles against your storefront JSON-LD and product feed, scores each product's
+        agent-readiness, and tests real shopper questions. <strong>Read-only — it never changes the
+        catalog and never invents a fact</strong>; a missing field is reported as a gap, not filled in.
+    </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;font-size:13px;">
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+        <button id="ag-run" class="pb-task-btn" onclick="agRun(this)">▶ Run readiness audit</button>
+        <span id="ag-meta" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <p style="margin:8px 0 0;color:var(--text-muted);">Reads the full catalog from Magento, then reconciles the top products by demand against storefront JSON-LD + feed (~1 req/sec) — runs in the background.</p>
+</div>
+
+<div id="ag-body"><p class="pb-loading">Loading…</p></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let AG=null, agTab='overview', agWas=false, agTimer=null;
+const SEV={high:{c:'#dc2626',l:'HIGH'}, medium:{c:'#d97706',l:'MED'}, low:{c:'#2563eb',l:'LOW'}};
+function scoreColor(s){ return s>=80?'#16a34a':s>=55?'#d97706':'#dc2626'; }
+
+async function agLoad(){
+  const d=await (await fetch('/api/agentic-commerce')).json();
+  AG=d; const running=!!(d.job&&d.job.running);
+  govJobUI('ag-run', running, {idleLabel:'▶ Run readiness audit', runningLabel:'⏳ Auditing…',
+    phase:d.job&&d.job.phase, sub:'Reading Magento + reconciling surfaces — read-only. You can leave this page.',
+    doneNote:(!running&&d.job&&d.job.note)?('✓ '+d.job.note):''});
+  agWas=running; render();
+  if(running){ clearTimeout(agTimer); agTimer=setTimeout(agLoad,2500); }
+}
+
+function tabBtn(id,label){ return `<button onclick="agTab='${id}';render();" style="font-weight:${agTab===id?700:400};background:none;border:none;cursor:pointer;font-size:13px;padding:6px 2px;color:${agTab===id?'var(--accent-purple)':'var(--text-muted)'};border-bottom:2px solid ${agTab===id?'var(--accent-purple)':'transparent'};">${label}</button>`; }
+
+function render(){
+  const body=document.getElementById('ag-body'); const r=AG&&AG.result;
+  const meta=document.getElementById('ag-meta');
+  if(!r){ body.innerHTML='<p class="empty-state">No audit yet — click <strong>Run readiness audit</strong>. It’s read-only.</p>'; meta.textContent=''; return; }
+  const t=r.totals||{};
+  meta.textContent=`Last run ${(r.generated_at||'').replace('T',' ')} · ${t.products} products · feed ${r.feed_available?'connected':'not configured'}`;
+  let html=`<div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
+    ${tabBtn('overview','Overview')} ${tabBtn('products','Products ('+t.products+')')}
+    ${tabBtn('queries','Agent queries ('+t.queries_fully_resolvable+'/'+t.queries_total+')')}
+    ${tabBtn('opps','Opportunities ('+t.opportunities+')')}</div>`;
+  if(agTab==='overview') html+=agOverview(r);
+  else if(agTab==='products') html+=agProducts(r);
+  else if(agTab==='queries') html+=agQueries(r);
+  else html+=agOpps(r);
+  body.innerHTML=html;
+}
+
+function tile(n,l,c){ return `<div class="cy-tile"><div class="n" style="color:${c||'inherit'};font-size:28px;font-weight:800;">${n}</div><div class="l" style="font-size:12px;color:var(--text-muted);">${l}</div></div>`; }
+function agOverview(r){
+  const t=r.totals;
+  return `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">
+    ${tile(t.avg_score+'/100','avg agent-readiness',scoreColor(t.avg_score))}
+    ${tile(t.with_missing_critical,'products missing agent-critical data','#d97706')}
+    ${tile(t.hard_fails,'hard fails (price/stock/URL)','#dc2626')}
+    ${tile(t.queries_fully_resolvable+'/'+t.queries_total,'shopper questions fully answerable')}
+    ${tile(t.opportunities,'opportunities')}
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);">The readiness score is a diagnostic for prioritization only — <em>not</em> a claim about ranking in any AI platform. Hard fails (wrong price, no availability, broken canonical) override it. ${r.feed_available?'':'<strong>Product feed not configured</strong> — set AGENTIC_FEED_URL to include feed-consistency checks.'}</p>`;
+}
+function agProducts(r){
+  let h=`<table class="pb-table"><thead><tr><th>Score</th><th>Product</th><th>Price</th><th>Stock</th><th>Missing agent-critical</th><th>Conflicts</th><th>Demand</th></tr></thead><tbody>`;
+  (r.products||[]).forEach(p=>{
+    const mc=(p.missing_critical||[]).map(m=>`<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;margin:1px;display:inline-block;">${escHtml(m)}</span>`).join(' ')||'<span style="color:#16a34a;">✓ complete</span>';
+    h+=`<tr>
+      <td><span style="font-weight:800;color:${scoreColor(p.score)};">${p.score}</span>${(p.hard_fails||[]).length?`<div style="font-size:9px;color:#dc2626;">${escHtml((p.hard_fails||[]).join(', '))}</div>`:''}</td>
+      <td style="max-width:230px;"><a href="${escHtml(p.url||'#')}" target="_blank">${escHtml(p.name||p.sku)}</a><div style="font-size:10px;color:var(--text-muted);">${escHtml(p.sku)}</div></td>
+      <td>${p.price!=null?'$'+p.price:'—'}</td>
+      <td>${p.in_stock===true?'in':p.in_stock===false?'<span style="color:#dc2626;">out</span>':'—'}</td>
+      <td style="max-width:260px;">${mc}</td>
+      <td>${p.conflicts?`<span style="color:#dc2626;font-weight:700;">${p.conflicts}</span>`:(p.surfaced?'0':'—')}</td>
+      <td style="font-size:11px;">${(p.demand&&p.demand.impressions)?p.demand.impressions.toLocaleString()+' impr':'—'}</td>
+    </tr>`;
+  });
+  return h+'</tbody></table>';
+}
+function agQueries(r){
+  let h='';
+  (r.queries||[]).forEach(q=>{
+    const ok=!q.unknown.length;
+    h+=`<div class="card" style="margin-bottom:10px;">
+      <div style="font-weight:600;">${ok?'🎯':'⚠'} “${escHtml(q.query)}”</div>
+      <div style="font-size:12px;margin-top:5px;">
+        <span style="color:#16a34a;">resolvable: ${(q.resolvable||[]).map(escHtml).join(', ')||'—'}</span>
+        ${q.unknown.length?`<br><span style="color:#b45309;">unknown (catalog lacks the structured field): <strong>${(q.unknown||[]).map(escHtml).join(', ')}</strong></span>`:''}
+      </div>
+      ${(q.candidates||[]).length?`<div style="font-size:12px;margin-top:6px;color:var(--text-muted);">top match: ${escHtml((q.candidates[0].name||q.candidates[0].sku))} (${(q.candidates[0].matched||[]).length} constraints met)</div>`:'<div style="font-size:12px;margin-top:6px;color:#b45309;">no product fully satisfies the known constraints</div>'}
+    </div>`;
+  });
+  return h||'<p class="empty-state">No queries.</p>';
+}
+function agOpps(r){
+  let h=`<table class="pb-table"><thead><tr><th>Sev</th><th>Product</th><th>Field</th><th>Issue</th><th>Proposal (not applied)</th><th>Auto?</th><th>Priority</th></tr></thead><tbody>`;
+  (r.opportunities||[]).slice(0,200).forEach(o=>{
+    const s=SEV[o.severity]||SEV.low;
+    h+=`<tr>
+      <td><span style="font-size:10px;font-weight:800;color:${s.c};">${s.l}</span></td>
+      <td style="max-width:180px;"><a href="${escHtml(o.url||'#')}" target="_blank">${escHtml(o.sku)}</a></td>
+      <td style="font-weight:600;">${escHtml(o.field)}</td>
+      <td style="max-width:280px;font-size:12px;">${escHtml(o.observed)}<div style="color:var(--text-muted);">${escHtml(o.why)}</div></td>
+      <td style="max-width:240px;font-size:12px;">${o.proposal==='needs human data'?'<span style="color:#b45309;font-weight:600;">needs human data</span>':escHtml(o.proposal)}</td>
+      <td>${o.auto_eligible?'<span style="color:#16a34a;">eligible</span>':'<span style="color:var(--text-muted);">human</span>'}</td>
+      <td style="font-weight:700;">${o.priority}</td>
+    </tr>`;
+  });
+  return h+'</tbody></table><p style="font-size:11px;color:var(--text-muted);margin-top:8px;">Read-only proposals. Nothing is applied. Price/availability conflicts are never auto-eligible; identifiers with no source read “needs human data”.</p>';
+}
+
+async function agRun(btn){
+  btn.disabled=true; btn.textContent='⏳ Starting…';
+  const d=await (await fetch('/api/agentic-commerce/run',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+  if(d.success){ agWas=true; AG=AG||{}; AG.job={running:true,phase:'starting…'};
+    govJobUI('ag-run', true, {idleLabel:'▶ Run readiness audit', runningLabel:'⏳ Auditing…', phase:'starting…', sub:'Reading Magento — read-only.'});
+    setTimeout(agLoad,900);
+  } else { govJobUI('ag-run', false, {idleLabel:'▶ Run readiness audit'});
+    document.getElementById('ag-body').innerHTML=`<div class="empty-state">${escHtml(d.error||'Failed')}.</div>`; }
+}
+agLoad();
+</script>
+{% endblock %}
