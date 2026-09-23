@@ -332,47 +332,79 @@ def _norm_url(u: str) -> str:
     return u.rstrip("/")
 
 
+def _batch_url_col(fieldnames):
+    for f in fieldnames or []:
+        n = (f or "").strip().lower()
+        if n in ("target", "url", "target url", "page url", "page") or "url" in n or n == "target":
+            return f
+    return None
+
+
+def _batch_rd_col(fieldnames):
+    # Prefer a column that clearly means REFERRING domains; never match
+    # "Linked Domains" / "Root Domains to Target" etc.
+    for f in fieldnames or []:
+        n = (f or "").strip().lower()
+        if ("referring" in n and "domain" in n and "dofollow" not in n) or n in ("ref domains", "ref. domains", "refdomains"):
+            return f
+    for f in fieldnames or []:            # looser fallback
+        n = (f or "").strip().lower()
+        if "ref" in n and "domain" in n and "dofollow" not in n:
+            return f
+    return None
+
+
 def parse_batch_csv(csv_text):
     """Parse an Ahrefs Batch Analysis export → ({normalized_url: referring_domains},
-    {normalized_url: domain_rating}, error_or_None). Accepts comma or tab and the
-    common Ahrefs column names."""
+    {normalized_url: domain_rating}, error_or_None).
+
+    Ahrefs exports vary: comma, tab OR semicolon delimited, sometimes with a BOM
+    and thousands-separated numbers (1,234). We try each delimiter and pick the
+    one whose header actually yields URL + Referring-Domains columns, instead of
+    guessing from punctuation counts."""
     import csv
     import io
-    sample = "\n".join((csv_text or "").splitlines()[:5])
-    delim = "\t" if sample.count("\t") > sample.count(",") else ","
-    rows, reader = [], None
-    for d in (delim, "," if delim != "," else "\t"):
+    text = (csv_text or "").lstrip("﻿")  # strip BOM
+    best = None  # (rows, url_col, rd_col, dr_col, fieldnames)
+    seen_headers = []
+    for d in (",", "\t", ";"):
         try:
-            reader = csv.DictReader(io.StringIO(csv_text), delimiter=d)
-            rows = list(reader)
+            reader = csv.DictReader(io.StringIO(text), delimiter=d)
+            fn = reader.fieldnames or []
         except csv.Error:
             continue
-        if reader.fieldnames and len(reader.fieldnames) > 1:
+        if not fn or len(fn) < 2:
+            continue
+        url_col = _batch_url_col(fn)
+        rd_col = _batch_rd_col(fn)
+        if len(fn) > len(seen_headers):
+            seen_headers = fn
+        if url_col and rd_col:
+            best = (list(reader), url_col, rd_col, _find_col(fn, "domain rating", "dr", "domain rating (dr)"), fn)
             break
-    if not rows or not reader:
-        return {}, {}, "Couldn't read that CSV — export from Ahrefs Batch Analysis with the header row included."
-    fn = reader.fieldnames or []
-    c_url = _find_col(fn, "target", "url", "target url", "page url", "page")
-    c_dom = _find_col(fn, "referring domains", "ref domains", "ref. domains",
-                      "refdomains", "domains")
-    c_dr = _find_col(fn, "domain rating", "dr", "domain rating (dr)")
-    if not c_url or not c_dom:
-        return {}, {}, ("That CSV has no URL / Referring Domains columns — it doesn't look like a "
-                        "Batch Analysis export. Re-export including those columns.")
+    if not best:
+        cols = ", ".join(h for h in (seen_headers or [])[:12] if h) or "(none detected)"
+        return {}, {}, ("Couldn't find the URL and Referring-Domains columns in that CSV. "
+                        f"Columns I saw: {cols}. Make sure you exported from Ahrefs → Batch "
+                        "Analysis (it must include a Target/URL column and a Referring Domains column).")
+    rows, c_url, c_dom, c_dr, _fn = best
     rd_by, dr_by = {}, {}
     for r in rows:
         u = _norm_url(r.get(c_url) or "")
         if not u:
             continue
         try:
-            rd_by[u] = int(float((r.get(c_dom) or "0").replace(",", "") or 0))
-        except ValueError:
+            rd_by[u] = int(float((r.get(c_dom) or "0").replace(",", "").strip() or 0))
+        except (ValueError, AttributeError):
             continue
         if c_dr:
             try:
-                dr_by[u] = int(float((r.get(c_dr) or "0").replace(",", "") or 0))
-            except ValueError:
+                dr_by[u] = int(float((r.get(c_dr) or "0").replace(",", "").strip() or 0))
+            except (ValueError, AttributeError):
                 pass
+    if not rd_by:
+        return {}, {}, ("Found the columns but no readable rows — the Referring-Domains values "
+                        "didn't parse as numbers. Send me the first couple of lines of the CSV.")
     return rd_by, dr_by, None
 
 

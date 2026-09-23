@@ -341,3 +341,47 @@ if __name__ == "__main__":
         fn()
         print(f"  ✓ {fn.__name__}")
     print(f"{len(fns)} tests passed")
+
+
+# ── Ahrefs Batch Analysis import ──────────────────────────────────────────────
+
+# The real Ahrefs Batch Analysis export header (comma-delimited): the URL column
+# is "Target" and referring domains is "Ref. domains / All" — NOT "Referring
+# Domains". Locks in the parser against that naming.
+_BATCH_CSV = (
+    "#,Target,Mode,IP,Protocol,URL Rating,Domain Rating,Ahrefs Rank,"
+    "Ref. domains / All,Ref. domains / Followed\n"
+    "1,alphabet-trains.com/name-trains.html,prefix,1.2.3.4,both,8,31,3634496,12,10\n"
+    '2,competitor-a.com/name-train,prefix,5.6.7.8,both,20,55,"1,200",80,70\n'
+    "3,competitor-b.com/wooden-trains,prefix,9.9.9.9,both,15,40,50000,45,40\n"
+    "4,amazon.com/whatever,prefix,1.1.1.1,both,90,96,10,900000,800000\n"
+)
+
+
+def test_parse_batch_csv_reads_real_ahrefs_headers():
+    rd, dr, err = lt.parse_batch_csv(_BATCH_CSV)
+    assert err is None
+    assert rd["alphabet-trains.com/name-trains.html"] == 12
+    assert rd["competitor-a.com/name-train"] == 80
+    assert dr["competitor-a.com/name-train"] == 55  # Domain Rating, not URL Rating
+
+
+def test_gap_from_batch_excludes_marketplaces_from_median():
+    target = {"url": "https://alphabet-trains.com/name-trains.html",
+              "keywords": [{"query": "name trains", "impressions": 500, "position": 9}]}
+    rd, _dr, _err = lt.parse_batch_csv(_BATCH_CSV)
+
+    def fake_serp(_kw):
+        return {"organic_results": [
+            {"url": "https://competitor-a.com/name-train", "position": 1},
+            {"url": "https://competitor-b.com/wooden-trains", "position": 2},
+            {"url": "https://amazon.com/whatever", "position": 3},
+            {"url": "https://alphabet-trains.com/name-trains.html", "position": 9},
+        ]}
+
+    g = lt.gap_from_batch(target, rd, fake_serp, keyword="name trains")
+    # Amazon's ~900k RDs must NOT enter the median; competitors are 80 & 45.
+    assert g["you"] == 12
+    assert g["page1"] == 62          # median(80, 45)
+    assert g["links_needed"] == 50   # 62 - 12
+    assert g["verdict"] == "authority_gap"
