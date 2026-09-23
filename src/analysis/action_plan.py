@@ -728,6 +728,13 @@ def _score_task(t):
         t["lever_score"] = round(max(impact, t["expected_clicks"] * 0.4 * w), 1)
     else:
         t["lever_score"] = round(impact, 1)
+    # Outreach (links) models the SUMMED demand of every authority-blocked page,
+    # over a 6-10 week horizon, at low landing odds (most prospects never link).
+    # Left raw it masquerades as the single biggest lever and grabs the #1 slot.
+    # Risk- and time-adjust to BANKABLE benefit so self-contained money-page fixes
+    # you can apply today rank above a slow, uncertain outreach campaign.
+    if cat == "links":
+        t["lever_score"] = round(t["lever_score"] * 0.2, 1)
     # URGENCY: a page that's actively SLIPPING (position momentum down) is more
     # time-sensitive than a static one — defend it before it falls off page 2. Scale
     # the bump by HOW FAR it dropped: a 3-position wobble is a nudge (~1.3x), a
