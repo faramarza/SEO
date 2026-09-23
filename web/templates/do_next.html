@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Do This Next{% endblock %}
-{% block header %}✅ Do This Next{% endblock %}
+{% block title %}Start Here{% endblock %}
+{% block header %}🏠 Start Here{% endblock %}
 
 {% block content %}
 <div class="dn-page">
     <p class="playbook-intro">
-        Every recommendation across the whole tool, boiled down to one ranked list.
-        Do them <strong>top to bottom</strong>. Each is spelled out step by step, with
-        the benefit, the payoff, the effort, and how long it typically takes to show
-        results. When you <strong>Start</strong> a task the tool remembers it and
-        <strong>automatically checks on the expected date</strong> whether it worked —
-        and tells you what to tweak if it didn't.
+        Every recommendation across the whole tool, boiled down to one list and
+        <strong>ranked by estimated sales impact</strong> — so the money pages come first,
+        not whatever ranks fastest. Just work <strong>top to bottom</strong>: 🔴 do the big
+        sales movers first, 🍒 grab the quick easy wins, ignore the low-priority pile until
+        you have spare time. When you <strong>Start</strong> a task the tool remembers it and
+        <strong>automatically checks on the expected date</strong> whether it worked.
     </p>
 
     <div id="dn-reviewed" class="dn-reviewed" style="display:none;"></div>
@@ -146,6 +146,7 @@ function taskCard(t, off){
                 <div class="dn-title">${c.icon} ${esc(t.title)}</div>
                 <div class="dn-sub">
                     <span class="dn-chip">${esc(c.label)}</span>
+                    ${t.low_hanging?`<span class="dn-chip" style="background:#dcfce7;color:#166534;" title="Quick and easy AND it drives real sales — grab this one first">🍒 low-hanging fruit</span>`:''}
                     ${t.rank_reason?`<span class="dn-why">${esc(t.rank_reason)}</span>`:''}
                     ${t.url?`<a href="${esc(t.url)}" target="_blank" title="${esc(t.url)}">${esc(fmtPath(t.url))}</a><span class="lp-slot" data-lp-url="${esc(t.url)}"></span>`:''}
                 </div>
@@ -203,51 +204,24 @@ function renderPlan(plan, extra){
     const extraOpen = (extra||[]).filter(t=>t.status!=='done');
     const extraDone = (extra||[]).filter(t=>t.status==='done');
     const inProgress = plan.filter(t=>t.adopted && t.status!=='done').concat(extraOpen);
-    // HEADLINE = your biggest GENUINE levers. Ranked by lever_score — which credits
-    // a position play by the traffic it could capture, NOT by how cheap it is to
-    // touch — with `minor` tasks (trivial brand/commodity CTR harvests) excluded
-    // entirely, so a $4/mo nudge on a term you already own can never sit at the top
-    // of "do this next". Capped at 2 per category so one bulk type can't fill it.
-    const levers=[...open].filter(t=>!t.minor)
-        .sort((a,b)=>(b.lever_score||0)-(a.lever_score||0));
-    const headline=[]; const hlCats={};
-    for(const t of levers){
-        if(headline.length>=6) break;
-        const n=hlCats[t.category]||0;
-        if(n>=2) continue;
-        headline.push(t); hlCats[t.category]=n+1;
-    }
-    const hlSet=new Set(headline.map(t=>t.dedup_key));
 
-    // SECOND LENS — strategic/compounding bets: top strategic_score tasks not
-    // already headlined (slow plays that lever_score can still under-rank).
-    const strat=[...open].filter(t=>!t.minor && !hlSet.has(t.dedup_key))
-        .sort((a,b)=>(b.strategic_score||0)-(a.strategic_score||0));
-    const stratBets=[]; const stratCats={};
-    for(const t of strat){
-        if(stratBets.length>=3) break;
-        if((t.strategic_score||0) < 8) break;      // nothing meaningfully compounding left
-        const n=stratCats[t.category]||0; if(n>=1) continue;  // one per category — diversity here IS the point
-        stratBets.push(t); stratCats[t.category]=n+1;
-    }
-    const betSet=new Set(stratBets.map(t=>t.dedup_key));
-    // MINOR — real but trivial cheap harvests (brand/commodity CTR, tiny fixes).
-    // Shown compact at the end so they can never crowd out the real levers.
-    const minorTasks = open.filter(t=>t.minor && !hlSet.has(t.dedup_key) && !betSet.has(t.dedup_key));
-    const backlog = open.filter(t=>!t.minor && !hlSet.has(t.dedup_key) && !betSet.has(t.dedup_key));
+    // THREE SALES-FIRST BUCKETS. The backend tags each task with a `tier` driven
+    // by estimated sales impact (commercial intent baked into lever_score), NOT by
+    // how fast a page can rank. We just group and order within each bucket by that
+    // same sales score. `low_hanging` flags the quick+easy ones for a 🍒 badge.
+    const byLever=(a,b)=>(b.lever_score||0)-(a.lever_score||0);
+    const tierOf=t=> t.tier || (t.minor?'nice':'quick');
+    const critical = open.filter(t=>tierOf(t)==='critical').sort(byLever);
+    const quick    = open.filter(t=>tierOf(t)==='quick').sort(byLever);
+    const nice     = open.filter(t=>tierOf(t)==='nice').sort(byLever);
 
     let html='';
-
-    // Say the quiet part out loud: how this is ranked, and what it can't see.
     html += `<div class="dn-lens-note">
-        <strong>How this list is ranked.</strong>
-        The top section is your <em>biggest genuine levers</em> — ranked by real impact,
-        where a page ranking just below the click zone is credited for the traffic it
-        could capture, not for how cheap it is to touch. Trivial-but-instant harvests
-        (a nudge on a brand term you already own, a page already at #1) are pulled OUT
-        of the headline into "small wins" so they can't crowd out what actually moves
-        the needle. Slow, compounding plays are called out as strategic bets. Anything
-        off the SEO surface — ads, email, checkout — lives on its own screen.
+        <strong>How this list is ordered.</strong>
+        Everything is ranked by <em>estimated sales impact</em> — not by how fast a page
+        can rank. A page you could push to page 1 in days but that won't convert sits
+        <em>below</em> a money page that actually sells. Just work top to bottom;
+        <strong>🍒 marks the quick, easy ones</strong> you can grab first.
     </div>`;
 
     if(inProgress.length){
@@ -255,53 +229,26 @@ function renderPlan(plan, extra){
         html += inProgress.map(t=>taskCard(t,false)).join('');
     }
 
-    html += `<h3 class="dn-section">🎯 Your biggest levers</h3>`;
-    if(headline.length){
-        html += `<p class="dn-section-sub">Ranked by genuine impact — the pages and fixes that actually move traffic, not the cheapest tasks. Do these first, top to bottom.</p>`;
-        html += headline.map(t=>taskCard(t,false)).join('');
+    html += `<h3 class="dn-section">🔴 Do first — biggest sales impact (${critical.length})</h3>`;
+    if(critical.length){
+        html += `<p class="dn-section-sub">Your money pages and anything actively slipping. Highest revenue upside — start at the top and work down.</p>`;
+        html += critical.map(t=>taskCard(t,false)).join('');
     } else {
-        html += `<p class="empty-state" style="text-align:left;">Nothing new to start — you're on top of it. 🎉</p>`;
+        html += `<p class="empty-state" style="text-align:left;">Nothing critical right now — you're on top of the big movers. 🎉</p>`;
     }
 
-    if(stratBets.length){
-        html += `<h3 class="dn-section">🌱 Strategic bets — compounding plays impact buries</h3>`;
-        html += `<p class="dn-section-sub">Slower and harder to measure, but they build durable traffic, authority, or a structural fix that lifts everything. Low near-term impact is expected — that's not a reason to skip them.</p>`;
-        html += stratBets.map(t=>taskCard(t,false)).join('');
+    if(quick.length){
+        html += `<h3 class="dn-section">🟢 Worth doing next — solid sales wins (${quick.length})</h3>`;
+        html += `<p class="dn-section-sub">Real sales upside, just smaller than the criticals. 🍒 = quick and easy — knock those out first.</p>`;
+        html += quick.map(t=>taskCard(t,false)).join('');
     }
 
-    // Batches: group same-type quick wins in the backlog into one session.
-    const batches={};
-    backlog.forEach(t=>{ if(t.is_quick){ (batches[t.category]=batches[t.category]||[]).push(t); } });
-    const batchCats=Object.keys(batches).filter(c=>batches[c].length>=2);
-    const batched=new Set();
-    if(batchCats.length){
-        html += `<h3 class="dn-section">⚡ Knock these out in one sitting</h3>`;
-        batchCats.forEach(c=>{
-            const items=batches[c]; items.forEach(t=>batched.add(t.dedup_key));
-            const reach=items.reduce((a,t)=>a+(t.reach||0),0);
-            html += `<div class="dn-batch">
-                <div class="dn-batch-head" onclick="this.parentElement.classList.toggle('open')">
-                    <span>⚡ ${esc(CAT_LABEL[c]||c)} — ${items.length} pages in one session</span>
-                    <button class="pb-task-btn" onclick="event.stopPropagation();dnAdoptBatch('${esc(c)}',this)">Start all ${items.length}</button>
-                </div>
-                <div class="dn-batch-items">${items.map(t=>taskCard(t,false)).join('')}</div>
-            </div>`;
-        });
-    }
-
-    // Trivial cheap harvests — real, but a few dollars each. Compact, clearly framed
-    // as optional so they never masquerade as the main focus.
-    if(minorTasks.length){
-        html += `<h3 class="dn-section">✨ While you're at it — small, cheap wins</h3>`;
-        html += `<p class="dn-section-sub">Real but minor — worth a few dollars each (brand terms you already own, pages already at #1, tiny fixes). Worth 5 minutes when you're already in that page, but never your main focus.</p>`;
-        html += minorTasks.slice(0,8).map(t=>taskCard(t,false)).join('');
-        if(minorTasks.length>8){ html += `<p class="dn-section-sub" style="opacity:.7;">…and ${minorTasks.length-8} more minor items.</p>`; }
-    }
-
-    const rest=backlog.filter(t=>!batched.has(t.dedup_key));
-    if(rest.length){
-        html += `<h3 class="dn-section dn-collapsible" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'block':'none';">▸ Backlog (${rest.length}) — later</h3>`;
-        html += `<div style="display:none;">${rest.map(t=>taskCard(t,false)).join('')}</div>`;
+    if(nice.length){
+        html += `<h3 class="dn-section dn-collapsible" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'block':'none';">▸ 💡 Low priority (${nice.length}) — little / no sales upside</h3>`;
+        html += `<div style="display:none;"><p class="dn-section-sub">Pages that can rank but won't move sales much, tiny fixes, and things too small to measure. Spare-time only — don't let them distract from the red section.</p>`;
+        html += nice.slice(0,20).map(t=>taskCard(t,false)).join('');
+        if(nice.length>20){ html += `<p class="dn-section-sub" style="opacity:.7;">…and ${nice.length-20} more.</p>`; }
+        html += `</div>`;
     }
 
     if(extraDone.length){

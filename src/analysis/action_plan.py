@@ -91,6 +91,12 @@ NEVER_MINOR = {"winnable", "striking", "content", "cro", "decay", "orphan", "geo
 # harvest) is "minor" — real, but it must never headline "do this next". A $10/mo
 # brand-CTR fix lands here; a $200/mo money-page fix does not.
 MINOR_IMPACT_FLOOR = 15.0
+# Priority-tier cutoffs on lever_score ($-equivalent). At/above CRITICAL a task is
+# a top-priority "big lever"; at/above QUICK it's a worthwhile quick win; below
+# that (and not cheap/fast) it's spare-time "nice to have". A 2,000-impression
+# money term scores ~40+; a $10 brand-CTR nudge scores well under QUICK.
+CRITICAL_LEVER = 40.0
+QUICK_TIER_FLOOR = 15.0
 # The store's own brand — CTR "fixes" on these are navigational noise (you already
 # own them) and must never be a headline lever.
 BRAND_HINTS = ("alphabet train", "alphabet-trains", "alphabettrains")
@@ -706,17 +712,20 @@ def _score_task(t):
     # Absolute impact ($-equivalent), independent of how cheap/fast it is — so a
     # trivial-but-instant task can't masquerade as a top priority.
     t["impact"] = round(impact, 1)
-    # LEVER score = how the headline list is ranked. For position/traffic plays the
-    # value is future clicks, not this month's dollars, so credit them by their
-    # reach (a page at pos 8-14 moved into the top 5 realistically converts ~2% of
-    # its impressions to clicks) — otherwise a $10 CTR harvest outranks a
-    # 1,000-impression winnable page, which is exactly the bug we're fixing.
+    # LEVER score = how the list is ranked. It must approximate SALES, not raw
+    # traffic — a blog post you could rank in two days but that converts ~nobody
+    # must never outrank a category page that actually makes money. So the reach
+    # proxy (a page at pos 8-14 moved into the top 5 converts ~2% of impressions
+    # to clicks) is weighted by COMMERCIAL INTENT `w` (product/category ≈ full,
+    # blog/guide heavily discounted) — the same weight `impact` uses — instead of
+    # crediting clicks a low-intent page will never turn into orders.
     if cat in ("winnable", "striking", "content", "orphan", "links", "consolidation"):
-        t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02), 1)
+        t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02 * w), 1)
     elif cat == "ctr" and (t.get("expected_clicks") or 0) >= 10:
-        # A big recoverable click volume is a real lever even when the $-figure
-        # is tiny (small-site CVR×AOV understates a 40-click/mo recovery).
-        t["lever_score"] = round(max(impact, t["expected_clicks"] * 0.4), 1)
+        # A recoverable click volume is a real lever even when the $-figure is
+        # tiny — but still weighted by intent, so recovering clicks on an
+        # informational page ranks below the same clicks on a money page.
+        t["lever_score"] = round(max(impact, t["expected_clicks"] * 0.4 * w), 1)
     else:
         t["lever_score"] = round(impact, 1)
     # URGENCY: a page that's actively SLIPPING (position momentum down) is more
@@ -774,6 +783,28 @@ def _score_task(t):
             "to prove anything either way.")
         if cat not in NEVER_MINOR:
             t["minor"] = True
+    # ── Priority tier for "what to do first" on Start Here — SALES-FIRST ─────
+    # Order is driven by lever_score, which is now a sales proxy (commercial
+    # intent baked in), NOT by how fast a page can rank. Three plain buckets:
+    #   critical = biggest sales impact, or a money page actively slipping — first.
+    #   quick    = a solid sales win, but smaller than the criticals.
+    #   nice     = little/no sales upside (incl. rank-fast-but-won't-sell pages),
+    #              trivial harvests, or unmeasurable — spare-time only.
+    # Effort does NOT decide the bucket; a fast, easy item that also sells is just
+    # flagged low_hanging so the operator can grab it first WITHIN its tier.
+    _lever = t.get("lever_score") or 0
+    _slipping = t.get("trend") == "down"
+    if t.get("minor") or not t.get("measurable") or _lever < QUICK_TIER_FLOOR:
+        t["tier"] = "nice"
+    elif _lever >= CRITICAL_LEVER or (_slipping and _lever >= QUICK_TIER_FLOOR):
+        t["tier"] = "critical"
+    else:
+        t["tier"] = "quick"
+    # Low-hanging fruit = genuinely quick/fast AND it clears the sales floor for
+    # its tier. A badge, not a bucket — so speed never jumps a no-sale page up.
+    t["low_hanging"] = (t["tier"] in ("critical", "quick")
+                        and hours <= 1.0 and t["time_to_impact_days"] <= 28)
+
     # A one-line, honest "why this rank".
     fast = t["time_to_impact_days"] <= 21
     cheap = hours <= 0.6

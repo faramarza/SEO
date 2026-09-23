@@ -890,10 +890,17 @@ def load_cached_data(filename):
 # ROUTES - PAGES
 # ============================================================
 
-@app.route("/")
+@app.route("/dashboard")
 def dashboard():
-    """Main dashboard view."""
+    """At-a-glance KPIs / posture view (was the home page; now under Monitor)."""
     return render_template("dashboard.html")
+
+
+@app.route("/")
+def home():
+    """Home = Do This Next: the one ranked, prioritized list the operator works
+    top-down. Everything else is a tool or a monitor behind it."""
+    return render_template("do_next.html")
 
 
 @app.route("/opportunities")

@@ -30,6 +30,15 @@
         box-shadow:0 8px 24px rgba(0,0,0,.28);pointer-events:none;opacity:0;transition:opacity .12s;}
     .nav-tip.on{opacity:1;}
     .nav-tip::before{content:"";position:absolute;left:-6px;top:13px;border:6px solid transparent;border-right-color:#111827;}
+    /* Collapsible nav sections */
+    .nav-group{margin-top:6px;}
+    .nav-group-header{cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.06em;
+        text-transform:uppercase;color:var(--text-muted);padding:8px 16px 4px;user-select:none;
+        display:flex;align-items:center;gap:6px;}
+    .nav-group-header:hover{color:var(--text-secondary);}
+    .nav-caret{display:inline-block;width:9px;font-size:9px;transition:transform .15s;}
+    .nav-group.collapsed .nav-caret{transform:rotate(-90deg);}
+    .nav-group.collapsed .nav-group-items{display:none;}
     </style>
 </head>
 <body>
@@ -38,27 +47,54 @@
             <h2>Governor</h2>
             <span class="subtitle">Organic Growth</span>
         </div>
+        {% set p = request.path %}
         <ul class="nav-links">
-            <li><a href="/" data-tip="At-a-glance KPIs, Governor posture, and your last evaluation." class="{% if request.path == '/' %}active{% endif %}">Dashboard</a></li>
-            <li><a href="/do-next" data-tip="Your ranked, deduped to-do list — the highest-impact actions first." class="{% if request.path == '/do-next' %}active{% endif %}" style="font-weight:700;">✅ Do This Next</a></li>
-            <li><a href="/opportunities" data-tip="Every page's SEO opportunity with AI recommendations." class="{% if request.path == '/opportunities' %}active{% endif %}">Opportunities</a></li>
-            <li><a href="/click-yield" data-tip="Full-site view: winnable page-2 keywords + the exact title/meta/link fix (with one-click Apply)." class="{% if request.path == '/click-yield' %}active{% endif %}">Click Yield</a></li>
-            <li><a href="/tasks" data-tip="Track actions you've adopted through to a measured outcome." class="{% if request.path == '/tasks' %}active{% endif %}">Task Board <span id="task-alert-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></a></li>
-            <li><a href="/learning" data-tip="What past changes actually moved rankings — the tool's memory." class="{% if request.path == '/learning' %}active{% endif %}">Learning</a></li>
-            <li><a href="/growth" data-tip="AI visibility (are you cited in AI answers?) + growth memos." class="{% if request.path == '/growth' %}active{% endif %}">Growth</a></li>
-            <li><a href="/content" data-tip="Content gaps and article generation." class="{% if request.path == '/content' %}active{% endif %}">Content</a></li>
-            <li><a href="/duplication" data-tip="Near-duplicate / thin pages to consolidate (n-gram passage overlap)." class="{% if request.path == '/duplication' %}active{% endif %}">Duplication</a></li>
-            <li><a href="/playbook" data-tip="The growth playbook: striking-distance wins + qualified link prospects." class="{% if request.path == '/playbook' %}active{% endif %}">Playbook</a></li>
-            <li><a href="/link-map" data-tip="Your internal link graph — click depth, orphans, authority flow." class="{% if request.path == '/link-map' %}active{% endif %}">Link Map</a></li>
-            <li><a href="/plumbing-audit" data-tip="Read-only technical audit: crawl-waste, canonicals, indexation bloat." class="{% if request.path == '/plumbing-audit' %}active{% endif %}">Plumbing Audit</a></li>
-            <li><a href="/agentic-commerce" data-tip="Is your catalog readable by AI shopping agents? Readiness score + missing product facts. (just built)" class="{% if request.path == '/agentic-commerce' %}active{% endif %}">Agentic Commerce</a></li>
-            <li><a href="/link-targets" data-tip="Outreach worksheet: how many links each page needs to reach page 1." class="{% if request.path == '/link-targets' %}active{% endif %}">Link Targets</a></li>
-            <li><a href="/what-if" data-tip="Test alternative keywords for a page before committing outreach/content." class="{% if request.path == '/what-if' %}active{% endif %}">What-if</a></li>
-            <li><a href="/tracking" data-tip="GSC/GA4 data quality + technical diagnostics." class="{% if request.path == '/tracking' %}active{% endif %}">Tracking</a></li>
-            <li><a href="/loop" data-tip="Unattended, throttled meta rewrites to Magento — measured and revertable." class="{% if request.path == '/loop' %}active{% endif %}">Loop</a></li>
-            <li><a href="/institutional" data-tip="B2B prospecting: Montessori schools, public schools; drafts outreach emails." class="{% if request.path == '/institutional' %}active{% endif %}">B2B</a></li>
-            <li><a href="/admin" data-tip="Config, evaluation runs, sitemap import." class="{% if request.path == '/admin' %}active{% endif %}">Admin</a></li>
-            <li><a href="/logout" style="color:var(--text-muted);">Sign out</a></li>
+            <!-- DAILY — the only two you touch every day -->
+            <li><a href="/" data-tip="Home. The app's ranked to-do list: what to do first, grouped critical → quick wins → nice-to-have." class="{% if p in ['/', '/do-next'] %}active{% endif %}" style="font-weight:700;">🏠 Start Here</a></li>
+            <li><a href="/tasks" data-tip="The work you've started, tracked through to a measured outcome." class="{% if p == '/tasks' %}active{% endif %}" style="font-weight:700;">📋 Task Board <span id="task-alert-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></a></li>
+
+            <li class="nav-group" data-group="find">
+                <div class="nav-group-header" onclick="govNavToggle('find')"><span class="nav-caret">▾</span> FIND WORK</div>
+                <div class="nav-group-items">
+                    <a href="/opportunities" data-tip="Every page's SEO opportunity with AI recommendations. Feeds Start Here." class="{% if p == '/opportunities' %}active{% endif %}">Opportunities</a>
+                    <a href="/click-yield" data-tip="Winnable page-2 keywords + the exact title/meta fix (one-click Apply). Feeds Start Here." class="{% if p == '/click-yield' %}active{% endif %}">Click Yield</a>
+                    <a href="/content" data-tip="Content gaps and article generation." class="{% if p == '/content' %}active{% endif %}">Content</a>
+                    <a href="/link-targets" data-tip="Outreach worksheet: how many links each page needs to reach page 1." class="{% if p == '/link-targets' %}active{% endif %}">Link Targets</a>
+                    <a href="/what-if" data-tip="Test alternative keywords for a page before committing outreach/content." class="{% if p == '/what-if' %}active{% endif %}">What-if</a>
+                    <a href="/playbook" data-tip="Striking-distance wins + qualified link prospects (same data as Start Here, shown as a report)." class="{% if p == '/playbook' %}active{% endif %}">Playbook</a>
+                </div>
+            </li>
+
+            <li class="nav-group" data-group="monitor">
+                <div class="nav-group-header" onclick="govNavToggle('monitor')"><span class="nav-caret">▾</span> MONITOR</div>
+                <div class="nav-group-items">
+                    <a href="/dashboard" data-tip="At-a-glance KPIs, Governor posture, and your last evaluation." class="{% if p == '/dashboard' %}active{% endif %}">Dashboard</a>
+                    <a href="/growth" data-tip="AI visibility (are you cited in AI answers?) + growth memos." class="{% if p == '/growth' %}active{% endif %}">Growth</a>
+                    <a href="/learning" data-tip="What past changes actually moved rankings — the tool's memory." class="{% if p == '/learning' %}active{% endif %}">Learning</a>
+                    <a href="/tracking" data-tip="GSC/GA4 data quality + technical diagnostics." class="{% if p == '/tracking' %}active{% endif %}">Tracking</a>
+                    <a href="/duplication" data-tip="Near-duplicate / thin pages to consolidate." class="{% if p == '/duplication' %}active{% endif %}">Duplication</a>
+                    <a href="/link-map" data-tip="Your internal link graph — click depth, orphans, authority flow." class="{% if p == '/link-map' %}active{% endif %}">Link Map</a>
+                    <a href="/plumbing-audit" data-tip="Read-only technical audit: crawl-waste, canonicals, indexation bloat." class="{% if p == '/plumbing-audit' %}active{% endif %}">Plumbing Audit</a>
+                    <a href="/agentic-commerce" data-tip="Is your catalog readable by AI shopping agents? Readiness score + missing product facts." class="{% if p == '/agentic-commerce' %}active{% endif %}">Agentic Commerce</a>
+                </div>
+            </li>
+
+            <li class="nav-group" data-group="outreach">
+                <div class="nav-group-header" onclick="govNavToggle('outreach')"><span class="nav-caret">▾</span> OUTREACH &amp; AUTOMATION</div>
+                <div class="nav-group-items">
+                    <a href="/institutional" data-tip="B2B prospecting: Montessori schools, public schools; drafts outreach emails." class="{% if p == '/institutional' %}active{% endif %}">B2B</a>
+                    <a href="/loop" data-tip="Unattended, throttled meta rewrites to Magento — measured and revertable." class="{% if p == '/loop' %}active{% endif %}">Loop</a>
+                </div>
+            </li>
+
+            <li class="nav-group" data-group="setup">
+                <div class="nav-group-header" onclick="govNavToggle('setup')"><span class="nav-caret">▾</span> SETUP</div>
+                <div class="nav-group-items">
+                    <a href="/admin" data-tip="Config, evaluation runs, sitemap import." class="{% if p == '/admin' %}active{% endif %}">Admin</a>
+                </div>
+            </li>
+
+            <li style="margin-top:6px;"><a href="/logout" style="color:var(--text-muted);">Sign out</a></li>
         </ul>
         <div class="nav-notification" id="notification-bell" onclick="toggleNotifications()" style="padding:8px 16px;cursor:pointer;position:relative;font-size:14px;color:var(--text-secondary);">
             🔔 Notifications <span id="notification-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span>
@@ -113,6 +149,27 @@
         }
         return Promise.resolve(viaExec());
     }
+
+    /* Collapsible nav sections. Advanced groups start collapsed so the sidebar
+       shows Start Here + Task Board + section headers by default; the group
+       containing the current page is auto-expanded, and choices persist. */
+    function govNavToggle(name){
+        const el=document.querySelector('.nav-group[data-group="'+name+'"]');
+        if(!el) return;
+        const collapsed=el.classList.toggle('collapsed');
+        try{ localStorage.setItem('govNav:'+name, collapsed?'1':'0'); }catch(e){}
+    }
+    (function(){
+        document.querySelectorAll('.nav-group').forEach(g=>{
+            const name=g.getAttribute('data-group');
+            const hasActive=!!g.querySelector('a.active');
+            let stored=null; try{ stored=localStorage.getItem('govNav:'+name); }catch(e){}
+            // Default collapsed; open if it holds the current page, or if the
+            // user previously expanded it.
+            const collapsed = hasActive ? false : (stored===null ? true : stored==='1');
+            g.classList.toggle('collapsed', collapsed);
+        });
+    })();
 
     /* Sidebar hover bubbles — describe what each nav item does. */
     (function(){
