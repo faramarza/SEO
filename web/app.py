@@ -3730,17 +3730,115 @@ def _capture_baseline(url: str) -> dict | None:
     return baseline if (baseline.get("gsc") or baseline.get("ga4")) else None
 
 
+def _measurement_instrument(action, rec: dict) -> dict | None:
+    """Decide which instrument can actually judge this action.
+
+    Google Search Console measures clicks / impressions / CTR / rank. That is the
+    right instrument for a title/meta test (did CTR move?) or a visibility fix
+    (did the page start getting impressions?) — and the WRONG instrument for
+    everything else the board proposes:
+
+      • GEO / AI-citation  → judged by AI-answer citations, invisible to GSC
+      • Reviews / social proof → judged by conversion + trust (GA4 / review counts)
+      • Internal / external links → structural, slow, not isolatable in 28 days
+      • Observe / plan items → no edit to a live page, nothing to compare
+
+    For those, return a terminal verdict (outcome=inconclusive so Learning never
+    penalises an unmeasured task, plus a metrics.instrument tag the board uses to
+    show the right "what now" instead of the generic GSC-revert text). Return None
+    to fall through to the GSC comparison.
+    """
+    at = (getattr(action, "action_type", "") or "").upper()
+    con = (rec.get("primary_constraint") or "").strip().lower()
+    blob = (at + " " + con).lower()
+
+    # Observe / plan items — nothing changed on THIS url to measure.
+    if "observe" in at or "action plan" in con:
+        return {"outcome": "inconclusive", "metrics": {"instrument": "observe"},
+                "notes": "This is an observe / plan item, not an edit to a live page — there is no "
+                         "before-and-after on this URL for search metrics to read. Its payoff shows "
+                         "up in the pages or links it leads you to create; mark it done once you've "
+                         "acted on the plan. Not a failed change."}
+
+    # GEO / AI-citation — measured by AI-answer citations, never by Google clicks.
+    if "geo" in blob or "ai citation" in blob or "citation" in blob or "geo/ai" in blob:
+        return {"outcome": "inconclusive", "metrics": {"instrument": "ai_visibility"},
+                "notes": "GEO / AI-citation work is invisible to Google Search Console — being cited "
+                         "(or not) inside a ChatGPT / Gemini / AI-Overview answer never shows up as a "
+                         "click or impression, so GSC is the wrong instrument. Judge it in "
+                         "Growth → AI Visibility, which checks whether AI engines now cite this page. "
+                         "Keep the schema / clarity improvements regardless — they don't hurt classic "
+                         "SEO. Not a failed change."}
+
+    # Reviews / social proof — a conversion-and-trust lever, not a search-clicks lever.
+    if "review" in con or "social proof" in con:
+        return {"outcome": "inconclusive", "metrics": {"instrument": "conversion"},
+                "notes": "Reviews / social proof move conversion rate and buyer trust, not Search "
+                         "Console clicks — GSC can't see them. Measure this in GA4 (conversion rate / "
+                         "revenue for the page) or your review platform's counts, not here. Not a "
+                         "failed change."}
+
+    # Internal / external links — structural, slow, not isolatable in a 28-day GSC window.
+    if "internal linking" in con or "outreach" in con or "external link" in con or " links" in (" " + blob):
+        return {"outcome": "inconclusive", "metrics": {"instrument": "structural"},
+                "notes": "Link changes (internal links, outreach) work slowly and indirectly — a "
+                         "single new link almost never moves this page's Google clicks inside 28 days, "
+                         "and any move can't be isolated from everything else changing. Verify the "
+                         "link is live and pointing where intended; the payoff compounds over months "
+                         "as gradual rank / impression gains, not a measurable 28-day step. Not a "
+                         "failed change."}
+
+    # Title/meta (SERP click-through) and visibility fixes — GSC IS the right
+    # instrument. Fall through to the clicks/impressions/rank comparison.
+    return None
+
+
 def _auto_measure_action(action, config: dict) -> dict | None:
     """Compare current metrics against baseline for one action.
 
     Returns a dict with outcome/metrics/notes, or None if not measurable.
     """
+    rec = action.recommendation_json or {}
+
+    # STEP 1 — pick the right instrument BEFORE touching GSC numbers.
+    # Most Task Board items are NOT title/meta tests. Google Search Console can
+    # only see clicks, impressions, CTR and rank — it cannot see whether an AI
+    # engine cited the page, whether an internal link was added, or whether
+    # reviews appeared. Measuring those by GSC always produces a misleading
+    # "inconclusive". Route each action to the instrument that can actually judge
+    # it; only title/meta and visibility work falls through to the GSC compare.
+    plan = _measurement_instrument(action, rec)
+    if plan is not None:
+        return plan
+
+    # STEP 2 — GSC-measurable actions (title/meta CTR, visibility/impressions)
+    # need a before-picture. If none was captured, say why in plain terms.
     if action.baseline_metrics is None:
-        return {"outcome": "inconclusive", "notes": "No baseline metrics captured at implementation time."}
+        return {"outcome": "inconclusive", "metrics": {"instrument": "no_baseline"},
+                "notes": "No baseline was captured when this was marked done — the GSC/GA4 read "
+                         "failed that day, so there is no before-picture to compare against. Hit "
+                         "↩ Reopen & retry to snapshot a fresh baseline now and start a clean "
+                         "28-day window."}
 
     baseline_gsc = action.baseline_metrics.get("gsc")
-    if not baseline_gsc or baseline_gsc.get("clicks_28d", 0) == 0 and baseline_gsc.get("impressions_28d", 0) == 0:
-        return {"outcome": "inconclusive", "notes": "Baseline had zero GSC traffic — cannot compare."}
+    if not baseline_gsc:
+        return {"outcome": "inconclusive", "metrics": {"instrument": "no_baseline"},
+                "notes": "No GSC baseline captured — cannot compare. Reopen & retry to capture one now."}
+    # A page too quiet to measure: a title/meta tweak can't be A/B-measured when
+    # the page has ~no search traffic. Say so honestly instead of looping through
+    # 'mixed signals' / 'possible API issue' on 13→5 impressions.
+    LOW_TRAFFIC_IMPR = 50
+    if baseline_gsc.get("clicks_28d", 0) == 0 and baseline_gsc.get("impressions_28d", 0) < LOW_TRAFFIC_IMPR:
+        return {"outcome": "inconclusive",
+                "metrics": {"instrument": "low_traffic",
+                            "baseline_impressions": baseline_gsc.get("impressions_28d", 0),
+                            "baseline_clicks": 0},
+                "notes": (f"Too little search traffic to measure a change here "
+                          f"({baseline_gsc.get('impressions_28d', 0)} impressions / 28d, 0 clicks at "
+                          "baseline). A title/meta tweak can't be A/B-measured on a page this quiet — "
+                          "the movement is statistical noise, not signal. Keep the change unless the "
+                          "page visibly worsens, and aim measurement at your higher-traffic pages. "
+                          "This is an UNMEASURABLE page, not a failed change.")}
 
     # Fetch current GSC metrics
     try:

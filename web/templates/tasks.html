@@ -471,6 +471,40 @@ function taskNextStep(task) {
             + 'higher-traffic play — a page with single-digit clicks can’t prove much either way.' };
     }
     if (task.outcome === 'inconclusive') {
+        // Instrument-specific guidance. The backend tags WHY a task can't be read
+        // by Google clicks so the board stops telling you to "revert" a link or a
+        // GEO edit that GSC was never able to measure in the first place.
+        const inst = m.instrument;
+        if (inst === 'ai_visibility') {
+            return { text: 'Nothing to revert — this is measured in the wrong place here. Open '
+                + 'Growth → AI Visibility and check whether ChatGPT / Gemini / AI Overviews now cite '
+                + 'this page. Keep the schema/clarity edits either way; they don’t hurt classic SEO.' };
+        }
+        if (inst === 'conversion') {
+            return { text: 'Search Console can’t see reviews or trust signals. Judge this in GA4 '
+                + '(conversion rate / revenue for this page) or your review platform’s counts. '
+                + 'Keep the change unless conversion visibly drops.' };
+        }
+        if (inst === 'structural') {
+            return { text: 'Link work pays off slowly and can’t be isolated in 28 days of GSC. '
+                + 'Just confirm the link is live and points where intended, then leave it — the gain '
+                + 'shows up over months as gradual rank/impression lift, not a measurable step. Mark done.' };
+        }
+        if (inst === 'observe') {
+            return { text: 'This was an observe/plan item — nothing changed on this URL to measure. '
+                + 'Mark it done once you’ve acted on the plan; its payoff appears in the pages or '
+                + 'links it leads you to create.' };
+        }
+        if (inst === 'low_traffic') {
+            return { text: 'This page has almost no search traffic, so a title/meta change can’t be '
+                + 'A/B-measured here — the movement is noise, not signal. Keep the change and aim '
+                + 'measurement at higher-traffic pages. Not a failed change.' };
+        }
+        if (inst === 'no_baseline') {
+            return { warn: true, text: 'No before-picture was captured (the GSC/GA4 read failed the day '
+                + 'this was marked done). Hit ↩ Reopen & retry to snapshot a fresh baseline now and '
+                + 'start a clean 28-day window.' };
+        }
         return { warn: true, text: gscCheck };
     }
     return null;
