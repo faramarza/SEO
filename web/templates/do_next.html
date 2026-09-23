@@ -325,8 +325,10 @@ function renderPlan(plan, extra){
     body.innerHTML=html;
 
     // Auto-load the paste-ready deliverable for the focus task (once, cached).
-    if(focus && DN_AUTODELIV.has((focus.category||'').toLowerCase())){
-        dnAutoDeliv(focus);
+    if(focus){
+        const fcat=(focus.category||'').toLowerCase();
+        if(fcat==='links') dnAutoOutreach(focus);
+        else if(DN_AUTODELIV.has(fcat)) dnAutoDeliv(focus);
     }
     lpAnnotate();
 }
@@ -334,24 +336,36 @@ function renderPlan(plan, extra){
 function activeCard(t, pos, total){
     const c=CAT_META[t.category]||{icon:'•',label:t.category};
     const steps=dnSteps(t);
-    const done=Math.min(dnStepDoneCount(t.dedup_key), steps.length);
     const cat=(t.category||'').toLowerCase();
+    const isLinks = cat==='links';
     const where=DN_WHERE[cat]||'Follow the steps below on the page itself, then save.';
-    const allDone = done>=steps.length;
-    const stepsHtml = steps.map((s,i)=>{
-        const isCode=/^\s*[\[{<]/.test(s);
-        const body=isCode?`<pre class="dn-code" style="margin:4px 0 0;">${esc(s)}</pre>`:`<span class="dn-stxt">${esc(s)}</span>`;
-        if(i<done)  return `<li class="dn-s-done">${body}</li>`;
-        if(i===done)return `<li class="dn-s-now">${body}<br><button class="dn-step-done" onclick="dnStepDo('${esc(t.dedup_key)}',${steps.length})">Did it ✓</button></li>`;
-        return `<li class="dn-s-lock">${body}</li>`;
-    }).join('');
-    // Content tasks: a prominent "write it for me" that fills the deliverable box.
     const domId='dv-'+dnKeyId(t.dedup_key);
-    const writeBtn = cat==='content'
-        ? `<button class="pb-task-btn" onclick="dnGenerate('${esc(t.dedup_key)}','${domId}',this)">✍️ Write the full article for me (2–4 min)</button>` : '';
-    const cached = DN_DELIV[t.dedup_key];
-    const delivHtml = cached!==undefined ? cached
-        : (DN_AUTODELIV.has(cat) ? '<p class="pb-loading" style="margin:6px 0;">Writing your paste-ready text…</p>' : '');
+    const cached=DN_DELIV[t.dedup_key];
+    let stepsHtml, allDone, writeBtn='', delivHtml='';
+    if(isLinks){
+        // Fully self-contained: plain instructions + the actual emails inline.
+        const ls=[
+          'Pick a site from the ready-to-send emails below.',
+          'Hit <b>Copy</b>, paste the email into your email app, change one line so it sounds like you, and send. (If it shows a contact-form link instead of an address, paste it there.)',
+          'Send a few now, more later — you don’t have to do them all. Then hit <b>DONE</b> to start measuring.'];
+        stepsHtml = ls.map(s=>`<li class="dn-s-lock"><span class="dn-stxt">${s}</span></li>`).join('');
+        allDone = true;
+        delivHtml = cached!==undefined ? cached : '<p class="pb-loading" style="margin:6px 0;">Pulling the emails Governor already wrote…</p>';
+    } else {
+        const done=Math.min(dnStepDoneCount(t.dedup_key), steps.length);
+        allDone = done>=steps.length;
+        stepsHtml = steps.map((s,i)=>{
+            const isCode=/^\s*[\[{<]/.test(s);
+            const body=isCode?`<pre class="dn-code" style="margin:4px 0 0;">${esc(s)}</pre>`:`<span class="dn-stxt">${esc(s)}</span>`;
+            if(i<done)  return `<li class="dn-s-done">${body}</li>`;
+            if(i===done)return `<li class="dn-s-now">${body}<br><button class="dn-step-done" onclick="dnStepDo('${esc(t.dedup_key)}',${steps.length})">Did it ✓</button></li>`;
+            return `<li class="dn-s-lock">${body}</li>`;
+        }).join('');
+        writeBtn = cat==='content'
+            ? `<button class="pb-task-btn" onclick="dnGenerate('${esc(t.dedup_key)}','${domId}',this)">✍️ Write the full article for me (2–4 min)</button>` : '';
+        delivHtml = cached!==undefined ? cached
+            : (DN_AUTODELIV.has(cat) ? '<p class="pb-loading" style="margin:6px 0;">Writing your paste-ready text…</p>' : '');
+    }
     return `<div class="dn-guide">
         <div class="dn-guide-top"><span class="dn-now">NOW</span>
             <span class="dn-pos">#${pos} of ${total}</span>${tierLabel(t)}
@@ -407,6 +421,39 @@ async function dnAutoDeliv(t){
         DN_DELIV[key]=html;
         const b2=document.getElementById('dv-'+dnKeyId(key)); if(b2) b2.innerHTML=html;
     }catch(e){ DN_DELIV[key]=''; const b2=document.getElementById('dv-'+dnKeyId(key)); if(b2) b2.innerHTML=''; }
+}
+
+// Outreach tasks: pull the actual drafted emails INLINE — who to email, subject,
+// body, contact route — with Copy buttons. No "go to Playbook", no jargon.
+async function dnAutoOutreach(t){
+    const key=t.dedup_key;
+    if(DN_DELIV[key]!==undefined){ const b0=document.getElementById('dv-'+dnKeyId(key)); if(b0) b0.innerHTML=DN_DELIV[key]; return; }
+    try{
+        const d=await (await fetch('/api/action-plan/outreach-pack')).json();
+        let html='';
+        if(!d.available){
+            html=`<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:13px;">No prospects discovered yet. Open <a href="/playbook">Playbook</a> → Link Prospects and click <b>Discover prospects</b> first, then come back.</div>`;
+        } else if(!d.ready_count){
+            html=`<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:13px;">${d.total} sites are lined up but none have a written email yet. <a href="/playbook">Open Playbook → Link Prospects</a> and click <b>Draft all</b> to have Governor write them, then come back — they'll appear here ready to send.</div>`;
+        } else {
+            html=`<div style="font-size:13px;color:#166534;font-weight:600;margin-bottom:8px;">✅ ${d.ready_count} email${d.ready_count>1?'s':''} written and ready to send${d.undrafted?` · ${d.undrafted} more sites need a draft (Playbook → Draft all)`:''}:</div>`;
+            html+=d.ready.map((r,i)=>{
+                const to = r.email ? `<b>${esc(r.email)}</b>` : (r.contact_link?`their contact form → <a href="${esc(r.contact_link)}" target="_blank">${esc(r.domain)}</a>`:'(no public address — skip)');
+                const label = r.is_forum_reply ? 'Forum reply (post it in the thread — don’t email)' : 'Email';
+                const full = (r.subject?('Subject: '+r.subject+'\n\n'):'')+(r.body||'');
+                return `<div class="dn-dv-block" style="margin-bottom:10px;">
+                    <div class="dn-dv-label">${i+1}. ${esc(r.domain)} — send to: ${to}${r.warning?` <span style="color:#b45309;">⚠ ${esc(r.warning)}</span>`:''}</div>
+                    <div class="dn-dv-row" style="align-items:flex-start;">
+                        <div class="dn-dv-text" style="white-space:pre-wrap;">${esc(full)}</div>
+                        <button class="dn-copy-btn" onclick="dnCopy(this)">Copy ${r.is_forum_reply?'reply':'email'}</button>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${esc(label)}${r.why?' · why them: '+esc(r.why):''}</div>
+                </div>`;
+            }).join('');
+        }
+        DN_DELIV[key]=html;
+        const b2=document.getElementById('dv-'+dnKeyId(key)); if(b2) b2.innerHTML=html;
+    }catch(e){ const b2=document.getElementById('dv-'+dnKeyId(key)); if(b2) b2.innerHTML='<p class="empty-state" style="text-align:left;">Couldn’t load the drafts.</p>'; }
 }
 
 function dnCopy(btn){

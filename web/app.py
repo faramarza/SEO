@@ -5550,6 +5550,51 @@ def api_link_prospects():
     return jsonify(data)
 
 
+@app.route("/api/action-plan/outreach-pack")
+def api_action_plan_outreach_pack():
+    """Everything the outreach task needs, INLINE — so Start Here never says
+    'go to Playbook'. Returns the tier-1/2 prospects that already have a written
+    draft (who to email, subject, body, contact route), ready to copy and send,
+    plus how many still need a draft."""
+    from src.analysis.link_prospects import load_link_prospects, load_statuses
+    data = load_link_prospects() or {}
+    prospects = data.get("prospects", [])
+    st = load_statuses()
+    ready, total_t12, undrafted = [], 0, 0
+    for p in prospects:
+        if (p.get("tier") or 0) not in (1, 2):
+            continue
+        if st.get((p.get("domain") or "").lower(), {}).get("status") == "skipped":
+            continue
+        total_t12 += 1
+        d = p.get("draft") or {}
+        if not d:
+            undrafted += 1
+            continue
+        emails = d.get("emails") or []
+        contact_links = d.get("contact_links") or []
+        ready.append({
+            "domain": p.get("domain", ""),
+            "status": p.get("outreach_status") or st.get((p.get("domain") or "").lower(), {}).get("status", "new"),
+            "target_url": p.get("target_url", ""),
+            "why": (p.get("angle") or "")[:200],
+            "is_forum_reply": bool(d.get("is_forum_reply")),
+            "email": emails[0] if emails else "",
+            "contact_link": contact_links[0] if contact_links else (d.get("prospect_page") or ""),
+            "subject": d.get("subject", ""),
+            "body": d.get("reply") if d.get("is_forum_reply") else d.get("body", ""),
+            "warning": d.get("outreach_warning", ""),
+        })
+    # Drafted first, then by tier already implied. Cap for the card.
+    return jsonify({
+        "available": bool(prospects),
+        "ready": ready[:15],
+        "ready_count": len(ready),
+        "undrafted": undrafted,
+        "total": total_t12,
+    })
+
+
 def _expand_seed_topic(topic):
     """Turn a buyer topic into 8-10 search queries that surface gift guides,
     resource pages, reviews, and roundups — LLM expansion with a deterministic
