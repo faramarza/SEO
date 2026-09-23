@@ -4,22 +4,46 @@
 
 {% block content %}
 <div class="dn-page">
-    <p class="playbook-intro">
-        Every recommendation across the whole tool, boiled down to one list and
-        <strong>ranked by estimated sales impact</strong> — so the money pages come first,
-        not whatever ranks fastest. Just work <strong>top to bottom</strong>: 🔴 do the big
-        sales movers first, 🍒 grab the quick easy wins, ignore the low-priority pile until
-        you have spare time. When you <strong>Start</strong> a task the tool remembers it and
-        <strong>automatically checks on the expected date</strong> whether it worked.
-    </p>
-
     <div id="dn-reviewed" class="dn-reviewed" style="display:none;"></div>
     <div id="dn-datastatus" class="dn-datastatus" style="display:none;"></div>
-    <div id="dn-strategy" class="dn-strategy"><p class="pb-loading" style="margin:0;">Reading your whole picture to find the #1 focus…</p></div>
-    <div id="dn-meta" class="playbook-meta"></div>
     <div id="dn-body"><p class="pb-loading">Loading your plan…</p></div>
     <div id="dn-toast" class="pb-toast"></div>
 </div>
+
+<style>
+.dn-q-bar{display:flex;gap:14px;align-items:center;font-size:13px;color:var(--text-muted);margin:0 0 14px;flex-wrap:wrap;}
+.dn-q-bar b{color:var(--text-primary);}
+.dn-guide{border:2px solid var(--accent-blue);border-radius:14px;padding:20px;background:var(--bg-card,#fff);box-shadow:0 6px 22px rgba(37,99,235,.10);}
+.dn-guide-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+.dn-now{background:var(--accent-blue);color:#fff;font-size:12px;font-weight:800;letter-spacing:.05em;padding:2px 10px;border-radius:20px;}
+.dn-pos{font-size:12px;color:var(--text-muted);font-weight:600;}
+.dn-tierlbl{font-size:12px;font-weight:700;}
+.dn-guide-title{font-size:20px;font-weight:800;margin:4px 0 6px;line-height:1.25;}
+.dn-guide-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;margin-bottom:12px;}
+.dn-payoff{background:#dcfce7;color:#166534;font-weight:700;padding:2px 9px;border-radius:8px;}
+.dn-where{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:8px;padding:9px 12px;font-size:13px;margin-bottom:12px;}
+.dn-where b{color:#1e3a8a;}
+.dn-steps2{list-style:none;padding:0;margin:0 0 14px;counter-reset:s;}
+.dn-steps2 li{position:relative;padding:11px 12px 11px 40px;border-radius:8px;margin-bottom:7px;font-size:14px;line-height:1.45;}
+.dn-steps2 li::before{position:absolute;left:11px;top:10px;width:20px;height:20px;border-radius:50%;text-align:center;line-height:20px;font-size:12px;font-weight:700;}
+.dn-s-done{color:var(--text-muted);background:var(--bg-subtle,#f1f5f9);}
+.dn-s-done::before{content:'✓';background:#16a34a;color:#fff;}
+.dn-s-done .dn-stxt{text-decoration:line-through;}
+.dn-s-now{background:#fffbeb;border:1px solid #fde68a;}
+.dn-s-now::before{counter-increment:s;content:counter(s);background:var(--accent-blue);color:#fff;}
+.dn-s-lock{color:#94a3b8;background:transparent;}
+.dn-s-lock::before{counter-increment:s;content:counter(s);background:#e2e8f0;color:#94a3b8;}
+.dn-step-done{margin-top:8px;display:inline-block;background:var(--accent-blue);color:#fff;border:none;border-radius:7px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;}
+.dn-deliv{margin-top:8px;}
+.dn-guide-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border,rgba(0,0,0,.08));padding-top:14px;}
+.dn-done-big{background:#16a34a;color:#fff;border:none;border-radius:9px;padding:11px 22px;font-size:15px;font-weight:800;cursor:pointer;}
+.dn-done-big:disabled{background:#cbd5e1;cursor:not-allowed;}
+.dn-skip{background:none;border:none;color:var(--text-muted);font-size:13px;cursor:pointer;text-decoration:underline;}
+.dn-mini{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 12px;border-radius:7px;font-size:13px;background:var(--bg-subtle,#f8fafc);margin-bottom:6px;}
+.dn-mini.lock{opacity:.55;}
+.dn-mini .r{color:var(--text-muted);font-size:12px;white-space:nowrap;}
+.dn-qsection{font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;cursor:pointer;}
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -60,6 +84,7 @@ function dnToast(msg, err){
 
 async function loadStrategy(refresh){
     const box=document.getElementById('dn-strategy');
+    if(!box) return;   // strategy brief removed from the guided view
     if(refresh) box.innerHTML='<p class="pb-loading" style="margin:0;">Re-reading your whole picture…</p>';
     try{
         const res=await fetch('/api/action-plan/strategy'+(refresh?'?refresh=1':''));
@@ -97,10 +122,7 @@ async function loadPlan(){
         if(data.error){ document.getElementById('dn-body').innerHTML=`<p class="empty-state">${esc(data.error)}</p>`; return; }
         renderReviewed(data.reviewed_now||[]);
         renderDataStatus(data.data_status||{});
-        const d=data.timestamp?new Date(data.timestamp).toLocaleString():'—';
-        document.getElementById('dn-meta').innerHTML=`Ranked by genuine impact — real levers first, trivial harvests last · from your latest evaluation · ${esc(d)}`;
         renderPlan(data.plan||[], data.adopted_extra||[]);
-        lpAnnotate();
     }catch(e){
         document.getElementById('dn-body').innerHTML=`<p class="empty-state">Failed to load: ${esc(e.message)}</p>`;
     }
@@ -189,73 +211,202 @@ function renderDataStatus(ds){
 
 const CAT_LABEL = { ctr:'Rewrite titles', schema:'Add schema', merchant:'Fix product feeds', orphan:'Add internal links', pruning:'Prune/merge pages' };
 
+// ── Guided queue state (client-side) ────────────────────────────────────────
+let FOCUS_OVERRIDE = null;              // key the user chose to jump to
+const DN_ADOPTED_LOCAL = new Set();     // optimistically-adopted keys (instant next)
+const DN_DELIV = {};                    // cached paste-ready deliverables by key
+function dnKeyId(k){ return 'k'+btoa(unescape(encodeURIComponent(k))).replace(/[^a-zA-Z0-9]/g,''); }
+function dnLS(k,def){ try{ const v=localStorage.getItem(k); return v==null?def:v; }catch(e){ return def; } }
+function dnSetLS(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function dnSteps(t){ return (t.steps||[]).filter(s=>s!=null && String(s).replace(/[\s​]+/g,'')!==''); }
+function dnStepDoneCount(k){ return parseInt(dnLS('dnstep:'+k,'0'),10)||0; }
+function dnSkipSet(){ try{ return new Set(JSON.parse(dnLS('dnskip','[]'))); }catch(e){ return new Set(); } }
+function dnSkipSave(s){ dnSetLS('dnskip', JSON.stringify([...s])); }
+
+// Where to actually DO each kind of task — so the guide is self-contained.
+const DN_WHERE = {
+  ctr:   'In <b>Magento → Catalog → Products</b> → find this page → open <b>Search Engine Optimization</b> → paste into <b>Meta Title</b> / <b>Meta Description</b> → <b>Save</b>, then <b>System → Cache Management → Flush Magento Cache</b>.',
+  brand: 'In <b>Magento → Catalog → Products</b> → this page → <b>Search Engine Optimization</b> → update <b>Meta Title</b> / <b>Meta Description</b> → Save → flush cache.',
+  striking: 'In <b>Magento</b>, open each <b>source page listed in the steps</b> → edit its content → add a normal text link using the exact anchor shown → Save.',
+  winnable: 'In <b>Magento</b>, open each <b>source page listed in the steps</b> → edit its content → add a text link with the exact anchor shown → Save.',
+  orphan: 'In <b>Magento</b>, open each related page listed → add a contextual text link to this page with the anchor shown → Save.',
+  content: 'In <b>Magento → Content → Pages</b> (or the product / blog page) → paste the draft below → set the title & URL → <b>Save & publish</b>.',
+  geo:   'In <b>Magento</b>, edit this page → paste the FAQ / schema block below into the content (or Schema field) → Save.',
+  schema:'In <b>Magento</b>, edit this page → paste the JSON-LD below into the page content → Save → test in Google Rich Results.',
+  merchant:'In <b>Magento</b>, add the product fields listed below → Save → then confirm in <b>Google Merchant Center</b>.',
+  links: 'In <b>your email</b>: send each draft below to the prospect (Governor writes them — you review and hit Send). Track replies.',
+  consolidation:'In <b>Magento → Marketing → SEO &amp; Search → URL Rewrites</b> → add a <b>301 redirect</b> from the old URL to the winning page shown.',
+  pruning:'In <b>Magento</b>, for each page listed: set it to <b>noindex</b> (or remove it) as the steps describe.',
+  reviews:'On your <b>review platform / product pages</b>: turn on review requests and follow the steps.',
+  cro:   'On the page itself: apply the on-page change described in the steps → Save.',
+  decay: 'In <b>Magento</b>, refresh this page’s content per the steps → Save → then <b>Google Search Console → URL Inspection → Request Indexing</b>.',
+};
+const DN_AUTODELIV = new Set(['ctr','brand','geo','schema','merchant','decay','cro','reviews']);
+
+function tierLabel(t){
+    const x=t.tier||(t.minor?'nice':'quick');
+    if(x==='critical') return '<span class="dn-tierlbl" style="color:#dc2626;">🔴 biggest sales impact</span>';
+    if(x==='quick')    return '<span class="dn-tierlbl" style="color:#16a34a;">🟢 solid sales win</span>';
+    return '<span class="dn-tierlbl" style="color:#64748b;">low priority</span>';
+}
+function payoffChip(t){
+    const v = t.expected_value>0 ? `~$${Math.round(t.expected_value).toLocaleString()}/mo if it works`
+            : (t.reach? `${(t.reach).toLocaleString()} impressions in play` : 'foundational');
+    return `<span class="dn-payoff">💰 ${esc(v)}</span>`;
+}
+
 function renderPlan(plan, extra){
     const body=document.getElementById('dn-body');
-    if(!plan.length && !extra.length){
-        body.innerHTML='<p class="empty-state">No open recommendations right now — either everything is adopted, or you need to run an evaluation with crawl. 🎉</p>';
-        return;
-    }
-    const open = plan.filter(t=>!t.adopted);
-    // In-progress = every adopted, not-yet-done task — whether it's still in the
-    // freshly ranked plan OR fell off it (extra). Without folding in `extra`, an
-    // adopted task that dropped out of the plan's top-N vanished from "In progress"
-    // and reappeared only in "Tracking" at the very bottom — which read as "it
-    // disappeared" right after you clicked Start.
+    const skip = dnSkipSet();
+    const isOpen = t => !t.adopted && !DN_ADOPTED_LOCAL.has(t.dedup_key);
+    const openAll = plan.filter(isOpen);
+    const open = openAll.filter(t=>!skip.has(t.dedup_key));
+    const skipped = openAll.filter(t=>skip.has(t.dedup_key));
     const extraOpen = (extra||[]).filter(t=>t.status!=='done');
     const extraDone = (extra||[]).filter(t=>t.status==='done');
-    const inProgress = plan.filter(t=>t.adopted && t.status!=='done').concat(extraOpen);
+    const measuring = plan.filter(t=>(t.adopted||DN_ADOPTED_LOCAL.has(t.dedup_key)) && t.status!=='done').concat(extraOpen);
 
-    // THREE SALES-FIRST BUCKETS. The backend tags each task with a `tier` driven
-    // by estimated sales impact (commercial intent baked into lever_score), NOT by
-    // how fast a page can rank. We just group and order within each bucket by that
-    // same sales score. `low_hanging` flags the quick+easy ones for a 🍒 badge.
-    const byLever=(a,b)=>(b.lever_score||0)-(a.lever_score||0);
-    const tierOf=t=> t.tier || (t.minor?'nice':'quick');
-    const critical = open.filter(t=>tierOf(t)==='critical').sort(byLever);
-    const quick    = open.filter(t=>tierOf(t)==='quick').sort(byLever);
-    const nice     = open.filter(t=>tierOf(t)==='nice').sort(byLever);
+    if(!openAll.length && !measuring.length && !extraDone.length){
+        body.innerHTML='<p class="empty-state">Nothing queued right now — run an evaluation (with crawl) to refill your list. 🎉</p>';
+        return;
+    }
+
+    // Focus = the one task you're on: your chosen jump, else the top by sales.
+    let focus = FOCUS_OVERRIDE ? open.find(t=>t.dedup_key===FOCUS_OVERRIDE) : null;
+    if(!focus) focus = open[0];
+    const pos = focus ? open.indexOf(focus)+1 : 0;
+    const upNext = open.filter(t=>t!==focus);
 
     let html='';
-    html += `<div class="dn-lens-note">
-        <strong>How this list is ordered.</strong>
-        Everything is ranked by <em>estimated sales impact</em> — not by how fast a page
-        can rank. A page you could push to page 1 in days but that won't convert sits
-        <em>below</em> a money page that actually sells. Just work top to bottom;
-        <strong>🍒 marks the quick, easy ones</strong> you can grab first.
+    // Progress bar
+    html += `<div class="dn-q-bar">
+        <span>✅ <b>${extraDone.length}</b> done</span>
+        <span>🔬 <b>${measuring.length}</b> measuring</span>
+        <span>🎯 <b>${open.length}</b> to do</span>
+        <span style="margin-left:auto;font-size:12px;">Ordered by sales impact — do the top one, hit DONE, the next loads.</span>
     </div>`;
 
-    if(inProgress.length){
-        html += `<h3 class="dn-section">🚧 In progress (${inProgress.length})</h3>`;
-        html += inProgress.map(t=>taskCard(t,false)).join('');
+    if(focus){
+        html += activeCard(focus, pos, open.length);
+    } else if(open.length===0 && measuring.length){
+        html += `<div class="dn-guide" style="border-color:#16a34a;"><div class="dn-guide-title">🎉 Nothing to do right now.</div>
+            <p style="margin:6px 0 0;color:var(--text-muted);">Everything you've started is in measurement below. Come back after the auto-checks, or run a fresh evaluation.</p></div>`;
     }
 
-    html += `<h3 class="dn-section">🔴 Do first — biggest sales impact (${critical.length})</h3>`;
-    if(critical.length){
-        html += `<p class="dn-section-sub">Your money pages and anything actively slipping. Highest revenue upside — start at the top and work down.</p>`;
-        html += critical.map(t=>taskCard(t,false)).join('');
-    } else {
-        html += `<p class="empty-state" style="text-align:left;">Nothing critical right now — you're on top of the big movers. 🎉</p>`;
-    }
-
-    if(quick.length){
-        html += `<h3 class="dn-section">🟢 Worth doing next — solid sales wins (${quick.length})</h3>`;
-        html += `<p class="dn-section-sub">Real sales upside, just smaller than the criticals. 🍒 = quick and easy — knock those out first.</p>`;
-        html += quick.map(t=>taskCard(t,false)).join('');
-    }
-
-    if(nice.length){
-        html += `<h3 class="dn-section dn-collapsible" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'block':'none';">▸ 💡 Low priority (${nice.length}) — little / no sales upside</h3>`;
-        html += `<div style="display:none;"><p class="dn-section-sub">Pages that can rank but won't move sales much, tiny fixes, and things too small to measure. Spare-time only — don't let them distract from the red section.</p>`;
-        html += nice.slice(0,20).map(t=>taskCard(t,false)).join('');
-        if(nice.length>20){ html += `<p class="dn-section-sub" style="opacity:.7;">…and ${nice.length-20} more.</p>`; }
+    // Up next — muted, reachable (soft focus, not a lock)
+    if(upNext.length){
+        html += `<div class="dn-qsection" onclick="dnTgl(this)">▸ ⏭ Up next (${upNext.length}) — click any to jump</div><div style="display:none;">`;
+        html += upNext.slice(0,25).map(t=>`<div class="dn-mini" style="cursor:pointer;" onclick="dnFocus('${esc(t.dedup_key)}')">
+            <span>${(CAT_META[t.category]||{icon:'•'}).icon} ${esc(t.title)}</span>
+            <span class="r">${t.expected_value>0?'$'+Math.round(t.expected_value)+'/mo':(t.reach?(t.reach).toLocaleString()+' impr':'')}</span></div>`).join('');
+        if(upNext.length>25) html += `<p style="font-size:12px;color:var(--text-muted);">…and ${upNext.length-25} more.</p>`;
         html += `</div>`;
     }
-
+    // Measuring
+    if(measuring.length){
+        html += `<div class="dn-qsection" onclick="dnTgl(this)">▸ 🔬 Measuring (${measuring.length}) — auto-checking</div><div style="display:none;">`;
+        html += measuring.map(t=>`<div class="dn-mini lock"><span>${(CAT_META[t.category]||{icon:'•'}).icon} ${esc(t.title)}</span>
+            <span class="r">${t.review_date?('checks '+esc(t.review_date)):'in progress'}</span></div>`).join('');
+        html += `</div>`;
+    }
+    // Skipped
+    if(skipped.length){
+        html += `<div class="dn-qsection" onclick="dnTgl(this)">▸ ⏸ Skipped (${skipped.length})</div><div style="display:none;">`;
+        html += skipped.map(t=>`<div class="dn-mini"><span>${(CAT_META[t.category]||{icon:'•'}).icon} ${esc(t.title)}</span>
+            <button class="pb-task-btn pb-task-btn-alt" onclick="dnUnskip('${esc(t.dedup_key)}')">Put back</button></div>`).join('');
+        html += `</div>`;
+    }
+    // Done
     if(extraDone.length){
-        html += `<h3 class="dn-section">📊 Tracking (auto-checking / done)</h3>`;
-        html += extraDone.map(t=>taskCard(t,true)).join('');
+        html += `<div class="dn-qsection" onclick="dnTgl(this)">▸ ✅ Done (${extraDone.length})</div><div style="display:none;">`;
+        html += extraDone.map(t=>`<div class="dn-mini"><span>✓ ${esc(t.title)}</span><span class="r">${esc((STATUS_META[t.status]||{txt:''}).txt)}</span></div>`).join('');
+        html += `</div>`;
     }
     body.innerHTML=html;
+
+    // Auto-load the paste-ready deliverable for the focus task (once, cached).
+    if(focus && DN_AUTODELIV.has((focus.category||'').toLowerCase())){
+        dnAutoDeliv(focus);
+    }
+    lpAnnotate();
+}
+
+function activeCard(t, pos, total){
+    const c=CAT_META[t.category]||{icon:'•',label:t.category};
+    const steps=dnSteps(t);
+    const done=Math.min(dnStepDoneCount(t.dedup_key), steps.length);
+    const cat=(t.category||'').toLowerCase();
+    const where=DN_WHERE[cat]||'Follow the steps below on the page itself, then save.';
+    const allDone = done>=steps.length;
+    const stepsHtml = steps.map((s,i)=>{
+        const isCode=/^\s*[\[{<]/.test(s);
+        const body=isCode?`<pre class="dn-code" style="margin:4px 0 0;">${esc(s)}</pre>`:`<span class="dn-stxt">${esc(s)}</span>`;
+        if(i<done)  return `<li class="dn-s-done">${body}</li>`;
+        if(i===done)return `<li class="dn-s-now">${body}<br><button class="dn-step-done" onclick="dnStepDo('${esc(t.dedup_key)}',${steps.length})">Did it ✓</button></li>`;
+        return `<li class="dn-s-lock">${body}</li>`;
+    }).join('');
+    // Content tasks: a prominent "write it for me" that fills the deliverable box.
+    const domId='dv-'+dnKeyId(t.dedup_key);
+    const writeBtn = cat==='content'
+        ? `<button class="pb-task-btn" onclick="dnGenerate('${esc(t.dedup_key)}','${domId}',this)">✍️ Write the full article for me (2–4 min)</button>` : '';
+    const cached = DN_DELIV[t.dedup_key];
+    const delivHtml = cached!==undefined ? cached
+        : (DN_AUTODELIV.has(cat) ? '<p class="pb-loading" style="margin:6px 0;">Writing your paste-ready text…</p>' : '');
+    return `<div class="dn-guide">
+        <div class="dn-guide-top"><span class="dn-now">NOW</span>
+            <span class="dn-pos">#${pos} of ${total}</span>${tierLabel(t)}
+            ${t.low_hanging?'<span class="dn-payoff" style="background:#dbeafe;color:#1e40af;">🍒 quick & easy</span>':''}</div>
+        <div class="dn-guide-title">${c.icon} ${esc(t.title)}</div>
+        <div class="dn-guide-meta">${payoffChip(t)}
+            ${t.url?`<a href="${esc(t.url)}" target="_blank">${esc(fmtPath(t.url))}</a><span class="lp-slot" data-lp-url="${esc(t.url)}"></span>`:''}
+            <span style="color:var(--text-muted);">· effort: ${esc((t.effort||'').split(' ')[0]||'—')} · results in ${esc(t.time_to_impact_label||'—')}</span>
+        </div>
+        <div class="dn-where">📍 <b>Where:</b> ${where}</div>
+        <ol class="dn-steps2">${stepsHtml||'<li class="dn-s-now">Do the change on the page, then hit DONE.</li>'}</ol>
+        ${writeBtn}
+        <div class="dn-deliv" id="${domId}">${delivHtml}</div>
+        <div class="dn-guide-actions">
+            <button class="dn-done-big" ${allDone?'':'disabled'} onclick="dnFinish('${esc(t.dedup_key)}',this)">
+                ${allDone?'✅ DONE — start measuring &amp; load next':'Finish the steps above to enable DONE'}</button>
+            <button class="dn-skip" onclick="dnSkip('${esc(t.dedup_key)}')">Skip for now</button>
+        </div>
+    </div>`;
+}
+
+function dnTgl(el){ const n=el.nextElementSibling; const open=n.style.display!=='none'; n.style.display=open?'none':'block'; el.textContent=el.textContent.replace(open?'▾':'▸', open?'▸':'▾'); }
+function dnFocus(key){ FOCUS_OVERRIDE=key; renderPlan(DN.plan||[], DN.adopted_extra||[]); window.scrollTo({top:0,behavior:'smooth'}); }
+function dnStepDo(key, n){ const cur=dnStepDoneCount(key); dnSetLS('dnstep:'+key, Math.min(cur+1,n)); renderPlan(DN.plan||[], DN.adopted_extra||[]); }
+function dnSkip(key){ const s=dnSkipSet(); s.add(key); dnSkipSave(s); if(FOCUS_OVERRIDE===key) FOCUS_OVERRIDE=null; renderPlan(DN.plan||[], DN.adopted_extra||[]); dnToast('Skipped — moved to the Skipped list'); }
+function dnUnskip(key){ const s=dnSkipSet(); s.delete(key); dnSkipSave(s); renderPlan(DN.plan||[], DN.adopted_extra||[]); }
+async function dnFinish(key, btn){
+    if(btn){ btn.disabled=true; btn.textContent='Starting measurement…'; }
+    const t=(DN.plan||[]).find(x=>x.dedup_key===key);
+    DN_ADOPTED_LOCAL.add(key);                    // optimistic: next task loads instantly
+    if(FOCUS_OVERRIDE===key) FOCUS_OVERRIDE=null;
+    try{ localStorage.removeItem('dnstep:'+key); }catch(e){}
+    renderPlan(DN.plan||[], DN.adopted_extra||[]);
+    window.scrollTo({top:0,behavior:'smooth'});
+    dnToast('✅ Done — now measuring. Next one’s up.');
+    try{ await fetch('/api/action-plan/adopt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t||{dedup_key:key})}); }
+    catch(e){ dnToast('Saved locally but the server didn’t confirm — it’ll retry on refresh',true); }
+}
+async function dnAutoDeliv(t){
+    const key=t.dedup_key;
+    if(DN_DELIV[key]!==undefined) return;         // already have it
+    const box=document.getElementById('dv-'+dnKeyId(key)); if(!box) return;
+    try{
+        const res=await fetch('/api/action-plan/deliverable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
+        const data=await res.json();
+        let html='';
+        if((data.blocks||[]).length){
+            html = `<div style="font-size:12px;color:#166534;font-weight:600;margin-bottom:4px;">✅ Paste-ready — copy straight into Magento:</div>` + data.blocks.map(b=>`
+                <div class="dn-dv-block"><div class="dn-dv-label">${esc(b.label||'')}</div>
+                <div class="dn-dv-row"><div class="dn-dv-text">${esc(b.text||'')}</div>
+                <button class="dn-copy-btn" onclick="dnCopy(this)">Copy</button></div></div>`).join('');
+        }
+        DN_DELIV[key]=html;
+        const b2=document.getElementById('dv-'+dnKeyId(key)); if(b2) b2.innerHTML=html;
+    }catch(e){ DN_DELIV[key]=''; const b2=document.getElementById('dv-'+dnKeyId(key)); if(b2) b2.innerHTML=''; }
 }
 
 function dnCopy(btn){
@@ -389,7 +540,6 @@ function lpAnnotate(){
 }
 
 loadPlan();
-loadStrategy();
 lpLoadSummary();
 </script>
 {% endblock %}
