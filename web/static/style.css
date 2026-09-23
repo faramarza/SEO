@@ -95,6 +95,8 @@ body {
     list-style: none;
     padding: 16px 12px;
     flex: 1;
+    overflow-y: auto;   /* scroll the menu when it's taller than the viewport */
+    min-height: 0;      /* let this flex child shrink so overflow can kick in */
 }
 
 .nav-links li {
