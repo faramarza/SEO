@@ -338,17 +338,15 @@ function activeCard(t, pos, total){
     const steps=dnSteps(t);
     const cat=(t.category||'').toLowerCase();
     const isLinks = cat==='links';
-    const where=DN_WHERE[cat]||'Follow the steps below on the page itself, then save.';
+    let where=DN_WHERE[cat]||'Follow the steps below on the page itself, then save.';
     const domId='dv-'+dnKeyId(t.dedup_key);
     const cached=DN_DELIV[t.dedup_key];
     let stepsHtml, allDone, writeBtn='', delivHtml='';
     if(isLinks){
-        // Fully self-contained: plain instructions + the actual emails inline.
-        const ls=[
-          'Pick a site from the ready-to-send emails below.',
-          'Hit <b>Copy</b>, paste the email into your email app, change one line so it sounds like you, and send. (If it shows a contact-form link instead of an address, paste it there.)',
-          'Send a few now, more later — you don’t have to do them all. Then hit <b>DONE</b> to start measuring.'];
-        stepsHtml = ls.map(s=>`<li class="dn-s-lock"><span class="dn-stxt">${s}</span></li>`).join('');
+        // Fully self-contained: no abstract steps — the actual emails are right
+        // below, each with who to send to and a Copy button. One clear instruction.
+        where='Governor already wrote the email(s) below. For <b>each</b>: hit <b>Copy</b>, change one line so it sounds like you, then send it to the address shown (or paste it into the contact-form link). Do a few — you don’t have to send them all — then hit <b>DONE</b>.';
+        stepsHtml='';   // the emails ARE the steps
         allDone = true;
         delivHtml = cached!==undefined ? cached : '<p class="pb-loading" style="margin:6px 0;">Pulling the emails Governor already wrote…</p>';
     } else {
@@ -375,8 +373,8 @@ function activeCard(t, pos, total){
             ${t.url?`<a href="${esc(t.url)}" target="_blank">${esc(fmtPath(t.url))}</a><span class="lp-slot" data-lp-url="${esc(t.url)}"></span>`:''}
             <span style="color:var(--text-muted);">· effort: ${esc((t.effort||'').split(' ')[0]||'—')} · results in ${esc(t.time_to_impact_label||'—')}</span>
         </div>
-        <div class="dn-where">📍 <b>Where:</b> ${where}</div>
-        <ol class="dn-steps2">${stepsHtml||'<li class="dn-s-now">Do the change on the page, then hit DONE.</li>'}</ol>
+        <div class="dn-where">📍 <b>${isLinks?'Do this':'Where'}:</b> ${where}</div>
+        ${isLinks?'':`<ol class="dn-steps2">${stepsHtml||'<li class="dn-s-now">Do the change on the page, then hit DONE.</li>'}</ol>`}
         ${writeBtn}
         <div class="dn-deliv" id="${domId}">${delivHtml}</div>
         <div class="dn-guide-actions">
