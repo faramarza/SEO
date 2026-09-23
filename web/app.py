@@ -12106,6 +12106,113 @@ def api_link_targets_ahrefs_batch_import():
     })
 
 
+@app.route("/api/link-targets/send-content-gaps", methods=["POST"])
+def api_link_targets_send_content_gaps():
+    """Turn the 'not links — content/relevance gap' winners into Task Board tasks.
+
+    These are pages where the referring-domain math proved links aren't the
+    lever — you already match/out-link the page-1 competitors yet sit on page 2.
+    The upside there is on-page content, so we create one CONTENT_CLARIFY task
+    per page (its highest-demand qualifying keyword) with plain-English steps,
+    ranked by impressions, deduped against tasks already on the board."""
+    from src.analysis import link_targets as lt
+    MIN_IMPR = 300
+    POS_LO, POS_HI = 4.0, 30.0
+    MAX_CREATE = 25
+
+    try:
+        targets, _ = _lt_build_targets()
+        worksheet = lt.worksheet_rows(targets)
+    except Exception as e:
+        return jsonify({"error": f"Could not build worksheet: {e}"}), 500
+
+    # Best qualifying keyword per page (links-not-the-lever + real demand + winnable rank).
+    LINKS_NOT_LEVER = ("content_gap", "parity")
+    best_by_url = {}
+    for r in worksheet:
+        if r.get("status") != "measured" or r.get("verdict") not in LINKS_NOT_LEVER:
+            continue
+        impr = r.get("impressions") or 0
+        pos = r.get("position") or 0
+        if impr < MIN_IMPR or not (POS_LO <= pos <= POS_HI):
+            continue
+        cur = best_by_url.get(r["url"])
+        if not cur or impr > (cur.get("impressions") or 0):
+            best_by_url[r["url"]] = r
+
+    # Dedup against everything already on the board (any non-closed status).
+    ledger = ActionLedger()
+    existing_keys = set()
+    for status in (ActionStatus.PROPOSED, ActionStatus.APPROVED,
+                   ActionStatus.IMPLEMENTED, ActionStatus.MEASURED):
+        for a in ledger.get_actions_by_status(status):
+            k = (a.recommendation_json or {}).get("dedup_key")
+            if k:
+                existing_keys.add(k)
+
+    config = load_config()
+    candidates = sorted(best_by_url.values(),
+                        key=lambda r: -(r.get("impressions") or 0))
+    created, skipped = 0, 0
+    for r in candidates:
+        if created >= MAX_CREATE:
+            break
+        url = r["url"]
+        q = r.get("query", "")
+        dedup_key = f"linktargets-contentgap:{url}:{q.lower()}"
+        if dedup_key in existing_keys:
+            skipped += 1
+            continue
+        asset_type = r.get("asset_type", "other")
+        aov, cvr, margin, _ = _biz_params(config, asset_type)
+        impr = r.get("impressions") or 0
+        pos = r.get("position") or 0
+        you = r.get("you")
+        page1 = r.get("page1")
+        # Conservative upside: a page-2 term moved onto page 1 captures a small
+        # slice of its impressions as clicks. Deliberately modest.
+        upside_clicks = impr * 0.05
+        ev_val = round(max(0, upside_clicks) * cvr * aov * margin, 2)
+        steps = [
+            f"You rank #{pos:.1f} for “{q}” with {impr:,} impressions/month — stuck on page 2.",
+            (f"You already have {you} referring domains to this page vs ~{page1} for the sites on "
+             "page 1, so this is NOT a backlink problem — it's a content / relevance gap."),
+            (f"Open your page and the top 3 Google results for “{q}”. Note what they cover "
+             "that you don't: depth, specific sub-questions answered, format (guide / list / "
+             "comparison), and how they use the exact phrase."),
+            (f"Rewrite the page to match that intent: put “{q}” in the H1, the first "
+             "sentence, and the <title>; expand the thin sections; add the sub-topics the "
+             "competitors cover."),
+            "Save, then in Google Search Console use URL Inspection → Request Indexing.",
+            "Leave it 3–4 weeks — the Task Board measures the clicks/impressions change for you.",
+        ]
+        _persist_action({
+            "url": url,
+            "action": "CONTENT_CLARIFY",
+            "primary_constraint": "Content / Relevance",
+            "asset_type": asset_type,
+            "expected_value": ev_val,
+            "confidence": 0.5,
+            "risk_level": "low",
+            "source": "link_targets_content_gap",
+            "dedup_key": dedup_key,
+            "gsc_impressions": impr,
+            "gsc_position": pos,
+            "implementation_summary": f"Rank #{pos:.1f} for '{q}' ({impr:,}/mo) — content/relevance fix, not links",
+            "implementation_steps": steps,
+            "top_queries": [{"query": q, "impressions": impr, "position": pos}],
+        })
+        existing_keys.add(dedup_key)
+        created += 1
+
+    return jsonify({
+        "success": True,
+        "created": created,
+        "skipped_already_on_board": skipped,
+        "eligible_pages": len(best_by_url),
+    })
+
+
 @app.route("/api/link-targets/import", methods=["POST"])
 def api_link_targets_import():
     """Compute one page's real link gap from an Ahrefs SERP-overview CSV export

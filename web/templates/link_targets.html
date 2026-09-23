@@ -137,6 +137,19 @@ function ltBatchCopy(btn){
     const n=ta.value?ta.value.split('\n').filter(Boolean).length:0;
     ltCopyText(ta.value, 'Copied '+n+' URLs — paste into Ahrefs Batch Analysis');
 }
+async function ltSendContentGaps(btn){
+    btn.disabled=true; const old=btn.textContent; btn.textContent='⏳ Sending…';
+    try{
+        const d=await (await fetch('/api/link-targets/send-content-gaps',{method:'POST',
+            headers:{'Content-Type':'application/json'},body:'{}'})).json();
+        if(d.error){ ltToast(d.error,true); return; }
+        let msg=`Created ${d.created} content-fix task${d.created===1?'':'s'} on the Task Board`;
+        if(d.skipped_already_on_board) msg+=` · ${d.skipped_already_on_board} already there`;
+        ltToast(msg);
+        if(d.created) setTimeout(()=>{ if(confirm(msg+'.\n\nOpen the Task Board now?')) location.href='/tasks'; }, 300);
+    }catch(e){ ltToast('Failed to create tasks',true); }
+    finally{ btn.disabled=false; btn.textContent=old; }
+}
 let LT_BATCH_CSV='';
 function ltBatchFile(input){
     const f=input.files&&input.files[0]; const note=document.getElementById('lt-batch-import-note');
@@ -316,12 +329,19 @@ function render(){
     const nLinks = rows.filter(r=>r.lever==='external').length;
     const nReach = rows.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict)).length;
     const nDone = rows.filter(r=>r.status==='measured').length;
+    // "Links aren't the lever" winners: you match/out-link page-1 competitors,
+    // real demand, page-2 rank — the content/relevance fixes worth doing.
+    const isContentGap = r => r.status==='measured'
+        && (r.verdict==='content_gap' || r.verdict==='parity')
+        && (r.impressions||0) >= 300 && (r.position||0) >= 4 && (r.position||0) <= 30;
+    const nContentGap = new Set(rows.filter(isContentGap).map(r=>r.url)).size;
     // Distinct page types present, for the page-type filter.
     const types = [...new Set(rows.map(r=>r.asset_type||'other'))].sort();
     let view = rows;
     if(LT_TYPE!=='all') view = view.filter(r=>(r.asset_type||'other')===LT_TYPE);
     if(LT_FILTER==='links') view = view.filter(r=>r.lever==='external');
     else if(LT_FILTER==='reachable') view = view.filter(r=>r.status==='measured' && (r.links_needed||0)>0 && REACHABLE.includes(r.verdict));
+    else if(LT_FILTER==='contentgap') view = view.filter(isContentGap);
 
     const tab = (id,label)=>`<button onclick="LT_FILTER='${id}';render();" style="font-weight:${LT_FILTER===id?700:400};background:none;border:none;cursor:pointer;font-size:13px;color:${LT_FILTER===id?'var(--accent-purple)':'var(--text-muted)'};">${label}</button>`;
     const typeOpts = ['all', ...types].map(t=>`<option value="${escHtml(t)}" ${LT_TYPE===t?'selected':''}>${t==='all'?'All page types':escHtml(t)}</option>`).join('');
@@ -329,11 +349,14 @@ function render(){
         <span style="color:var(--text-muted);font-size:13px;">Show:</span>
         ${tab('all','All '+nAll+' keywords')}<span style="color:var(--text-muted);">·</span>
         ${tab('links','Link-target pages ('+nLinks+')')}<span style="color:var(--text-muted);">·</span>
-        ${tab('reachable','🎯 Reachable wins ('+nReach+')')}
+        ${tab('reachable','🎯 Reachable wins ('+nReach+')')}<span style="color:var(--text-muted);">·</span>
+        ${tab('contentgap','🛠 Fix-the-page ('+nContentGap+')')}
         <label style="font-size:13px;color:var(--text-muted);">Page type:
             <select onchange="ltSetType(this.value)" style="font-size:13px;margin-left:4px;">${typeOpts}</select></label>
-        <button class="pb-task-btn pb-task-btn-alt" style="margin-left:auto;" onclick='ltCopy()'>⧉ Copy worksheet</button>
+        ${nContentGap?`<button id="lt-sendcg" class="pb-task-btn" style="margin-left:auto;" onclick='ltSendContentGaps(this)'>📤 Send ${nContentGap} to Task Board</button>`:''}
+        <button class="pb-task-btn pb-task-btn-alt" style="${nContentGap?'':'margin-left:auto;'}" onclick='ltCopy()'>⧉ Copy worksheet</button>
     </div>
+    ${LT_FILTER==='contentgap'?`<div style="margin:0 0 10px;padding:8px 12px;border-radius:8px;background:rgba(5,150,105,.08);border:1px solid rgba(5,150,105,.3);font-size:12px;color:#065f46;">These pages sit on page 2 for a term with real demand, and you already match or out-link the page-1 sites — so <strong>links won't move them; content will</strong>. “📤 Send to Task Board” creates one plain-English fix task per page (its best keyword), then work them on the Task Board.</div>`:''}
     <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px;">
         One row per page + keyword. <strong>“+N referring domains”</strong> = how many more sites need to link to that page to
         <em>match</em> the sites currently on page 1 for that term (necessary, not a guarantee). Ranked so the
