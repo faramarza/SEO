@@ -118,11 +118,13 @@ async function ltBatchList(btn){
     }catch(e){ ltToast('Failed to build list',true); }
     finally{ btn.disabled=false; btn.textContent=old; }
 }
+function ltCopyText(text, okMsg){
+    govCopy(text, ok=>ltToast(ok?okMsg:'Select the text and press ⌘/Ctrl+C', !ok));
+}
 function ltBatchCopy(btn){
     const ta=document.getElementById('lt-batch-text');
-    navigator.clipboard.writeText(ta.value).then(
-        ()=>ltToast('Copied '+ (ta.value?ta.value.split('\n').length:0) +' URLs — paste into Ahrefs Batch Analysis'),
-        ()=>{ ta.select(); ltToast('Press ⌘/Ctrl+C to copy',true); });
+    const n=ta.value?ta.value.split('\n').filter(Boolean).length:0;
+    ltCopyText(ta.value, 'Copied '+n+' URLs — paste into Ahrefs Batch Analysis');
 }
 
 const LT_VERDICT = {
@@ -340,9 +342,7 @@ function ltCopy(){
     const body = view.map(r=>[shortUrl(r.url), r.asset_type||'other', r.query, r.position, r.impressions,
         r.you!=null?r.you:'', r.page1!=null?r.page1:'',
         r.status==='measured'?(r.links_needed||0):r.status].join('\t')).join('\n');
-    navigator.clipboard.writeText(head+'\n'+body).then(
-        ()=>ltToast('Worksheet copied ('+view.length+' rows) — paste into a sheet'),
-        ()=>ltToast('Copy failed', true));
+    ltCopyText(head+'\n'+body, 'Worksheet copied ('+view.length+' rows) — paste into a sheet');
 }
 
 async function ltScan(btn){

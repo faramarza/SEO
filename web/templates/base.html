@@ -92,6 +92,28 @@
     <script>
     function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
+    /* Copy text to the clipboard, working on PLAIN HTTP too. navigator.clipboard
+       only exists in a secure context (HTTPS/localhost); this server runs on HTTP,
+       so we fall back to a temporary textarea + execCommand('copy'). Returns a
+       Promise<bool> (true = copied). onDone(ok) is called if provided. */
+    function govCopy(text, onDone){
+        const finish=ok=>{ if(typeof onDone==='function') onDone(ok); return ok; };
+        const viaExec=()=>{
+            try{
+                const t=document.createElement('textarea');
+                t.value=text; t.style.position='fixed'; t.style.top='-1000px';
+                t.setAttribute('readonly',''); document.body.appendChild(t);
+                t.focus(); t.select(); if(t.setSelectionRange) t.setSelectionRange(0, String(text).length);
+                const ok=document.execCommand('copy'); document.body.removeChild(t);
+                return finish(!!ok);
+            }catch(e){ return finish(false); }
+        };
+        if(navigator.clipboard && window.isSecureContext){
+            return navigator.clipboard.writeText(text).then(()=>finish(true), viaExec);
+        }
+        return Promise.resolve(viaExec());
+    }
+
     /* Sidebar hover bubbles — describe what each nav item does. */
     (function(){
         const tip=document.createElement('div'); tip.className='nav-tip'; document.body.appendChild(tip);

@@ -1719,7 +1719,7 @@ function pbCopyDraft(idx) {
     const txt = (d.is_forum_reply || d.reply)
         ? (d.reply || '')
         : 'Subject: ' + (d.subject || '') + '\n\n' + (d.body || '');
-    navigator.clipboard.writeText(txt).then(() => pbToast('Copied'));
+    govCopy(txt, ok => pbToast(ok ? 'Copied' : 'Select the text and press ⌘/Ctrl+C', !ok));
 }
 
 function pbViewDraft(idx) {
