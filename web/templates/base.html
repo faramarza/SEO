@@ -24,6 +24,12 @@
         background-image:linear-gradient(45deg,rgba(124,58,237,.55) 25%,transparent 25%,transparent 50%,rgba(124,58,237,.55) 50%,rgba(124,58,237,.55) 75%,transparent 75%);
         background-size:24px 24px;animation:gov-stripe .7s linear infinite;}
     button:disabled.gov-busy{opacity:.6;cursor:progress;}
+    /* Sidebar hover bubbles (fixed + body-mounted so the scrolling nav can't clip them). */
+    .nav-tip{position:fixed;z-index:2000;max-width:240px;background:#111827;color:#f9fafb;
+        font-size:12px;line-height:1.4;padding:8px 10px;border-radius:8px;
+        box-shadow:0 8px 24px rgba(0,0,0,.28);pointer-events:none;opacity:0;transition:opacity .12s;}
+    .nav-tip.on{opacity:1;}
+    .nav-tip::before{content:"";position:absolute;left:-6px;top:13px;border:6px solid transparent;border-right-color:#111827;}
     </style>
 </head>
 <body>
@@ -33,25 +39,25 @@
             <span class="subtitle">Organic Growth</span>
         </div>
         <ul class="nav-links">
-            <li><a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a></li>
-            <li><a href="/do-next" class="{% if request.path == '/do-next' %}active{% endif %}" style="font-weight:700;">✅ Do This Next</a></li>
-            <li><a href="/opportunities" class="{% if request.path == '/opportunities' %}active{% endif %}">Opportunities</a></li>
-            <li><a href="/click-yield" class="{% if request.path == '/click-yield' %}active{% endif %}">Click Yield</a></li>
-            <li><a href="/tasks" class="{% if request.path == '/tasks' %}active{% endif %}">Task Board <span id="task-alert-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></a></li>
-            <li><a href="/learning" class="{% if request.path == '/learning' %}active{% endif %}">Learning</a></li>
-            <li><a href="/growth" class="{% if request.path == '/growth' %}active{% endif %}">Growth</a></li>
-            <li><a href="/content" class="{% if request.path == '/content' %}active{% endif %}">Content</a></li>
-            <li><a href="/duplication" class="{% if request.path == '/duplication' %}active{% endif %}">Duplication</a></li>
-            <li><a href="/playbook" class="{% if request.path == '/playbook' %}active{% endif %}">Playbook</a></li>
-            <li><a href="/link-map" class="{% if request.path == '/link-map' %}active{% endif %}">Link Map</a></li>
-            <li><a href="/plumbing-audit" class="{% if request.path == '/plumbing-audit' %}active{% endif %}">Plumbing Audit</a></li>
-            <li><a href="/agentic-commerce" class="{% if request.path == '/agentic-commerce' %}active{% endif %}">Agentic Commerce</a></li>
-            <li><a href="/link-targets" class="{% if request.path == '/link-targets' %}active{% endif %}">Link Targets</a></li>
-            <li><a href="/what-if" class="{% if request.path == '/what-if' %}active{% endif %}">What-if</a></li>
-            <li><a href="/tracking" class="{% if request.path == '/tracking' %}active{% endif %}">Tracking</a></li>
-            <li><a href="/loop" class="{% if request.path == '/loop' %}active{% endif %}">Loop</a></li>
-            <li><a href="/institutional" class="{% if request.path == '/institutional' %}active{% endif %}">B2B</a></li>
-            <li><a href="/admin" class="{% if request.path == '/admin' %}active{% endif %}">Admin</a></li>
+            <li><a href="/" data-tip="At-a-glance KPIs, Governor posture, and your last evaluation." class="{% if request.path == '/' %}active{% endif %}">Dashboard</a></li>
+            <li><a href="/do-next" data-tip="Your ranked, deduped to-do list — the highest-impact actions first." class="{% if request.path == '/do-next' %}active{% endif %}" style="font-weight:700;">✅ Do This Next</a></li>
+            <li><a href="/opportunities" data-tip="Every page's SEO opportunity with AI recommendations." class="{% if request.path == '/opportunities' %}active{% endif %}">Opportunities</a></li>
+            <li><a href="/click-yield" data-tip="Full-site view: winnable page-2 keywords + the exact title/meta/link fix (with one-click Apply)." class="{% if request.path == '/click-yield' %}active{% endif %}">Click Yield</a></li>
+            <li><a href="/tasks" data-tip="Track actions you've adopted through to a measured outcome." class="{% if request.path == '/tasks' %}active{% endif %}">Task Board <span id="task-alert-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></a></li>
+            <li><a href="/learning" data-tip="What past changes actually moved rankings — the tool's memory." class="{% if request.path == '/learning' %}active{% endif %}">Learning</a></li>
+            <li><a href="/growth" data-tip="AI visibility (are you cited in AI answers?) + growth memos." class="{% if request.path == '/growth' %}active{% endif %}">Growth</a></li>
+            <li><a href="/content" data-tip="Content gaps and article generation." class="{% if request.path == '/content' %}active{% endif %}">Content</a></li>
+            <li><a href="/duplication" data-tip="Near-duplicate / thin pages to consolidate (n-gram passage overlap)." class="{% if request.path == '/duplication' %}active{% endif %}">Duplication</a></li>
+            <li><a href="/playbook" data-tip="The growth playbook: striking-distance wins + qualified link prospects." class="{% if request.path == '/playbook' %}active{% endif %}">Playbook</a></li>
+            <li><a href="/link-map" data-tip="Your internal link graph — click depth, orphans, authority flow." class="{% if request.path == '/link-map' %}active{% endif %}">Link Map</a></li>
+            <li><a href="/plumbing-audit" data-tip="Read-only technical audit: crawl-waste, canonicals, indexation bloat." class="{% if request.path == '/plumbing-audit' %}active{% endif %}">Plumbing Audit</a></li>
+            <li><a href="/agentic-commerce" data-tip="Is your catalog readable by AI shopping agents? Readiness score + missing product facts. (just built)" class="{% if request.path == '/agentic-commerce' %}active{% endif %}">Agentic Commerce</a></li>
+            <li><a href="/link-targets" data-tip="Outreach worksheet: how many links each page needs to reach page 1." class="{% if request.path == '/link-targets' %}active{% endif %}">Link Targets</a></li>
+            <li><a href="/what-if" data-tip="Test alternative keywords for a page before committing outreach/content." class="{% if request.path == '/what-if' %}active{% endif %}">What-if</a></li>
+            <li><a href="/tracking" data-tip="GSC/GA4 data quality + technical diagnostics." class="{% if request.path == '/tracking' %}active{% endif %}">Tracking</a></li>
+            <li><a href="/loop" data-tip="Unattended, throttled meta rewrites to Magento — measured and revertable." class="{% if request.path == '/loop' %}active{% endif %}">Loop</a></li>
+            <li><a href="/institutional" data-tip="B2B prospecting: Montessori schools, public schools; drafts outreach emails." class="{% if request.path == '/institutional' %}active{% endif %}">B2B</a></li>
+            <li><a href="/admin" data-tip="Config, evaluation runs, sitemap import." class="{% if request.path == '/admin' %}active{% endif %}">Admin</a></li>
             <li><a href="/logout" style="color:var(--text-muted);">Sign out</a></li>
         </ul>
         <div class="nav-notification" id="notification-bell" onclick="toggleNotifications()" style="padding:8px 16px;cursor:pointer;position:relative;font-size:14px;color:var(--text-secondary);">
@@ -85,6 +91,23 @@
     <script src="{{ static_url('app.js') }}"></script>
     <script>
     function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+    /* Sidebar hover bubbles — describe what each nav item does. */
+    (function(){
+        const tip=document.createElement('div'); tip.className='nav-tip'; document.body.appendChild(tip);
+        const show=a=>{const t=a.getAttribute('data-tip'); if(!t)return;
+            tip.textContent=t; const r=a.getBoundingClientRect();
+            tip.style.left=(r.right+10)+'px';
+            tip.style.top=Math.min(window.innerHeight-70, Math.max(6, r.top+r.height/2-16))+'px';
+            tip.classList.add('on');};
+        const hide=()=>tip.classList.remove('on');
+        document.querySelectorAll('.nav-links a[data-tip]').forEach(a=>{
+            a.addEventListener('mouseenter',()=>show(a));
+            a.addEventListener('mouseleave',hide);
+            a.addEventListener('focus',()=>show(a));
+            a.addEventListener('blur',hide);
+        });
+    })();
 
     /* ── Shared background-job UI ──────────────────────────────────────────
        Any page that kicks off a server job and polls a status endpoint uses
