@@ -11807,8 +11807,11 @@ def link_targets_page():
     return render_template("link_targets.html")
 
 
-@app.route("/api/link-targets")
-def api_link_targets():
+def _lt_build_targets():
+    """Build the ranked Link Targets list (money pages + their keywords), merging
+    live striking-distance rows with any stored RD measurements. Shared by the
+    worksheet endpoint and the Ahrefs-batch-list generator so both see exactly the
+    same pages and keywords. Returns (targets, store)."""
     from src.analysis import link_targets as lt
     store = lt.load_store()
     # The QUEUE (which pages, which keywords) is knowable instantly from the
@@ -11899,6 +11902,13 @@ def api_link_targets():
             t["prospects_ready"] = by_url.get(t["url"], 0)
     except Exception:
         pass
+    return targets, store
+
+
+@app.route("/api/link-targets")
+def api_link_targets():
+    from src.analysis import link_targets as lt
+    targets, store = _lt_build_targets()
     try:
         from src.data_sources.dataforseo_client import get_backlinks_remaining_quota
         dfs_budget = get_backlinks_remaining_quota()
@@ -11910,6 +11920,118 @@ def api_link_targets():
     return jsonify({"targets": targets, "worksheet": worksheet,
                     "updated_at": store.get("updated_at"),
                     "job": _lt_job, "dataforseo_budget": dfs_budget})
+
+
+# Marketplaces / mega-sites whose referring-domain counts (millions) are not a
+# realistic target for a small store and would blow out the median in the
+# Ahrefs-KD formula — the root cause of the old "+52,334 links needed". They rank
+# for almost every product term but are not reachable competitors, so we leave
+# them out of the batch list.
+_AHREFS_EXCLUDE_HOSTS = (
+    "amazon.", "etsy.", "walmart.", "target.", "ebay.", "aliexpress.", "temu.",
+    "pinterest.", "youtube.", "youtu.be", "facebook.", "instagram.", "reddit.",
+    "wikipedia.", "tiktok.", "google.", "bing.", "yahoo.", "wayfair.", "houzz.",
+    "quora.", "yelp.",
+)
+
+
+def _ahrefs_host(url: str) -> str:
+    from urllib.parse import urlparse
+    try:
+        host = (urlparse(url).netloc or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        return host
+    except Exception:
+        return ""
+
+
+@app.route("/api/link-targets/ahrefs-batch")
+def api_link_targets_ahrefs_batch():
+    """Build the paste-ready URL list for Ahrefs → Batch Analysis (Exact URL mode).
+
+    Combines YOUR money pages (the Link Targets worksheet) with the competitor
+    pages that currently outrank them for their money keywords (from the cached
+    SERP), so one batch export gives every referring-domain number the Ahrefs-KD
+    "links needed" formula needs. Marketplaces/mega-sites are excluded (see above).
+    Read-only; hits no external API — reuses cached SERP + the existing worksheet.
+    Query param: ?scope=board (default, worksheet pages) — kept simple for now.
+    """
+    from src.data_sources import serp_client
+    LIMIT = 200
+    try:
+        targets, _store = _lt_build_targets()
+    except Exception as e:
+        return jsonify({"error": f"Could not build targets: {e}"}), 500
+
+    site_dom = ""
+    try:
+        cfg = load_config()
+        site_dom = (cfg.get("business_context", {}).get("domain")
+                    or cfg.get("site_url") or "").lower()
+        site_dom = site_dom.replace("https://", "").replace("http://", "").replace("www.", "").strip("/")
+    except Exception:
+        pass
+
+    mine, mine_seen = [], set()
+    comp, comp_seen = [], set()
+    queries_total = 0
+    queries_with_serp = 0
+
+    for t in targets:
+        url = (t.get("url") or "").strip()
+        if url:
+            key = url.rstrip("/")
+            if key not in mine_seen:
+                mine_seen.add(key)
+                mine.append(url)
+        # This page's money keywords → their cached SERP → competitor pages
+        for kw in (t.get("keywords") or []):
+            q = (kw.get("query") or "").strip()
+            if not q:
+                continue
+            queries_total += 1
+            cached = serp_client.get_cached_serp(q)
+            if not cached:
+                continue
+            queries_with_serp += 1
+            for r in (cached.get("organic_results") or []):
+                if (r.get("position") or 99) > 10:
+                    continue
+                cu = (r.get("url") or "").strip()
+                if not cu:
+                    continue
+                host = _ahrefs_host(cu)
+                if site_dom and site_dom in host:
+                    continue  # that's us
+                if any(host.startswith(x) or ("." + x) in ("." + host) for x in _AHREFS_EXCLUDE_HOSTS):
+                    continue
+                ckey = cu.rstrip("/")
+                if ckey in comp_seen or ckey in mine_seen:
+                    continue
+                comp_seen.add(ckey)
+                comp.append(cu)
+
+    # Mine first (always keep every one of your pages), then competitors, capped.
+    ordered = mine + comp
+    truncated = len(ordered) > LIMIT
+    ordered = ordered[:LIMIT]
+    # If truncation would drop your own pages (many pages, few slots), your pages
+    # still come first, so they're never the ones cut.
+    kept_mine = [u for u in ordered if u.rstrip("/") in mine_seen]
+    kept_comp = [u for u in ordered if u.rstrip("/") not in mine_seen]
+
+    return jsonify({
+        "text": "\n".join(ordered),
+        "total": len(ordered),
+        "mine": len(kept_mine),
+        "competitors": len(kept_comp),
+        "limit": LIMIT,
+        "truncated": truncated,
+        "queries_total": queries_total,
+        "queries_with_serp": queries_with_serp,
+        "site_domain": site_dom,
+    })
 
 
 @app.route("/api/link-targets/import", methods=["POST"])

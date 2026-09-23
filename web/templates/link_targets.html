@@ -51,6 +51,27 @@
         that row and choose the file.</p>
 </div>
 
+<div class="card" style="margin-bottom:14px;font-size:13px;">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <button id="lt-batch-btn" class="pb-task-btn" onclick="ltBatchList(this)">📋 Generate Ahrefs Batch-Analysis list</button>
+        <span id="lt-batch-meta" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <p style="margin:8px 0 0;color:var(--text-muted);">
+        Builds the paste-ready URL list for Ahrefs → <strong>Batch Analysis</strong>: your money pages
+        <em>plus</em> the competitor pages that outrank them (marketplaces like Amazon/Etsy excluded — their
+        millions of links aren't a reachable target). Paste it into Batch Analysis with
+        <strong>Target mode = Exact URL</strong>, export the <strong>Referring Domains</strong> +
+        <strong>Domain Rating</strong> columns as CSV, and it fills these rows across the whole board.</p>
+    <div id="lt-batch-panel" style="display:none;margin-top:10px;">
+        <textarea id="lt-batch-text" rows="8" readonly
+                  style="width:100%;font-size:11px;font-family:monospace;white-space:pre;"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button class="pb-task-btn" onclick="ltBatchCopy(this)">📄 Copy list</button>
+            <span id="lt-batch-note" style="font-size:12px;color:var(--text-muted);"></span>
+        </div>
+    </div>
+</div>
+
 <div id="lt-body"><p class="pb-loading">Loading…</p></div>
 
 <div id="lt-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;" onclick="if(event.target===this)this.classList.add('hidden')">
@@ -78,6 +99,31 @@
 let LT = null, LT_TARGET = null;
 function escHtml(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function ltToast(m,e){const t=document.getElementById('lt-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
+
+async function ltBatchList(btn){
+    btn.disabled=true; const old=btn.textContent; btn.textContent='⏳ Building…';
+    try{
+        const d=await (await fetch('/api/link-targets/ahrefs-batch')).json();
+        if(d.error){ ltToast(d.error,true); return; }
+        document.getElementById('lt-batch-text').value=d.text||'';
+        document.getElementById('lt-batch-panel').style.display=d.total?'block':'none';
+        const miss=d.queries_total-d.queries_with_serp;
+        document.getElementById('lt-batch-meta').textContent=
+            `${d.total} URLs — ${d.mine} of yours + ${d.competitors} competitors`
+            + (d.truncated?` (capped at ${d.limit})`:'')
+            + (miss>0?` · ${miss}/${d.queries_total} keywords have no SERP cached yet (run “Measure via DataForSEO” to fill them)`:'');
+        document.getElementById('lt-batch-note').textContent=
+            'Ahrefs → Batch Analysis · Target mode = Exact URL · export Referring Domains + Domain Rating';
+        if(!d.total) ltToast('No pages yet — the worksheet below is empty.',true);
+    }catch(e){ ltToast('Failed to build list',true); }
+    finally{ btn.disabled=false; btn.textContent=old; }
+}
+function ltBatchCopy(btn){
+    const ta=document.getElementById('lt-batch-text');
+    navigator.clipboard.writeText(ta.value).then(
+        ()=>ltToast('Copied '+ (ta.value?ta.value.split('\n').length:0) +' URLs — paste into Ahrefs Batch Analysis'),
+        ()=>{ ta.select(); ltToast('Press ⌘/Ctrl+C to copy',true); });
+}
 
 const LT_VERDICT = {
     close:            {label:'CLOSE',            color:'#059669'},
