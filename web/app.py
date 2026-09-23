@@ -12034,6 +12034,78 @@ def api_link_targets_ahrefs_batch():
     })
 
 
+@app.route("/api/link-targets/ahrefs-batch/import", methods=["POST"])
+def api_link_targets_ahrefs_batch_import():
+    """Fill the WHOLE board from one Ahrefs Batch Analysis CSV export.
+
+    Body: {csv_text}. The CSV is {URL, Referring Domains, Domain Rating} per row
+    (your pages + their competitors). For each page + money keyword we read the
+    cached SERP, look up each ranking competitor's referring domains from the CSV,
+    and run the Ahrefs-KD median formula — writing per-keyword gaps across every
+    page at once instead of one SERP-overview upload at a time."""
+    from src.analysis import link_targets as lt
+    from src.data_sources import serp_client
+    body = request.get_json(silent=True) or {}
+    csv_text = body.get("csv_text") or ""
+    if not csv_text.strip():
+        return jsonify({"error": "Paste or choose the Batch Analysis CSV first."}), 400
+
+    rd_by, dr_by, err = lt.parse_batch_csv(csv_text)
+    if err:
+        return jsonify({"error": err}), 400
+    if not rd_by:
+        return jsonify({"error": "No usable rows in that CSV."}), 400
+
+    try:
+        targets, _ = _lt_build_targets()
+    except Exception as e:
+        return jsonify({"error": f"Could not build targets: {e}"}), 500
+
+    store = lt.load_store()
+    store.setdefault("targets", {})
+    pages_measured = 0
+    keywords_measured = 0
+    pages_no_serp = 0
+    pages_missing_own = 0
+    matched_pages = 0
+
+    for t in targets:
+        url = t.get("url")
+        if not url or not t.get("keywords"):
+            continue
+        own_in_csv = lt._norm_url(url) in rd_by
+        if own_in_csv:
+            matched_pages += 1
+        gaps = lt.batch_page_gaps(t, rd_by, serp_client.get_cached_serp, max_keywords=3)
+        measured = [g for g in gaps if g.get("verdict") != "pending"]
+        if not measured:
+            # Diagnose WHY nothing measured, for an honest summary.
+            if not own_in_csv:
+                pages_missing_own += 1
+            elif all("cached SERP" in (g.get("note") or "") for g in gaps):
+                pages_no_serp += 1
+            continue
+        row = store["targets"].setdefault(url, {})
+        row.update(t)  # refresh keywords/impressions/lever
+        row["keyword_gaps"] = gaps
+        row.setdefault("sources", {})["ahrefs"] = measured[0]
+        pages_measured += 1
+        keywords_measured += len(measured)
+
+    store["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    lt.save_store(store)
+
+    return jsonify({
+        "success": True,
+        "urls_in_csv": len(rd_by),
+        "pages_measured": pages_measured,
+        "keywords_measured": keywords_measured,
+        "pages_missing_own_row": pages_missing_own,
+        "pages_no_cached_serp": pages_no_serp,
+        "your_pages_matched": matched_pages,
+    })
+
+
 @app.route("/api/link-targets/import", methods=["POST"])
 def api_link_targets_import():
     """Compute one page's real link gap from an Ahrefs SERP-overview CSV export

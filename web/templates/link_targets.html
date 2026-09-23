@@ -70,6 +70,17 @@
             <span id="lt-batch-note" style="font-size:12px;color:var(--text-muted);"></span>
         </div>
     </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border,rgba(0,0,0,.08));">
+        <div style="font-weight:600;margin-bottom:4px;">⬅ Then bring the CSV back here</div>
+        <p style="margin:0 0 8px;color:var(--text-muted);">Exported from Ahrefs? Drop the Batch Analysis CSV in
+            and it fills referring-domain gaps across every page at once — no per-row uploads.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input type="file" id="lt-batch-file" accept=".csv,text/csv,text/plain"
+                   onchange="ltBatchFile(this)" style="font-size:13px;">
+            <button id="lt-batch-import-btn" class="pb-task-btn" onclick="ltBatchImport(this)" disabled>⬆ Fill the board</button>
+            <span id="lt-batch-import-note" style="font-size:12px;color:var(--accent-purple);"></span>
+        </div>
+    </div>
 </div>
 
 <div id="lt-body"><p class="pb-loading">Loading…</p></div>
@@ -125,6 +136,35 @@ function ltBatchCopy(btn){
     const ta=document.getElementById('lt-batch-text');
     const n=ta.value?ta.value.split('\n').filter(Boolean).length:0;
     ltCopyText(ta.value, 'Copied '+n+' URLs — paste into Ahrefs Batch Analysis');
+}
+let LT_BATCH_CSV='';
+function ltBatchFile(input){
+    const f=input.files&&input.files[0]; const note=document.getElementById('lt-batch-import-note');
+    const btn=document.getElementById('lt-batch-import-btn');
+    if(!f){ LT_BATCH_CSV=''; btn.disabled=true; note.textContent=''; return; }
+    const rd=new FileReader();
+    rd.onload=()=>{ LT_BATCH_CSV=rd.result||''; btn.disabled=!LT_BATCH_CSV.trim();
+        note.textContent='✓ '+f.name+' — click “Fill the board”'; };
+    rd.onerror=()=>{ note.textContent='Could not read that file'; };
+    rd.readAsText(f);
+}
+async function ltBatchImport(btn){
+    if(!LT_BATCH_CSV.trim()){ ltToast('Choose the Batch Analysis CSV first',true); return; }
+    btn.disabled=true; const old=btn.textContent; btn.textContent='⏳ Importing…';
+    try{
+        const d=await (await fetch('/api/link-targets/ahrefs-batch/import',{method:'POST',
+            headers:{'Content-Type':'application/json'},body:JSON.stringify({csv_text:LT_BATCH_CSV})})).json();
+        if(d.error){ ltToast(d.error,true); document.getElementById('lt-batch-import-note').textContent=d.error; return; }
+        let msg=`Filled ${d.pages_measured} pages / ${d.keywords_measured} keywords from ${d.urls_in_csv} URLs`;
+        const warns=[];
+        if(d.pages_missing_own_row) warns.push(`${d.pages_missing_own_row} pages weren’t in your CSV`);
+        if(d.pages_no_cached_serp) warns.push(`${d.pages_no_cached_serp} need a SERP scan first`);
+        if(warns.length) msg+=' · '+warns.join(', ');
+        document.getElementById('lt-batch-import-note').textContent=msg;
+        ltToast(msg);
+        loadLT();  // refresh the worksheet with the new numbers
+    }catch(e){ ltToast('Import failed',true); }
+    finally{ btn.disabled=false; btn.textContent=old; }
 }
 
 const LT_VERDICT = {

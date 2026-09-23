@@ -322,6 +322,112 @@ def gap_from_ahrefs(target, csv_text, own_domain):
     return _result(v, need, note, own_rd, comps, page1)
 
 
+def _norm_url(u: str) -> str:
+    """Normalize a URL for matching a SERP result against a batch-export row:
+    drop scheme, leading www, and any trailing slash, lowercased."""
+    u = (u or "").strip().lower()
+    u = re.sub(r"^https?://", "", u)
+    if u.startswith("www."):
+        u = u[4:]
+    return u.rstrip("/")
+
+
+def parse_batch_csv(csv_text):
+    """Parse an Ahrefs Batch Analysis export → ({normalized_url: referring_domains},
+    {normalized_url: domain_rating}, error_or_None). Accepts comma or tab and the
+    common Ahrefs column names."""
+    import csv
+    import io
+    sample = "\n".join((csv_text or "").splitlines()[:5])
+    delim = "\t" if sample.count("\t") > sample.count(",") else ","
+    rows, reader = [], None
+    for d in (delim, "," if delim != "," else "\t"):
+        try:
+            reader = csv.DictReader(io.StringIO(csv_text), delimiter=d)
+            rows = list(reader)
+        except csv.Error:
+            continue
+        if reader.fieldnames and len(reader.fieldnames) > 1:
+            break
+    if not rows or not reader:
+        return {}, {}, "Couldn't read that CSV — export from Ahrefs Batch Analysis with the header row included."
+    fn = reader.fieldnames or []
+    c_url = _find_col(fn, "target", "url", "target url", "page url", "page")
+    c_dom = _find_col(fn, "referring domains", "ref domains", "ref. domains",
+                      "refdomains", "domains")
+    c_dr = _find_col(fn, "domain rating", "dr", "domain rating (dr)")
+    if not c_url or not c_dom:
+        return {}, {}, ("That CSV has no URL / Referring Domains columns — it doesn't look like a "
+                        "Batch Analysis export. Re-export including those columns.")
+    rd_by, dr_by = {}, {}
+    for r in rows:
+        u = _norm_url(r.get(c_url) or "")
+        if not u:
+            continue
+        try:
+            rd_by[u] = int(float((r.get(c_dom) or "0").replace(",", "") or 0))
+        except ValueError:
+            continue
+        if c_dr:
+            try:
+                dr_by[u] = int(float((r.get(c_dr) or "0").replace(",", "") or 0))
+            except ValueError:
+                pass
+    return rd_by, dr_by, None
+
+
+def gap_from_batch(target, rd_by_url, fetch_serp_fn, keyword=None):
+    """The same Ahrefs-KD median math as compute_target, but referring-domain
+    counts come from a Batch Analysis export (rd_by_url) instead of a live API.
+    Tolerant of competitor URLs missing from the export — it measures on whatever
+    ranking competitors ARE present rather than aborting. Returns a result dict
+    (or a pending dict when it genuinely can't measure)."""
+    kw = keyword or (target["keywords"][0]["query"] if target.get("keywords") else "")
+    serp = fetch_serp_fn(kw) if kw else None
+    if not serp:
+        return _pending("No cached SERP for this keyword yet — run 'Measure via DataForSEO' first, "
+                        "then re-import the batch file.")
+    organic = (serp.get("organic_results") or serp.get("organic") or [])[:10]
+    own_dom = _domain(target["url"])
+    own_rd = rd_by_url.get(_norm_url(target["url"]))
+    if own_rd is None:
+        return _pending("Your own page's row isn't in the batch export — keep it in the URL list "
+                        "and re-export.")
+    comps, seen = [], set()
+    for r in organic:
+        u = r.get("url", "")
+        d = _domain(u)
+        if not u or d == own_dom or d in seen or not is_emulable(u):
+            continue
+        rd = rd_by_url.get(_norm_url(u))
+        if rd is None:
+            continue  # competitor wasn't in the export — skip it, don't abort the page
+        seen.add(d)
+        comps.append({"url": u, "domain": d, "position": r.get("position", 0), "rd": rd})
+        if len(comps) >= 6:
+            break
+    if not comps:
+        return _pending("None of this keyword's ranking competitors were in the batch export "
+                        "(they may all be marketplaces, or not in your URL list).")
+    comp_rds = [c["rd"] for c in comps]
+    v, need, note = standard_gap(own_rd, comp_rds, len(comps), len(organic))
+    page1 = round(_median(comp_rds)) if comp_rds else 0
+    return _result(v, need, note, own_rd, comps, page1)
+
+
+def batch_page_gaps(target, rd_by_url, fetch_serp_fn, max_keywords=3):
+    """Per-keyword link gaps for one page from a batch export — mirrors
+    compute_page_gaps but sourced from the CSV, and never runs out of budget."""
+    gaps = []
+    for k in (target.get("keywords") or [])[:max_keywords]:
+        res = gap_from_batch(target, rd_by_url, fetch_serp_fn, keyword=k["query"])
+        res["query"] = k.get("query", "")
+        res["impressions"] = k.get("impressions", 0) or 0
+        res["position"] = k.get("position", 0) or 0
+        gaps.append(res)
+    return gaps
+
+
 def is_budget_note(note) -> bool:
     """A pending result caused by running out of daily SERP/backlink budget
     (as opposed to a permanent problem) — the caller should stop and resume
