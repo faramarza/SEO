@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Link Targets — Governor{% endblock %}
 {% block content %}
-<style>#lt-modal.hidden{display:none;}</style>
+<style>#lt-modal.hidden,#cg-modal.hidden{display:none;}</style>
 <div class="page-header">
     <h1>🎯 Link Targets</h1>
     <p class="page-description">
@@ -103,11 +103,11 @@
     </div>
 </div>
 
-<div id="cg-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:70;overflow:auto;" onclick="if(event.target===this)this.classList.add('hidden')">
+<div id="cg-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:70;overflow:auto;" onclick="if(event.target===this)cgClose()">
     <div style="max-width:760px;margin:5vh auto;background:var(--bg-card,#fff);border-radius:12px;padding:22px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
             <h2 style="margin:0;" id="cg-title">🔍 Why do they rank?</h2>
-            <button class="pb-task-btn pb-task-btn-alt" onclick="document.getElementById('cg-modal').classList.add('hidden')">Close</button>
+            <button class="pb-task-btn pb-task-btn-alt" onclick="cgClose()">Close</button>
         </div>
         <div id="cg-body" style="margin-top:12px;"><p class="pb-loading">Crawling your page and the top result…</p></div>
     </div>
@@ -435,6 +435,12 @@ async function ltScan(btn){
         ltToast(d.error||'Failed', true);
     }
 }
+let CG_CTRL=null, CG_TICK=null;
+function cgClose(){
+    try{ if(CG_CTRL) CG_CTRL.abort(); }catch(e){}
+    if(CG_TICK){ clearInterval(CG_TICK); CG_TICK=null; }
+    document.getElementById('cg-modal').classList.add('hidden');
+}
 async function cgOpen(url, query){
     const m=document.getElementById('cg-modal'), body=document.getElementById('cg-body');
     document.getElementById('cg-title').textContent='🔍 Why do they rank'+(query?(' for “'+query+'”'):'')+'?';
@@ -443,8 +449,9 @@ async function cgOpen(url, query){
     // client timeout so it can never look frozen.
     let secs=0;
     body.innerHTML='<p class="pb-loading">Crawling your page and the top 2 competitors live… <span id="cg-timer">0s</span></p>';
-    const tick=setInterval(()=>{ secs++; const t=document.getElementById('cg-timer'); if(t) t.textContent=secs+'s'+(secs>12?' — external sites can be slow, hang on…':''); },1000);
-    const ctrl=new AbortController();
+    if(CG_TICK) clearInterval(CG_TICK);
+    const tick=CG_TICK=setInterval(()=>{ secs++; const t=document.getElementById('cg-timer'); if(t) t.textContent=secs+'s'+(secs>12?' — external sites can be slow, hang on…':''); },1000);
+    const ctrl=CG_CTRL=new AbortController();
     const killer=setTimeout(()=>ctrl.abort(), 45000);
     try{
         const d=await (await fetch('/api/competitor-gap?url='+encodeURIComponent(url)+'&query='+encodeURIComponent(query||''),{signal:ctrl.signal})).json();
