@@ -39,9 +39,22 @@ _GENERIC = {"toys", "toy", "gift", "gifts", "set", "sets", "cheap", "sale", "buy
             "products", "product", "item", "items", "idea", "ideas"}
 
 
+# Hard brand-safety blocklist: any keyword containing one of these is dropped
+# outright, regardless of relevance — a kids' store never writes about these.
+_BLOCK = {"sex", "sexual", "porn", "porno", "xxx", "nsfw", "nude", "nudes", "adult",
+          "escort", "erotic", "fetish", "drug", "drugs", "weed", "cannabis", "marijuana",
+          "vape", "cbd", "gun", "guns", "ammo", "firearm", "weapon", "knife", "gambling",
+          "casino", "betting", "crypto", "loan", "loans", "viagra", "cialis", "kill",
+          "suicide", "abortion"}
+
+
 def _distinctive(kw: str) -> set:
     """Tokens that actually characterize a topic (drop stopwords + generic terms)."""
     return {t for t in _tokens(kw) if t not in _GENERIC and len(t) > 2}
+
+
+def _blocked(kw: str) -> bool:
+    return bool({t for t in _tokens(kw)} & _BLOCK)
 
 
 def compute_gap(competitor_keywords: list, your_keywords: list,
@@ -70,6 +83,8 @@ def compute_gap(competitor_keywords: list, your_keywords: list,
         vol = int(k.get("volume") or 0)
         if vol < min_volume:
             continue
+        if _blocked(kw):
+            continue                                  # brand-safety: never suggest these
         if use_relevance and not (_distinctive(kw) & vocab):
             continue                                  # not in your wheelhouse — skip
         cur = best.get(kw)
