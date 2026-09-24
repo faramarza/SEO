@@ -8874,7 +8874,8 @@ def api_action_plan():
                              brand_merchant=bm, striking=striking, decay=decay,
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
                              winnable=_winnable_plan_input(),
-                             links_info=_links_plan_info(), results=results)
+                             links_info=_links_plan_info(), results=results,
+                             content_gap=(_cg_load().get("plan") if _cg_load().get("available") else None))
 
     adopted = store.get("adopted", {})
     for t in plan:
@@ -9171,7 +9172,8 @@ def _compose_weekly_digest():
                              brand_merchant=bm, striking=striking, decay=decay,
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
                              winnable=_winnable_plan_input(),
-                             links_info=_links_plan_info(), results=results)
+                             links_info=_links_plan_info(), results=results,
+                             content_gap=(_cg_load().get("plan") if _cg_load().get("available") else None))
     adopted = store.get("adopted", {})
     top3 = [t for t in plan if t["dedup_key"] not in adopted][:3]
 

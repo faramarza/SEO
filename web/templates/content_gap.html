@@ -4,10 +4,12 @@
 {% block content %}
 <div class="page-header">
   <p class="page-description">
-    The exact plan to out-rank your competitors: the Montessori topics they rank for and
-    <strong>you don't</strong>, grouped into articles to write, sized, structured, interlinked,
-    and prioritized by sales. Pulled from DataForSEO Labs, refreshed monthly. Pick the ones you
-    want and they land on your Task Board as ready-to-write briefs.
+    <strong>Setup for your battle plan.</strong> Point it at your competitors here and it finds the
+    Montessori topics they rank for and <strong>you don't</strong>, turns them into articles to write
+    (sized, structured, interlinked, sales-ranked), and — once built — those articles show up
+    automatically in <strong>🏠 Start Here</strong>, mixed into your one to-do list by sales impact.
+    You don't have to come back here to work them; this page is just where you aim it and refresh.
+    Pulled from DataForSEO Labs, auto-refreshed monthly.
   </p>
 </div>
 
@@ -59,8 +61,8 @@ function render(){
   const t=plan;
   let html=`<div class="card" style="margin-bottom:14px;">
     <div style="font-size:15px;">Write <strong>${t.article_count} articles</strong> to close the gap — they rank for <strong>${(d.competitor_keyword_count||0).toLocaleString()}</strong> terms, you rank for <strong>${(d.your_keyword_count||0).toLocaleString()}</strong>. This plan targets the <strong>${(d.gap_count||0).toLocaleString()}</strong> highest-value terms you're missing (~$${(t.total_est_value||0).toLocaleString()}/mo potential).</div>
-    <div style="margin-top:10px;"><button class="pb-task-btn" onclick="cgSendAll(this)">📤 Send all ${t.article_count} to Task Board</button>
-      <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">or send individually below</span></div>
+    <div style="margin-top:10px;font-size:12px;color:#166534;background:#dcfce7;border-radius:6px;padding:8px 10px;">✅ These are already flowing into <strong>🏠 Start Here</strong>, ranked by sales — just work your list there. The buttons below only matter if you want to push extra ones to the Task Board manually.</div>
+    <div style="margin-top:10px;"><button class="pb-task-btn pb-task-btn-alt" onclick="cgSendAll(this)">📤 Also send all ${t.article_count} to Task Board</button></div>
   </div>`;
   html+=t.articles.map((a,i)=>{
     const badge = a.role&&a.role.indexOf('pillar')===0

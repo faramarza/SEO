@@ -471,6 +471,48 @@ def _from_content(content, out):
             "blog", q))
 
 
+def _from_content_gap(cg, out, max_items=12):
+    """The Content-Gap battle plan (topics competitors rank for and you don't) as
+    first-class 'write this' tasks, so they surface in Start Here ranked by sales
+    alongside everything else — no separate page to hunt through."""
+    for a in (cg.get("articles") or [])[:max_items]:
+        pk = (a.get("primary_keyword") or "").strip()
+        if not pk:
+            continue
+        role = a.get("role", "supporting")
+        supporting = a.get("supporting_keywords") or []
+        steps = [
+            f"Write a new {'pillar / hub page' if role.startswith('pillar') else 'page'} "
+            f"targeting “{pk}” (~{a.get('word_count_target', 1200)} words) — a topic your "
+            "competitors rank for and you have no page for.",
+        ]
+        if supporting:
+            steps.append("Cover these as H2 sections (each is a keyword they rank for and you "
+                         "don't): " + ", ".join(supporting[:8]) + ".")
+        steps.append(f"Answer “{pk}” in the first paragraph, then work through those H2s.")
+        if role.startswith("pillar"):
+            spokes = a.get("links_to_spokes") or []
+            if spokes:
+                steps.append("Link DOWN from this hub to each supporting article: "
+                             + ", ".join(spokes[:10]) + ".")
+        else:
+            steps.append(f"Link UP to your pillar page (“{a.get('links_to_pillar', '')}”) "
+                         "with descriptive anchor text.")
+        steps.append("Link to the matching products, add FAQ schema, publish, and request "
+                     "indexing in Search Console.")
+        benefit = (f"Competitors rank for “{pk}” (~{a.get('total_volume', 0):,} searches/mo) "
+                   "and you don't. This closes a piece of the topical-authority gap holding your "
+                   "whole Montessori section back.")
+        t = _task("content", "",
+                  f"Write “{a.get('title', pk)}” (competitors rank, you don't)",
+                  steps, benefit, a.get("est_monthly_value", 0), a.get("total_volume", 0),
+                  {"type": "new_page", "query": pk}, {"clicks": 0},
+                  "category" if a.get("intent") == "commercial" else "blog", pk,
+                  auto_review=False)
+        t["dedup_key"] = f"contentgap:{pk.lower()}"   # match the board push → never double
+        out.append(t)
+
+
 def _from_orphans(oc, out):
     for r in ((oc or {}).get("orphans") or [])[:5]:
         link_from = r.get("link_from") or []
@@ -838,9 +880,12 @@ def _score_task(t):
 def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
                       brand_merchant=None, striking=None, decay=None,
                       content=None, orphans=None, pruning=None, geo=None,
-                      winnable=None, links_info=None, results=None, limit=60):
+                      winnable=None, links_info=None, results=None,
+                      content_gap=None, limit=60):
     """Aggregate EVERY subsystem into one ranked, do-this-next list."""
     out = []
+    if content_gap:
+        _from_content_gap(content_gap, out)
     dup_losers = set()
     if links_info:
         _from_outreach(links_info, striking, out)
