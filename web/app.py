@@ -676,9 +676,9 @@ def _start_scheduler():
     Action Plan auto-review, periodic Run-with-Crawl, and the weekly digest."""
     for target in (_run_scheduled_measurement, _run_serp_collector,
                    _run_autoreview_scheduler, _run_autoeval_scheduler,
-                   _run_weekly_digest_scheduler):
+                   _run_weekly_digest_scheduler, _run_content_gap_scheduler):
         threading.Thread(target=target, daemon=True).start()
-    print("[Scheduler] Task monitor + SERP + auto-review + auto-eval + weekly digest started")
+    print("[Scheduler] Task monitor + SERP + auto-review + auto-eval + digest + content-gap started")
 
 
 _scheduler_started = False
@@ -12378,6 +12378,196 @@ def api_competitor_gap():
     res["marketplaces_in_top"] = marketplaces
     res["url"] = url
     return jsonify(res)
+
+
+# ── Content Gap "battle plan" ────────────────────────────────────────────────
+_CONTENT_GAP_PATH = DATA_PATH / "content_gap.json"
+_cg_job = {"running": False, "phase": "", "note": ""}
+
+
+def _cg_load() -> dict:
+    try:
+        with open(_CONTENT_GAP_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _cg_save(d: dict):
+    _CONTENT_GAP_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _CONTENT_GAP_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    tmp.replace(_CONTENT_GAP_PATH)
+
+
+def _cg_bare(dom: str) -> str:
+    return (dom or "").strip().lower().replace("https://", "").replace(
+        "http://", "").replace("www.", "").strip("/")
+
+
+def _content_gap_worker(competitors: list, force: bool):
+    """Pull ranked keywords for you + each competitor (DataForSEO Labs), diff to
+    the gap, cluster into topics, build the battle plan. Read-only; costs Labs
+    credits, so cached ~monthly and only refreshed on demand or when stale."""
+    from src.data_sources import dataforseo_client as dfs
+    from src.analysis import content_gap as cg
+    try:
+        _cg_job.update(running=True, phase="Reading your keywords…", note="")
+        config = load_config()
+        me = _cg_bare(_site_base_url(config))
+        mine = dfs.fetch_ranked_keywords(me, force=force)
+        if not mine.get("available"):
+            _cg_save({**_cg_load(), "available": False, "error": mine.get("reason"),
+                      "labs_unauthorized": bool(mine.get("labs_unauthorized")),
+                      "competitors": competitors,
+                      "updated_at": datetime.now().isoformat(timespec="seconds")})
+            _cg_job.update(running=False, phase="", note=mine.get("reason", "failed"))
+            return
+        your_kw = mine.get("keywords", [])
+        comp_all, comp_ok = [], []
+        for i, dom in enumerate(competitors):
+            _cg_job.update(phase=f"Reading {dom} ({i+1}/{len(competitors)})…")
+            r = dfs.fetch_ranked_keywords(dom, force=force)
+            if r.get("available"):
+                comp_all += r.get("keywords", [])
+                comp_ok.append(dom)
+            elif r.get("labs_unauthorized"):
+                _cg_save({**_cg_load(), "available": False, "error": r.get("reason"),
+                          "labs_unauthorized": True, "competitors": competitors,
+                          "updated_at": datetime.now().isoformat(timespec="seconds")})
+                _cg_job.update(running=False, phase="", note=r.get("reason", "failed"))
+                return
+        _cg_job.update(phase="Building your plan…")
+        gap = cg.compute_gap(comp_all, your_kw)
+        clusters = cg.cluster_topics(gap)
+        aov, cvr, margin, _ = _biz_params(config)
+        plan = cg.build_plan(clusters, aov=aov, cvr=cvr, margin=margin)
+        _cg_save({"available": True, "competitors": comp_ok,
+                  "your_keyword_count": len(your_kw),
+                  "competitor_keyword_count": len({k["keyword"] for k in comp_all}),
+                  "gap_count": len(gap), "plan": plan,
+                  "updated_at": datetime.now().isoformat(timespec="seconds")})
+        _cg_job.update(running=False, phase="", note=f"{plan['article_count']} articles planned")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        _cg_job.update(running=False, phase="", note=f"error: {e}")
+
+
+@app.route("/content-gap")
+def content_gap_page():
+    return render_template("content_gap.html")
+
+
+@app.route("/api/content-gap")
+def api_content_gap():
+    d = _cg_load()
+    d["job"] = _cg_job
+    return jsonify(d)
+
+
+@app.route("/api/content-gap/refresh", methods=["POST"])
+def api_content_gap_refresh():
+    body = request.get_json(silent=True) or {}
+    comps = [_cg_bare(c) for c in (body.get("competitors") or []) if _cg_bare(c)]
+    if not comps:
+        comps = _cg_load().get("competitors") or []
+    if not comps:
+        return jsonify({"error": "Add at least one competitor domain to compare against."}), 400
+    # dedup, keep order, cap (each is a Labs call)
+    seen, ordered = set(), []
+    for c in comps:
+        if c not in seen:
+            seen.add(c); ordered.append(c)
+    ordered = ordered[:5]
+    if _cg_job["running"]:
+        return jsonify({"success": True, "already_running": True})
+    threading.Thread(target=_content_gap_worker,
+                     args=(ordered, bool(body.get("force"))), daemon=True).start()
+    return jsonify({"success": True, "competitors": ordered})
+
+
+@app.route("/api/content-gap/send-to-board", methods=["POST"])
+def api_content_gap_send():
+    """Turn chosen battle-plan articles into Task Board CONTENT tasks, each with
+    the full brief (topic, outline, word count, interlink role) inline."""
+    body = request.get_json(silent=True) or {}
+    want = set(body.get("primary_keywords") or [])
+    d = _cg_load()
+    articles = (d.get("plan") or {}).get("articles") or []
+    if not articles:
+        return jsonify({"error": "No plan yet — refresh the content gap first."}), 400
+
+    ledger = ActionLedger()
+    existing = set()
+    for status in (ActionStatus.PROPOSED, ActionStatus.APPROVED,
+                   ActionStatus.IMPLEMENTED, ActionStatus.MEASURED):
+        for a in ledger.get_actions_by_status(status):
+            k = (a.recommendation_json or {}).get("dedup_key")
+            if k:
+                existing.add(k)
+
+    created, skipped = 0, 0
+    for a in articles:
+        pk = a.get("primary_keyword", "")
+        if want and pk not in want:
+            continue
+        dedup_key = f"contentgap:{pk.lower()}"
+        if dedup_key in existing:
+            skipped += 1
+            continue
+        role = a.get("role", "supporting")
+        steps = [
+            f"Write a new {'pillar/hub' if role.startswith('pillar') else 'supporting'} page "
+            f"targeting “{pk}” (~{a.get('word_count_target')} words, "
+            f"{a.get('intent')} intent).",
+            "Cover these sub-topics as H2 sections (each is a keyword montessorigeneration "
+            "ranks for and you don't): " + (", ".join(a.get("supporting_keywords") or []) or "(none — single-topic page)"),
+            "Structure: " + " → ".join(a.get("outline") or []),
+        ]
+        if role.startswith("pillar"):
+            spokes = a.get("links_to_spokes") or []
+            if spokes:
+                steps.append("Link DOWN from this hub to each supporting page: " + ", ".join(spokes[:12]) + ".")
+        else:
+            steps.append(f"Link UP from this page to the pillar (“{a.get('links_to_pillar','')}”) with descriptive anchor text.")
+        steps.append("Add FAQ schema, then request indexing in Google Search Console.")
+        _persist_action({
+            "url": "", "action": "CONTENT_CLARIFY",
+            "primary_constraint": "Content / Topical Gap", "asset_type": "blog",
+            "expected_value": a.get("est_monthly_value", 0), "confidence": 0.5,
+            "risk_level": "low", "source": "content_gap", "dedup_key": dedup_key,
+            "gsc_impressions": a.get("total_volume", 0),
+            "implementation_summary": f"Write “{a.get('title')}” — closes the {pk} gap ({a.get('total_volume')} vol)",
+            "implementation_steps": steps,
+        })
+        existing.add(dedup_key)
+        created += 1
+    return jsonify({"success": True, "created": created, "skipped_already_on_board": skipped})
+
+
+def _run_content_gap_scheduler():
+    """Monthly auto-refresh: once competitors are set, re-pull if the plan is
+    older than ~30 days. Checks a few times a day; never runs before the operator
+    has set it up once (so it never spends Labs credits unprompted)."""
+    import time as _t
+    while True:
+        try:
+            d = _cg_load()
+            comps = d.get("competitors") or []
+            ts = d.get("updated_at")
+            stale = True
+            if ts:
+                try:
+                    stale = (datetime.now() - datetime.fromisoformat(ts)).days >= 30
+                except Exception:
+                    stale = True
+            if comps and stale and not _cg_job["running"] and not d.get("labs_unauthorized"):
+                _content_gap_worker(comps[:5], force=True)
+        except Exception:
+            pass
+        _t.sleep(6 * 3600)
 
 
 @app.route("/api/link-targets/import", methods=["POST"])

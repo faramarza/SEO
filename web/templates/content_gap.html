@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Content Gap — Governor{% endblock %}
+{% block header %}⚔️ Content Gap — Battle Plan{% endblock %}
+{% block content %}
+<div class="page-header">
+  <p class="page-description">
+    The exact plan to out-rank your competitors: the Montessori topics they rank for and
+    <strong>you don't</strong>, grouped into articles to write, sized, structured, interlinked,
+    and prioritized by sales. Pulled from DataForSEO Labs, refreshed monthly. Pick the ones you
+    want and they land on your Task Board as ready-to-write briefs.
+  </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;font-size:13px;">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <input id="cg-comps" type="text" style="flex:1;min-width:280px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;"
+           placeholder="competitor domains, comma-separated" value="montessorigeneration.com, habausa.com, hazelandfawn.com">
+    <button id="cg-run" class="pb-task-btn" onclick="cgRun(this)">⚔️ Build / refresh plan</button>
+    <span id="cg-meta" style="font-size:12px;color:var(--text-muted);"></span>
+  </div>
+  <p style="margin:8px 0 0;color:var(--text-muted);">Compares your domain's ranked keywords against each competitor's (DataForSEO Labs). Runs in the background — a full pull takes a minute or two. Refreshes itself monthly.</p>
+</div>
+
+<div id="cg-body"><p class="pb-loading">Loading…</p></div>
+<div id="cg-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let CGD=null, cgTimer=null;
+function cgToast(m,e){const t=document.getElementById('cg-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
+
+async function cgLoad(){
+  const d=await (await fetch('/api/content-gap')).json();
+  CGD=d; const running=!!(d.job&&d.job.running);
+  govJobUI('cg-run', running, {idleLabel:'⚔️ Build / refresh plan', runningLabel:'⏳ Pulling…',
+    phase:d.job&&d.job.phase, sub:'Reading ranked keywords from DataForSEO Labs — you can leave this page.',
+    doneNote:(!running&&d.job&&d.job.note)?('✓ '+d.job.note):''});
+  render();
+  if(running){ clearTimeout(cgTimer); cgTimer=setTimeout(cgLoad,3000); }
+}
+
+function render(){
+  const body=document.getElementById('cg-body'), meta=document.getElementById('cg-meta');
+  const d=CGD||{};
+  if(d.labs_unauthorized){
+    body.innerHTML=`<div class="card" style="border:1px solid #fca5a5;background:#fef2f2;">
+      <strong>DataForSEO Labs isn't enabled on your account.</strong>
+      <p style="margin:6px 0 0;font-size:13px;">${escHtml(d.error||'')}</p>
+      <p style="margin:6px 0 0;font-size:13px;">Labs is a separate product from the SERP calls you already use — turn it on in your DataForSEO dashboard (a few dollars of credit), then click <strong>Build / refresh plan</strong> again. Nothing here is faked until it can pull real data.</p></div>`;
+    meta.textContent=''; return;
+  }
+  if(d.error && !d.plan){ body.innerHTML=`<div class="card"><strong>Couldn't build the plan.</strong><p style="font-size:13px;margin-top:6px;">${escHtml(d.error)}</p></div>`; return; }
+  const plan=d.plan;
+  if(!plan||!plan.articles||!plan.articles.length){
+    body.innerHTML='<p class="empty-state">No plan yet — enter your competitors above and click <strong>Build / refresh plan</strong>.</p>'; meta.textContent=''; return;
+  }
+  meta.textContent=`Updated ${(d.updated_at||'').replace('T',' ')} · vs ${(d.competitors||[]).join(', ')}`;
+  const t=plan;
+  let html=`<div class="card" style="margin-bottom:14px;">
+    <div style="font-size:15px;">Write <strong>${t.article_count} articles</strong> to close the gap — they rank for <strong>${(d.competitor_keyword_count||0).toLocaleString()}</strong> terms, you rank for <strong>${(d.your_keyword_count||0).toLocaleString()}</strong>. This plan targets the <strong>${(d.gap_count||0).toLocaleString()}</strong> highest-value terms you're missing (~$${(t.total_est_value||0).toLocaleString()}/mo potential).</div>
+    <div style="margin-top:10px;"><button class="pb-task-btn" onclick="cgSendAll(this)">📤 Send all ${t.article_count} to Task Board</button>
+      <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">or send individually below</span></div>
+  </div>`;
+  html+=t.articles.map((a,i)=>{
+    const badge = a.role&&a.role.indexOf('pillar')===0
+      ? '<span style="background:#7c3aed;color:#fff;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;">PILLAR / HUB</span>'
+      : '<span style="background:#e2e8f0;color:#475569;font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;">supporting</span>';
+    const intent = a.intent==='commercial'
+      ? '<span style="color:#16a34a;font-weight:600;">commercial</span>'
+      : '<span style="color:#2563eb;font-weight:600;">informational</span>';
+    return `<div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:260px;">
+          <div style="font-weight:700;font-size:15px;">${i+1}. ${escHtml(a.title)} ${badge}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">
+            target keyword: <strong>${escHtml(a.primary_keyword)}</strong> · ${intent} · ~${a.word_count_target} words · ${(a.total_volume||0).toLocaleString()} searches/mo · ~$${(a.est_monthly_value||0).toLocaleString()}/mo</div>
+        </div>
+        <button class="pb-task-btn" onclick='cgSendOne(${JSON.stringify(a.primary_keyword)}, this)'>📤 To board</button>
+      </div>
+      ${(a.supporting_keywords&&a.supporting_keywords.length)?`<div style="font-size:12px;margin-top:8px;"><strong>Cover these as H2 sections</strong> (terms they rank for, you don't): ${a.supporting_keywords.map(escHtml).join(' · ')}</div>`:''}
+      <details style="margin-top:6px;"><summary style="font-size:12px;cursor:pointer;color:var(--accent-purple);">Outline & interlinking</summary>
+        <ol style="font-size:12.5px;margin:6px 0 0;padding-left:18px;line-height:1.5;">${(a.outline||[]).map(s=>`<li>${escHtml(s)}</li>`).join('')}</ol>
+        <div style="font-size:12px;margin-top:6px;color:var(--text-secondary);">${a.role&&a.role.indexOf('pillar')===0
+          ? 'Link DOWN to every supporting page below it.'
+          : ('Link UP to the pillar: <strong>'+escHtml(a.links_to_pillar||'')+'</strong>')}</div>
+      </details>
+    </div>`;
+  }).join('');
+  body.innerHTML=html;
+}
+
+async function cgRun(btn){
+  const comps=document.getElementById('cg-comps').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!comps.length){ cgToast('Enter at least one competitor domain',true); return; }
+  const d=await (await fetch('/api/content-gap/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({competitors:comps,force:true})})).json();
+  if(d.error){ cgToast(d.error,true); return; }
+  govJobUI('cg-run', true, {idleLabel:'⚔️ Build / refresh plan', runningLabel:'⏳ Pulling…', phase:'starting…', sub:'Reading ranked keywords…'});
+  setTimeout(cgLoad,900);
+}
+async function cgSendOne(pk, btn){
+  if(btn){btn.disabled=true;btn.textContent='…';}
+  const d=await (await fetch('/api/content-gap/send-to-board',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({primary_keywords:[pk]})})).json();
+  if(btn){btn.disabled=false;btn.textContent='📤 To board';}
+  cgToast(d.created?('Added to Task Board'):(d.skipped_already_on_board?'Already on the board':'Nothing added'), !d.created&&!d.skipped_already_on_board);
+}
+async function cgSendAll(btn){
+  if(btn){btn.disabled=true;btn.textContent='Sending…';}
+  const d=await (await fetch('/api/content-gap/send-to-board',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+  if(btn){btn.disabled=false;btn.textContent='📤 Send all to Task Board';}
+  let msg=`Added ${d.created} article task${d.created===1?'':'s'} to the Task Board`;
+  if(d.skipped_already_on_board) msg+=` · ${d.skipped_already_on_board} already there`;
+  cgToast(msg);
+  if(d.created) setTimeout(()=>{ if(confirm(msg+'.\n\nOpen the Task Board?')) location.href='/tasks'; },300);
+}
+cgLoad();
+</script>
+{% endblock %}
