@@ -32,13 +32,36 @@ def _norm(kw: str) -> str:
     return re.sub(r"\s+", " ", (kw or "").strip().lower())
 
 
+# Generic e-commerce / child-product tokens that don't, on their own, establish
+# that a keyword is in YOUR wheelhouse ("toys" is true of half the internet).
+_GENERIC = {"toys", "toy", "gift", "gifts", "set", "sets", "cheap", "sale", "buy",
+            "shop", "online", "store", "new", "play", "gear", "stuff", "things",
+            "products", "product", "item", "items", "idea", "ideas"}
+
+
+def _distinctive(kw: str) -> set:
+    """Tokens that actually characterize a topic (drop stopwords + generic terms)."""
+    return {t for t in _tokens(kw) if t not in _GENERIC and len(t) > 2}
+
+
 def compute_gap(competitor_keywords: list, your_keywords: list,
-                min_volume: int = 30) -> list:
+                min_volume: int = 30, relevance: bool = True) -> list:
     """Keywords the competitor(s) rank for that YOU don't (or barely).
 
     competitor_keywords / your_keywords: [{keyword, volume, position, cpc, ...}].
+
+    RELEVANCE FILTER (crucial): a competitor's keyword set is full of brands
+    (jellycat), and unrelated products (car seats, pacifiers) you don't sell.
+    Anchored to the distinctive vocabulary of YOUR OWN ranked keywords, we keep
+    only gap topics that share a real term with what you actually rank for — so
+    the plan is "expand your wheelhouse," not "write about everything they sell."
     Returns the gap keywords (dedup, real demand), highest-volume first."""
     yours = {_norm(k.get("keyword")) for k in (your_keywords or [])}
+    vocab = set()
+    for k in (your_keywords or []):
+        vocab |= _distinctive(k.get("keyword"))
+    use_relevance = relevance and len(vocab) >= 5   # need a real footprint to anchor
+
     best = {}
     for k in competitor_keywords or []:
         kw = _norm(k.get("keyword"))
@@ -47,6 +70,8 @@ def compute_gap(competitor_keywords: list, your_keywords: list,
         vol = int(k.get("volume") or 0)
         if vol < min_volume:
             continue
+        if use_relevance and not (_distinctive(kw) & vocab):
+            continue                                  # not in your wheelhouse — skip
         cur = best.get(kw)
         if not cur or vol > cur["volume"]:
             best[kw] = {"keyword": k.get("keyword"), "volume": vol,
@@ -130,11 +155,14 @@ def build_plan(clusters: list, aov: float = 53.0, cvr: float = 0.02,
         supporting = [k["keyword"] for k in kws[1:8]]
         intent = _intent(primary)
         # Sales-weighted priority: commercial terms convert; volume matters; a term
-        # the competitor barely holds (weak position) is easier to take.
+        # the competitor barely holds (weak position) is easier to take. Volume is
+        # CAPPED so one giant head term can't produce a fantasy $/mo or dominate —
+        # a single new article realistically captures a small slice of page 1.
         intent_w = 1.0 if intent == "commercial" else 0.35
-        est_clicks = c["volume"] * 0.03            # a modest page-1 capture
-        est_value = round(est_clicks * cvr * aov * margin, 2)
-        priority = round(c["volume"] * intent_w, 1)
+        capped_vol = min(c["volume"], 3000)
+        est_clicks = capped_vol * 0.03             # a modest page-1 capture
+        est_value = round(min(est_clicks * cvr * aov * margin, 400.0), 2)
+        priority = round(min(c["volume"], 5000) * intent_w, 1)
         wc = comp_word_count if intent == "informational" else max(600, comp_word_count // 2)
         outline = ["Intro: directly answer / frame " + f"“{primary}”"]
         outline += [f"H2: {s}" for s in supporting]

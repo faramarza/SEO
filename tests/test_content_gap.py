@@ -52,3 +52,30 @@ def test_intent_and_plan_shape():
     assert any("H2" in s or "Intro" in s for s in a["outline"])
     assert plan["article_count"] >= 4
     assert all("links_to_pillar" in x for x in plan["articles"][1:])  # spokes link up
+
+
+def test_relevance_filter_drops_brands_and_unrelated_products():
+    comp = [_kw(k, v) for k, v in [
+        ("jellycat", 90000), ("car seat for convertible cars", 30000),
+        ("pacifier", 22000), ("montessori toys for 2 year olds", 1900),
+        ("wooden name puzzle", 590)]]
+    yours = [_kw(k, 0) for k in ["montessori toys", "name train", "wooden alphabet puzzle",
+                                 "personalized story book", "classroom rug"]]
+    gap = [g["keyword"] for g in cg.compute_gap(comp, yours)]
+    assert "jellycat" not in gap
+    assert "car seat for convertible cars" not in gap
+    assert "pacifier" not in gap
+    assert "montessori toys for 2 year olds" in gap
+    assert "wooden name puzzle" in gap
+
+
+def test_ev_is_capped_not_fantasy():
+    comp = [_kw("montessori toys", 500000)]   # huge head term
+    yours = [_kw(k, 0) for k in ["montessori toys guide", "montessori shelf", "wooden puzzle",
+                                 "name train", "classroom rug"]]
+    # (montessori toys itself would be excluded as already-ranked in real use; here
+    # we just check the cap on any single article's value.)
+    plan = cg.build_plan(cg.cluster_topics(cg.compute_gap(
+        [_kw("montessori playroom", 500000)], yours)))
+    if plan["articles"]:
+        assert plan["articles"][0]["est_monthly_value"] <= 400.0
