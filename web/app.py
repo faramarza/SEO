@@ -12265,6 +12265,121 @@ def api_link_targets_send_content_gaps():
     })
 
 
+def _cg_top_query(url: str) -> str:
+    """The page's best money query — highest-impression term from the last
+    evaluation, else its top Link Targets keyword."""
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            for r in json.load(f).get("results", []):
+                if (r.get("url") or "").rstrip("/") == url.rstrip("/"):
+                    qs = sorted((r.get("top_queries") or []),
+                                key=lambda q: -(q.get("impressions") or 0))
+                    if qs:
+                        return qs[0].get("query", "")
+    except Exception:
+        pass
+    try:
+        from src.analysis import link_targets as lt
+        row = (lt.load_store().get("targets", {}) or {}).get(url) or {}
+        kws = row.get("keywords") or []
+        if kws:
+            return kws[0].get("query", "")
+    except Exception:
+        pass
+    return ""
+
+
+@app.route("/api/competitor-gap")
+def api_competitor_gap():
+    """Why the page ranking #1 beats yours. Crawls your page + the top emulable
+    competitors for this page's money query and returns the concrete on-page gaps
+    (content depth, page type vs intent, exact-phrase usage, structure, schema).
+    Read-only. ?url=<your page>[&query=<term>]."""
+    from src.analysis import competitor_gap as cg
+    from src.analysis import link_targets as lt
+    from src.data_sources import serp_client
+    url = (request.args.get("url") or "").strip()
+    query = (request.args.get("query") or "").strip()
+    if not url:
+        return jsonify({"error": "No page url given."}), 400
+    if not query:
+        query = _cg_top_query(url)
+    if not query:
+        return jsonify({"error": "No search query is known for this page yet — measure it on "
+                                 "Link Targets first, then retry."}), 200
+
+    cached = serp_client.get_cached_serp(query)
+    if not cached or not (cached.get("organic_results")):
+        return jsonify({"error": f"No cached search results for “{query}” yet. Run "
+                                 "“Measure via DataForSEO” on Link Targets, then retry.",
+                        "query": query}), 200
+
+    my_dom = lt._domain(url)
+    comp_urls, seen_dom, marketplaces, my_pos = [], set(), 0, None
+    for r in (cached.get("organic_results") or [])[:10]:
+        u = (r.get("url") or "").strip()
+        d = lt._domain(u)
+        if not u or not d:
+            continue
+        if my_dom and my_dom in d:
+            my_pos = my_pos or r.get("position")
+            continue
+        if not lt.is_emulable(u):
+            marketplaces += 1
+            continue
+        if d in seen_dom:
+            continue
+        seen_dom.add(d)
+        comp_urls.append(u)
+        if len(comp_urls) >= 3:
+            break
+
+    if not comp_urls:
+        return jsonify({"available": False, "query": query, "my_serp_position": my_pos,
+                        "marketplaces_in_top": marketplaces,
+                        "verdict": (f"The top results for “{query}” are all marketplaces / "
+                                    "platforms (Amazon, Etsy, big directories) — there's no comparable "
+                                    "independent page to learn from. This SERP is marketplace-locked; "
+                                    "compete on long-tail variants or a content angle instead."),
+                        "gaps": []}), 200
+
+    try:
+        from src.crawlers.simple_crawler import SimpleCrawler
+        crawler = SimpleCrawler(timeout=15, max_concurrent=3, request_delay=0.4,
+                                user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                            "Chrome/125.0.0.0 Safari/537.36"))
+        results = crawler.crawl_urls([url] + comp_urls, show_progress=False)
+    except Exception as e:
+        return jsonify({"error": f"Crawl failed: {e}", "query": query}), 200
+
+    by_url = {}
+    for cr in results:
+        by_url[(cr.url or "").rstrip("/")] = cr
+
+    def _prof(u):
+        cr = by_url.get(u.rstrip("/"))
+        if not cr or cr.error or (not cr.title and not cr.word_count):
+            return None
+        return cg.profile({
+            "url": cr.url, "title": cr.title, "h1": cr.h1,
+            "word_count": cr.word_count, "headings": cr.headings,
+            "schema_types": cr.schema_types, "content_preview": cr.content_preview,
+            "internal_links": len(cr.internal_outlinks or []),
+        }, query)
+
+    mine = _prof(url)
+    if not mine:
+        return jsonify({"error": "Couldn't read your page (the crawl was blocked or timed out). "
+                                 "Try again in a moment.", "query": query}), 200
+    comps = [c for c in (_prof(u) for u in comp_urls) if c]
+    res = cg.analyze(mine, comps, query)
+    res["my_serp_position"] = my_pos
+    res["marketplaces_in_top"] = marketplaces
+    res["url"] = url
+    return jsonify(res)
+
+
 @app.route("/api/link-targets/import", methods=["POST"])
 def api_link_targets_import():
     """Compute one page's real link gap from an Ahrefs SERP-overview CSV export
