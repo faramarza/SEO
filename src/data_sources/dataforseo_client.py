@@ -406,3 +406,120 @@ def check_aio_batch(queries: list, own_domain: str = "") -> dict:
         "top_cited_competitors": dict(sorted(comp_counts.items(), key=lambda kv: -kv[1])[:10]),
         "results": results,
     }
+
+
+# ── DataForSEO Labs: ranked keywords (for the Content Gap / Battle Plan) ──────
+# Labs is a SEPARATE endpoint family from SERP/backlinks. A key provisioned only
+# for SERP may get 401/403/40x here — we surface that clearly ("enable Labs")
+# rather than fabricate. Cheap per call; we cache aggressively (monthly refresh).
+_LABS_RANKED_ENDPOINT = "https://api.dataforseo.com/v3/dataforseo_labs/google/ranked_keywords/live"
+LABS_DAILY_LIMIT = int(os.environ.get("DATAFORSEO_LABS_DAILY_LIMIT", "30"))
+LABS_CACHE_DAYS = int(os.environ.get("DATAFORSEO_LABS_CACHE_DAYS", "30"))
+
+
+def get_labs_daily_usage() -> int:
+    return _load_cache().get("labs_daily", {}).get(_today(), 0)
+
+
+def get_labs_remaining_quota() -> int:
+    return max(0, LABS_DAILY_LIMIT - get_labs_daily_usage())
+
+
+def _labs_is_fresh(entry: dict) -> bool:
+    ts = (entry or {}).get("fetched_at")
+    if not ts:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - dt).total_seconds() < LABS_CACHE_DAYS * 86400
+    except Exception:
+        return False
+
+
+def fetch_ranked_keywords(domain: str, limit: int = 1000, max_position: int = 20,
+                          force: bool = False) -> dict:
+    """Keywords a domain organically ranks for (top `max_position`), via DataForSEO
+    Labs. Returns {available, domain, keywords:[{keyword, volume, cpc, competition,
+    position, url}]} or {available:False, reason}. Cached ~monthly. Never fabricates."""
+    domain = (domain or "").strip().lower().replace("https://", "").replace(
+        "http://", "").replace("www.", "").strip("/")
+    if not domain:
+        return {"available": False, "reason": "empty domain"}
+    if not is_configured():
+        return {"available": False, "reason": "DataForSEO not configured."}
+
+    cache = _load_cache()
+    key = f"{domain}|{max_position}"
+    entry = cache.get("labs_ranked", {}).get(key)
+    if entry and not force and _labs_is_fresh(entry):
+        return entry
+
+    if get_labs_remaining_quota() <= 0:
+        return {"available": False, "reason": f"DataForSEO Labs daily cap reached "
+                f"({LABS_DAILY_LIMIT}/day)."}
+
+    import httpx
+    token = _auth_token()
+    body = [{
+        "target": domain,
+        "location_code": LOCATION_CODE,
+        "language_code": LANGUAGE_CODE,
+        "limit": max(1, min(limit, 1000)),
+        "order_by": ["keyword_data.keyword_info.search_volume,desc"],
+        "filters": [["ranked_serp_element.serp_item.rank_group", "<=", max_position]],
+    }]
+    try:
+        resp = httpx.post(_LABS_RANKED_ENDPOINT,
+                          headers={"Authorization": f"Basic {token}",
+                                   "Content-Type": "application/json"},
+                          json=body, timeout=60.0)
+        if resp.status_code in (401, 403):
+            return {"available": False, "labs_unauthorized": True,
+                    "reason": "DataForSEO Labs is not enabled on this account — turn on "
+                              "DataForSEO Labs in your DataForSEO dashboard (it's a separate "
+                              "product from SERP), then retry."}
+        if resp.status_code != 200:
+            return {"available": False, "reason": f"DataForSEO Labs error {resp.status_code}."}
+        data = resp.json()
+    except Exception as e:
+        return {"available": False, "reason": f"DataForSEO Labs request failed: {e}"}
+
+    # A 200 can still carry a task-level error (e.g. 402 payment / not-subscribed).
+    try:
+        task0 = (data.get("tasks") or [])[0]
+        tcode = task0.get("status_code")
+        if tcode and tcode >= 40000:
+            msg = task0.get("status_message", "")
+            unauth = tcode in (40200, 40201, 40202) or "subscri" in msg.lower() or "access" in msg.lower()
+            return {"available": False, "labs_unauthorized": unauth,
+                    "reason": f"DataForSEO Labs: {msg or ('code ' + str(tcode))}"
+                              + (" — enable DataForSEO Labs on your account." if unauth else "")}
+        items = ((task0.get("result") or [])[0].get("items")) or []
+    except (IndexError, AttributeError, TypeError):
+        items = []
+
+    kws = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        kd = it.get("keyword_data") or {}
+        ki = kd.get("keyword_info") or {}
+        se = ((it.get("ranked_serp_element") or {}).get("serp_item")) or {}
+        kw = kd.get("keyword")
+        if not kw:
+            continue
+        kws.append({
+            "keyword": kw,
+            "volume": ki.get("search_volume") or 0,
+            "cpc": ki.get("cpc") or 0,
+            "competition": ki.get("competition") or 0,
+            "position": se.get("rank_group") or se.get("rank_absolute") or 0,
+            "url": se.get("url") or "",
+        })
+
+    out = {"available": True, "domain": domain,
+           "fetched_at": datetime.now(timezone.utc).isoformat(), "keywords": kws}
+    cache.setdefault("labs_ranked", {})[key] = out
+    cache.setdefault("labs_daily", {})[_today()] = get_labs_daily_usage() + 1
+    _save_cache(cache)
+    return out
