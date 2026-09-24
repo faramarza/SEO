@@ -12331,7 +12331,7 @@ def api_competitor_gap():
             continue
         seen_dom.add(d)
         comp_urls.append(u)
-        if len(comp_urls) >= 3:
+        if len(comp_urls) >= 2:   # 2 is enough for a comparison; keeps the live crawl fast
             break
 
     if not comp_urls:
@@ -12345,7 +12345,7 @@ def api_competitor_gap():
 
     try:
         from src.crawlers.simple_crawler import SimpleCrawler
-        crawler = SimpleCrawler(timeout=15, max_concurrent=3, request_delay=0.4,
+        crawler = SimpleCrawler(timeout=8, max_concurrent=3, request_delay=0.15,
                                 user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                             "AppleWebKit/537.36 (KHTML, like Gecko) "
                                             "Chrome/125.0.0.0 Safari/537.36"))
