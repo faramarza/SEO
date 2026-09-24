@@ -50,49 +50,32 @@
         </div>
         {% set p = request.path %}
         <ul class="nav-links">
-            <!-- DAILY — the only two you touch every day -->
-            <li><a href="/" data-tip="Home. The app's ranked to-do list: what to do first, grouped critical → quick wins → nice-to-have." class="{% if p in ['/', '/do-next'] %}active{% endif %}" style="font-weight:700;">🏠 Start Here</a></li>
+            <!-- The three you actually use -->
+            <li><a href="/" data-tip="Home. Your one ranked to-do list — what to do next, by sales impact. Work top to bottom." class="{% if p in ['/', '/do-next'] %}active{% endif %}" style="font-weight:700;">🏠 Start Here</a></li>
             <li><a href="/tasks" data-tip="The work you've started, tracked through to a measured outcome." class="{% if p == '/tasks' %}active{% endif %}" style="font-weight:700;">📋 Task Board <span id="task-alert-badge" style="display:none;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;"></span></a></li>
+            <li><a href="/setup" data-tip="Everything the tool needs from you — connections, Ahrefs upload, competitors, run. Set once." class="{% if p == '/setup' %}active{% endif %}" style="font-weight:700;">⚙️ Setup</a></li>
 
-            <li class="nav-group" data-group="find">
-                <div class="nav-group-header" onclick="govNavToggle('find')"><span class="nav-caret"></span> FIND WORK</div>
+            <li class="nav-group" data-group="advanced" data-default="collapsed">
+                <div class="nav-group-header" onclick="govNavToggle('advanced')"><span class="nav-caret"></span> ADVANCED · deep dives (optional)</div>
                 <div class="nav-group-items">
                     <a href="/opportunities" data-tip="Every page's SEO opportunity with AI recommendations. Feeds Start Here." class="{% if p == '/opportunities' %}active{% endif %}">Opportunities</a>
-                    <a href="/click-yield" data-tip="Winnable page-2 keywords + the exact title/meta fix (one-click Apply). Feeds Start Here." class="{% if p == '/click-yield' %}active{% endif %}">Click Yield</a>
-                    <a href="/content" data-tip="Content gaps and article generation." class="{% if p == '/content' %}active{% endif %}">Content</a>
-                    <a href="/content-gap" data-tip="Battle plan: the topics competitors rank for and you don't — as ready-to-write articles, prioritized by sales." class="{% if p == '/content-gap' %}active{% endif %}">⚔️ Content Gap</a>
-                    <a href="/link-targets" data-tip="Outreach worksheet: how many links each page needs to reach page 1." class="{% if p == '/link-targets' %}active{% endif %}">Link Targets</a>
-                    <a href="/what-if" data-tip="Test alternative keywords for a page before committing outreach/content." class="{% if p == '/what-if' %}active{% endif %}">What-if</a>
-                    <a href="/playbook" data-tip="Striking-distance wins + qualified link prospects (same data as Start Here, shown as a report)." class="{% if p == '/playbook' %}active{% endif %}">Playbook</a>
-                </div>
-            </li>
-
-            <li class="nav-group" data-group="monitor">
-                <div class="nav-group-header" onclick="govNavToggle('monitor')"><span class="nav-caret"></span> MONITOR</div>
-                <div class="nav-group-items">
-                    <a href="/dashboard" data-tip="At-a-glance KPIs, Governor posture, and your last evaluation." class="{% if p == '/dashboard' %}active{% endif %}">Dashboard</a>
+                    <a href="/click-yield" data-tip="Winnable page-2 keywords + the exact title/meta fix. Feeds Start Here." class="{% if p == '/click-yield' %}active{% endif %}">Click Yield</a>
+                    <a href="/content" data-tip="Content clusters and article generation." class="{% if p == '/content' %}active{% endif %}">Content</a>
+                    <a href="/content-gap" data-tip="The competitor content-gap battle plan (also flows into Start Here)." class="{% if p == '/content-gap' %}active{% endif %}">⚔️ Content Gap</a>
+                    <a href="/link-targets" data-tip="Outreach worksheet + why-do-they-rank + Ahrefs import." class="{% if p == '/link-targets' %}active{% endif %}">Link Targets</a>
+                    <a href="/what-if" data-tip="Test alternative keywords for a page before committing." class="{% if p == '/what-if' %}active{% endif %}">What-if</a>
+                    <a href="/playbook" data-tip="Striking-distance wins + qualified link prospects (same data as Start Here)." class="{% if p == '/playbook' %}active{% endif %}">Playbook</a>
+                    <a href="/dashboard" data-tip="At-a-glance KPIs, Governor posture, last evaluation." class="{% if p == '/dashboard' %}active{% endif %}">Dashboard</a>
                     <a href="/growth" data-tip="AI visibility (are you cited in AI answers?) + growth memos." class="{% if p == '/growth' %}active{% endif %}">Growth</a>
                     <a href="/learning" data-tip="What past changes actually moved rankings — the tool's memory." class="{% if p == '/learning' %}active{% endif %}">Learning</a>
                     <a href="/tracking" data-tip="GSC/GA4 data quality + technical diagnostics." class="{% if p == '/tracking' %}active{% endif %}">Tracking</a>
                     <a href="/duplication" data-tip="Near-duplicate / thin pages to consolidate." class="{% if p == '/duplication' %}active{% endif %}">Duplication</a>
                     <a href="/link-map" data-tip="Your internal link graph — click depth, orphans, authority flow." class="{% if p == '/link-map' %}active{% endif %}">Link Map</a>
                     <a href="/plumbing-audit" data-tip="Read-only technical audit: crawl-waste, canonicals, indexation bloat." class="{% if p == '/plumbing-audit' %}active{% endif %}">Plumbing Audit</a>
-                    <a href="/agentic-commerce" data-tip="Is your catalog readable by AI shopping agents? Readiness score + missing product facts." class="{% if p == '/agentic-commerce' %}active{% endif %}">Agentic Commerce</a>
-                </div>
-            </li>
-
-            <li class="nav-group" data-group="outreach">
-                <div class="nav-group-header" onclick="govNavToggle('outreach')"><span class="nav-caret"></span> OUTREACH &amp; AUTOMATION</div>
-                <div class="nav-group-items">
-                    <a href="/institutional" data-tip="B2B prospecting: Montessori schools, public schools; drafts outreach emails." class="{% if p == '/institutional' %}active{% endif %}">B2B</a>
+                    <a href="/agentic-commerce" data-tip="Is your catalog readable by AI shopping agents?" class="{% if p == '/agentic-commerce' %}active{% endif %}">Agentic Commerce</a>
+                    <a href="/institutional" data-tip="B2B prospecting: Montessori/public schools; drafts outreach emails." class="{% if p == '/institutional' %}active{% endif %}">B2B</a>
                     <a href="/loop" data-tip="Unattended, throttled meta rewrites to Magento — measured and revertable." class="{% if p == '/loop' %}active{% endif %}">Loop</a>
-                </div>
-            </li>
-
-            <li class="nav-group" data-group="setup">
-                <div class="nav-group-header" onclick="govNavToggle('setup')"><span class="nav-caret"></span> SETUP</div>
-                <div class="nav-group-items">
-                    <a href="/admin" data-tip="Config, evaluation runs, sitemap import." class="{% if p == '/admin' %}active{% endif %}">Admin</a>
+                    <a href="/admin" data-tip="Full config, credentials, sitemap import." class="{% if p == '/admin' %}active{% endif %}">Admin (full config)</a>
                 </div>
             </li>
 
@@ -166,10 +149,12 @@
             const name=g.getAttribute('data-group');
             const hasActive=!!g.querySelector('a.active');
             let stored=null; try{ stored=localStorage.getItem('govNav:'+name); }catch(e){}
-            // Default OPEN (grouped but visible so nothing feels "gone"); a group
-            // stays open if it holds the current page, and only collapses if the
-            // user chose to collapse it before.
-            const collapsed = hasActive ? false : (stored==='1');
+            // A group stays open if it holds the current page. Otherwise honor the
+            // user's saved choice; with none, use the group's declared default
+            // (the Advanced drawer defaults collapsed so the sidebar stays to the 3
+            // essentials).
+            const dflt = g.getAttribute('data-default') === 'collapsed';
+            const collapsed = hasActive ? false : (stored != null ? stored === '1' : dflt);
             g.classList.toggle('collapsed', collapsed);
         });
     })();

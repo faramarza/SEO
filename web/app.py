@@ -12457,6 +12457,80 @@ def _content_gap_worker(competitors: list, force: bool):
         _cg_job.update(running=False, phase="", note=f"error: {e}")
 
 
+@app.route("/setup")
+def setup_page():
+    return render_template("setup.html")
+
+
+@app.route("/api/setup/status")
+def api_setup_status():
+    """Mission-control: one place that shows every input the tool needs and
+    whether it's connected. Presence checks only (fast) — not live pings."""
+    cfg = load_config()
+    ds = cfg.get("data_sources", {})
+    def _f(p):
+        try:
+            return bool(p) and Path(p).exists()
+        except Exception:
+            return False
+    gsc = ds.get("gsc", {}) or {}
+    ga4 = ds.get("ga4", {}) or {}
+    magento_ok = bool(os.environ.get("MAGENTO_BASE_URL") and
+                      (os.environ.get("MAGENTO_TOKEN") or os.environ.get("MAGENTO_ACCESS_TOKEN")))
+    try:
+        from src.data_sources import dataforseo_client as dfs
+        dfs_ok = dfs.is_configured()
+    except Exception:
+        dfs_ok = False
+
+    cg = _cg_load()
+    if cg.get("labs_unauthorized"):
+        labs = {"state": "off", "detail": "DataForSEO Labs not enabled on your account."}
+    elif cg.get("available"):
+        labs = {"state": "on", "detail": "Working — content gap is live."}
+    else:
+        labs = {"state": "unknown", "detail": "Not tested yet — run the Content Gap once."}
+
+    # Ahrefs freshness (the batch import fills the Link Targets store).
+    ahrefs_updated = None
+    try:
+        from src.analysis import link_targets as lt
+        ahrefs_updated = lt.load_store().get("updated_at")
+    except Exception:
+        pass
+
+    last_eval = None
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            last_eval = json.load(f).get("timestamp")
+    except Exception:
+        pass
+
+    return jsonify({
+        "connections": [
+            {"key": "gsc", "name": "Google Search Console", "ok": bool(gsc.get("property_url")),
+             "detail": gsc.get("property_url") or "Set property_url + credentials in Admin.",
+             "why": "Your clicks, impressions, positions — the core of everything."},
+            {"key": "ga4", "name": "Google Analytics 4", "ok": bool(ga4.get("property_id")),
+             "detail": ga4.get("property_id") and ("Property " + str(ga4.get("property_id"))) or "Set property_id + credentials in Admin.",
+             "why": "Revenue and conversions — so ranking is weighted by sales."},
+            {"key": "magento", "name": "Magento", "ok": magento_ok,
+             "detail": magento_ok and "Connected." or "Set MAGENTO_BASE_URL + MAGENTO_TOKEN (env).",
+             "why": "Reads your catalog and writes approved title/meta changes."},
+            {"key": "dataforseo", "name": "DataForSEO (SERP + backlinks)", "ok": dfs_ok,
+             "detail": dfs_ok and "Connected." or "Set DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD (env).",
+             "why": "Who ranks, and link counts — powers Link Targets + Why-do-they-rank."},
+            {"key": "labs", "name": "DataForSEO Labs (content gap)", "ok": labs["state"] == "on",
+             "state": labs["state"], "detail": labs["detail"],
+             "why": "Competitor keyword lists — powers the auto Content-Gap battle plan."},
+        ],
+        "ahrefs_updated": ahrefs_updated,
+        "competitors": cg.get("competitors") or [],
+        "last_evaluation": last_eval,
+        "content_gap_job": _cg_job,
+    })
+
+
 @app.route("/content-gap")
 def content_gap_page():
     return render_template("content_gap.html")

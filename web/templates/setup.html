@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Setup — Governor{% endblock %}
+{% block header %}⚙️ Setup{% endblock %}
+{% block content %}
+<div class="page-header">
+  <p class="page-description">
+    Everything the tool needs from you, in one place. Connect your data once, drop in the
+    occasional upload, and then just work <strong>🏠 Start Here</strong> — this page is the only
+    place you ever come back to for inputs.
+  </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+  <h3 style="margin:0 0 10px;">🔌 Connections</h3>
+  <div id="su-conns"><p class="pb-loading">Checking…</p></div>
+  <p style="font-size:12px;color:var(--text-muted);margin-top:10px;">API keys &amp; credentials live in <a href="/admin">Admin</a> (or server env vars). This shows whether each is wired up.</p>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+  <h3 style="margin:0 0 6px;">📤 Ahrefs backlink data <span id="su-ahrefs-age" style="font-size:12px;font-weight:400;color:var(--text-muted);"></span></h3>
+  <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">Fills referring-domain gaps on Link Targets. Export Ahrefs → Batch Analysis (Exact URL) and drop the CSV here.</p>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <input type="file" id="su-ahrefs-file" accept=".csv,text/csv,text/plain" onchange="suAhrefsFile(this)" style="font-size:13px;">
+    <button id="su-ahrefs-btn" class="pb-task-btn" onclick="suAhrefsImport(this)" disabled>⬆ Fill the board</button>
+    <span id="su-ahrefs-note" style="font-size:12px;color:var(--accent-purple);"></span>
+    <a class="pb-task-btn pb-task-btn-alt" href="/link-targets">Open Link Targets ↗</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+  <h3 style="margin:0 0 6px;">⚔️ Competitors (for the Content-Gap battle plan)</h3>
+  <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">The domains to out-rank. Governor finds what they rank for that you don't and feeds the articles into Start Here, ranked by sales. Auto-refreshes monthly.</p>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <input id="su-comps" type="text" style="flex:1;min-width:280px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;" placeholder="competitor domains, comma-separated" value="montessorigeneration.com, habausa.com, hazelandfawn.com">
+    <button id="su-cg-btn" class="pb-task-btn" onclick="suCgRun(this)">⚔️ Build / refresh gap</button>
+    <a class="pb-task-btn pb-task-btn-alt" href="/content-gap">See full plan ↗</a>
+  </div>
+  <p id="su-cg-note" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></p>
+</div>
+
+<div class="card">
+  <h3 style="margin:0 0 6px;">▶️ Run the tool</h3>
+  <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">Re-evaluates your whole site (crawl + GSC + GA4) and refreshes Start Here. <span id="su-lasteval"></span></p>
+  <button id="su-eval-btn" class="pb-task-btn" onclick="suRunEval(this)">▶️ Run evaluation</button>
+</div>
+
+<div id="su-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function suToast(m,e){const t=document.getElementById('su-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3500);}
+function ago(ts){ if(!ts) return 'never'; try{ const d=Math.floor((Date.now()-new Date(ts))/86400000); return d<=0?'today':(d+'d ago'); }catch(e){ return ts; } }
+
+async function suLoad(){
+  const d=await (await fetch('/api/setup/status')).json();
+  document.getElementById('su-conns').innerHTML=(d.connections||[]).map(c=>{
+    const icon = c.ok?'✅':(c.state==='off'?'⛔':(c.state==='unknown'?'⚪':'❌'));
+    return `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border,rgba(0,0,0,.06));">
+      <span style="font-size:16px;">${icon}</span>
+      <div style="flex:1;"><div style="font-weight:600;">${escHtml(c.name)}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${escHtml(c.detail||'')} — <em>${escHtml(c.why||'')}</em></div></div></div>`;
+  }).join('');
+  document.getElementById('su-ahrefs-age').textContent = d.ahrefs_updated?('· last updated '+ago(d.ahrefs_updated)):'· not uploaded yet';
+  if((d.competitors||[]).length) document.getElementById('su-comps').value=d.competitors.join(', ');
+  document.getElementById('su-lasteval').textContent = d.last_evaluation?('Last run '+ago(d.last_evaluation)+'.'):'Never run yet.';
+  const cj=d.content_gap_job;
+  if(cj&&cj.running){ document.getElementById('su-cg-note').textContent='⏳ '+(cj.phase||'pulling…'); setTimeout(suLoad,3000); }
+}
+
+let SU_CSV='';
+function suAhrefsFile(input){
+  const f=input.files&&input.files[0], note=document.getElementById('su-ahrefs-note'), btn=document.getElementById('su-ahrefs-btn');
+  if(!f){ SU_CSV=''; btn.disabled=true; note.textContent=''; return; }
+  const r=new FileReader(); r.onload=()=>{ SU_CSV=r.result||''; btn.disabled=!SU_CSV.trim(); note.textContent='✓ '+f.name; };
+  r.onerror=()=>note.textContent='Could not read that file'; r.readAsText(f);
+}
+async function suAhrefsImport(btn){
+  if(!SU_CSV.trim()){ suToast('Choose the CSV first',true); return; }
+  btn.disabled=true; const o=btn.textContent; btn.textContent='⏳ Importing…';
+  try{
+    const d=await (await fetch('/api/link-targets/ahrefs-batch/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csv_text:SU_CSV})})).json();
+    if(d.error){ suToast(d.error,true); document.getElementById('su-ahrefs-note').textContent=d.error; }
+    else { suToast(`Filled ${d.pages_measured} pages / ${d.keywords_measured} keywords`); suLoad(); }
+  }catch(e){ suToast('Import failed',true); }
+  finally{ btn.disabled=false; btn.textContent=o; }
+}
+
+async function suCgRun(btn){
+  const comps=document.getElementById('su-comps').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!comps.length){ suToast('Enter at least one competitor',true); return; }
+  btn.disabled=true; const o=btn.textContent; btn.textContent='⏳ Starting…';
+  try{
+    const d=await (await fetch('/api/content-gap/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({competitors:comps,force:true})})).json();
+    if(d.error){ suToast(d.error,true); } else { suToast('Building the gap plan in the background — it’ll flow into Start Here.'); document.getElementById('su-cg-note').textContent='⏳ pulling…'; setTimeout(suLoad,1200); }
+  }catch(e){ suToast('Failed',true); }
+  finally{ btn.disabled=false; btn.textContent=o; }
+}
+
+async function suRunEval(btn){
+  btn.disabled=true; const o=btn.textContent; btn.textContent='⏳ Running…';
+  try{
+    const d=await (await fetch('/api/run-evaluation',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    suToast(d.error?d.error:'Evaluation started — Start Here refreshes when it finishes.', !!d.error);
+  }catch(e){ suToast('Failed to start',true); }
+  finally{ btn.disabled=false; btn.textContent=o; }
+}
+suLoad();
+</script>
+{% endblock %}
