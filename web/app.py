@@ -12489,7 +12489,7 @@ def api_setup_status():
     elif cg.get("available"):
         labs = {"state": "on", "detail": "Working — content gap is live."}
     else:
-        labs = {"state": "unknown", "detail": "Not tested yet — run the Content Gap once."}
+        labs = {"state": "unknown", "detail": "Not tested yet — click Test now."}
 
     # Ahrefs freshness (the batch import fills the Link Targets store).
     ahrefs_updated = None
@@ -12529,6 +12529,29 @@ def api_setup_status():
         "last_evaluation": last_eval,
         "content_gap_job": _cg_job,
     })
+
+
+@app.route("/api/setup/test-labs", methods=["POST"])
+def api_setup_test_labs():
+    """One cheap DataForSEO Labs call to tell you, right on Setup, whether Labs is
+    enabled — no need to run a whole content-gap pull to find out."""
+    from src.data_sources import dataforseo_client as dfs
+    if not dfs.is_configured():
+        return jsonify({"ok": False, "reason": "DataForSEO isn't configured at all "
+                        "(DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD)."})
+    me = _cg_bare(_site_base_url(load_config()))
+    r = dfs.fetch_ranked_keywords(me, limit=1, force=True)
+    if r.get("available"):
+        # Persist a positive signal so the status row stays green.
+        cur = _cg_load()
+        if cur.get("labs_unauthorized"):
+            cur.pop("labs_unauthorized", None)
+            _cg_save(cur)
+        return jsonify({"ok": True, "reason": "DataForSEO Labs is enabled — content gap can run."})
+    if r.get("labs_unauthorized"):
+        _cg_save({**_cg_load(), "labs_unauthorized": True})
+    return jsonify({"ok": False, "labs_unauthorized": bool(r.get("labs_unauthorized")),
+                    "reason": r.get("reason", "Labs call failed.")})
 
 
 @app.route("/content-gap")

@@ -56,10 +56,12 @@ async function suLoad(){
   const d=await (await fetch('/api/setup/status')).json();
   document.getElementById('su-conns').innerHTML=(d.connections||[]).map(c=>{
     const icon = c.ok?'✅':(c.state==='off'?'⛔':(c.state==='unknown'?'⚪':'❌'));
+    const testBtn = (c.key==='labs' && !c.ok)
+      ? `<button class="pb-task-btn" style="align-self:center;" onclick="suTestLabs(this)">Test now</button>` : '';
     return `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border,rgba(0,0,0,.06));">
       <span style="font-size:16px;">${icon}</span>
       <div style="flex:1;"><div style="font-weight:600;">${escHtml(c.name)}</div>
-        <div style="font-size:12px;color:var(--text-muted);">${escHtml(c.detail||'')} — <em>${escHtml(c.why||'')}</em></div></div></div>`;
+        <div style="font-size:12px;color:var(--text-muted);">${escHtml(c.detail||'')} — <em>${escHtml(c.why||'')}</em></div></div>${testBtn}</div>`;
   }).join('');
   document.getElementById('su-ahrefs-age').textContent = d.ahrefs_updated?('· last updated '+ago(d.ahrefs_updated)):'· not uploaded yet';
   if((d.competitors||[]).length) document.getElementById('su-comps').value=d.competitors.join(', ');
@@ -68,6 +70,14 @@ async function suLoad(){
   if(cj&&cj.running){ document.getElementById('su-cg-note').textContent='⏳ '+(cj.phase||'pulling…'); setTimeout(suLoad,3000); }
 }
 
+async function suTestLabs(btn){
+  btn.disabled=true; const o=btn.textContent; btn.textContent='⏳ Testing…';
+  try{
+    const d=await (await fetch('/api/setup/test-labs',{method:'POST'})).json();
+    suToast(d.reason, !d.ok);
+    suLoad();
+  }catch(e){ suToast('Test failed',true); btn.disabled=false; btn.textContent=o; }
+}
 let SU_CSV='';
 function suAhrefsFile(input){
   const f=input.files&&input.files[0], note=document.getElementById('su-ahrefs-note'), btn=document.getElementById('su-ahrefs-btn');
