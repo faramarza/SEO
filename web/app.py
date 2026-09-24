@@ -8875,7 +8875,7 @@ def api_action_plan():
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
                              winnable=_winnable_plan_input(),
                              links_info=_links_plan_info(), results=results,
-                             content_gap=(_cg_load().get("plan") if _cg_load().get("available") else None))
+                             content_gap=_cg_current_plan())
 
     adopted = store.get("adopted", {})
     for t in plan:
@@ -9173,7 +9173,7 @@ def _compose_weekly_digest():
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
                              winnable=_winnable_plan_input(),
                              links_info=_links_plan_info(), results=results,
-                             content_gap=(_cg_load().get("plan") if _cg_load().get("available") else None))
+                             content_gap=_cg_current_plan())
     adopted = store.get("adopted", {})
     top3 = [t for t in plan if t["dedup_key"] not in adopted][:3]
 
@@ -12401,6 +12401,26 @@ def _cg_save(d: dict):
     with open(tmp, "w") as f:
         json.dump(d, f, indent=2)
     tmp.replace(_CONTENT_GAP_PATH)
+
+
+def _cg_current_plan():
+    """The cached content-gap plan ONLY if it was built by the current logic
+    version. A plan from an older version (e.g. the pre-relevance-filter jellycat
+    one) is ignored — and, if competitors are set, a clean rebuild is kicked in the
+    background so Start Here self-heals without a manual refresh."""
+    from src.analysis.content_gap import PLAN_VERSION
+    d = _cg_load()
+    plan = d.get("plan") if d.get("available") else None
+    if plan and plan.get("version") == PLAN_VERSION:
+        return plan
+    # Stale (or unversioned) cached plan — don't show it; regenerate once.
+    comps = d.get("competitors") or []
+    if plan and comps and not _cg_job["running"] and not d.get("labs_unauthorized") \
+            and not d.get("_regen_kicked"):
+        d["_regen_kicked"] = True
+        _cg_save(d)
+        threading.Thread(target=_content_gap_worker, args=(comps[:5], True), daemon=True).start()
+    return None
 
 
 def _cg_bare(dom: str) -> str:

@@ -8,6 +8,11 @@ invents a keyword — it only clusters and prioritizes real ranked-keyword data.
 from __future__ import annotations
 import re
 
+# Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
+# relevance filter / brand blocklist). A cached plan without the current version is
+# ignored so old, pre-fix garbage (the "jellycat" plan) never shows again.
+PLAN_VERSION = 2
+
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
     "top", "your", "you", "my", "is", "are", "how", "what", "why", "vs", "&",
@@ -206,6 +211,7 @@ def build_plan(clusters: list, aov: float = 53.0, cvr: float = 0.02,
         plan[0]["links_to_spokes"] = [a["primary_keyword"] for a in plan[1:]]
     total_vol = sum(a["total_volume"] for a in plan)
     return {
+        "version": PLAN_VERSION,
         "articles": plan,
         "article_count": len(plan),
         "total_volume": total_vol,
