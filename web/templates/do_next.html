@@ -361,75 +361,77 @@ function renderPlan(plan, extra){
     lpAnnotate();
 }
 
+// A readable page name from the URL slug (or the target keyword for new pages).
+function friendlyPage(t){
+    let s=(t.url||'').replace(/^https?:\/\/[^/]+/,'').replace(/\.(html?|php|aspx?)$/,'')
+        .replace(/[\/\-_]+/g,' ').trim().replace(/\s+/g,' ');
+    return s || t.primary_keyword || t.query || (t.metric&&t.metric.query) || 'this page';
+}
+// One plain-English sentence: what to do and why, no jargon.
+function plainWhat(t){
+    const cat=(t.category||'').toLowerCase(); const pg=esc(friendlyPage(t));
+    if(cat==='ctr'||cat==='brand') return `Get more people to click your <b>“${pg}”</b> page in Google by giving it a better description.`;
+    if(cat==='content') return `Write a new page about <b>“${esc(t.primary_keyword||t.query||friendlyPage(t))}”</b> — a topic your competitors rank for and you don’t.`;
+    if(cat==='geo') return `Add a short FAQ to your <b>“${pg}”</b> page so AI assistants (ChatGPT, Google AI) can quote it.`;
+    if(cat==='reviews') return `Ask recent buyers of <b>“${pg}”</b> to leave a review.`;
+    if(cat==='schema'||cat==='merchant') return `Add the missing product info to your <b>“${pg}”</b> page so Google can show richer results.`;
+    if(cat==='links') return `Send the ready-made emails below to earn links to your site.`;
+    if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)) return `Your <b>“${pg}”</b> page is nearly on page 1 — but pushing it over needs links from other websites, which is slow. <b>Skip this</b> unless you have time for outreach.`;
+    if(cat==='winnable'||cat==='striking') return `Help your <b>“${pg}”</b> page rank higher by adding a few links to it from your other pages.`;
+    if(cat==='orphan') return `Nothing on your site links to your <b>“${pg}”</b> page — add links to it from related pages so Google can find it.`;
+    if(cat==='consolidation') return `Two of your pages compete for the same thing — redirect the weaker one into the stronger.`;
+    if(cat==='decay') return `Your <b>“${pg}”</b> page is losing traffic — refresh its content.`;
+    if(cat==='pruning') return `Your <b>“${pg}”</b> page is dead weight — remove it or hide it from Google.`;
+    return esc(t.title||('Improve “'+friendlyPage(t)+'”.'));
+}
+function plainWhere(t){
+    const a=(t.asset_type||'other').toLowerCase();
+    const loc = a==='category'?'Catalog → <b>Categories</b>' : a==='product'?'Catalog → <b>Products</b>'
+        : (a==='blog'||a==='article')?'Content → <b>Blog</b>' : 'this page';
+    return `In Magento go to <b>${loc}</b>, open this page, paste it into the <b>Meta Description</b> box, and <b>Save</b> (then flush the cache).`;
+}
+
 function activeCard(t, pos, total){
-    const c=CAT_META[t.category]||{icon:'•',label:t.category};
-    const steps=dnSteps(t);
     const cat=(t.category||'').toLowerCase();
-    const isLinks = cat==='links';
-    let where=whereFor(t);
+    const isLinks=cat==='links';
     const domId='dv-'+dnKeyId(t.dedup_key);
     const cached=DN_DELIV[t.dedup_key];
-    let stepsHtml, allDone, writeBtn='', delivHtml='', briefingHtml='';
+    const isExternal=(cat==='winnable'||cat==='striking')&&_leverIsExternal(t);
+    const val = t.expected_value>0 ? `worth ~$${Math.round(t.expected_value).toLocaleString()}/mo`
+        : (t.reach? `~${(t.reach).toLocaleString()} Google views up for grabs` : '');
+
+    // The ONE "do it" block — plain, self-contained.
+    let doBlock='';
     if(isLinks){
-        // Fully self-contained: no abstract steps — the actual emails are right
-        // below, each with who to send to and a Copy button. One clear instruction.
-        where='Governor already wrote the email(s) below. For <b>each</b>: hit <b>Copy</b>, change one line so it sounds like you, then send it to the address shown (or paste it into the contact-form link). Do a few — you don’t have to send them all — then hit <b>DONE</b>.';
-        stepsHtml='';   // the emails ARE the steps
-        allDone = true;
-        delivHtml = cached!==undefined ? cached : '<p class="pb-loading" style="margin:6px 0;">Pulling the emails Governor already wrote…</p>';
+        doBlock = `<p style="margin:0 0 8px;">Governor already wrote these emails. Copy one, change a line so it sounds like you, and send it to the address shown. Do a few — then hit DONE.</p>
+            <div id="${domId}">${cached!==undefined?cached:'<p class="pb-loading">Pulling the emails…</p>'}</div>`;
+    } else if(cat==='content'){
+        doBlock = `<p style="margin:0 0 10px;">Click the button and Governor writes the whole article for you (2–4 minutes). Then paste it into Magento (<b>Content → Pages</b>), set the title and URL, and publish.</p>
+            <button class="pb-task-btn" onclick="dnGenerate('${esc(t.dedup_key)}','${domId}',this)">✍️ Write the article for me</button>
+            <div id="${domId}" style="margin-top:10px;"></div>`;
+    } else if(isExternal){
+        doBlock = `<p style="margin:0;">This one needs links from other websites — slow, hard, and not your strongest move. I'd <b>skip it</b>. If you want to try anyway, the sites to email are under <b>Advanced → Link Prospects</b>.</p>`;
+    } else if(cat==='winnable'||cat==='striking'||cat==='orphan'){
+        doBlock = `<div style="line-height:1.6;">${(t.steps||[]).map(s=>`<div style="margin:4px 0;">• ${esc(s)}</div>`).join('')}</div>`;
+    } else if(DN_AUTODELIV.has(cat)){
+        doBlock = `<p style="margin:0 0 10px;">Copy one of these and paste it in. ${plainWhere(t)}</p>
+            <div id="${domId}">${cached!==undefined?cached:'<p class="pb-loading">Writing your text…</p>'}</div>`;
     } else {
-        // Split the lines into read-only BRIEFING (facts/explanations like "Current
-        // title: …", "Why it's under-clicked: …") and DO-THIS ACTIONS (imperatives).
-        // Only actions get "Did it ✓" — you can't "do" your current title.
-        const ACTION_RE=/^\s*(use|publish|paste|add|write|link|save|set|request|remove|redirect|send|replace|update|aim|cover|answer|make|copy|choose|pick|open|edit|create|flush|submit|enable|confirm|note down|do )/i;
-        const REDUNDANT=DN_AUTODELIV.has(cat)?/playbook.*rewrite|ctr recovery/i:null;  // inline generator replaces this
-        const ctx=[], acts=[];
-        steps.forEach(s=>{
-            if(REDUNDANT && REDUNDANT.test(s)) return;      // drop the "use Playbook to generate" step
-            (ACTION_RE.test(s)?acts:ctx).push(s);
-        });
-        if(ctx.length) briefingHtml=`<div style="background:var(--bg-subtle,#f8fafc);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;color:var(--text-secondary);line-height:1.5;">`
-            + ctx.map(s=>`<div style="margin:2px 0;">ℹ️ ${esc(s)}</div>`).join('') + `</div>`;
-        // A concrete fallback when the lines were all briefing — never "make the change above".
-        let fallback='Make the change described above on the page, Save, then hit DONE.';
-        if((cat==='winnable'||cat==='striking') && _leverIsExternal(t))
-            fallback='Line up 2–3 backlinks to this page from relevant parenting / toy-review sites (Advanced → Link Targets or Playbook → Link Prospects has candidates), then re-check its position in 3–6 weeks. Or grow this page’s content instead (Content Gap).';
-        else if(cat==='winnable'||cat==='striking')
-            fallback='Add the internal links named in the briefing, Save, then re-check the position in a few weeks.';
-        else if(cat==='geo') fallback='Paste the FAQ / schema block below into the page, Save, then request indexing.';
-        const actList = acts.length?acts:[fallback];
-        const done=Math.min(dnStepDoneCount(t.dedup_key), actList.length);
-        allDone = done>=actList.length;
-        stepsHtml = actList.map((s,i)=>{
-            const isCode=/^\s*[\[{<]/.test(s);
-            const body=isCode?`<pre class="dn-code" style="margin:4px 0 0;">${esc(s)}</pre>`:`<span class="dn-stxt">${esc(s)}</span>`;
-            if(i<done)  return `<li class="dn-s-done">${body}</li>`;
-            if(i===done)return `<li class="dn-s-now">${body}<br><button class="dn-step-done" onclick="dnStepDo('${esc(t.dedup_key)}',${actList.length})">Did it ✓</button></li>`;
-            return `<li class="dn-s-lock">${body}</li>`;
-        }).join('');
-        writeBtn = cat==='content'
-            ? `<button class="pb-task-btn" onclick="dnGenerate('${esc(t.dedup_key)}','${domId}',this)">✍️ Write the full article for me (2–4 min)</button>` : '';
-        delivHtml = cached!==undefined ? cached
-            : (DN_AUTODELIV.has(cat) ? '<p class="pb-loading" style="margin:6px 0;">Writing your paste-ready text…</p>' : '');
+        doBlock = `<div style="line-height:1.6;">${(t.steps||[]).map(s=>`<div style="margin:4px 0;">• ${esc(s)}</div>`).join('')||'Make the change, then hit DONE.'}</div>`;
     }
+
     return `<div class="dn-guide">
-        <div class="dn-guide-top"><span class="dn-now">NOW</span>
-            <span class="dn-pos">#${pos} of ${total}</span>${tierLabel(t)}
-            ${t.low_hanging?'<span class="dn-payoff" style="background:#dbeafe;color:#1e40af;">🍒 quick & easy</span>':''}</div>
-        <div class="dn-guide-title">${c.icon} ${esc(t.title)}</div>
-        <div class="dn-guide-meta">${payoffChip(t)}
-            ${t.url?`<a href="${esc(t.url)}" target="_blank">${esc(fmtPath(t.url))}</a><span class="lp-slot" data-lp-url="${esc(t.url)}"></span>`:''}
-            <span style="color:var(--text-muted);">· effort: ${esc((t.effort||'').split(' ')[0]||'—')} · results in ${esc(t.time_to_impact_label||'—')}</span>
-        </div>
-        <div class="dn-where">📍 <b>${isLinks?'Do this':'Where'}:</b> ${where}</div>
-        ${isLinks?'':briefingHtml}
-        ${isLinks?'':`<div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 6px;">Do this</div><ol class="dn-steps2">${stepsHtml||'<li class="dn-s-now">Do the change on the page, then hit DONE.</li>'}</ol>`}
-        ${writeBtn}
-        <div class="dn-deliv" id="${domId}">${delivHtml}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Your #1 job right now${val?' · '+val:''}${t.low_hanging?' · 🍒 quick &amp; easy':''}</div>
+        <div style="font-size:19px;font-weight:700;line-height:1.4;margin-bottom:14px;">${plainWhat(t)}</div>
+        <div style="font-size:14.5px;margin-bottom:16px;">${doBlock}</div>
         <div class="dn-guide-actions">
-            <button class="dn-done-big" ${allDone?'':'disabled'} onclick="dnFinish('${esc(t.dedup_key)}',this)">
-                ${allDone?'✅ DONE — start measuring &amp; load next':'Finish the steps above to enable DONE'}</button>
-            <button class="dn-skip" onclick="dnSkip('${esc(t.dedup_key)}')">Skip for now</button>
+            <button class="dn-done-big" onclick="dnFinish('${esc(t.dedup_key)}',this)">✅ I did it — show my next job</button>
+            <button class="dn-skip" onclick="dnSkip('${esc(t.dedup_key)}')">Skip this one</button>
+        </div>
+        <div class="dn-qsection" style="margin-top:14px;" onclick="dnTgl(this)">▸ details (page, ranking, the why) — optional</div>
+        <div style="display:none;font-size:12px;color:var(--text-muted);line-height:1.6;padding:6px 0;">
+            ${t.url?`Page: <a href="${esc(t.url)}" target="_blank">${esc(fmtPath(t.url))}</a><span class="lp-slot" data-lp-url="${esc(t.url)}"></span><br>`:''}
+            ${t.benefit?esc(t.benefit):''}
         </div>
     </div>`;
 }
