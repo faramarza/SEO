@@ -782,6 +782,17 @@ def _score_task(t):
     # you can apply today rank above a slow, uncertain outreach campaign.
     if cat == "links":
         t["lever_score"] = round(t["lever_score"] * 0.2, 1)
+    # A striking/winnable task whose ONLY remaining lever is EXTERNAL backlinks is
+    # really link-building — the slow, hard, human-relationship lever, and (for
+    # this store) not even the effective one. It must not sit at #1 badged
+    # "quick & easy". Detect it from its own wording and discount like outreach,
+    # and flag it so the card drops the low-hanging badge.
+    _blob2 = (str(t.get("benefit", "")) + " " + " ".join(t.get("steps") or [])).lower()
+    if ("external authority" in _blob2 or "backlink" in _blob2
+            or "earn a few links" in _blob2 or "earn links" in _blob2):
+        t["external_lever"] = True
+        if cat in ("winnable", "striking", "content", "orphan"):
+            t["lever_score"] = round(t["lever_score"] * 0.25, 1)
     # URGENCY: a page that's actively SLIPPING (position momentum down) is more
     # time-sensitive than a static one — defend it before it falls off page 2. Scale
     # the bump by HOW FAR it dropped: a 3-position wobble is a nudge (~1.3x), a
@@ -857,7 +868,8 @@ def _score_task(t):
     # Low-hanging fruit = genuinely quick/fast AND it clears the sales floor for
     # its tier. A badge, not a bucket — so speed never jumps a no-sale page up.
     t["low_hanging"] = (t["tier"] in ("critical", "quick")
-                        and hours <= 1.0 and t["time_to_impact_days"] <= 28)
+                        and hours <= 1.0 and t["time_to_impact_days"] <= 28
+                        and not t.get("external_lever"))   # earning links is never quick & easy
 
     # A one-line, honest "why this rank".
     fast = t["time_to_impact_days"] <= 21
