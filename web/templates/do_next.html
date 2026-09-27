@@ -256,9 +256,18 @@ function magentoEditLoc(t){
   return 'In <b>Magento</b>, open this page’s admin entry'+tail;
 }
 const DN_EDIT_CATS=new Set(['ctr','brand','schema','merchant','decay','cro','geo']);
+function _leverIsExternal(t){
+  const s=((t.steps||[]).join(' ')+' '+(t.benefit||'')).toLowerCase();
+  return s.includes('external authority')||s.includes('backlink')||s.includes('earn a few links')||s.includes('earn links');
+}
 function whereFor(t){
   const cat=(t.category||'').toLowerCase();
   if(DN_EDIT_CATS.has(cat)) return magentoEditLoc(t);
+  if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)){
+    // The analysis says on-page + internal links are tapped and the lever is
+    // EXTERNAL. Don't tell them to add internal links — that contradicts it.
+    return 'This page is already optimized on-page and well internally linked — the only lever left at this rank is a few <b>external backlinks</b> from relevant parenting / toy-review / education sites. Open <b>Advanced → Link Targets</b> (or <b>Playbook → Link Prospects</b>) for the specific sites to pitch. Heads-up: earned links are a slow, hard lever for a store your size — the faster path for this page is usually more/better content (see the Content Gap plan).';
+  }
   return DN_WHERE[cat]||'Follow the steps below on the page itself, then save.';
 }
 
@@ -381,7 +390,14 @@ function activeCard(t, pos, total){
         });
         if(ctx.length) briefingHtml=`<div style="background:var(--bg-subtle,#f8fafc);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;color:var(--text-secondary);line-height:1.5;">`
             + ctx.map(s=>`<div style="margin:2px 0;">ℹ️ ${esc(s)}</div>`).join('') + `</div>`;
-        const actList = acts.length?acts:['Make the change above, then hit DONE.'];
+        // A concrete fallback when the lines were all briefing — never "make the change above".
+        let fallback='Make the change described above on the page, Save, then hit DONE.';
+        if((cat==='winnable'||cat==='striking') && _leverIsExternal(t))
+            fallback='Line up 2–3 backlinks to this page from relevant parenting / toy-review sites (Advanced → Link Targets or Playbook → Link Prospects has candidates), then re-check its position in 3–6 weeks. Or grow this page’s content instead (Content Gap).';
+        else if(cat==='winnable'||cat==='striking')
+            fallback='Add the internal links named in the briefing, Save, then re-check the position in a few weeks.';
+        else if(cat==='geo') fallback='Paste the FAQ / schema block below into the page, Save, then request indexing.';
+        const actList = acts.length?acts:[fallback];
         const done=Math.min(dnStepDoneCount(t.dedup_key), actList.length);
         allDone = done>=actList.length;
         stepsHtml = actList.map((s,i)=>{
