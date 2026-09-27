@@ -243,6 +243,25 @@ const DN_WHERE = {
 };
 const DN_AUTODELIV = new Set(['ctr','brand','geo','schema','merchant','decay','cro','reviews']);
 
+// Magento location depends on PAGE TYPE: a category page is edited under Catalog →
+// Categories, a product under Catalog → Products, a blog post under Content. Using
+// "Products" for a category page (like /pretend-play-toys.html) sends you to the
+// wrong screen. Build the "Where" from the task's asset_type for on-page edits.
+function magentoEditLoc(t){
+  const a=(t.asset_type||'other').toLowerCase();
+  const tail=' → open <b>Search Engine Optimization</b> → update <b>Meta Title</b> / <b>Meta Description</b> → <b>Save</b>, then <b>System → Cache Management → Flush Magento Cache</b>.';
+  if(a==='category') return 'In <b>Magento → Catalog → Categories</b> → select this category (it’s a category page, not a product)'+tail;
+  if(a==='product')  return 'In <b>Magento → Catalog → Products</b> → find this product'+tail;
+  if(a==='blog'||a==='article') return 'In <b>Magento → Content → Blog</b> (or the CMS page) → edit this post'+tail;
+  return 'In <b>Magento</b>, open this page’s admin entry'+tail;
+}
+const DN_EDIT_CATS=new Set(['ctr','brand','schema','merchant','decay','cro','geo']);
+function whereFor(t){
+  const cat=(t.category||'').toLowerCase();
+  if(DN_EDIT_CATS.has(cat)) return magentoEditLoc(t);
+  return DN_WHERE[cat]||'Follow the steps below on the page itself, then save.';
+}
+
 function tierLabel(t){
     const x=t.tier||(t.minor?'nice':'quick');
     if(x==='critical') return '<span class="dn-tierlbl" style="color:#dc2626;">🔴 biggest sales impact</span>';
@@ -338,7 +357,7 @@ function activeCard(t, pos, total){
     const steps=dnSteps(t);
     const cat=(t.category||'').toLowerCase();
     const isLinks = cat==='links';
-    let where=DN_WHERE[cat]||'Follow the steps below on the page itself, then save.';
+    let where=whereFor(t);
     const domId='dv-'+dnKeyId(t.dedup_key);
     const cached=DN_DELIV[t.dedup_key];
     let stepsHtml, allDone, writeBtn='', delivHtml='';

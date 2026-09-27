@@ -8986,11 +8986,29 @@ def api_action_plan_deliverable():
                       "stamped date is unnatural; instead weave the current year into the lead "
                       "sentence naturally only if it fits.")
 
+    # If the current title already contains (nearly all of) the query, don't hand
+    # back near-duplicate title options — the real lever is the meta description.
+    def _title_targets(title, q):
+        qw = [w for w in re.split(r"\W+", (q or "").lower()) if len(w) > 2]
+        if not title or not qw:
+            return False
+        tl = title.lower()
+        return sum(1 for w in qw if w in tl) >= max(1, len(qw) - 1)
+
+    _ctr_title_ok = cat == "ctr" and _title_targets(pm.get("title", ""), query)
+    _ctr_prompt = (
+        (f"{ctx}\nThe title already targets “{query}” well — do NOT rewrite the title. "
+         f"Write ONLY 3 meta descriptions (<=155 chars each) that promise the concrete "
+         f"value (selection, personalization, price range, shipping) and end with a nudge "
+         f"to click. JSON: {{\"blocks\":[{{\"label\":\"Meta description option 1\",\"text\":\"...\"}},...]}}")
+        if _ctr_title_ok else
+        (f"{ctx}\nThe page ranks for “{query}” but is under-clicked. Write 3 titles "
+         f"(<=60 chars, containing the searcher's words) and 2 meta descriptions "
+         f"(<=155 chars). JSON: {{\"blocks\":[{{\"label\":\"Title option 1\",\"text\":\"...\"}},...]}}"))
+
     PROMPTS = {
         "ctr": ("You write SERP titles/metas that earn the click without clickbait.",
-                f"{ctx}\nThe page ranks for “{query}” but is under-clicked. Write 3 titles "
-                f"(<=60 chars, containing the searcher's words) and 2 meta descriptions "
-                f"(<=155 chars). JSON: {{\"blocks\":[{{\"label\":\"Title option 1\",\"text\":\"...\"}},...]}}"),
+                _ctr_prompt),
         "content": ("You are an ecommerce content strategist and SEO writer.",
                 f"{ctx}\nWrite a ready-to-use brief for an article targeting “{query}”: an "
                 f"H1 title (put a NUMBER if it's a best/top listicle), a 1-paragraph intro "
