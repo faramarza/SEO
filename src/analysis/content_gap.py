@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 4
+PLAN_VERSION = 5
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -58,8 +58,22 @@ def _distinctive(kw: str) -> set:
     return {t for t in _tokens(kw) if t not in _GENERIC and len(t) > 2}
 
 
+# Brand / manufacturer names a store RESELLS but should never write an "authority"
+# article about (writing "jelly cats" for a shop that stocks Jellycat is pointless
+# and off-brand). A content topic dominated by one of these is dropped.
+_BRANDS = {
+    "jellycat", "jelly", "lovevery", "lego", "duplo", "playmobil", "hasbro",
+    "mattel", "fisher-price", "fisherprice", "melissa", "doug", "hydro", "flask",
+    "stanley", "sophie", "bruder", "schleich", "squishmallow", "squishmallows",
+    "funko", "nerf", "barbie", "hotwheels", "paw", "patrol", "bluey", "peppa",
+    "disney", "marvel", "pokemon", "minecraft", "roblox", "bartholomew", "yoto",
+    "tonies", "grimms", "grimm", "hape", "janod", "plantoys", "haba", "maileg",
+}
+
+
 def _blocked(kw: str) -> bool:
-    return bool({t for t in _tokens(kw)} & _BLOCK)
+    toks = {t for t in _tokens(kw)}
+    return bool(toks & _BLOCK) or bool(toks & _BRANDS)
 
 
 def _sig(kw: str) -> frozenset:
