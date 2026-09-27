@@ -503,9 +503,14 @@ def _from_content_gap(cg, out, max_items=12):
         benefit = (f"Competitors rank for “{pk}” (~{a.get('total_volume', 0):,} searches/mo) "
                    "and you don't. This closes a piece of the topical-authority gap holding your "
                    "whole Montessori section back.")
+        # Cap the reach a new article gets credit for: writing a brand-new page is
+        # slow (6-12 weeks) and speculative, so a high-VOLUME brand/head term must
+        # not outrank a fast, real quick-win on an existing money page. Capped so
+        # sales value (already ceilinged) drives the rank, not raw volume.
+        capped_reach = min(int(a.get("total_volume", 0) or 0), 2500)
         t = _task("content", "",
                   f"Write “{a.get('title', pk)}” (competitors rank, you don't)",
-                  steps, benefit, a.get("est_monthly_value", 0), a.get("total_volume", 0),
+                  steps, benefit, a.get("est_monthly_value", 0), capped_reach,
                   {"type": "new_page", "query": pk}, {"clicks": 0},
                   "category" if a.get("intent") == "commercial" else "blog", pk,
                   auto_review=False)
