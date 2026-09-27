@@ -360,7 +360,7 @@ function activeCard(t, pos, total){
     let where=whereFor(t);
     const domId='dv-'+dnKeyId(t.dedup_key);
     const cached=DN_DELIV[t.dedup_key];
-    let stepsHtml, allDone, writeBtn='', delivHtml='';
+    let stepsHtml, allDone, writeBtn='', delivHtml='', briefingHtml='';
     if(isLinks){
         // Fully self-contained: no abstract steps — the actual emails are right
         // below, each with who to send to and a Copy button. One clear instruction.
@@ -369,13 +369,26 @@ function activeCard(t, pos, total){
         allDone = true;
         delivHtml = cached!==undefined ? cached : '<p class="pb-loading" style="margin:6px 0;">Pulling the emails Governor already wrote…</p>';
     } else {
-        const done=Math.min(dnStepDoneCount(t.dedup_key), steps.length);
-        allDone = done>=steps.length;
-        stepsHtml = steps.map((s,i)=>{
+        // Split the lines into read-only BRIEFING (facts/explanations like "Current
+        // title: …", "Why it's under-clicked: …") and DO-THIS ACTIONS (imperatives).
+        // Only actions get "Did it ✓" — you can't "do" your current title.
+        const ACTION_RE=/^\s*(use|publish|paste|add|write|link|save|set|request|remove|redirect|send|replace|update|aim|cover|answer|make|copy|choose|pick|open|edit|create|flush|submit|enable|confirm|note down|do )/i;
+        const REDUNDANT=DN_AUTODELIV.has(cat)?/playbook.*rewrite|ctr recovery/i:null;  // inline generator replaces this
+        const ctx=[], acts=[];
+        steps.forEach(s=>{
+            if(REDUNDANT && REDUNDANT.test(s)) return;      // drop the "use Playbook to generate" step
+            (ACTION_RE.test(s)?acts:ctx).push(s);
+        });
+        if(ctx.length) briefingHtml=`<div style="background:var(--bg-subtle,#f8fafc);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;color:var(--text-secondary);line-height:1.5;">`
+            + ctx.map(s=>`<div style="margin:2px 0;">ℹ️ ${esc(s)}</div>`).join('') + `</div>`;
+        const actList = acts.length?acts:['Make the change above, then hit DONE.'];
+        const done=Math.min(dnStepDoneCount(t.dedup_key), actList.length);
+        allDone = done>=actList.length;
+        stepsHtml = actList.map((s,i)=>{
             const isCode=/^\s*[\[{<]/.test(s);
             const body=isCode?`<pre class="dn-code" style="margin:4px 0 0;">${esc(s)}</pre>`:`<span class="dn-stxt">${esc(s)}</span>`;
             if(i<done)  return `<li class="dn-s-done">${body}</li>`;
-            if(i===done)return `<li class="dn-s-now">${body}<br><button class="dn-step-done" onclick="dnStepDo('${esc(t.dedup_key)}',${steps.length})">Did it ✓</button></li>`;
+            if(i===done)return `<li class="dn-s-now">${body}<br><button class="dn-step-done" onclick="dnStepDo('${esc(t.dedup_key)}',${actList.length})">Did it ✓</button></li>`;
             return `<li class="dn-s-lock">${body}</li>`;
         }).join('');
         writeBtn = cat==='content'
@@ -393,7 +406,8 @@ function activeCard(t, pos, total){
             <span style="color:var(--text-muted);">· effort: ${esc((t.effort||'').split(' ')[0]||'—')} · results in ${esc(t.time_to_impact_label||'—')}</span>
         </div>
         <div class="dn-where">📍 <b>${isLinks?'Do this':'Where'}:</b> ${where}</div>
-        ${isLinks?'':`<ol class="dn-steps2">${stepsHtml||'<li class="dn-s-now">Do the change on the page, then hit DONE.</li>'}</ol>`}
+        ${isLinks?'':briefingHtml}
+        ${isLinks?'':`<div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin:2px 0 6px;">Do this</div><ol class="dn-steps2">${stepsHtml||'<li class="dn-s-now">Do the change on the page, then hit DONE.</li>'}</ol>`}
         ${writeBtn}
         <div class="dn-deliv" id="${domId}">${delivHtml}</div>
         <div class="dn-guide-actions">
