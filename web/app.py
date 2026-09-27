@@ -12428,6 +12428,31 @@ def _cg_bare(dom: str) -> str:
         "http://", "").replace("www.", "").strip("/")
 
 
+def _cg_your_footprint(labs_keywords: list) -> list:
+    """Your REAL vocabulary for the relevance filter: your DataForSEO-ranked
+    keywords PLUS your GSC queries and your actual page slugs from the latest
+    evaluation. Anchoring the gap to what you genuinely rank for and have pages
+    for beats a hand-typed theme — it's your true catalog, straight from GSC."""
+    kws = list(labs_keywords or [])
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        results = []
+    for r in results:
+        for q in (r.get("top_queries") or []):
+            kw = q.get("query")
+            if kw:
+                kws.append({"keyword": kw})
+        u = r.get("url") or ""
+        path = re.sub(r"^https?://[^/]+", "", u)
+        path = re.sub(r"\.(html?|php|aspx?)$", "", path)
+        phrase = re.sub(r"[-_/]+", " ", path).strip()
+        if len(phrase) > 2:
+            kws.append({"keyword": phrase})
+    return kws
+
+
 def _content_gap_worker(competitors: list, force: bool, focus: list = None):
     """Pull ranked keywords for you + each competitor (DataForSEO Labs), diff to
     the gap, cluster into topics, build the battle plan. Read-only; costs Labs
@@ -12448,7 +12473,8 @@ def _content_gap_worker(competitors: list, force: bool, focus: list = None):
                       "updated_at": datetime.now().isoformat(timespec="seconds")})
             _cg_job.update(running=False, phase="", note=mine.get("reason", "failed"))
             return
-        your_kw = mine.get("keywords", [])
+        your_kw_labs = mine.get("keywords", [])
+        your_kw = _cg_your_footprint(your_kw_labs)   # + GSC queries + your page slugs
         comp_all, comp_ok = [], []
         for i, dom in enumerate(competitors):
             _cg_job.update(phase=f"Reading {dom} ({i+1}/{len(competitors)})…")
@@ -12468,7 +12494,7 @@ def _content_gap_worker(competitors: list, force: bool, focus: list = None):
         aov, cvr, margin, _ = _biz_params(config)
         plan = cg.build_plan(clusters, aov=aov, cvr=cvr, margin=margin)
         _cg_save({"available": True, "competitors": comp_ok, "focus": focus,
-                  "your_keyword_count": len(your_kw),
+                  "your_keyword_count": len(your_kw_labs),
                   "competitor_keyword_count": len({k["keyword"] for k in comp_all}),
                   "gap_count": len(gap), "plan": plan,
                   "updated_at": datetime.now().isoformat(timespec="seconds")})

@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 3
+PLAN_VERSION = 4
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
