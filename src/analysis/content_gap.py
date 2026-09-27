@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 5
+PLAN_VERSION = 6
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -118,8 +118,16 @@ def compute_gap(competitor_keywords: list, your_keywords: list,
             continue                                  # brand-safety: never suggest these
         if focus and not any(f in kw for f in focus):
             continue                                  # outside your focus theme — skip
-        if use_relevance and not (_distinctive(kw) & vocab):
-            continue                                  # not in your wheelhouse — skip
+        if use_relevance:
+            dk = _distinctive(kw)
+            # Require REAL overlap with your pages/GSC vocabulary, not one stray
+            # shared word. At least half of the keyword's distinctive tokens must
+            # be things you actually rank for / have pages about. This is what
+            # kills "jelly cats" (0 of {jelly,cats}) and "car seat for convertible
+            # cars" (1 of {car,seat,convertible,cars} = 0.25) while keeping
+            # "montessori bookshelf" / "wooden name puzzle".
+            if dk and (len(dk & vocab) / len(dk)) < 0.5:
+                continue
         cur = best.get(kw)
         if not cur or vol > cur["volume"]:
             best[kw] = {"keyword": k.get("keyword"), "volume": vol,
