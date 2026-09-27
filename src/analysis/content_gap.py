@@ -9,9 +9,9 @@ from __future__ import annotations
 import re
 
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
-# relevance filter / brand blocklist). A cached plan without the current version is
-# ignored so old, pre-fix garbage (the "jellycat" plan) never shows again.
-PLAN_VERSION = 2
+# relevance filter / brand blocklist / focus theme). A cached plan without the
+# current version is ignored so old, pre-fix garbage never shows again.
+PLAN_VERSION = 3
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -62,8 +62,15 @@ def _blocked(kw: str) -> bool:
     return bool({t for t in _tokens(kw)} & _BLOCK)
 
 
+def _sig(kw: str) -> frozenset:
+    """A dedup signature: distinctive tokens, singularized, so 'dolls doll' and
+    'dolls for dolls' collapse to the same thing instead of both becoming H2s."""
+    return frozenset(t[:-1] if t.endswith("s") and len(t) > 3 else t
+                     for t in _distinctive(kw))
+
+
 def compute_gap(competitor_keywords: list, your_keywords: list,
-                min_volume: int = 30, relevance: bool = True) -> list:
+                min_volume: int = 30, relevance: bool = True, focus: list = None) -> list:
     """Keywords the competitor(s) rank for that YOU don't (or barely).
 
     competitor_keywords / your_keywords: [{keyword, volume, position, cpc, ...}].
@@ -79,6 +86,11 @@ def compute_gap(competitor_keywords: list, your_keywords: list,
     for k in (your_keywords or []):
         vocab |= _distinctive(k.get("keyword"))
     use_relevance = relevance and len(vocab) >= 5   # need a real footprint to anchor
+    # FOCUS: when set (e.g. ["montessori"]), keep only gap keywords that contain a
+    # focus term. This is the strong lever for a broad store — it scopes the plan
+    # to the topic you actually want to win instead of every category a broad
+    # competitor happens to sell.
+    focus = [f.lower().strip() for f in (focus or []) if f and f.strip()]
 
     best = {}
     for k in competitor_keywords or []:
@@ -90,6 +102,8 @@ def compute_gap(competitor_keywords: list, your_keywords: list,
             continue
         if _blocked(kw):
             continue                                  # brand-safety: never suggest these
+        if focus and not any(f in kw for f in focus):
+            continue                                  # outside your focus theme — skip
         if use_relevance and not (_distinctive(kw) & vocab):
             continue                                  # not in your wheelhouse — skip
         cur = best.get(kw)
@@ -172,7 +186,19 @@ def build_plan(clusters: list, aov: float = 53.0, cvr: float = 0.02,
     for c in clusters[:max_articles]:
         kws = c["keywords"]
         primary = kws[0]["keyword"]
-        supporting = [k["keyword"] for k in kws[1:8]]
+        # Dedupe supporting keywords by meaning-signature so near-identical junk
+        # ("dolls doll", "dolls for dolls") collapses to one clean H2, and drop
+        # anything that just restates the primary.
+        seen_sigs = {_sig(primary)}
+        supporting = []
+        for k in kws[1:]:
+            s = _sig(k["keyword"])
+            if not s or s in seen_sigs:
+                continue
+            seen_sigs.add(s)
+            supporting.append(k["keyword"])
+            if len(supporting) >= 7:
+                break
         intent = _intent(primary)
         # Sales-weighted priority: commercial terms convert; volume matters; a term
         # the competitor barely holds (weak position) is easier to take. Volume is

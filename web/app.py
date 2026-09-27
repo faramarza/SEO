@@ -12428,12 +12428,14 @@ def _cg_bare(dom: str) -> str:
         "http://", "").replace("www.", "").strip("/")
 
 
-def _content_gap_worker(competitors: list, force: bool):
+def _content_gap_worker(competitors: list, force: bool, focus: list = None):
     """Pull ranked keywords for you + each competitor (DataForSEO Labs), diff to
     the gap, cluster into topics, build the battle plan. Read-only; costs Labs
     credits, so cached ~monthly and only refreshed on demand or when stale."""
     from src.data_sources import dataforseo_client as dfs
     from src.analysis import content_gap as cg
+    if focus is None:
+        focus = _cg_load().get("focus") or []
     try:
         _cg_job.update(running=True, phase="Reading your keywords…", note="")
         config = load_config()
@@ -12461,11 +12463,11 @@ def _content_gap_worker(competitors: list, force: bool):
                 _cg_job.update(running=False, phase="", note=r.get("reason", "failed"))
                 return
         _cg_job.update(phase="Building your plan…")
-        gap = cg.compute_gap(comp_all, your_kw)
+        gap = cg.compute_gap(comp_all, your_kw, focus=focus)
         clusters = cg.cluster_topics(gap)
         aov, cvr, margin, _ = _biz_params(config)
         plan = cg.build_plan(clusters, aov=aov, cvr=cvr, margin=margin)
-        _cg_save({"available": True, "competitors": comp_ok,
+        _cg_save({"available": True, "competitors": comp_ok, "focus": focus,
                   "your_keyword_count": len(your_kw),
                   "competitor_keyword_count": len({k["keyword"] for k in comp_all}),
                   "gap_count": len(gap), "plan": plan,
@@ -12546,6 +12548,7 @@ def api_setup_status():
         ],
         "ahrefs_updated": ahrefs_updated,
         "competitors": cg.get("competitors") or [],
+        "focus": cg.get("focus") or [],
         "last_evaluation": last_eval,
         "content_gap_job": _cg_job,
     })
@@ -12600,11 +12603,19 @@ def api_content_gap_refresh():
         if c not in seen:
             seen.add(c); ordered.append(c)
     ordered = ordered[:5]
+    # Focus theme(s): scope the gap to the topic you want to win (e.g. "montessori").
+    # If the caller doesn't pass one, keep whatever was stored before.
+    if "focus" in body:
+        focus = [f.strip() for f in (body.get("focus") or []) if f and f.strip()] \
+            if isinstance(body.get("focus"), list) \
+            else [f.strip() for f in str(body.get("focus") or "").split(",") if f.strip()]
+    else:
+        focus = _cg_load().get("focus") or []
     if _cg_job["running"]:
         return jsonify({"success": True, "already_running": True})
     threading.Thread(target=_content_gap_worker,
-                     args=(ordered, bool(body.get("force"))), daemon=True).start()
-    return jsonify({"success": True, "competitors": ordered})
+                     args=(ordered, bool(body.get("force")), focus), daemon=True).start()
+    return jsonify({"success": True, "competitors": ordered, "focus": focus})
 
 
 @app.route("/api/content-gap/send-to-board", methods=["POST"])

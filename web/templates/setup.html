@@ -33,6 +33,13 @@
   <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">The domains to out-rank. Governor finds what they rank for that you don't and feeds the articles into Start Here, ranked by sales. Auto-refreshes monthly.</p>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
     <input id="su-comps" type="text" style="flex:1;min-width:280px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;" placeholder="competitor domains, comma-separated" value="montessorigeneration.com, habausa.com, hazelandfawn.com">
+  </div>
+  <div style="margin-top:8px;">
+    <label style="font-size:12px;color:var(--text-muted);">Focus theme (recommended — keeps the plan on topic):</label>
+    <input id="su-focus" type="text" style="width:100%;max-width:360px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;margin-top:3px;" placeholder='e.g. montessori (comma-separated for more)' value="montessori">
+    <p style="font-size:11px;color:var(--text-muted);margin:3px 0 0;">Only topics containing a focus word are suggested — so a broad competitor's car seats, board games and baby dolls don't leak in. Leave blank to see everything (noisier).</p>
+  </div>
+  <div style="margin-top:8px;">
     <button id="su-cg-btn" class="pb-task-btn" onclick="suCgRun(this)">⚔️ Build / refresh gap</button>
     <a class="pb-task-btn pb-task-btn-alt" href="/content-gap">See full plan ↗</a>
   </div>
@@ -71,6 +78,7 @@ async function suLoad(){
     as_.innerHTML=`<span style="color:#b45309;">Not uploaded yet — drop your Ahrefs Batch Analysis CSV below to fill referring-domain gaps.</span>`;
   }
   if((d.competitors||[]).length) document.getElementById('su-comps').value=d.competitors.join(', ');
+  if((d.focus||[]).length) document.getElementById('su-focus').value=d.focus.join(', ');
   document.getElementById('su-lasteval').textContent = d.last_evaluation?('Last run '+ago(d.last_evaluation)+'.'):'Never run yet.';
   const cj=d.content_gap_job;
   if(cj&&cj.running){ document.getElementById('su-cg-note').textContent='⏳ '+(cj.phase||'pulling…'); setTimeout(suLoad,3000); }
@@ -104,10 +112,11 @@ async function suAhrefsImport(btn){
 
 async function suCgRun(btn){
   const comps=document.getElementById('su-comps').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const focus=document.getElementById('su-focus').value.split(',').map(s=>s.trim()).filter(Boolean);
   if(!comps.length){ suToast('Enter at least one competitor',true); return; }
   btn.disabled=true; const o=btn.textContent; btn.textContent='⏳ Starting…';
   try{
-    const d=await (await fetch('/api/content-gap/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({competitors:comps,force:true})})).json();
+    const d=await (await fetch('/api/content-gap/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({competitors:comps,focus:focus,force:true})})).json();
     if(d.error){ suToast(d.error,true); } else { suToast('Building the gap plan in the background — it’ll flow into Start Here.'); document.getElementById('su-cg-note').textContent='⏳ pulling…'; setTimeout(suLoad,1200); }
   }catch(e){ suToast('Failed',true); }
   finally{ btn.disabled=false; btn.textContent=o; }
