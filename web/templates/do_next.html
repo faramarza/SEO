@@ -363,7 +363,9 @@ function renderPlan(plan, extra){
 
 // A readable page name from the URL slug (or the target keyword for new pages).
 function friendlyPage(t){
-    let s=(t.url||'').replace(/^https?:\/\/[^/]+/,'').replace(/\.(html?|php|aspx?)$/,'')
+    let raw=(t.url||'');
+    if(/\(not set\)|\(other\)|^not set$/i.test(raw)) raw='';   // GA4 junk value
+    let s=raw.replace(/^https?:\/\/[^/]+/,'').replace(/\.(html?|php|aspx?)$/,'')
         .replace(/[\/\-_]+/g,' ').trim().replace(/\s+/g,' ');
     return s || t.primary_keyword || t.query || (t.metric&&t.metric.query) || 'this page';
 }

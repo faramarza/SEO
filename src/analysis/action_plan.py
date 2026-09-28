@@ -210,6 +210,13 @@ def _from_ctr(ctr, out):
 
 def _from_cro(cro, out):
     for r in (cro.get("rows") or [])[:6]:
+        # GA4 reports "(not set)" / "(other)" for sessions it can't tie to a real
+        # page path. You can't "fix conversion" on a page you can't identify, so
+        # drop those — they're data artifacts, not tasks.
+        u = (r.get("url") or "").strip()
+        if (not u or u.lower() in ("(not set)", "(not provided)", "(other)", "not set")
+                or not ("/" in u or u.startswith("http"))):
+            continue
         steps = ["Do these in order (highest impact first):"] + \
                 [f"{i+1}. {rz}" for i, rz in enumerate(r.get("reasons", []))] + \
                 ["Change ONE thing at a time so you can tell what moved the needle.",
