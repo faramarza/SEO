@@ -12471,6 +12471,26 @@ def _cg_your_footprint(labs_keywords: list) -> list:
     return kws
 
 
+def _cg_catalog_vocab() -> set:
+    """The vocabulary of what you ACTUALLY have pages for — your sitemap/catalog —
+    from your page URL slugs. This is the ground truth of what you sell, without
+    the noise of stray GSC impressions for things you don't carry. Used to judge
+    whether a competitor's keyword is a topic you could genuinely sell into."""
+    from src.analysis.content_gap import _distinctive
+    vocab = set()
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        results = []
+    for r in results:
+        u = r.get("url") or ""
+        path = re.sub(r"^https?://[^/]+", "", u)
+        path = re.sub(r"\.(html?|php|aspx?)$", "", path)
+        vocab |= _distinctive(re.sub(r"[-_/]+", " ", path).strip())
+    return vocab
+
+
 def _content_gap_worker(competitors: list, force: bool, focus: list = None):
     """Pull ranked keywords for you + each competitor (DataForSEO Labs), diff to
     the gap, cluster into topics, build the battle plan. Read-only; costs Labs
@@ -12507,7 +12527,8 @@ def _content_gap_worker(competitors: list, force: bool, focus: list = None):
                 _cg_job.update(running=False, phase="", note=r.get("reason", "failed"))
                 return
         _cg_job.update(phase="Building your plan…")
-        gap = cg.compute_gap(comp_all, your_kw, focus=focus)
+        gap = cg.compute_gap(comp_all, your_kw, focus=focus,
+                             relevance_vocab=_cg_catalog_vocab())   # anchor to your sitemap/catalog
         clusters = cg.cluster_topics(gap)
         aov, cvr, margin, _ = _biz_params(config)
         plan = cg.build_plan(clusters, aov=aov, cvr=cvr, margin=margin)

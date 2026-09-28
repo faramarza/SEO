@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 7
+PLAN_VERSION = 8
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -84,21 +84,27 @@ def _sig(kw: str) -> frozenset:
 
 
 def compute_gap(competitor_keywords: list, your_keywords: list,
-                min_volume: int = 30, relevance: bool = True, focus: list = None) -> list:
+                min_volume: int = 30, relevance: bool = True, focus: list = None,
+                relevance_vocab: set = None) -> list:
     """Keywords the competitor(s) rank for that YOU don't (or barely).
 
     competitor_keywords / your_keywords: [{keyword, volume, position, cpc, ...}].
 
     RELEVANCE FILTER (crucial): a competitor's keyword set is full of brands
-    (jellycat), and unrelated products (car seats, pacifiers) you don't sell.
-    Anchored to the distinctive vocabulary of YOUR OWN ranked keywords, we keep
-    only gap topics that share a real term with what you actually rank for — so
-    the plan is "expand your wheelhouse," not "write about everything they sell."
-    Returns the gap keywords (dedup, real demand), highest-volume first."""
+    (jellycat) and unrelated products (car seats, baby dolls) you don't sell. To
+    keep only topics you could actually sell into, relevance is anchored to
+    `relevance_vocab` — the vocabulary of what you ACTUALLY HAVE PAGES FOR (your
+    sitemap/catalog), passed in by the caller. That's the ground truth of your
+    catalog, without the noise of stray GSC impressions for things you don't
+    carry. Falls back to your ranked-keyword vocabulary only when no catalog vocab
+    is supplied. Returns the gap keywords (dedup, real demand), highest-volume first."""
     yours = {_norm(k.get("keyword")) for k in (your_keywords or [])}
-    vocab = set()
-    for k in (your_keywords or []):
-        vocab |= _distinctive(k.get("keyword"))
+    if relevance_vocab:
+        vocab = {t for t in relevance_vocab if t not in _GENERIC and len(t) > 2}
+    else:
+        vocab = set()
+        for k in (your_keywords or []):
+            vocab |= _distinctive(k.get("keyword"))
     use_relevance = relevance and len(vocab) >= 5   # need a real footprint to anchor
     # FOCUS: when set (e.g. ["montessori"]), keep only gap keywords that contain a
     # focus term. This is the strong lever for a broad store — it scopes the plan
