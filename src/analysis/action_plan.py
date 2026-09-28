@@ -214,7 +214,8 @@ def _from_cro(cro, out):
         # page path. You can't "fix conversion" on a page you can't identify, so
         # drop those — they're data artifacts, not tasks.
         u = (r.get("url") or "").strip()
-        if (not u or u.lower() in ("(not set)", "(not provided)", "(other)", "not set")
+        ul = u.lower()
+        if (not u or "not set" in ul or "not provided" in ul or "(other)" in ul
                 or not ("/" in u or u.startswith("http"))):
             continue
         steps = ["Do these in order (highest impact first):"] + \
