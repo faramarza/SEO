@@ -688,9 +688,13 @@ def _from_outreach(links_info, striking, out):
                if blocked else
                "Earned links raise the whole domain's authority — the constraint the "
                "rest of this plan keeps running into.")
+    # The outreach task's reach is the SUMMED demand of every authority-blocked
+    # page (16k+), which let it dominate #1 even after the links discount. Cap it:
+    # link-building is slow, uncertain, not this store's lever, AND the prospects
+    # need human vetting — it should sit low, not lead.
     out.append(_task(
         "links", "", "Send your prepared link outreach — the drafts are waiting",
-        steps, benefit, 0, blocked_reach or 500,
+        steps, benefit, 0, min(blocked_reach, 2000) or 500,
         {"type": "self_report"}, {}, "other", "outreach", auto_review=False))
 
 
