@@ -435,6 +435,14 @@ def _from_decay(decay, out):
 
 
 def _from_content(content, out):
+    # This is the OLDER content-suggestion path (from the site evaluation), separate
+    # from the DataForSEO content-gap module. Apply the SAME brand blocklist so a
+    # reseller brand you stock (Jellycat, etc.) can never surface as a "write an
+    # article" task here either.
+    try:
+        from src.analysis.content_gap import _blocked as _cg_blocked
+    except Exception:
+        _cg_blocked = lambda kw: False
     sugs = [s for s in (content.get("suggestions") or []) if s.get("is_content_gap")]
     for s in sugs[:6]:
         # Not every content-gap suggestion stores its topic under source_query —
@@ -442,7 +450,7 @@ def _from_content(content, out):
         # topic at all, skip: "Write content for \"\"" is a useless task.
         q = (s.get("source_query") or s.get("keyword") or s.get("title")
              or s.get("idea") or s.get("primary_keyword") or "").strip()
-        if not q:
+        if not q or _cg_blocked(q):
             continue
         vol = s.get("ahrefs_volume", 0)
         steps = [

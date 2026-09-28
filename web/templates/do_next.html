@@ -241,7 +241,7 @@ const DN_WHERE = {
   cro:   'On the page itself: apply the on-page change described in the steps → Save.',
   decay: 'In <b>Magento</b>, refresh this page’s content per the steps → Save → then <b>Google Search Console → URL Inspection → Request Indexing</b>.',
 };
-const DN_AUTODELIV = new Set(['ctr','brand','geo','schema','merchant','decay','cro','reviews']);
+const DN_AUTODELIV = new Set(['ctr','brand','geo','schema','merchant','reviews']);  // paste-ready meta/FAQ/schema deliverables. NOT cro/decay (those are on-page changes, no meta to paste).
 
 // Magento location depends on PAGE TYPE: a category page is edited under Catalog →
 // Categories, a product under Catalog → Products, a blog post under Content. Using
@@ -375,6 +375,8 @@ function plainWhat(t){
     if(cat==='geo') return `Add a short FAQ to your <b>“${pg}”</b> page so AI assistants (ChatGPT, Google AI) can quote it.`;
     if(cat==='reviews') return `Ask recent buyers of <b>“${pg}”</b> to leave a review.`;
     if(cat==='schema'||cat==='merchant') return `Add the missing product info to your <b>“${pg}”</b> page so Google can show richer results.`;
+    if(cat==='cro') return `Your <b>“${pg}”</b> page gets visitors but almost none buy — improve the page itself (clearer “Add to cart”, trust signals, better photos/description) so more of them convert.`;
+    if(cat==='decay') return `Your <b>“${pg}”</b> page is losing traffic — refresh and expand its content, then ask Google to re-index it.`;
     if(cat==='links') return `Send the ready-made emails below to earn links to your site.`;
     if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)) return `Your <b>“${pg}”</b> page is nearly on page 1 — but pushing it over needs links from other websites, which is slow. <b>Skip this</b> unless you have time for outreach.`;
     if(cat==='winnable'||cat==='striking') return `Help your <b>“${pg}”</b> page rank higher by adding a few links to it from your other pages.`;
