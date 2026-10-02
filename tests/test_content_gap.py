@@ -79,3 +79,31 @@ def test_ev_is_capped_not_fantasy():
         [_kw("montessori playroom", 500000)], yours)))
     if plan["articles"]:
         assert plan["articles"][0]["est_monthly_value"] <= 400.0
+
+
+def test_specificity_gate_drops_broad_head_terms():
+    # "baby doll" & friends collapse to one broad token in a short phrase — the
+    # exact junk that kept surfacing as a #1 "write a page about baby doll" task.
+    vocab = {"doll", "dolls", "montessori", "name", "train", "trains",
+             "puzzle", "nap", "mat"}
+    comp = [
+        _kw("baby doll", 2000), _kw("baby dolls", 1500), _kw("doll", 9000),
+        _kw("montessori toys", 3000),
+        _kw("montessori toys for 2 year olds", 1900),
+        _kw("wooden name puzzle", 500), _kw("montessori nap mat", 300),
+    ]
+    gap = [g["keyword"] for g in cg.compute_gap(comp, [], min_volume=30,
+                                                relevance_vocab=vocab)]
+    for junk in ("baby doll", "baby dolls", "doll", "montessori toys"):
+        assert junk not in gap, f"{junk!r} should be dropped as a head term"
+    assert "montessori toys for 2 year olds" in gap   # qualified long-tail kept
+    assert "wooden name puzzle" in gap                # 2 distinctive tokens kept
+    assert "montessori nap mat" in gap
+
+
+def test_too_generic_helper():
+    assert cg._too_generic("baby doll") is True
+    assert cg._too_generic("doll") is True
+    assert cg._too_generic("toys 3") is True            # no distinctive token
+    assert cg._too_generic("wooden name puzzle") is False
+    assert cg._too_generic("montessori toys for 2 year olds") is False

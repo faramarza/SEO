@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 8
+PLAN_VERSION = 9
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -76,6 +76,20 @@ def _blocked(kw: str) -> bool:
     return bool(toks & _BLOCK) or bool(toks & _BRANDS)
 
 
+def _too_generic(kw: str) -> bool:
+    """A short, broad HEAD TERM, not an article topic. One distinctive token in a
+    1–3-word phrase ("baby doll", "doll", "play kitchen", "montessori toys") is a
+    category/head keyword a small site won't win with a single article, and it's
+    not a real informational topic — it keeps surfacing as a junk "write a page
+    about X" task. A genuine long-tail topic carries more specificity ("montessori
+    toys for 2 year olds", "wooden name puzzle"). Keep those; drop the bare heads."""
+    dk = _distinctive(kw)
+    if not dk:
+        return True  # only generic/short tokens, e.g. "toys 3"
+    n_words = len([w for w in re.split(r"[^a-z0-9]+", (kw or "").lower()) if w])
+    return len(dk) <= 1 and n_words <= 3
+
+
 def _sig(kw: str) -> frozenset:
     """A dedup signature: distinctive tokens, singularized, so 'dolls doll' and
     'dolls for dolls' collapse to the same thing instead of both becoming H2s."""
@@ -125,9 +139,10 @@ def compute_gap(competitor_keywords: list, your_keywords: list,
         if focus and not any(f in kw for f in focus):
             continue                                  # outside your focus theme — skip
         dk = _distinctive(kw)
-        # No real topic words at all (only generic/short tokens, e.g. "toys 3") —
-        # that's a junk fragment, not something to write a page about. Drop it.
-        if not dk:
+        # Drop junk fragments and short broad head terms ("baby doll", "doll",
+        # "montessori toys") — not article topics a small site can win. See
+        # _too_generic for the rule.
+        if _too_generic(kw):
             continue
         if use_relevance:
             # Require REAL overlap with your pages/GSC vocabulary, not one stray
