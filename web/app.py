@@ -12713,6 +12713,41 @@ def api_topical_authority_interlinks():
     return jsonify(_ta_interlink_plan())
 
 
+def _ta_topic_plan():
+    """Phase-3 coverage scorecard + topic gaps + ramped cadence. Pure read:
+    scores what exists, and folds in the REAL content-gap articles (if a plan is
+    cached) mapped onto their family — never invents topics."""
+    from src.analysis.topical_authority import build_topic_plan
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        return {"available": False,
+                "reason": "No evaluation yet — run a full evaluation first."}
+    config = load_config()
+    families = config.get("business_context", {}).get("product_families", []) or []
+    if not families:
+        return {"available": False,
+                "reason": "No product families configured (Setup → business_context)."}
+    # Fold in real, keyword-backed content-gap articles if a plan exists.
+    gap_articles = []
+    try:
+        cg = _cg_load()
+        if cg.get("available"):
+            gap_articles = (cg.get("plan") or {}).get("articles") or []
+    except Exception:
+        gap_articles = []
+    plan = build_topic_plan(results, families, gap_articles=gap_articles)
+    plan["has_gap_data"] = bool(gap_articles)
+    plan["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    return plan
+
+
+@app.route("/api/topical-authority/topic-plan")
+def api_topical_authority_topic_plan():
+    return jsonify(_ta_topic_plan())
+
+
 @app.route("/api/topical-authority/send-to-board", methods=["POST"])
 def api_topical_authority_send():
     """Turn the interlink plan into Task Board tasks — ONE task per topic cluster

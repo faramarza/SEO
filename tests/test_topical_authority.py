@@ -5,8 +5,9 @@ a couple of families, with a realistic internal-link mesh, so the hub/spoke
 assignment and link-health math are exercised on data shaped like production.
 """
 from src.analysis.topical_authority import (
-    build_cluster_map, build_interlink_plan, _norm_url, _slug_phrase,
-    _assign_family, _family_matchers, _build_link_graph, _anchor_for,
+    build_cluster_map, build_interlink_plan, build_topic_plan, _norm_url,
+    _slug_phrase, _assign_family, _family_matchers, _build_link_graph,
+    _anchor_for, _keyword_family, _build_cadence, TARGET_DEPTH,
 )
 
 
@@ -187,6 +188,80 @@ def test_interlink_plan_skips_clusters_without_hub():
     plan = build_interlink_plan([], ["name trains"])
     assert plan["groups"] == []
     assert plan["totals"]["links_total"] == 0
+
+
+def test_keyword_family_maps_or_abstains():
+    m = _family_matchers(FAMILIES)
+    assert _keyword_family("best name train for toddlers", m) == "name trains"
+    assert _keyword_family("wooden step stool for kids", m) == "step stools"
+    assert _keyword_family("montessori floor bed", m) is None  # no family matches
+
+
+def test_coverage_scorecard_bands_and_subscores():
+    s = _store()
+    plan = build_topic_plan(s["results"], FAMILIES)
+    fams = {f["family"]: f for f in plan["families"]}
+
+    # Name trains: pillar + a blog + both-way links, no orphans → strong score.
+    nt = fams["name trains"]["coverage"]
+    assert nt["subscores"]["pillar"] == 25
+    assert nt["subscores"]["product"] == 10
+    assert nt["status"] in ("developing", "solid")
+
+    # Circle time rugs: lone category, no products/articles/spokes → thin.
+    rugs = fams["circle time rugs"]["coverage"]
+    assert rugs["status"] in ("thin", "developing")
+    assert rugs["n_products"] == 0
+
+    assert 0 <= plan["totals"]["avg_coverage"] <= 100
+
+
+def test_topic_gaps_use_real_articles_and_flag_thin():
+    s = _store()
+    # One real content-gap article for name trains, one unmappable.
+    gap_articles = [
+        {"primary_keyword": "name train letter recognition", "title": "Do Name Trains Teach Letters?",
+         "total_volume": 400, "word_count_target": 1200, "outline": ["Intro", "How"],
+         "supporting_keywords": ["name train benefits"]},
+        {"primary_keyword": "montessori floor bed", "title": "Floor Bed Guide",
+         "total_volume": 900, "word_count_target": 1500, "outline": [], "supporting_keywords": []},
+    ]
+    plan = build_topic_plan(s["results"], FAMILIES, gap_articles=gap_articles)
+    fams = {f["family"]: f for f in plan["families"]}
+
+    # The mappable article attaches to name trains as a concrete article gap.
+    nt_articles = [g for g in fams["name trains"]["gaps"] if g["type"] == "article"]
+    assert any("Name Trains" in (g.get("title") or "") for g in nt_articles)
+
+    # Step stools (no pillar? it has a category hub) is thin on depth → a research
+    # pointer appears (no fabricated article title).
+    ss_gaps = fams["step stools"]["gaps"]
+    assert any(g["type"] == "research" for g in ss_gaps)
+    # The unmappable "floor bed" article never invents a family.
+    for f in plan["families"]:
+        for g in f["gaps"]:
+            assert "floor bed" not in (g.get("title") or "").lower()
+
+
+def test_cadence_ramps_and_never_pads():
+    # 30 writable items, ramp 4,5,6,7,8 → months fill exactly 4,5,6,7,8.
+    items = [{"family": "f", "coverage_score": 10, "type": "article",
+              "priority": "normal", "what": "x", "title": f"A{i}",
+              "primary_keyword": f"k{i}", "volume": 100 - i} for i in range(30)]
+    months = _build_cadence(items, [4, 5, 6, 7, 8])
+    caps = [len(mo["items"]) for mo in months]
+    assert caps == [4, 5, 6, 7, 8]
+    assert sum(caps) == 30  # every item scheduled, none invented
+    # A short tail month is allowed (not padded): 32 items → last month holds 2.
+    months2 = _build_cadence(items + items[:2], [4, 5, 6, 7, 8])
+    assert len(months2[-1]["items"]) == 2 and months2[-1]["capacity"] == 8
+    # Pillars are scheduled before articles.
+    mixed = [{"family": "f", "coverage_score": 50, "type": "article", "priority": "normal",
+              "what": "a", "title": "T", "primary_keyword": "k", "volume": 10},
+             {"family": "g", "coverage_score": 90, "type": "pillar", "priority": "high",
+              "what": "p", "title": None, "primary_keyword": None, "volume": 0}]
+    mo = _build_cadence(mixed, [4])
+    assert mo[0]["items"][0]["type"] == "pillar"
 
 
 def test_inferred_hub_when_no_category():

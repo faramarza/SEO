@@ -489,3 +489,225 @@ def build_interlink_plan(results: list, product_families: list) -> dict:
             "families_touched": len(families_touched),
         },
     }
+
+
+# ───────────────── Phase 3: coverage scorecard + topic gaps + cadence ─────────
+
+# A cluster is "solid" on topical depth once it has at least this many supporting
+# articles (blog/guide) around the products. Below it, the topic reads thin to
+# search engines. Tunable — this is the bar the scorecard scores against.
+TARGET_DEPTH = 3
+
+# Monthly publishing capacity, ramping up so a brand-new program doesn't look like
+# an unnatural 0→8 AI burst. After the ramp it holds at the ceiling.
+DEFAULT_RAMP = [4, 5, 6, 7, 8]
+RAMP_CEILING = 8
+
+
+def _coverage_for_family(fam: dict) -> dict:
+    """Transparent 0-100 coverage score for one cluster, from what EXISTS (never a
+    projection). Sub-scores are additive and explained so the number is auditable:
+      pillar 25 · supporting-article depth 30 · link health 25 · orphan-free 10 ·
+      product presence 10.
+    """
+    counts = fam.get("counts", {})
+    lh = fam.get("link_health", {})
+    hub = fam.get("hub")
+    total = counts.get("total", 0)
+    if total == 0:
+        return {"score": 0, "status": "missing", "subscores": {}, "n_articles": 0,
+                "n_products": 0}
+
+    # Pillar.
+    if hub and not fam.get("hub_inferred"):
+        pillar = 25
+    elif hub:
+        pillar = 12
+    else:
+        pillar = 0
+
+    # Supporting-article depth (blog/guide pages) — the heart of topical authority.
+    n_articles = counts.get("blog", 0)
+    depth = round(min(n_articles, TARGET_DEPTH) / TARGET_DEPTH * 30)
+
+    # Link health — spokes linked BOTH ways (up and down) vs. total spokes. A
+    # cluster with no spokes has no mesh at all, so it earns nothing here (a lone
+    # category page is thin for topical authority, not "fully linked").
+    spokes_total = lh.get("spokes_total", 0)
+    both = min(lh.get("spokes_linking_to_hub", 0), lh.get("hub_links_to_spokes", 0))
+    link = round((both / spokes_total) * 25) if spokes_total else 0
+
+    # Orphan-free.
+    orphans = len(lh.get("orphan_spokes", []))
+    orphan_free = 10 if orphans == 0 else max(0, 10 - orphans * 3)
+
+    # Commercial anchor — at least one product to sell into the topic.
+    n_products = counts.get("product", 0)
+    product = 10 if n_products >= 1 else 0
+
+    score = pillar + depth + link + orphan_free + product
+    status = ("solid" if score >= 75 else "developing" if score >= 45 else "thin")
+    return {
+        "score": score,
+        "status": status,
+        "subscores": {"pillar": pillar, "depth": depth, "link_health": link,
+                      "orphan_free": orphan_free, "product": product},
+        "n_articles": n_articles,
+        "n_products": n_products,
+    }
+
+
+def _keyword_family(keyword: str, matchers: list):
+    """Assign a bare keyword string to a family (for mapping content-gap articles
+    onto clusters). Pure token overlap — no URL bonus. Returns name or None."""
+    toks = _sing_set(_distinctive(keyword))
+    if not toks:
+        return None
+    best, best_score = None, 0.0
+    for m in matchers:
+        overlap = len(m["tokens"] & toks)
+        if not overlap:
+            continue
+        score = overlap / len(m["tokens"])
+        if score > best_score:
+            best, best_score = m["name"], score
+    return best if best_score >= 0.5 else None
+
+
+def build_topic_plan(results: list, product_families: list,
+                     gap_articles: list = None, ramp: list = None) -> dict:
+    """Phase 3: per-family coverage scorecard + the topic gaps to close + a ramped
+    publishing cadence.
+
+    Coverage is scored purely from what exists. Topic gaps combine (a) a pillar
+    gap where a family has no real hub, and (b) REAL keyword-backed articles from
+    the content-gap plan mapped onto the family — never invented. Where a family
+    is thin but no keyword-backed article is available, it emits a clear
+    "run Content Gap for this theme" pointer rather than a fabricated title. The
+    cadence then schedules the concrete items at 4→8/month so the program ramps
+    naturally.
+    """
+    cmap = build_cluster_map(results, product_families)
+    matchers = _family_matchers(product_families)
+    gap_articles = gap_articles or []
+
+    # Map each content-gap article onto a family (by its primary keyword).
+    by_family_articles: dict = defaultdict(list)
+    for a in gap_articles:
+        fam = _keyword_family(a.get("primary_keyword", ""), matchers)
+        if fam:
+            by_family_articles[fam].append(a)
+
+    families_out = []
+    schedulable = []  # flat, prioritized list for the cadence
+    for fam in cmap["families"]:
+        name = fam["family"]
+        cov = _coverage_for_family(fam)
+        hub = fam.get("hub")
+        gaps = []
+
+        # (a) Pillar gap — the first thing to fix; everything else hangs off it.
+        if not hub:
+            gaps.append({"type": "pillar", "priority": "high",
+                         "what": f"Create a pillar (hub) page for “{name}” — a broad "
+                                 f"page that frames the whole topic and links to every "
+                                 f"product and article in the cluster."})
+        elif fam.get("hub_inferred"):
+            gaps.append({"type": "pillar", "priority": "medium",
+                         "what": f"No true category/pillar page for “{name}” — a product "
+                                 f"is standing in as the hub. Consider a dedicated pillar."})
+
+        # (b) Concrete, keyword-backed article gaps mapped to this family.
+        arts = by_family_articles.get(name, [])
+        # Dedup by signature and cap so a single family doesn't swamp the plan.
+        seen_sig = set()
+        for a in sorted(arts, key=lambda x: -(x.get("total_volume") or 0)):
+            sig = frozenset(_sing_set(_distinctive(a.get("primary_keyword", ""))))
+            if not sig or sig in seen_sig:
+                continue
+            seen_sig.add(sig)
+            gaps.append({
+                "type": "article", "priority": "normal",
+                "primary_keyword": a.get("primary_keyword"),
+                "title": a.get("title"),
+                "volume": a.get("total_volume"),
+                "word_count_target": a.get("word_count_target"),
+                "outline": a.get("outline") or [],
+                "supporting_keywords": a.get("supporting_keywords") or [],
+                "what": f"Write “{a.get('title')}” (targets “{a.get('primary_keyword')}”).",
+            })
+
+        # (c) Thin-depth pointer — honest, no fabricated topic.
+        n_concrete_articles = sum(1 for g in gaps if g["type"] == "article")
+        projected_depth = cov["n_articles"] + n_concrete_articles
+        if projected_depth < TARGET_DEPTH:
+            need = TARGET_DEPTH - projected_depth
+            gaps.append({"type": "research", "priority": "low",
+                         "what": f"Topic is thin — about {need} more supporting article(s) "
+                                 f"would round out “{name}”. Run Content Gap scoped to this "
+                                 f"theme to find the exact keywords worth writing to."})
+
+        families_out.append({
+            "family": name,
+            "coverage": cov,
+            "demand": fam.get("demand", {}),
+            "counts": fam.get("counts", {}),
+            "hub": hub,
+            "gaps": gaps,
+        })
+
+        # Feed concrete (writable) items into the cadence: pillars first, then
+        # articles. Research pointers aren't schedulable (they're a research step).
+        for g in gaps:
+            if g["type"] in ("pillar", "article"):
+                schedulable.append({
+                    "family": name,
+                    "coverage_score": cov["score"],
+                    "type": g["type"],
+                    "priority": g["priority"],
+                    "what": g["what"],
+                    "title": g.get("title"),
+                    "primary_keyword": g.get("primary_keyword"),
+                    "volume": g.get("volume") or 0,
+                })
+
+    cadence = _build_cadence(schedulable, ramp or DEFAULT_RAMP)
+
+    # Overall rollup.
+    scored = [f["coverage"]["score"] for f in families_out if f["counts"].get("total", 0)]
+    return {
+        "available": cmap.get("available", True),
+        "families": sorted(families_out,
+                           key=lambda f: (f["coverage"]["score"],
+                                          -(f["demand"].get("impressions", 0)))),
+        "cadence": cadence,
+        "totals": {
+            "families_total": len(families_out),
+            "avg_coverage": round(sum(scored) / len(scored)) if scored else 0,
+            "solid": sum(1 for f in families_out if f["coverage"]["status"] == "solid"),
+            "developing": sum(1 for f in families_out if f["coverage"]["status"] == "developing"),
+            "thin": sum(1 for f in families_out if f["coverage"]["status"] == "thin"),
+            "missing": sum(1 for f in families_out if f["coverage"]["status"] == "missing"),
+            "articles_planned": sum(1 for s in schedulable),
+        },
+    }
+
+
+def _build_cadence(items: list, ramp: list) -> list:
+    """Schedule the writable items into months at a ramping capacity (4→8/mo),
+    thinnest/high-demand families and pillars first. Returns a list of months,
+    each {month, capacity, items:[...]}. A pure scheduler over the real gap list —
+    it never pads months with invented work; a month can be short if we run out."""
+    # Priority: pillars before articles; then thin clusters first; then volume.
+    prio_rank = {"pillar": 0, "article": 1}
+    ordered = sorted(items, key=lambda x: (prio_rank.get(x["type"], 2),
+                                           x["coverage_score"], -(x["volume"] or 0)))
+    months = []
+    i, m = 0, 0
+    while i < len(ordered):
+        cap = ramp[m] if m < len(ramp) else RAMP_CEILING
+        chunk = ordered[i:i + cap]
+        months.append({"month": m + 1, "capacity": cap, "items": chunk})
+        i += cap
+        m += 1
+    return months

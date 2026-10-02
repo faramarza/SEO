@@ -19,10 +19,12 @@
 <div class="ta-tabs">
   <button id="ta-tab-map" class="ta-tab active" onclick="taTab('map')">Cluster map</button>
   <button id="ta-tab-links" class="ta-tab" onclick="taTab('links')">🔗 Interlink plan</button>
+  <button id="ta-tab-plan" class="ta-tab" onclick="taTab('plan')">📅 Coverage &amp; cadence</button>
 </div>
 
 <div id="ta-body"><p class="pb-loading">Loading your topic map…</p></div>
 <div id="ta-links" style="display:none;"><p class="pb-loading">Loading…</p></div>
+<div id="ta-plan" style="display:none;"><p class="pb-loading">Loading…</p></div>
 <div id="ta-toast" class="pb-toast"></div>
 {% endblock %}
 
@@ -71,6 +73,17 @@
   .ta-anchor{font-family:ui-monospace,Menlo,monospace;background:#fff;border:1px solid var(--border,#e5e7eb);
     border-radius:5px;padding:1px 6px;font-size:11.5px;}
   .ta-orphan-tag{font-size:10px;font-weight:700;color:#dc2626;}
+  .ta-cov-bar{height:8px;border-radius:5px;background:var(--border,#e5e7eb);overflow:hidden;margin:5px 0;}
+  .ta-cov-fill{height:100%;border-radius:5px;}
+  .ta-pill{display:inline-block;font-size:10px;font-weight:700;padding:1px 8px;border-radius:10px;text-transform:uppercase;}
+  .ta-solid{background:#dcfce7;color:#166534;} .ta-developing{background:#fef9c3;color:#854d0e;}
+  .ta-thin{background:#fee2e2;color:#991b1b;} .ta-missing{background:#f3f4f6;color:#4b5563;}
+  .ta-gap{font-size:12.5px;padding:5px 9px;margin:4px 0;border-radius:6px;background:var(--bg-subtle,#f8fafc);}
+  .ta-gap-pillar{border-left:3px solid #6366f1;} .ta-gap-article{border-left:3px solid #10b981;}
+  .ta-gap-research{border-left:3px solid #f59e0b;}
+  .ta-month{border:1px solid var(--border,#e5e7eb);border-radius:9px;padding:10px 12px;margin:8px 0;}
+  .ta-month-h{font-weight:700;font-size:13px;margin-bottom:4px;}
+  .ta-month-item{font-size:12.5px;padding:3px 0;border-top:1px dashed var(--border,#eee);}
 </style>
 <script>
 function taToast(m,e){const t=document.getElementById('ta-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3000);}
@@ -174,10 +187,73 @@ let TA_LINKS=null;
 function taTab(which){
   document.getElementById('ta-tab-map').classList.toggle('active', which==='map');
   document.getElementById('ta-tab-links').classList.toggle('active', which==='links');
+  document.getElementById('ta-tab-plan').classList.toggle('active', which==='plan');
   document.getElementById('ta-body').style.display = which==='map'?'':'none';
   document.getElementById('ta-links').style.display = which==='links'?'':'none';
+  document.getElementById('ta-plan').style.display = which==='plan'?'':'none';
   document.getElementById('ta-summary').style.display = which==='map'?'':'none';
   if(which==='links' && TA_LINKS===null) taLinksLoad();
+  if(which==='plan' && TA_PLAN===null) taPlanLoad();
+}
+
+// ── Coverage scorecard + cadence (Phase 3) ─────────────────────────────────
+let TA_PLAN=null;
+const COV_COLOR={solid:'#16a34a',developing:'#eab308',thin:'#dc2626',missing:'#9ca3af'};
+async function taPlanLoad(){
+  const el=document.getElementById('ta-plan');
+  let d;
+  try{ d=await (await fetch('/api/topical-authority/topic-plan')).json(); }
+  catch(e){ el.innerHTML='<div class="card">Couldn\'t load the plan.</div>'; return; }
+  TA_PLAN=d;
+  if(!d.available){ el.innerHTML=`<div class="card"><strong>Not ready.</strong><p style="margin:6px 0 0;font-size:13px;">${escHtml(d.reason||'')}</p></div>`; return; }
+  const t=d.totals||{};
+  const head=`<div class="card" style="margin-bottom:12px;">
+    <div class="ta-stats-row" style="margin-bottom:6px;">
+      <div class="ta-stat"><b>${t.avg_coverage}</b>avg coverage</div>
+      <div class="ta-stat"><b style="color:${COV_COLOR.solid}">${t.solid}</b>solid</div>
+      <div class="ta-stat"><b style="color:${COV_COLOR.developing}">${t.developing}</b>developing</div>
+      <div class="ta-stat"><b style="color:${COV_COLOR.thin}">${t.thin}</b>thin</div>
+      <div class="ta-stat"><b>${t.articles_planned}</b>to write</div>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin:0;">Coverage scores what each topic <strong>already has</strong> (pillar, supporting articles, link health, no orphans, a product to sell). ${d.has_gap_data?'Concrete article gaps come from your Content Gap plan — real keywords, never invented.':'Set up <strong>Content Gap</strong> (competitors) to fill in concrete, keyword-backed article gaps; for now this shows structural gaps only.'}</p>
+  </div>`;
+  el.innerHTML = head + '<h3 style="font-size:14px;margin:14px 0 4px;">Coverage by topic — weakest first</h3>'
+    + (d.families||[]).map(renderCoverage).join('')
+    + renderCadence(d.cadence||[]);
+}
+
+function renderCoverage(f){
+  const c=f.coverage||{}, sub=c.subscores||{};
+  const pct=c.score||0, color=COV_COLOR[c.status]||'#9ca3af';
+  const gaps=(f.gaps||[]).map(g=>`<div class="ta-gap ta-gap-${g.type}">
+      <strong style="text-transform:capitalize;">${g.type}</strong> ${g.priority==='high'?'<span class="ta-orphan-tag">priority</span>':''} — ${escHtml(g.what)}
+      ${g.volume?`<span style="color:var(--text-muted);font-size:11px;"> (~${g.volume} searches/mo)</span>`:''}
+    </div>`).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">No gaps — this topic is well covered.</div>';
+  const subTxt = Object.keys(sub).length
+    ? `<span style="font-size:11px;color:var(--text-muted);">pillar ${sub.pillar}/25 · depth ${sub.depth}/30 · links ${sub.link_health}/25 · orphan-free ${sub.orphan_free}/10 · product ${sub.product}/10</span>`
+    : '';
+  return `<div class="card" style="margin-bottom:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:15px;font-weight:700;">${escHtml(f.family)}</span>
+      <span><span class="ta-pill ta-${c.status}">${c.status}</span> <b style="font-size:15px;">${pct}</b><span style="color:var(--text-muted);font-size:12px;">/100</span></span>
+    </div>
+    <div class="ta-cov-bar"><div class="ta-cov-fill" style="width:${pct}%;background:${color};"></div></div>
+    ${subTxt}
+    <div style="margin-top:8px;">${gaps}</div>
+  </div>`;
+}
+
+function renderCadence(cadence){
+  if(!cadence.length) return '<div class="card" style="margin-top:14px;"><strong>✓ Nothing queued.</strong><p style="font-size:13px;margin:6px 0 0;">No pillar or article gaps to schedule right now.</p></div>';
+  const months=cadence.map(mo=>{
+    const items=mo.items.map(it=>`<div class="ta-month-item">
+        ${it.type==='pillar'?'🏛️ <strong>Pillar</strong>':'📝'} ${escHtml(it.title||it.what)}
+        <span style="color:var(--text-muted);font-size:11px;"> · ${escHtml(it.family)}${it.volume?` · ~${it.volume}/mo`:''}</span></div>`).join('');
+    return `<div class="ta-month"><div class="ta-month-h">Month ${mo.month} <span style="font-weight:400;color:var(--text-muted);font-size:11px;">· ${mo.items.length}/${mo.capacity} articles</span></div>${items}</div>`;
+  }).join('');
+  return `<h3 style="font-size:14px;margin:18px 0 4px;">📅 Publishing cadence — ramped 4→8/month</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;">Thinnest, highest-demand topics first; pillars before their supporting articles. The ramp keeps a new program from looking like an unnatural AI burst. The content creator (next phase) writes to this schedule.</p>
+    ${months}`;
 }
 
 async function taLinksLoad(){
