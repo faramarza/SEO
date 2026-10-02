@@ -36,6 +36,10 @@
 .dn-step-done{margin-top:8px;display:inline-block;background:var(--accent-blue);color:#fff;border:none;border-radius:7px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;}
 .dn-deliv{margin-top:8px;}
 .dn-guide-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border,rgba(0,0,0,.08));padding-top:14px;}
+.dn-aitake{margin:-4px 0 14px;}
+.dn-aitake-box{background:linear-gradient(0deg,var(--bg-subtle,#f5f3ff),var(--bg-subtle,#f5f3ff));border:1px solid #c7d2fe;border-left:3px solid #6366f1;border-radius:9px;padding:9px 12px;color:var(--text-primary);}
+.dn-aitake-box.warn{border-color:#fde68a;border-left-color:#f59e0b;background:#fffbeb;}
+.dn-aitake-box.loading{color:var(--text-muted);font-size:12.5px;border-style:dashed;}
 .dn-done-big{background:#16a34a;color:#fff;border:none;border-radius:9px;padding:11px 22px;font-size:15px;font-weight:800;cursor:pointer;}
 .dn-done-big:disabled{background:#cbd5e1;cursor:not-allowed;}
 .dn-skip{background:none;border:none;color:var(--text-muted);font-size:13px;cursor:pointer;text-decoration:underline;}
@@ -357,8 +361,32 @@ function renderPlan(plan, extra){
         const fcat=(focus.category||'').toLowerCase();
         if(fcat==='links') dnAutoOutreach(focus);
         else if(DN_AUTODELIV.has(fcat)) dnAutoDeliv(focus);
+        dnLoadAiTake(focus);                     // Governor's AI second opinion
     }
     lpAnnotate();
+}
+
+// Governor's take — a grounded AI second opinion on the #1 job: is it worth the
+// owner's time, why it matters here, the one thing to nail. Loads async (the card
+// shows instantly), cached server-side so repeat views are free.
+async function dnLoadAiTake(t){
+    const el=document.getElementById('aitake-dv-'+dnKeyId(t.dedup_key));
+    if(!el || el.dataset.loaded) return;
+    el.dataset.loaded='1';
+    el.innerHTML='<div class="dn-aitake-box loading">🤖 Governor is sizing this up…</div>';
+    try{
+        const r=await (await fetch('/api/action-plan/ai-take',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)})).json();
+        if(r.error){ el.innerHTML=''; return; }   // fail quiet (e.g. no API key)
+        const worth=r.worth_it!==false;
+        const icon=worth?'🤖':'⚠️';
+        const head=worth?(r.verdict||'Worth doing'):(r.verdict||'Consider skipping');
+        const body=worth
+            ? `${r.why?esc(r.why)+' ':''}${r.how?'<b>Nail this:</b> '+esc(r.how):''}`
+            : `${esc(r.skip_reason||r.why||'')} <span style="color:var(--text-muted);">You can Skip it below without guilt.</span>`;
+        el.innerHTML=`<div class="dn-aitake-box ${worth?'':'warn'}">
+            <div style="font-weight:700;font-size:12px;letter-spacing:.02em;">${icon} GOVERNOR’S TAKE — ${esc(head)}</div>
+            <div style="font-size:13px;margin-top:3px;line-height:1.5;">${body}</div></div>`;
+    }catch(e){ el.innerHTML=''; }
 }
 
 // A readable page name from the URL slug (or the target keyword for new pages).
@@ -460,6 +488,7 @@ function activeCard(t, pos, total){
     return `<div class="dn-guide">
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Your #1 job right now${val?' · '+val:''}${t.low_hanging?' · 🍒 quick &amp; easy':''}</div>
         <div style="font-size:19px;font-weight:700;line-height:1.4;margin-bottom:14px;">${plainWhat(t)}</div>
+        <div id="aitake-${domId}" class="dn-aitake"></div>
         <div style="font-size:14.5px;margin-bottom:16px;">${doBlock}</div>
         <div class="dn-guide-actions">
             <button class="dn-done-big" onclick="dnFinish('${esc(t.dedup_key)}',this)">✅ I did it — show my next job</button>

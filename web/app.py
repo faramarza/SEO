@@ -13113,6 +13113,94 @@ def content_studio_page():
     return render_template("content_studio.html")
 
 
+# ── Start Here: AI "Governor's take" — a grounded second opinion per task ─────
+
+_AI_TAKES_PATH = DATA_PATH / "ai_takes.json"
+
+
+def _ai_takes_load() -> dict:
+    try:
+        with open(_AI_TAKES_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _ai_takes_save(d: dict):
+    _AI_TAKES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _AI_TAKES_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    tmp.replace(_AI_TAKES_PATH)
+
+
+def _ai_task_fingerprint(task: dict) -> str:
+    import hashlib
+    key = "|".join(str(task.get(k, "")) for k in
+                   ("dedup_key", "title", "category", "reach", "lever_score"))
+    return hashlib.md5(key.encode()).hexdigest()[:12]
+
+
+@app.route("/api/action-plan/ai-take", methods=["POST"])
+def api_action_plan_ai_take():
+    """A sharp, HONEST, store-specific AI judgment on one task: is it worth your
+    time, why it matters here, the one thing to nail, and whether to skip it.
+    Grounded — reasons only from the task's real data; never invents facts.
+    Cached per task so it's one cheap call, instant on repeat views."""
+    task = request.get_json(silent=True) or {}
+    dk = task.get("dedup_key") or ""
+    if not dk:
+        return jsonify({"error": "no task"}), 400
+    fp = _ai_task_fingerprint(task)
+    cache = _ai_takes_load()
+    hit = cache.get(dk)
+    if hit and hit.get("fp") == fp:
+        return jsonify({**hit["take"], "cached": True})
+
+    config = load_config()
+    biz = config.get("business_context", {})
+    families = biz.get("product_families", []) or []
+    store = _cg_bare(_site_base_url(config))
+    steps = task.get("steps") or []
+    system = (
+        f"You are a seasoned, no-nonsense SEO advisor for {store}, a store that "
+        f"sells: {', '.join(families) or 'personalized children’s products'}. "
+        "You are given ONE task the tool has recommended. Give the owner a sharp, "
+        "HONEST second opinion. Reason ONLY from the task data provided — never "
+        "invent numbers, facts, or page details. If the task is low-value or not "
+        "worth their limited time, say so plainly (worth_it=false) — your job is to "
+        "protect their time, not cheerlead.\n"
+        "Return ONLY JSON: {\"worth_it\": true|false, \"verdict\": \"<=6 words\", "
+        "\"why\": \"1-2 plain sentences on why this matters (or doesn’t) for THIS "
+        "store\", \"how\": \"one sentence: the single thing to get right\", "
+        "\"skip_reason\": \"if worth_it is false, why to skip; else empty\"}."
+    )
+    prompt = (
+        f"TASK: {task.get('title','')}\n"
+        f"Type: {task.get('category','')}  |  reach: {task.get('reach',0)} "
+        f"impressions  |  est. value: {task.get('expected_value',0)}\n"
+        f"Why the tool flagged it: {task.get('benefit','')}\n"
+        f"Steps: {' | '.join(str(s) for s in steps[:6])}"
+    )
+    text, err = _llm_complete(system, prompt, max_tokens=500, temperature=0.2)
+    if err:
+        return jsonify({"error": err}), 502
+    parsed, perr = _cd_parse_llm_json(text)
+    if perr or not isinstance(parsed, dict):
+        return jsonify({"error": perr or "bad AI response"}), 502
+    take = {
+        "worth_it": bool(parsed.get("worth_it", True)),
+        "verdict": (parsed.get("verdict") or "").strip(),
+        "why": (parsed.get("why") or "").strip(),
+        "how": (parsed.get("how") or "").strip(),
+        "skip_reason": (parsed.get("skip_reason") or "").strip(),
+    }
+    cache[dk] = {"fp": fp, "take": take,
+                 "at": datetime.now().isoformat(timespec="seconds")}
+    _ai_takes_save(cache)
+    return jsonify({**take, "cached": False})
+
+
 # ── Interlinks: let the tool ADD the links for the operator (preview → apply →
 #    revert). Writes ONLY a category's description, via the guarded client path. ──
 
