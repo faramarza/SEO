@@ -372,7 +372,12 @@ function friendlyPage(t){
 // One plain-English sentence: what to do and why, no jargon.
 function plainWhat(t){
     const cat=(t.category||'').toLowerCase(); const pg=esc(friendlyPage(t));
-    if(cat==='ctr'||cat==='brand') return `Get more people to click your <b>“${pg}”</b> page in Google by giving it a better description.`;
+    if(cat==='ctr'||cat==='brand'){
+        const metaOnly=/description/i.test(t.title||'');
+        return metaOnly
+            ? `Try a sharper Google <b>description</b> for your <b>“${pg}”</b> page to win a few more clicks — <b>low odds</b> (Google rewrites descriptions most of the time), so it's a 2-minute test, not a sure thing.`
+            : `Get more people to click your <b>“${pg}”</b> page by fixing its <b>title</b> so it matches what people search.`;
+    }
     if(cat==='content') return `Write a new page about <b>“${esc(t.primary_keyword||t.query||friendlyPage(t))}”</b> — a topic your competitors rank for and you don’t.`;
     if(cat==='geo') return `Add a short FAQ to your <b>“${pg}”</b> page so AI assistants (ChatGPT, Google AI) can quote it.`;
     if(cat==='reviews') return `Ask recent buyers of <b>“${pg}”</b> to leave a review.`;

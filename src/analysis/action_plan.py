@@ -166,6 +166,18 @@ def _from_ctr(ctr, out):
         # them to ADD the keyword to the title if it's actually missing — not when
         # the title already contains it (the old bug on the homepage/brand query).
         title_missing = any("title doesn't clearly match" in rz for rz in reasons)
+        # REALISTIC RECOVERY ODDS — the honest correction. A mismatched TITLE is a
+        # reliable lever (titles show ~2/3 of the time and a better-matched title
+        # genuinely lifts CTR). A meta-DESCRIPTION tweak is low-odds: Google rewrites
+        # descriptions most of the time, and the description is not a ranking factor —
+        # so a "the title's already fine, change the meta" task usually does nothing.
+        # Value the task by the clicks you can REALISTICALLY expect back, not the full
+        # theoretical gap, so a cheap-but-unlikely tweak stops out-ranking real fixes.
+        recovery_prob = 0.5 if title_missing else 0.2
+        lost_clicks = r.get("lost_clicks", 0) or 0
+        realistic_clicks = round(lost_clicks * recovery_prob, 1)
+        realistic_rev = round((r.get("lost_revenue", 0) or 0) * recovery_prob, 2)
+
         steps = [f"Current title: {r.get('current_title') or '(fetch the page first)'}."]
         steps += [f"Why it's under-clicked: {rz}" for rz in reasons]
         if title_missing:
@@ -173,30 +185,33 @@ def _from_ctr(ctr, out):
                          f"(what searchers type) and leads with one concrete draw — age, "
                          f"material, free shipping, or a number if it's a list.")
         else:
-            steps.append("Your title already targets this query — focus on the meta "
-                         "description: promise the specific value and end with a nudge to "
-                         "click. (If the reason above is about ranking/brand, fix that first.)")
-        steps += [
-            "Use Playbook → CTR Recovery → “Rewrite” to generate grounded title/meta options.",
-            "Publish, then request indexing in Google Search Console for this URL.",
-        ]
-        benefit = (f"This page already ranks #{r.get('position')} for “{r.get('query','')}” "
-                   f"but is under-clicked. Earning a normal click-through recovers about "
-                   f"{r.get('lost_clicks')} clicks/mo" +
-                   (f" (~${r.get('lost_revenue'):,.0f}/mo)" if r.get("lost_revenue") else "") + ".")
+            steps.append("Your title already targets this query, so the only lever left is "
+                         "the meta description. Honest heads-up: Google rewrites descriptions "
+                         "most of the time and they're NOT a ranking factor — so this is a "
+                         "2-minute test, not a sure thing. If CTR doesn't move in one window, "
+                         "the snippet is being overridden (or an AI Overview / shopping pack "
+                         "above you is eating the clicks) — don't keep retrying it; move on.")
+        steps.append("Publish, then request indexing in Google Search Console for this URL.")
+        benefit = (f"This page ranks #{r.get('position')} for “{r.get('query','')}” but is "
+                   f"under-clicked (~{lost_clicks} clicks/mo below a normal rate). "
+                   + ("A better-matched title reliably recovers a chunk of that."
+                      if title_missing else
+                      "But its title already targets the query, so only the meta description "
+                      "is left to change — and Google overrides those most of the time, so "
+                      "expect little. Low-cost to try, low odds to work."))
         _title = (f"Rewrite the title for “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked)"
                   if title_missing else
-                  f"Win back clicks on “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked)")
+                  f"Test a new description for “{r.get('query','')}” (ranks #{r.get('position')}, under-clicked — low odds)")
         _t = _task(
             "ctr", r.get("url",""),
             _title,
-            steps, benefit, r.get("lost_revenue", 0), r.get("impressions", 0),
+            steps, benefit, realistic_rev, r.get("impressions", 0),
             {"type": "query_clicks", "url": r.get("url",""), "query": r.get("query","")},
             {"clicks": r.get("clicks", 0), "ctr": r.get("actual_ctr", 0)},
             r.get("asset_type","other"), r.get("query",""))
-        # Recoverable clicks — the measurability signal for a CTR fix (a page
-        # with modest impressions but a huge CTR gap yields a readable sample).
-        _t["expected_clicks"] = r.get("lost_clicks", 0) or 0
+        # Recoverable clicks — now the REALISTIC figure, so the measurability + lever
+        # reflect what a snippet change can actually win back, not the theoretical gap.
+        _t["expected_clicks"] = realistic_clicks
         # A CTR "fix" on the store's own brand term, or a SMALL harvest on a page
         # already at the top (nothing to gain from position, the click is a
         # commodity toss-up), is trivial — flag it so it can never headline the
