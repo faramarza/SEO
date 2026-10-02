@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 10
+PLAN_VERSION = 11
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -219,6 +219,64 @@ def cluster_topics(gap_keywords: list, min_shared: int = 1) -> list:
         c.pop("_tokens", None)
         c["keywords"].sort(key=lambda x: -x["volume"])
     return sorted(clusters, key=lambda c: -c["volume"])
+
+
+def sanity_messages(topics: list, store_name: str = "the store",
+                    families: list = None, catalog_vocab: list = None) -> tuple:
+    """Build (system, user) for an AI SANITY pass over proposed topics. The model
+    is a strict vetting judge — it never writes content, it only decides keep/drop.
+    This is the backstop for what deterministic rules can't anticipate: phrases
+    that aren't real ("dolls doll"), or terms with no relevance to THIS store's
+    catalogue. Grounded in the store's real families + page vocabulary."""
+    families = families or []
+    catalog_vocab = catalog_vocab or []
+    system = (
+        "You are a strict editorial vetting assistant for an e-commerce store's blog "
+        "content plan. You do NOT write content — you only judge whether each proposed "
+        "blog TOPIC is worth keeping. Drop a topic if ANY of these is true:\n"
+        "  • it is not a real, grammatical phrase a person would actually search "
+        "(e.g. 'dolls doll', 'toys 3', word salad, duplicated words);\n"
+        "  • it is a broad one-word / head term no small store can win with one article;\n"
+        "  • it is irrelevant to what THIS store actually sells;\n"
+        "  • it is a brand / manufacturer name rather than a topic.\n"
+        "Keep a topic ONLY if it is a sensible, specific, on-brand article topic this "
+        "store could write something genuinely useful about and sell into. When a topic "
+        "is clearly nonsensical or irrelevant, DROP it (keep=false).\n"
+        'Return ONLY JSON (no prose, no fences): {"verdicts":[{"term":"<exact topic '
+        'text>","keep":true|false,"reason":"<short>"}]} — exactly one entry per topic.'
+    )
+    ctx = [f"Store: {store_name}."]
+    if families:
+        ctx.append("Product families it sells: " + ", ".join(families) + ".")
+    if catalog_vocab:
+        ctx.append("Words that appear in its real page URLs (its catalogue "
+                   "vocabulary): " + ", ".join(sorted(set(catalog_vocab))[:60]) + ".")
+    ctx.append("\nVet these proposed blog topics:")
+    for i, t in enumerate(topics, 1):
+        ctx.append(f"{i}. {t}")
+    return system, "\n".join(ctx)
+
+
+def apply_sanity(clusters: list, verdicts: list) -> tuple:
+    """Filter topic clusters by the AI verdicts. A cluster is judged by its primary
+    keyword. Conservative: only an EXPLICIT keep=false drops a cluster — a topic the
+    model didn't return is kept, so a partial/garbled response can never silently
+    gut the plan. Returns (kept_clusters, dropped[{term, reason}])."""
+    vmap = {}
+    for v in (verdicts or []):
+        term = _norm((v or {}).get("term", ""))
+        if term:
+            vmap[term] = v
+    kept, dropped = [], []
+    for c in clusters:
+        kws = c.get("keywords") or []
+        primary = kws[0]["keyword"] if kws else ""
+        v = vmap.get(_norm(primary))
+        if v is not None and v.get("keep") is False:
+            dropped.append({"term": primary, "reason": (v.get("reason") or "").strip()})
+        else:
+            kept.append(c)
+    return kept, dropped
 
 
 def _title_for(primary: str, intent: str) -> str:

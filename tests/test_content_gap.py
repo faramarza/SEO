@@ -119,3 +119,41 @@ def test_specificity_gate_singular_plural_repeats_are_one_concept():
     for keep in ("doll house", "wooden name puzzle", "name train",
                  "montessori toys for 2 year olds", "sensory bin ideas"):
         assert cg._too_generic(keep) is False, f"{keep!r} must be kept"
+
+
+def _cluster(primary, vol=500):
+    return {"keywords": [{"keyword": primary, "volume": vol, "position": 5}], "volume": vol}
+
+
+def test_sanity_messages_ground_in_catalog_and_demand_json():
+    system, user = cg.sanity_messages(
+        ["dolls doll", "montessori floor bed guide"],
+        store_name="alphabet-trains.com",
+        families=["name trains", "step stools"],
+        catalog_vocab=["train", "stool", "puzzle"])
+    assert "keep=false" in system or '"keep"' in system
+    assert "name trains" in user and "step stools" in user
+    assert "train" in user  # catalogue vocabulary surfaced
+    assert "dolls doll" in user and "montessori floor bed guide" in user
+
+
+def test_apply_sanity_drops_only_explicit_false():
+    clusters = [_cluster("dolls doll"), _cluster("wooden name puzzle for toddlers"),
+                _cluster("montessori shelf ideas")]
+    verdicts = [
+        {"term": "dolls doll", "keep": False, "reason": "not a real phrase"},
+        {"term": "wooden name puzzle for toddlers", "keep": True, "reason": "ok"},
+        # 'montessori shelf ideas' intentionally omitted → must be KEPT (conservative)
+    ]
+    kept, dropped = cg.apply_sanity(clusters, verdicts)
+    kept_primaries = {c["keywords"][0]["keyword"] for c in kept}
+    assert "dolls doll" not in kept_primaries
+    assert "wooden name puzzle for toddlers" in kept_primaries
+    assert "montessori shelf ideas" in kept_primaries        # un-judged → kept
+    assert dropped == [{"term": "dolls doll", "reason": "not a real phrase"}]
+
+
+def test_apply_sanity_empty_verdicts_keeps_all():
+    clusters = [_cluster("a b c"), _cluster("d e f")]
+    kept, dropped = cg.apply_sanity(clusters, [])
+    assert len(kept) == 2 and dropped == []

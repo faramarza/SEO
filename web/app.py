@@ -12556,6 +12556,35 @@ def _cg_catalog_vocab() -> set:
     return vocab
 
 
+def _cg_ai_sanity(clusters: list, config: dict):
+    """Run the AI sanity pass over proposed topic clusters, grounded in the store's
+    real families + page vocabulary. Returns (kept_clusters, sanity_info). Never
+    raises and never blocks the plan: on no key / parse failure it returns the
+    clusters unchanged with checked=False and a reason."""
+    from src.analysis import content_gap as cg
+    if not clusters:
+        return clusters, {"checked": False, "reason": "no topics to check"}
+    topics = [c["keywords"][0]["keyword"] for c in clusters if c.get("keywords")]
+    store = _cg_bare(_site_base_url(config))
+    families = config.get("business_context", {}).get("product_families", []) or []
+    vocab = sorted(_cg_catalog_vocab())
+    system, user = cg.sanity_messages(topics, store_name=store, families=families,
+                                      catalog_vocab=vocab)
+    text, err = _llm_complete(system, user, max_tokens=1800, temperature=0.0)
+    if err:
+        return clusters, {"checked": False, "reason": err}
+    parsed, perr = _cd_parse_llm_json(text)
+    if perr or not isinstance(parsed, dict):
+        return clusters, {"checked": False, "reason": perr or "unparseable AI response"}
+    kept, dropped = cg.apply_sanity(clusters, parsed.get("verdicts", []))
+    # Safety valve: if the model somehow rejected (almost) everything, distrust it
+    # and keep the deterministic result rather than ship an empty plan.
+    if clusters and len(kept) < max(1, len(clusters) // 5):
+        return clusters, {"checked": True, "dropped": [], "kept": len(clusters),
+                          "note": "AI rejected too many to trust — kept deterministic set."}
+    return kept, {"checked": True, "dropped": dropped, "kept": len(kept)}
+
+
 def _content_gap_worker(competitors: list, force: bool, focus: list = None):
     """Pull ranked keywords for you + each competitor (DataForSEO Labs), diff to
     the gap, cluster into topics, build the battle plan. Read-only; costs Labs
@@ -12595,14 +12624,25 @@ def _content_gap_worker(competitors: list, force: bool, focus: list = None):
         gap = cg.compute_gap(comp_all, your_kw, focus=focus,
                              relevance_vocab=_cg_catalog_vocab())   # anchor to your sitemap/catalog
         clusters = cg.cluster_topics(gap)
+        # AI SANITY PASS — a second layer after the deterministic rules: an LLM
+        # judges each proposed topic for (a) whether it's a real, sensible phrase
+        # and (b) whether it's relevant to THIS store's catalogue, and drops the
+        # bogus ones. Graceful: if no key / it fails, the plan still ships on the
+        # deterministic filters alone.
+        _cg_job.update(phase="Sanity-checking topics with AI…")
+        clusters, sanity = _cg_ai_sanity(clusters, config)
         aov, cvr, margin, _ = _biz_params(config)
         plan = cg.build_plan(clusters, aov=aov, cvr=cvr, margin=margin)
+        plan["sanity"] = sanity
         _cg_save({"available": True, "competitors": comp_ok, "focus": focus,
                   "your_keyword_count": len(your_kw_labs),
                   "competitor_keyword_count": len({k["keyword"] for k in comp_all}),
                   "gap_count": len(gap), "plan": plan,
                   "updated_at": datetime.now().isoformat(timespec="seconds")})
-        _cg_job.update(running=False, phase="", note=f"{plan['article_count']} articles planned")
+        note = f"{plan['article_count']} articles planned"
+        if sanity.get("checked") and sanity.get("dropped"):
+            note += f" · AI dropped {len(sanity['dropped'])} bogus"
+        _cg_job.update(running=False, phase="", note=note)
     except Exception as e:
         import traceback
         traceback.print_exc()
