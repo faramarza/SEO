@@ -169,6 +169,13 @@ def _from_ctr(ctr, out):
         # them to ADD the keyword to the title if it's actually missing — not when
         # the title already contains it (the old bug on the homepage/brand query).
         title_missing = any("title doesn't clearly match" in rz for rz in reasons)
+        # CUT THE FLUFF: if the title already targets the query, the only lever left
+        # is a meta description Google overrides most of the time — a non-task. Don't
+        # clutter the list with it. Keep only CTR tasks where the TITLE is the problem
+        # (a fix that actually works). Exception: a genuinely HUGE leak still worth a
+        # one-off test.
+        if not title_missing and (r.get("lost_clicks", 0) or 0) < 50:
+            continue
         # REALISTIC RECOVERY ODDS — the honest correction. A mismatched TITLE is a
         # reliable lever (titles show ~2/3 of the time and a better-matched title
         # genuinely lifts CTR). A meta-DESCRIPTION tweak is low-odds: Google rewrites
@@ -986,7 +993,12 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
     # impact), trivial "minor" harvests last — so the #N badge on each card ascends
     # with importance instead of the old ROI order (which put a #54 content gap at
     # the very top of "your biggest levers").
-    out.sort(key=lambda t: (t.get("minor", False), -(t.get("lever_score") or 0)))
+    # TIGHTEN: drop the trivial "minor" harvests (a $10 brand-CTR nudge, a phantom
+    # schema count, a page already at #1) and anything the operator can't measure
+    # or realistically action. The list should be only real, practical work — not
+    # padded with fluff. (Measurable aggregate work like links/content is exempt.)
+    out = [t for t in out if not t.get("minor")]
+    out.sort(key=lambda t: -(t.get("lever_score") or 0))
     for i, t in enumerate(out, start=1):
         t["rank"] = i
     return out[:limit]
