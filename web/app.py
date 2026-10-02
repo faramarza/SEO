@@ -12647,6 +12647,47 @@ def content_gap_page():
     return render_template("content_gap.html")
 
 
+# ── Topical Authority Engine — Phase 1: inventory + cluster map ──────────────
+
+def _ta_cluster_map():
+    """Build the Phase-1 cluster map from the latest evaluation + configured
+    product families. Pure read (no network): groups pages into topical clusters,
+    assigns a hub + spokes per cluster, and measures internal-link health. Returns
+    {} with a reason when there's no evaluation yet."""
+    from src.analysis.topical_authority import build_cluster_map
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        return {"available": False,
+                "reason": "No evaluation yet — run a full evaluation first so the "
+                          "engine can see your pages and internal links."}
+    config = load_config()
+    families = config.get("business_context", {}).get("product_families", []) or []
+    if not families:
+        return {"available": False,
+                "reason": "No product families configured. Add them in Setup "
+                          "(business_context.product_families) so the engine knows "
+                          "your topics."}
+    cmap = build_cluster_map(results, families)
+    cmap["available"] = True
+    cmap["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    return cmap
+
+
+@app.route("/topical-authority")
+def topical_authority_page():
+    """Topical Authority Engine — the cluster map: your topics, each with its hub
+    (pillar) page, supporting spokes, and the internal-link gaps that hold topical
+    authority back. Phase 1 of the content program."""
+    return render_template("topical_authority.html")
+
+
+@app.route("/api/topical-authority")
+def api_topical_authority():
+    return jsonify(_ta_cluster_map())
+
+
 @app.route("/api/content-gap")
 def api_content_gap():
     d = _cg_load()

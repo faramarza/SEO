@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Topic Map — Governor{% endblock %}
+{% block header %}🗺️ Topic Map — Topical Authority{% endblock %}
+{% block content %}
+<div class="page-header">
+  <p class="page-description">
+    Topical authority is won by <strong>owning a topic</strong>, not a keyword: one broad
+    <strong>hub (pillar)</strong> page per product family, a ring of <strong>supporting (spoke)</strong>
+    pages — products and articles — and a tight internal-link mesh tying the spokes up to the hub and
+    back. Google reads that mesh as “this site is the authority on X.” This map reads what you
+    <strong>already have</strong> — your pages and the real internal links the crawler found — and
+    shows, per family, your hub, your spokes, and the link gaps holding authority back.
+    Nothing here is invented; it only reports pages and links that genuinely exist.
+  </p>
+</div>
+
+<div id="ta-summary"></div>
+<div id="ta-body"><p class="pb-loading">Loading your topic map…</p></div>
+<div id="ta-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .ta-fam{margin-bottom:16px;}
+  .ta-fam-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+  .ta-fam-name{font-size:17px;font-weight:700;}
+  .ta-demand{font-size:12px;color:var(--text-muted);}
+  .ta-badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.03em;
+    padding:1px 7px;border-radius:10px;text-transform:uppercase;vertical-align:middle;}
+  .ta-b-product{background:#e0f2fe;color:#075985;}
+  .ta-b-category{background:#ede9fe;color:#5b21b6;}
+  .ta-b-blog{background:#dcfce7;color:#166534;}
+  .ta-b-other{background:#f3f4f6;color:#4b5563;}
+  .ta-hub{border-left:3px solid #6366f1;padding:8px 12px;background:var(--bg-subtle,#f8fafc);
+    border-radius:0 7px 7px 0;margin:6px 0 10px;}
+  .ta-hub-missing{border-left-color:#dc2626;}
+  .ta-flags{margin:8px 0 0;padding:0;list-style:none;}
+  .ta-flag{font-size:12.5px;padding:5px 9px;margin:4px 0;border-radius:6px;
+    background:#fffbeb;border:1px solid #fde68a;color:#92400e;}
+  .ta-flag.ok{background:#f0fdf4;border-color:#bbf7d0;color:#166534;}
+  table.ta-spokes{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px;}
+  table.ta-spokes th{text-align:left;color:var(--text-muted);font-weight:600;
+    padding:4px 6px;border-bottom:1px solid var(--border,#e5e7eb);font-size:11px;}
+  table.ta-spokes td{padding:5px 6px;border-bottom:1px solid var(--border,#f1f5f9);vertical-align:top;}
+  .ta-chk{font-weight:700;} .ta-yes{color:#16a34a;} .ta-no{color:#dc2626;}
+  .ta-orphan{color:#dc2626;font-weight:700;}
+  .ta-health{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin:4px 0;}
+  .ta-stat{background:var(--bg-subtle,#f8fafc);border-radius:8px;padding:8px 12px;text-align:center;min-width:92px;}
+  .ta-stat b{display:block;font-size:18px;color:var(--text-primary);}
+  .ta-stats-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+  .ta-link{color:#4f46e5;text-decoration:none;} .ta-link:hover{text-decoration:underline;}
+  .ta-copy{font-size:11px;padding:2px 8px;border:1px solid var(--border,#ccc);border-radius:6px;
+    background:var(--bg-subtle,#f8fafc);cursor:pointer;color:var(--text-primary);}
+</style>
+<script>
+function taToast(m,e){const t=document.getElementById('ta-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3000);}
+
+function badge(t){t=(t||'other').toLowerCase();const c={product:'ta-b-product',category:'ta-b-category',blog:'ta-b-blog'}[t]||'ta-b-other';return `<span class="ta-badge ${c}">${escHtml(t)}</span>`;}
+function chk(v){return v?'<span class="ta-chk ta-yes">✓</span>':'<span class="ta-chk ta-no">—</span>';}
+
+async function taLoad(){
+  let d;
+  try{ d=await (await fetch('/api/topical-authority')).json(); }
+  catch(e){ document.getElementById('ta-body').innerHTML='<div class="card">Couldn\'t load the map.</div>'; return; }
+  const body=document.getElementById('ta-body'), sum=document.getElementById('ta-summary');
+  if(!d.available){
+    sum.innerHTML='';
+    body.innerHTML=`<div class="card"><strong>Not ready yet.</strong><p style="margin:6px 0 0;font-size:13px;">${escHtml(d.reason||'')}</p></div>`;
+    return;
+  }
+  const t=d.totals||{};
+  sum.innerHTML=`<div class="ta-stats-row">
+    <div class="ta-stat"><b>${t.families_total||0}</b>topics</div>
+    <div class="ta-stat"><b>${t.pages_clustered||0}</b>pages mapped</div>
+    <div class="ta-stat"><b>${t.families_without_hub||0}</b>no pillar</div>
+    <div class="ta-stat"><b>${t.families_with_inferred_hub||0}</b>weak pillar</div>
+    <div class="ta-stat"><b>${t.pages_unclustered||0}</b>unclustered</div>
+  </div>
+  <p style="font-size:12px;color:var(--text-muted);margin:-4px 0 12px;">Updated ${(d.updated_at||'').replace('T',' ')}. Each card below is one topic cluster. Work the flagged gaps — they’re what turn a loose set of pages into topical authority.</p>`;
+
+  const fams=(d.families||[]).slice().sort((a,b)=>(b.demand?.impressions||0)-(a.demand?.impressions||0));
+  body.innerHTML = fams.map(renderFamily).join('') + renderUnclustered(d.unclustered||[]);
+}
+
+function renderFamily(f){
+  const hub=f.hub, lh=f.link_health||{};
+  const demand=f.demand||{};
+  const hubHtml = hub
+    ? `<div class="ta-hub${f.hub_inferred?' ta-hub-missing':''}">
+         <div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;">
+           ${f.hub_inferred?'⚠ De-facto hub (no real pillar page)':'Hub · pillar page'} ${badge(hub.asset_type)}
+         </div>
+         <div style="margin-top:3px;"><a class="ta-link" href="${escHtml(hub.url)}" target="_blank" rel="noopener">${escHtml(hub.title||hub.url)}</a></div>
+         <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${hub.inlinks} internal links in · ${demand.impressions||0} impressions</div>
+       </div>`
+    : `<div class="ta-hub ta-hub-missing"><strong>No hub (pillar) page.</strong> This topic has no page to concentrate authority on.</div>`;
+
+  const spokes=(f.spokes||[]);
+  const spokeRows = spokes.map(s=>`<tr>
+      <td><a class="ta-link" href="${escHtml(s.url)}" target="_blank" rel="noopener">${escHtml(s.title||s.url)}</a></td>
+      <td>${badge(s.asset_type)}</td>
+      <td style="text-align:center;" title="Does this page link UP to the hub?">${chk(s.links_to_hub)}</td>
+      <td style="text-align:center;" title="Does the hub link DOWN to this page?">${chk(s.linked_from_hub)}</td>
+      <td style="text-align:center;">${s.inlinks===0?'<span class="ta-orphan">orphan</span>':s.inlinks}</td>
+      <td style="text-align:right;">${s.impressions||0}</td>
+    </tr>`).join('');
+  const spokeTable = spokes.length
+    ? `<table class="ta-spokes"><thead><tr>
+         <th>Supporting page (spoke)</th><th>Type</th><th title="Spoke links up to hub">↑ hub</th>
+         <th title="Hub links down to spoke">↓ hub</th><th>in-links</th><th style="text-align:right;">impr.</th>
+       </tr></thead><tbody>${spokeRows}</tbody></table>`
+    : '<p style="font-size:12.5px;color:var(--text-muted);margin:6px 0 0;">No supporting pages in this cluster yet.</p>';
+
+  const flags = (f.flags||[]);
+  const flagHtml = flags.length
+    ? `<ul class="ta-flags">${flags.map(x=>`<li class="ta-flag">${escHtml(x)}</li>`).join('')}</ul>`
+    : `<ul class="ta-flags"><li class="ta-flag ok">✓ No structural gaps — hub and spokes are well linked.</li></ul>`;
+
+  const healthLine = hub && spokes.length
+    ? `<div class="ta-health">
+         <span>↑ Spokes linking to hub: <strong>${lh.spokes_linking_to_hub||0}/${lh.spokes_total||0}</strong></span>
+         <span>↓ Hub linking to spokes: <strong>${lh.hub_links_to_spokes||0}/${lh.spokes_total||0}</strong></span>
+         <span>Orphans: <strong>${(lh.orphan_spokes||[]).length}</strong></span>
+       </div>` : '';
+
+  return `<div class="card ta-fam">
+    <div class="ta-fam-head">
+      <span class="ta-fam-name">${escHtml(f.family)}</span>
+      <span class="ta-demand">${(f.counts?.total||0)} pages · ${demand.impressions||0} impr · ${demand.clicks||0} clicks/28d</span>
+    </div>
+    ${hubHtml}
+    ${healthLine}
+    ${flagHtml}
+    ${spokeTable}
+  </div>`;
+}
+
+function renderUnclustered(list){
+  if(!list.length) return '';
+  const rows=list.slice(0,100).map(p=>`<tr>
+      <td><a class="ta-link" href="${escHtml(p.url)}" target="_blank" rel="noopener">${escHtml(p.title||p.url)}</a></td>
+      <td>${badge(p.asset_type)}</td><td style="text-align:right;">${p.impressions||0}</td></tr>`).join('');
+  return `<div class="card" style="margin-top:18px;">
+    <details>
+      <summary style="cursor:pointer;font-weight:700;">Unclustered pages (${list.length}) — matched no product family</summary>
+      <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">These pages didn’t map to any configured product family. Some are fine (About, Contact); others may be topics worth adding as a family in Setup, or pages that need a clearer title/URL so they join a cluster.</p>
+      <table class="ta-spokes"><thead><tr><th>Page</th><th>Type</th><th style="text-align:right;">impr.</th></tr></thead><tbody>${rows}</tbody></table>
+    </details>
+  </div>`;
+}
+
+taLoad();
+</script>
+{% endblock %}
