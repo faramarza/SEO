@@ -107,3 +107,15 @@ def test_too_generic_helper():
     assert cg._too_generic("toys 3") is True            # no distinctive token
     assert cg._too_generic("wooden name puzzle") is False
     assert cg._too_generic("montessori toys for 2 year olds") is False
+
+
+def test_specificity_gate_singular_plural_repeats_are_one_concept():
+    # "dolls doll" / "doll dolls" are just "doll" repeated — the exact head-term
+    # that slipped past a raw token count. Counting SINGULARIZED concepts kills the
+    # whole family (doll / dolls / baby doll / dolls doll / …) in one rule.
+    for junk in ("doll", "dolls", "baby doll", "dolls doll", "doll dolls",
+                 "dolls dolls", "rug rugs", "train trains", "toy toys"):
+        assert cg._too_generic(junk) is True, f"{junk!r} must be dropped"
+    for keep in ("doll house", "wooden name puzzle", "name train",
+                 "montessori toys for 2 year olds", "sensory bin ideas"):
+        assert cg._too_generic(keep) is False, f"{keep!r} must be kept"

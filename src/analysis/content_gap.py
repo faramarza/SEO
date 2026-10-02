@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 9
+PLAN_VERSION = 10
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -77,17 +77,23 @@ def _blocked(kw: str) -> bool:
 
 
 def _too_generic(kw: str) -> bool:
-    """A short, broad HEAD TERM, not an article topic. One distinctive token in a
-    1–3-word phrase ("baby doll", "doll", "play kitchen", "montessori toys") is a
-    category/head keyword a small site won't win with a single article, and it's
-    not a real informational topic — it keeps surfacing as a junk "write a page
-    about X" task. A genuine long-tail topic carries more specificity ("montessori
-    toys for 2 year olds", "wooden name puzzle"). Keep those; drop the bare heads."""
-    dk = _distinctive(kw)
-    if not dk:
+    """A short, broad HEAD TERM, not an article topic. A keyword carrying only ONE
+    real CONCEPT in a 1–3-word phrase ("doll", "baby doll", "dolls doll", "play
+    kitchen", "montessori toys") is a category/head keyword a small site won't win
+    with a single article, and it's not a real informational topic — it keeps
+    surfacing as junk. A genuine long-tail topic carries more than one concept, or
+    real qualifying length ("montessori toys for 2 year olds", "wooden name
+    puzzle"). Keep those; drop the bare heads.
+
+    Concepts are counted on the SINGULARIZED distinctive tokens (via _sig) so that
+    plural/singular repeats of the same word — "dolls doll", "doll dolls" — count
+    as one concept, not two. That repeated-form trick is exactly how head terms
+    kept sneaking past a raw token count."""
+    if not _distinctive(kw):
         return True  # only generic/short tokens, e.g. "toys 3"
+    concepts = _sig(kw)          # singularized distinctive tokens → unique concepts
     n_words = len([w for w in re.split(r"[^a-z0-9]+", (kw or "").lower()) if w])
-    return len(dk) <= 1 and n_words <= 3
+    return len(concepts) <= 1 and n_words <= 3
 
 
 def _sig(kw: str) -> frozenset:
