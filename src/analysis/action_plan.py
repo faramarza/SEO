@@ -577,58 +577,68 @@ def _from_content_gap(cg, out, max_items=12):
 
 
 def _from_interlinks(interlinks, out):
-    """The Topic Map's interlink plan as SMALL, atomic Start Here tasks — each one
-    is "on this page, add up to 5 links," a real 2-minute job. A page that needs
-    many links (a hub) is split into batches so a card is never a wall; the queue
-    carries the rest and feeds them one at a time, like every other task. Ranked by
-    the page's cluster demand, orphan-rescuing links first. Grounded in real pages
-    and anchors — the highest-value lever, on pages you already own."""
+    """The Topic Map's interlink plan as ONE task per TOPIC CLUSTER, each showing
+    only the top few highest-impact links to add RIGHT NOW (orphan rescues first,
+    then by demand) with a "N still to go" counter. The queue stays short (≈one per
+    cluster) while covering everything over time: do the shown links, and as the
+    site re-crawls and sees them live, the next few surface under the same task —
+    exactly like every other task advances. Each shown link is concrete (real page,
+    real anchor), so the card is a 2-minute job, never a wall."""
     if not interlinks:
         return
-    BATCH = 5
+    SHOW = 5
+    by_fam = {}
+    fam_demand = {}
     for g in (interlinks.get("groups") or []):
-        links = g.get("links") or []
-        if not links:
-            continue
-        src_title = g.get("source_title") or g.get("source_url") or "this page"
-        src_url = g.get("source_url") or ""
-        family = g.get("family", "")
-        demand = int(g.get("demand", 0) or 0)
-        # Orphan-rescuing links first within the page, then the rest.
-        links = sorted(links, key=lambda l: (not l.get("fixes_orphan")))
-        batches = [links[i:i + BATCH] for i in range(0, len(links), BATCH)]
-        for bi, batch in enumerate(batches):
-            n = len(batch)
-            n_orphan = sum(1 for l in batch if l.get("fixes_orphan"))
-            part = f" (batch {bi + 1} of {len(batches)})" if len(batches) > 1 else ""
-            steps = [f"On your “{src_title}” page, add these {n} internal link(s) in the "
-                     f"body content (not nav/footer):"]
-            link_rows = []
-            for l in batch:
-                where = ("link UP to the main hub" if l.get("direction") == "spoke_to_hub"
+        fam = g.get("family", "")
+        dem = int(g.get("demand", 0) or 0)
+        fam_demand[fam] = max(fam_demand.get(fam, 0), dem)
+        for l in (g.get("links") or []):
+            by_fam.setdefault(fam, []).append({
+                "source_url": g.get("source_url", ""),
+                "source_title": g.get("source_title") or g.get("source_url") or "this page",
+                "url": l.get("target_url", ""), "anchor": l.get("anchor", ""),
+                "direction": l.get("direction", ""),
+                "fixes_orphan": bool(l.get("fixes_orphan")), "demand": dem})
+    for fam, links in by_fam.items():
+        total = len(links)
+        links.sort(key=lambda l: (not l["fixes_orphan"], -l["demand"]))
+        batch = links[:SHOW]
+        remaining_after = max(0, total - len(batch))
+        # Group the shown links by the page you edit (usually one or two).
+        pages = {}
+        for l in batch:
+            pages.setdefault((l["source_url"], l["source_title"]), []).append(l)
+        page_blocks = [{"source_url": k[0], "source_title": k[1], "links": v}
+                       for k, v in pages.items()]
+        n_orphan = sum(1 for l in batch if l["fixes_orphan"])
+        steps = [f"Your “{fam}” cluster is missing {total} internal link(s). Add these "
+                 f"{len(batch)} highest-impact ones now — the rest appear here as you finish:"]
+        for pb in page_blocks:
+            steps.append(f"On your “{pb['source_title']}” page, in the body content:")
+            for l in pb["links"]:
+                where = ("link UP to the main hub" if l["direction"] == "spoke_to_hub"
                          else "link DOWN to this page")
-                orphan = " — rescues an orphan (nothing links to it yet)" if l.get("fixes_orphan") else ""
-                steps.append(f"  → {where}: {l.get('target_url','')} "
-                             f"(anchor text: “{l.get('anchor','')}”){orphan}")
-                link_rows.append({"url": l.get("target_url", ""), "anchor": l.get("anchor", ""),
-                                  "direction": l.get("direction", ""),
-                                  "fixes_orphan": bool(l.get("fixes_orphan"))})
-            steps.append("Add them, Save, then hit DONE.")
-            orphan_note = f" ({n_orphan} of them rescue orphan pages)" if n_orphan else ""
-            benefit = (f"Connects “{src_title}” into your “{family}” topic cluster{orphan_note}. "
-                       f"Internal links are free, instant, and the biggest topical-authority "
-                       f"lever on pages you already own.")
-            t = _task("interlink", src_url,
-                      f"Add {n} internal link{'s' if n != 1 else ''} to “{src_title}”{part}",
-                      steps, benefit, 0, demand,
-                      {"type": "page_interlinks", "url": src_url},
-                      {"links_present": 0},
-                      "category", f"interlink:{src_url}:{bi}")
-            t["dedup_key"] = f"interlink:{src_url}:{bi}"
-            # Structured data so the card renders the links cleanly (small list).
-            t["interlink"] = {"family": family, "source_title": src_title,
-                              "source_url": src_url, "links": link_rows}
-            out.append(t)
+                orphan = " — rescues an orphan (nothing links to it yet)" if l["fixes_orphan"] else ""
+                steps.append(f"  → {where}: {l['url']} (anchor text: “{l['anchor']}”){orphan}")
+        steps.append("Add them, Save, then hit DONE.")
+        orphan_note = f" ({n_orphan} rescue orphan pages)" if n_orphan else ""
+        benefit = (f"Your “{fam}” cluster ({fam_demand[fam]:,} impressions) is missing {total} "
+                   f"internal links{orphan_note} — the biggest topical-authority lever on pages "
+                   f"you already own. Do the top {len(batch)} now; keep coming back and you close "
+                   f"the whole cluster, a couple of minutes at a time.")
+        more = f" ({remaining_after} more to go after these)" if remaining_after else ""
+        t = _task("interlink", "",
+                  f"Strengthen your “{fam}” cluster — add {len(batch)} internal link"
+                  f"{'s' if len(batch) != 1 else ''}{more}",
+                  steps, benefit, 0, fam_demand[fam],
+                  {"type": "cluster_interlinks", "family": fam},
+                  {"links_present": 0},
+                  "category", f"interlink:{fam}")
+        t["dedup_key"] = f"interlink:{fam}"
+        t["interlink"] = {"family": fam, "total": total, "shown": len(batch),
+                          "remaining_after": remaining_after, "pages": page_blocks}
+        out.append(t)
 
 
 def _from_orphans(oc, out):

@@ -388,7 +388,7 @@ function plainWhat(t){
     if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)) return `Your <b>“${pg}”</b> page is nearly on page 1 — but pushing it over needs links from other websites, which is slow. <b>Skip this</b> unless you have time for outreach.`;
     if(cat==='winnable'||cat==='striking') return `Help your <b>“${pg}”</b> page rank higher by adding a few links to it from your other pages.`;
     if(cat==='orphan') return `Nothing on your site links to your <b>“${pg}”</b> page — add links to it from related pages so Google can find it.`;
-    if(cat==='interlink'){ const c=t.interlink||{}; const n=(c.links||[]).length; return `On your <b>“${esc(c.source_title||'this page')}”</b> page, add ${n} internal link${n!==1?'s':''} — it strengthens your <b>“${esc(c.family||'')}”</b> topic cluster. The exact links and anchor text are below; it takes about two minutes.`; }
+    if(cat==='interlink'){ const c=t.interlink||{}; return `Strengthen your <b>“${esc(c.family||'')}”</b> topic cluster by adding <b>${c.shown||0}</b> internal link${(c.shown||0)!==1?'s':''} now${c.total?` (${c.total} missing in total — you do the highest-impact few each time)`:''}. The exact links and anchor text are below; about two minutes.`; }
     if(cat==='consolidation') return `Two of your pages compete for the same thing — redirect the weaker one into the stronger.`;
     if(cat==='decay') return `Your <b>“${pg}”</b> page is losing traffic — refresh its content.`;
     if(cat==='pruning') return `Your <b>“${pg}”</b> page is dead weight — remove it or hide it from Google.`;
@@ -425,7 +425,7 @@ function activeCard(t, pos, total){
         doBlock = `<p style="margin:0;">This one needs links from other websites — slow, hard, and not your strongest move. I'd <b>skip it</b>. If you want to try anyway, the sites to email are under <b>Advanced → Link Prospects</b>.</p>`;
     } else if(cat==='interlink'){
         const c=t.interlink||{};
-        const rows=(c.links||[]).map(l=>{
+        const linkRow=(l)=>{
             const dir = l.direction==='spoke_to_hub' ? 'Link <b>up</b> to your hub page' : 'Link <b>down</b> to';
             const orphan = l.fixes_orphan ? ' <span style="color:#b45309;font-size:11px;font-weight:700;">rescues an orphan</span>' : '';
             return `<div style="padding:7px 0;border-top:1px solid var(--border,#eee);">
@@ -434,10 +434,15 @@ function activeCard(t, pos, total){
                     <code style="background:var(--bg-subtle,#f1f5f9);padding:1px 6px;border-radius:5px;">${esc(l.anchor)}</code>
                     <button class="dn-copy-btn" style="margin-left:6px;" onclick="govCopy('${esc(l.anchor).replace(/'/g,"\\\\'")}',()=>dnToast('Anchor copied'))">Copy</button></div>
             </div>`;
-        }).join('');
-        doBlock = `<p style="margin:0 0 6px;">Open <b>“${esc(c.source_title||'this page')}”</b> in Magento, and inside the page body add these link${(c.links||[]).length!==1?'s':''}:</p>
-            <div style="margin:4px 0 8px;">${rows}</div>
-            <p style="font-size:12px;color:var(--text-muted);margin:0;">Then Save and hit DONE. The next page loads automatically.</p>`;
+        };
+        const pagesHtml=(c.pages||[]).map(p=>`
+            <div style="margin:8px 0;">
+                <div style="font-weight:600;font-size:13px;">✏️ Open “${esc(p.source_title)}” in Magento, in the page body add:</div>
+                <div style="margin-top:2px;">${(p.links||[]).map(linkRow).join('')}</div>
+            </div>`).join('');
+        const prog = c.remaining_after ? `<p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;">After these, <b>${c.remaining_after}</b> more link(s) remain in this cluster — they'll show up here next time, a few at a time. You never have to do them all at once.</p>` : '';
+        doBlock = `${pagesHtml}
+            <p style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">Add the link(s), Save, then hit DONE.</p>${prog}`;
     } else if(cat==='winnable'||cat==='striking'||cat==='orphan'){
         doBlock = `<div style="line-height:1.6;">${(t.steps||[]).map(s=>`<div style="margin:4px 0;">• ${esc(s)}</div>`).join('')}</div>`;
     } else if(DN_AUTODELIV.has(cat)){
