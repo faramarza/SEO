@@ -13217,8 +13217,18 @@ def api_interlink_apply():
     store[cid]["last_applied_at"] = datetime.now().isoformat(timespec="seconds")
     _il_writes_save(store)
     added = li.added_pairs(current, family, links)
+    # CONFIRM by reading the saved description straight back from Magento (the
+    # database, not the cached storefront) — definitive proof the write stuck,
+    # independent of any page cache.
+    confirmed = False
+    try:
+        again = mc.get_category_description(source_url)
+        confirmed = bool(again and li.MARK_START in (again.get("description") or ""))
+    except Exception:
+        confirmed = False
     return jsonify({"success": True, "added_count": len(added),
-                    "page_name": cat.get("name", ""), "can_revert": True})
+                    "page_name": cat.get("name", ""), "can_revert": True,
+                    "confirmed": confirmed, "view_url": source_url})
 
 
 @app.route("/api/interlink/revert", methods=["POST"])

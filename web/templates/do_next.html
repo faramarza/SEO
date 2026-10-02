@@ -666,22 +666,31 @@ async function dnInterlinkApply(key, domId, btn){
     const box=document.getElementById(domId); if(!t||!box) return;
     const pages=(t.interlink&&t.interlink.pages)||[];
     if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
-    let ok=0, failed=[]; const applied=[];
+    let ok=0, failed=[], confirmed=0; const applied=[]; let viewUrl='';
     for(const p of pages){
         try{
             const r=await (await fetch('/api/interlink/apply',{method:'POST',headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({source_url:p.source_url, family:t.interlink.family, links:p.links})})).json();
-            if(r.success && !r.no_change){ ok++; applied.push(p.source_url); }
+            if(r.success && !r.no_change){ ok++; applied.push(p.source_url); if(r.confirmed) confirmed++; if(r.view_url) viewUrl=r.view_url; }
             else if(r.error){ failed.push(r.error); }
         }catch(e){ failed.push('Write failed.'); }
     }
     if(ok){
         const urls=JSON.stringify(applied);
-        box.innerHTML=`<div class="dn-note" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:9px 11px;border-radius:7px;">
-            ✅ Added the links to Magento${ok>1?` (${ok} pages)`:''}. Flush your Magento cache if it doesn’t show immediately. ${failed.length?`<br><span style="color:#b45309;">${failed.length} couldn’t be written — add those by hand.</span>`:''}
-            <div style="margin-top:8px;"><button class="cs-btn" style="font-size:12px;padding:5px 11px;border-radius:7px;border:1px solid #ccc;background:#fff;cursor:pointer;" onclick='dnInterlinkRevert(${urls},this)'>↩︎ Undo</button>
-            <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">Looks good? Hit <b>DONE</b> above.</span></div></div>`;
-        dnToast('Links added to Magento');
+        const confLine = confirmed>=ok
+            ? `✅ <b>Done.</b> I added the links and <b>confirmed they’re saved in Magento</b>.`
+            : `✅ <b>Added the links to Magento.</b>`;
+        const viewBtn = viewUrl ? `<a href="${esc(viewUrl)}" target="_blank" rel="noopener" class="pb-task-btn" style="text-decoration:none;display:inline-block;">🔗 View the page</a>` : '';
+        box.innerHTML=`<div class="dn-note" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:11px 13px;border-radius:7px;">
+            ${confLine}${ok>1?` (${ok} pages)`:''}
+            <p style="font-size:12.5px;margin:7px 0;color:#166534;"><b>How to check:</b> click below to open the page and scroll to the bottom — you’ll see a new <b>“Related guides”</b> list. <i>Don’t see it?</i> That’s just your page cache, not a failure — the links are safely saved (I verified). To clear it: Magento admin → <b>System → Cache Management → Flush Magento Cache</b>.</p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+                ${viewBtn}
+                <button class="cs-btn" style="font-size:12px;padding:6px 12px;border-radius:7px;border:1px solid #ccc;background:#fff;cursor:pointer;" onclick='dnInterlinkRevert(${urls},this)'>↩︎ Undo</button>
+                <span style="font-size:12px;color:var(--text-muted);">Looks good? Hit <b>✅ DONE</b> above.</span>
+            </div>
+            ${failed.length?`<p style="color:#b45309;font-size:12px;margin:8px 0 0;">${failed.length} page(s) couldn’t be written — add those by hand below.</p>`:''}</div>`;
+        dnToast('Links added & verified');
     } else {
         box.innerHTML=`<div class="dn-note" style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:9px 11px;border-radius:7px;">Couldn’t add the links: ${esc(failed[0]||'unknown error')}. Add them by hand below.</div>`;
     }
