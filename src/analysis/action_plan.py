@@ -827,8 +827,17 @@ def _score_task(t):
     # to clicks) is weighted by COMMERCIAL INTENT `w` (product/category ≈ full,
     # blog/guide heavily discounted) — the same weight `impact` uses — instead of
     # crediting clicks a low-intent page will never turn into orders.
-    if cat in ("winnable", "striking", "content", "orphan", "links", "consolidation"):
+    if cat in ("winnable", "striking", "orphan", "links", "consolidation"):
         t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02 * w), 1)
+    elif cat == "content":
+        # A brand-NEW page is SPECULATIVE: 6–12 weeks to maybe rank, at low odds —
+        # unlike striking/orphan/consolidation, which are pages you ALREADY have
+        # and that already earn impressions. Crediting a new article its full
+        # hypothetical reach is what let a $4/mo page outrank a 14k-impression
+        # consolidation you could do today. Credit only a fraction of that reach,
+        # so "what to do first" stays bankable. A genuinely valuable topic still
+        # rises on its own est_value (impact); a $4 one sinks to the 'nice' tier.
+        t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02 * w * 0.25), 1)
     elif cat == "ctr" and (t.get("expected_clicks") or 0) >= 10:
         # A recoverable click volume is a real lever even when the $-figure is
         # tiny — but still weighted by intent, so recovering clicks on an
