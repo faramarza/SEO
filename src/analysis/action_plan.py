@@ -60,7 +60,10 @@ EFFORT_HOURS = {
 # measured revenue and little/no reach, so a quick 30-min schema fix still ranks
 # sensibly instead of sinking to zero.
 CATEGORY_BASE = {
-    "merchant": 8, "schema": 8, "brand": 8, "geo": 6,
+    # merchant (Google free product listings / Shopping) and schema (rich results)
+    # are the CTR levers the OPERATOR fully controls — no customer needed, unlike
+    # reviews — so they're weighted up to surface above low-odds meta tweaks.
+    "merchant": 14, "schema": 11, "brand": 8, "geo": 6,
     "decay": 6, "winnable": 6, "orphan": 5, "striking": 5, "reviews": 4,
     "content": 4, "pruning": 3,
 }
@@ -73,9 +76,9 @@ CATEGORY_BASE = {
 # revenue — so an unmeasured trust-signal (reviews especially) stops ranking as
 # if it were top-line money. 1.0 = full credit; 0.15 = a real but modest lever.
 REACH_YIELD = {
-    "reviews": 0.15,   # stars are a real but small CTR/CVR nudge — not a growth engine
-    "geo": 0.30, "brand": 0.55, "schema": 0.55, "pruning": 0.45,
-    "merchant": 0.60, "orphan": 0.60, "content": 0.55,
+    "reviews": 0.15,   # stars are a real but small CTR/CVR nudge — AND need customers
+    "geo": 0.30, "brand": 0.55, "schema": 0.70, "pruning": 0.45,
+    "merchant": 0.85, "orphan": 0.60, "content": 0.55,   # merchant/schema: controllable CTR levers
     "striking": 0.75, "winnable": 0.75, "decay": 0.80,
     "links": 0.75, "consolidation": 0.80,
 }
