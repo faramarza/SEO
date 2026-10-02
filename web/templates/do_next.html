@@ -377,15 +377,12 @@ async function dnLoadAiTake(t){
     try{
         const r=await (await fetch('/api/action-plan/ai-take',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)})).json();
         if(r.error){ el.innerHTML=''; return; }   // fail quiet (e.g. no API key)
-        const worth=r.worth_it!==false;
-        const icon=worth?'🤖':'⚠️';
-        const head=worth?(r.verdict||'Worth doing'):(r.verdict||'Consider skipping');
-        const body=worth
-            ? `${r.why?esc(r.why)+' ':''}${r.how?'<b>Nail this:</b> '+esc(r.how):''}`
-            : `${esc(r.skip_reason||r.why||'')} <span style="color:var(--text-muted);">You can Skip it below without guilt.</span>`;
-        el.innerHTML=`<div class="dn-aitake-box ${worth?'':'warn'}">
-            <div style="font-weight:700;font-size:12px;letter-spacing:.02em;">${icon} GOVERNOR’S TAKE — ${esc(head)}</div>
-            <div style="font-size:13px;margin-top:3px;line-height:1.5;">${body}</div></div>`;
+        if(!r.why && !r.how && !r.verdict){ el.innerHTML=''; return; }
+        const head=r.verdict||'Why this matters';
+        const headsUp=r.heads_up?`<div style="font-size:12px;margin-top:5px;color:#92400e;">⏳ ${esc(r.heads_up)}</div>`:'';
+        el.innerHTML=`<div class="dn-aitake-box">
+            <div style="font-weight:700;font-size:12px;letter-spacing:.02em;">🤖 GOVERNOR’S TAKE — ${esc(head)}</div>
+            <div style="font-size:13px;margin-top:3px;line-height:1.5;">${r.why?esc(r.why)+' ':''}${r.how?'<b>Nail this:</b> '+esc(r.how):''}</div>${headsUp}</div>`;
     }catch(e){ el.innerHTML=''; }
 }
 

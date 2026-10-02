@@ -13134,9 +13134,12 @@ def _ai_takes_save(d: dict):
     tmp.replace(_AI_TAKES_PATH)
 
 
+_AI_TAKE_VERSION = "2"   # bump to invalidate cached takes when the format changes
+
+
 def _ai_task_fingerprint(task: dict) -> str:
     import hashlib
-    key = "|".join(str(task.get(k, "")) for k in
+    key = _AI_TAKE_VERSION + "|" + "|".join(str(task.get(k, "")) for k in
                    ("dedup_key", "title", "category", "reach", "lever_score"))
     return hashlib.md5(key.encode()).hexdigest()[:12]
 
@@ -13163,23 +13166,25 @@ def api_action_plan_ai_take():
     store = _cg_bare(_site_base_url(config))
     steps = task.get("steps") or []
     system = (
-        f"You are a seasoned, no-nonsense SEO advisor for {store}, a store that "
-        f"sells: {', '.join(families) or 'personalized children’s products'}. "
-        "You are given ONE task the tool has recommended. Give the owner a sharp, "
-        "HONEST second opinion. Reason ONLY from the task data provided — never "
-        "invent numbers, facts, or page details. If the task is low-value or not "
-        "worth their limited time, say so plainly (worth_it=false) — your job is to "
-        "protect their time, not cheerlead.\n"
-        "Return ONLY JSON: {\"worth_it\": true|false, \"verdict\": \"<=6 words\", "
-        "\"why\": \"1-2 plain sentences on why this matters (or doesn’t) for THIS "
-        "store\", \"how\": \"one sentence: the single thing to get right\", "
-        "\"skip_reason\": \"if worth_it is false, why to skip; else empty\"}."
+        f"You are a seasoned SEO advisor for {store}, a store that sells: "
+        f"{', '.join(families) or 'personalized children’s products'}. "
+        "The tool has ALREADY ranked the task below as the owner's current #1 by "
+        "sales impact — it IS worth doing or it wouldn't be #1. Do NOT re-judge "
+        "whether to do it, and NEVER tell them to skip it. Your job is to make it "
+        "click: in plain words, why this matters for THIS store, and the ONE thing "
+        "to get right so it actually pays off. If there's an honest caveat (it "
+        "compounds over months, quality matters more than speed, etc.), add a brief "
+        "heads-up — not a reason to skip. Reason ONLY from the task data; never "
+        "invent numbers or page details.\n"
+        "Return ONLY JSON: {\"verdict\": \"<=6 words affirming why it matters\", "
+        "\"why\": \"1-2 plain sentences\", \"how\": \"one sentence: the single thing "
+        "to nail\", \"heads_up\": \"optional brief caveat, or empty string\"}."
     )
     prompt = (
-        f"TASK: {task.get('title','')}\n"
+        f"CURRENT #1 TASK: {task.get('title','')}\n"
         f"Type: {task.get('category','')}  |  reach: {task.get('reach',0)} "
-        f"impressions  |  est. value: {task.get('expected_value',0)}\n"
-        f"Why the tool flagged it: {task.get('benefit','')}\n"
+        f"impressions/mo  |  est. value: {task.get('expected_value',0)}\n"
+        f"Why the tool ranked it here: {task.get('benefit','')}\n"
         f"Steps: {' | '.join(str(s) for s in steps[:6])}"
     )
     text, err = _llm_complete(system, prompt, max_tokens=500, temperature=0.2)
@@ -13189,11 +13194,10 @@ def api_action_plan_ai_take():
     if perr or not isinstance(parsed, dict):
         return jsonify({"error": perr or "bad AI response"}), 502
     take = {
-        "worth_it": bool(parsed.get("worth_it", True)),
         "verdict": (parsed.get("verdict") or "").strip(),
         "why": (parsed.get("why") or "").strip(),
         "how": (parsed.get("how") or "").strip(),
-        "skip_reason": (parsed.get("skip_reason") or "").strip(),
+        "heads_up": (parsed.get("heads_up") or "").strip(),
     }
     cache[dk] = {"fp": fp, "take": take,
                  "at": datetime.now().isoformat(timespec="seconds")}
