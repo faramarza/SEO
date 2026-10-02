@@ -5,8 +5,8 @@ a couple of families, with a realistic internal-link mesh, so the hub/spoke
 assignment and link-health math are exercised on data shaped like production.
 """
 from src.analysis.topical_authority import (
-    build_cluster_map, _norm_url, _slug_phrase, _assign_family, _family_matchers,
-    _build_link_graph,
+    build_cluster_map, build_interlink_plan, _norm_url, _slug_phrase,
+    _assign_family, _family_matchers, _build_link_graph, _anchor_for,
 )
 
 
@@ -142,6 +142,51 @@ def test_empty_family_is_visible_as_gap():
     assert fam["hub"] is None
     assert fam["counts"]["total"] == 0
     assert any("No pages found" in f for f in fam["flags"])
+
+
+def test_anchor_for_trims_boilerplate_and_falls_back():
+    assert _anchor_for("Personalized Name Train | Alphabet Trains", "name trains") == "Personalized Name Train"
+    # Over-long / empty title → fall back to the family term.
+    assert _anchor_for("", "name trains") == "name trains"
+    assert _anchor_for("x" * 80, "name trains") == "name trains"
+
+
+def test_interlink_plan_grouped_by_source_and_prioritized():
+    s = _store()
+    plan = build_interlink_plan(s["results"], FAMILIES)
+    assert plan["available"] is True
+    groups = {g["source_url"]: g for g in plan["groups"]}
+
+    # Name-trains cluster is fully wired → it contributes NO interlink jobs.
+    assert s["hub_nt"] not in groups
+    assert s["prod_nt"] not in groups
+
+    # Step-stools: hub must link down to the product (orphan fix) AND the product
+    # must link up to the hub. Both appear as jobs.
+    hub_ss = groups.get(s["hub_ss"])
+    prod_ss = groups.get(s["prod_ss"])
+    assert hub_ss is not None and prod_ss is not None
+    # Hub→spoke here fixes an orphan → that job is top-priority (first group).
+    assert plan["groups"][0]["source_url"] == s["hub_ss"]
+    hub_link = hub_ss["links"][0]
+    assert hub_link["target_url"] == s["prod_ss"]
+    assert hub_link["direction"] == "hub_to_spoke"
+    assert hub_link["fixes_orphan"] is True
+    # Spoke→hub job carries an editable anchor grounded in the hub's title.
+    up = prod_ss["links"][0]
+    assert up["target_url"] == s["hub_ss"]
+    assert up["direction"] == "spoke_to_hub"
+    assert up["anchor"]
+
+    assert plan["totals"]["orphans_fixed"] >= 1
+    assert plan["totals"]["links_total"] == sum(g["link_count"] for g in plan["groups"])
+
+
+def test_interlink_plan_skips_clusters_without_hub():
+    # A family with no pages → no hub → no interlink jobs (it's a Phase-1 flag).
+    plan = build_interlink_plan([], ["name trains"])
+    assert plan["groups"] == []
+    assert plan["totals"]["links_total"] == 0
 
 
 def test_inferred_hub_when_no_category():

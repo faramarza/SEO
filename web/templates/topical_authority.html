@@ -15,7 +15,14 @@
 </div>
 
 <div id="ta-summary"></div>
+
+<div class="ta-tabs">
+  <button id="ta-tab-map" class="ta-tab active" onclick="taTab('map')">Cluster map</button>
+  <button id="ta-tab-links" class="ta-tab" onclick="taTab('links')">🔗 Interlink plan</button>
+</div>
+
 <div id="ta-body"><p class="pb-loading">Loading your topic map…</p></div>
+<div id="ta-links" style="display:none;"><p class="pb-loading">Loading…</p></div>
 <div id="ta-toast" class="pb-toast"></div>
 {% endblock %}
 
@@ -51,6 +58,19 @@
   .ta-link{color:#4f46e5;text-decoration:none;} .ta-link:hover{text-decoration:underline;}
   .ta-copy{font-size:11px;padding:2px 8px;border:1px solid var(--border,#ccc);border-radius:6px;
     background:var(--bg-subtle,#f8fafc);cursor:pointer;color:var(--text-primary);}
+  .ta-tabs{display:flex;gap:6px;margin-bottom:12px;border-bottom:1px solid var(--border,#e5e7eb);}
+  .ta-tab{font-size:13px;font-weight:600;padding:7px 14px;border:none;background:none;cursor:pointer;
+    color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .ta-tab.active{color:var(--text-primary);border-bottom-color:#6366f1;}
+  .ta-job{border-left:3px solid #10b981;padding:9px 12px;margin:8px 0;background:var(--bg-subtle,#f8fafc);
+    border-radius:0 7px 7px 0;}
+  .ta-job-src{font-weight:700;font-size:13px;}
+  .ta-job-link{font-size:12.5px;padding:5px 0;border-top:1px dashed var(--border,#e5e7eb);margin-top:6px;}
+  .ta-dir{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:9px;
+    background:#eef2ff;color:#4338ca;margin-right:6px;}
+  .ta-anchor{font-family:ui-monospace,Menlo,monospace;background:#fff;border:1px solid var(--border,#e5e7eb);
+    border-radius:5px;padding:1px 6px;font-size:11.5px;}
+  .ta-orphan-tag{font-size:10px;font-weight:700;color:#dc2626;}
 </style>
 <script>
 function taToast(m,e){const t=document.getElementById('ta-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3000);}
@@ -147,6 +167,70 @@ function renderUnclustered(list){
       <table class="ta-spokes"><thead><tr><th>Page</th><th>Type</th><th style="text-align:right;">impr.</th></tr></thead><tbody>${rows}</tbody></table>
     </details>
   </div>`;
+}
+
+// ── Interlink plan (Phase 2) ───────────────────────────────────────────────
+let TA_LINKS=null;
+function taTab(which){
+  document.getElementById('ta-tab-map').classList.toggle('active', which==='map');
+  document.getElementById('ta-tab-links').classList.toggle('active', which==='links');
+  document.getElementById('ta-body').style.display = which==='map'?'':'none';
+  document.getElementById('ta-links').style.display = which==='links'?'':'none';
+  document.getElementById('ta-summary').style.display = which==='map'?'':'none';
+  if(which==='links' && TA_LINKS===null) taLinksLoad();
+}
+
+async function taLinksLoad(){
+  const el=document.getElementById('ta-links');
+  let d;
+  try{ d=await (await fetch('/api/topical-authority/interlinks')).json(); }
+  catch(e){ el.innerHTML='<div class="card">Couldn\'t load the interlink plan.</div>'; return; }
+  TA_LINKS=d;
+  if(!d.available){ el.innerHTML=`<div class="card"><strong>Not ready.</strong><p style="margin:6px 0 0;font-size:13px;">${escHtml(d.reason||'')}</p></div>`; return; }
+  const t=d.totals||{}, groups=d.groups||[];
+  if(!groups.length){ el.innerHTML='<div class="card"><strong>✓ Your clusters are already well wired.</strong><p style="margin:6px 0 0;font-size:13px;">No missing hub↔spoke links found — nothing to add.</p></div>'; return; }
+  const head=`<div class="card" style="margin-bottom:12px;">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between;">
+      <div style="font-size:13px;">
+        <strong>${t.links_total}</strong> internal link(s) to add across <strong>${t.sources_total}</strong> page(s)
+        — fixes <strong>${t.orphans_fixed}</strong> orphan(s) across <strong>${t.families_touched}</strong> topic(s).
+        Each card below is <strong>one page to edit</strong>: open it, add the listed links in the body, save.
+      </div>
+      <button class="pb-task-btn" onclick="taSend(this)">📋 Send plan to Task Board</button>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;">Anchors are suggestions grounded in the real page titles — edit them to read naturally in context. Links belong in the page body, not nav/footer. The next evaluation verifies each one went live.</p>
+  </div>`;
+  el.innerHTML = head + groups.map(renderJob).join('');
+}
+
+function renderJob(g){
+  const links=(g.links||[]).map(l=>{
+    const dir = l.direction==='spoke_to_hub' ? '↑ link UP to hub' : '↓ link DOWN to spoke';
+    const orphan = l.fixes_orphan ? ' <span class="ta-orphan-tag">fixes orphan</span>' : '';
+    return `<div class="ta-job-link">
+      <span class="ta-dir">${dir}</span>
+      → <a class="ta-link" href="${escHtml(l.target_url)}" target="_blank" rel="noopener">${escHtml(l.target_title||l.target_url)}</a>${orphan}
+      <div style="margin-top:3px;color:var(--text-muted);">anchor: <span class="ta-anchor">${escHtml(l.anchor)}</span>
+        <button class="ta-copy" onclick="govCopy('${escHtml(l.anchor).replace(/'/g,"\\'")}', ()=>taToast('Anchor copied'))">copy</button>
+        — ${escHtml(l.reason)}</div>
+    </div>`;
+  }).join('');
+  return `<div class="card ta-job" style="border-radius:9px;">
+    <div class="ta-job-src">✏️ Edit: <a class="ta-link" href="${escHtml(g.source_url)}" target="_blank" rel="noopener">${escHtml(g.source_title||g.source_url)}</a>
+      ${badge(g.source_type)} <span style="font-weight:400;font-size:11px;color:var(--text-muted);">· ${g.family}</span></div>
+    ${links}
+  </div>`;
+}
+
+async function taSend(btn){
+  btn.disabled=true; const old=btn.textContent; btn.textContent='Sending…';
+  try{
+    const r=await (await fetch('/api/topical-authority/send-to-board',{method:'POST'})).json();
+    if(r.error){ taToast(r.error,true); }
+    else if(r.created){ taToast(`Added ${r.created} cluster task(s) to the board`+(r.skipped_already_on_board?` (${r.skipped_already_on_board} already there)`:'')); }
+    else { taToast(r.note||'Nothing new to add — already on the board'); }
+  }catch(e){ taToast('Send failed',true); }
+  btn.disabled=false; btn.textContent=old;
 }
 
 taLoad();

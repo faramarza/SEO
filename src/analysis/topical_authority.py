@@ -381,3 +381,111 @@ def _summarize_family(name: str, slug: str, members: list,
         },
         "flags": flags,
     }
+
+
+# ─────────────────────────── Phase 2: interlink plan ─────────────────────────
+
+def _anchor_for(title: str, family: str) -> str:
+    """A natural, keyword-relevant anchor SUGGESTION — grounded in the real page
+    title (fallback: the family term). Always presented as editable; the operator
+    makes it read naturally in context. Never a fabricated phrase."""
+    t = (title or "").strip()
+    # Trim a boilerplate brand/suffix tail so the anchor stays tight.
+    t = re.split(r"\s[|\-–—]\s", t)[0].strip()
+    if 2 <= len(t) <= 60:
+        return t
+    return (family or t or "").strip().lower()
+
+
+def build_interlink_plan(results: list, product_families: list) -> dict:
+    """Phase 2: turn the cluster map's link gaps into concrete, copy-pasteable
+    "add a link from A → B" recommendations — GROUPED BY SOURCE PAGE, so each job
+    is "open this one page, add these links, done" (the way you actually edit in
+    Magento).
+
+    Built purely from the Phase-1 map: for every spoke that doesn't link up to its
+    hub, recommend that link; for every spoke the hub doesn't link down to,
+    recommend that link (which also fixes orphans). Anchors are suggested from real
+    titles and always editable. No fabrication, no fake dollar values — priority is
+    structural (orphan fixes and high-demand pages first).
+    """
+    cmap = build_cluster_map(results, product_families)
+    groups: dict[str, dict] = {}
+
+    def _add(source, target, direction, reason, fixes_orphan, family, demand):
+        g = groups.setdefault(source["url"], {
+            "source_url": source["url"],
+            "source_title": source["title"],
+            "source_type": source["asset_type"],
+            "family": family,
+            "links": [],
+            "_prio": 0,
+            "_demand": 0,
+        })
+        # Dedup: never suggest the same source→target twice.
+        if any(l["target_url"] == target["url"] for l in g["links"]):
+            return
+        g["links"].append({
+            "target_url": target["url"],
+            "target_title": target["title"],
+            "target_type": target["asset_type"],
+            "anchor": _anchor_for(target["title"], family),
+            "direction": direction,
+            "reason": reason,
+            "fixes_orphan": fixes_orphan,
+        })
+        # Priority: orphan fix (3) > link to a page with real demand (2) > basic (1).
+        prio = 3 if fixes_orphan else (2 if demand >= 100 else 1)
+        g["_prio"] = max(g["_prio"], prio)
+        g["_demand"] = max(g["_demand"], demand)
+
+    orphans_fixed = set()
+    families_touched = set()
+    for fam in cmap["families"]:
+        hub = fam.get("hub")
+        if not hub:
+            continue  # no pillar → that's a Phase-1 flag, not an interlink task
+        family = fam["family"]
+        orphan_urls = {u for u in (fam["link_health"].get("orphan_spokes") or [])}
+        for s in fam.get("spokes", []):
+            is_orphan = s["url"] in orphan_urls or s.get("inlinks", 0) == 0
+            # Spoke should link UP to its pillar — concentrates authority on the hub.
+            if not s.get("links_to_hub"):
+                _add(s, hub, "spoke_to_hub",
+                     f"Link this {s['asset_type']} up to its pillar page so authority "
+                     f"concentrates on the “{family}” hub (and readers can reach it).",
+                     False, family, hub.get("impressions", 0))
+                families_touched.add(family)
+            # Hub should link DOWN to the spoke — distributes authority + fixes orphans.
+            if not s.get("linked_from_hub"):
+                reason = (f"Link the hub down to this {s['asset_type']}."
+                          + (" It's an orphan — no internal links point to it today, so "
+                             "search barely sees it." if is_orphan else
+                             " Spreads the pillar's authority across the cluster."))
+                _add(hub, s, "hub_to_spoke", reason, is_orphan, family,
+                     s.get("impressions", 0))
+                families_touched.add(family)
+                if is_orphan:
+                    orphans_fixed.add(s["url"])
+
+    # Sort links within a group: orphan fixes first, then by target demand.
+    for g in groups.values():
+        g["links"].sort(key=lambda l: (not l["fixes_orphan"]), reverse=False)
+        g["link_count"] = len(g["links"])
+
+    ordered = sorted(groups.values(), key=lambda g: (-g["_prio"], -g["_demand"],
+                                                      -g["link_count"]))
+    for g in ordered:
+        g.pop("_prio", None)
+        g.pop("_demand", None)
+
+    return {
+        "available": cmap.get("available", True),
+        "groups": ordered,
+        "totals": {
+            "links_total": sum(g["link_count"] for g in ordered),
+            "sources_total": len(ordered),
+            "orphans_fixed": len(orphans_fixed),
+            "families_touched": len(families_touched),
+        },
+    }

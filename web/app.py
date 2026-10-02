@@ -12688,6 +12688,97 @@ def api_topical_authority():
     return jsonify(_ta_cluster_map())
 
 
+def _ta_interlink_plan():
+    """Phase-2 interlink plan: the cluster map's link gaps turned into concrete
+    'add a link A → B' jobs, grouped by source page. Pure read."""
+    from src.analysis.topical_authority import build_interlink_plan
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        return {"available": False,
+                "reason": "No evaluation yet — run a full evaluation first."}
+    config = load_config()
+    families = config.get("business_context", {}).get("product_families", []) or []
+    if not families:
+        return {"available": False,
+                "reason": "No product families configured (Setup → business_context)."}
+    plan = build_interlink_plan(results, families)
+    plan["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    return plan
+
+
+@app.route("/api/topical-authority/interlinks")
+def api_topical_authority_interlinks():
+    return jsonify(_ta_interlink_plan())
+
+
+@app.route("/api/topical-authority/send-to-board", methods=["POST"])
+def api_topical_authority_send():
+    """Turn the interlink plan into Task Board tasks — ONE task per topic cluster
+    (not one per link), each carrying the full per-page 'add these links'
+    checklist inline. Keeps Start Here tight: a cluster is one meaningful job, not
+    fifteen micro-tasks. Deliberately added → lands In-Progress (APPROVED)."""
+    from src.analysis.topical_authority import _family_slug
+    plan = _ta_interlink_plan()
+    if not plan.get("available"):
+        return jsonify({"error": plan.get("reason", "No plan available.")}), 400
+    groups = plan.get("groups") or []
+    if not groups:
+        return jsonify({"success": True, "created": 0, "skipped_already_on_board": 0,
+                        "note": "No interlink gaps — your clusters are already wired."})
+
+    # Group the per-source jobs back into clusters (families).
+    by_family: dict = {}
+    for g in groups:
+        by_family.setdefault(g["family"], []).append(g)
+
+    ledger = ActionLedger()
+    existing = set()
+    for status in (ActionStatus.PROPOSED, ActionStatus.APPROVED,
+                   ActionStatus.IMPLEMENTED, ActionStatus.MEASURED):
+        for a in ledger.get_actions_by_status(status):
+            k = (a.recommendation_json or {}).get("dedup_key")
+            if k:
+                existing.add(k)
+
+    created, skipped = 0, 0
+    for family, fam_groups in by_family.items():
+        dedup_key = f"interlink:{_family_slug(family)}"
+        if dedup_key in existing:
+            skipped += 1
+            continue
+        total_links = sum(g["link_count"] for g in fam_groups)
+        steps = [
+            f"Add {total_links} internal link(s) across {len(fam_groups)} page(s) to "
+            f"tie your “{family}” cluster together. Edit one page at a time:",
+        ]
+        for g in fam_groups:
+            lines = []
+            for l in g["links"]:
+                orphan = " [fixes an orphan page]" if l.get("fixes_orphan") else ""
+                lines.append(f"    → link to {l['target_url']} "
+                             f"(suggested anchor: “{l['anchor']}”, edit to read naturally){orphan}")
+            steps.append(f"On “{g['source_title']}” ({g['source_url']}): add "
+                         f"{g['link_count']} link(s):\n" + "\n".join(lines))
+        steps.append("Links go in the page BODY content (not nav/footer). After "
+                     "editing, the next evaluation verifies each link is live.")
+        _persist_action({
+            "url": "", "action": "INTERNAL_LINKING",
+            "primary_constraint": "Internal Linking / Topical Authority",
+            "asset_type": "category",
+            "expected_value": 0, "confidence": 0.6, "risk_level": "low",
+            "source": "topical_authority", "dedup_key": dedup_key,
+            "implementation_summary": f"Wire up your “{family}” cluster — "
+                                      f"{total_links} internal link(s) across {len(fam_groups)} page(s)",
+            "implementation_steps": steps,
+        }, status=ActionStatus.APPROVED)
+        existing.add(dedup_key)
+        created += 1
+    return jsonify({"success": True, "created": created,
+                    "skipped_already_on_board": skipped})
+
+
 @app.route("/api/content-gap")
 def api_content_gap():
     d = _cg_load()
