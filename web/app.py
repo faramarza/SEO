@@ -12920,6 +12920,8 @@ def api_content_draft():
     body = request.get_json(silent=True) or {}
     family = (body.get("family") or "").strip()
     primary_keyword = (body.get("primary_keyword") or "").strip()
+    title = (body.get("title") or "").strip() or None
+    inline_article = body.get("gap_article") if isinstance(body.get("gap_article"), dict) else None
     item_type = (body.get("item_type") or ("pillar" if not primary_keyword else "article")).strip()
 
     try:
@@ -12937,8 +12939,11 @@ def api_content_draft():
     if not family:
         return jsonify({"error": "Need a family or a keyword to draft from."}), 400
 
-    target = _cd_find_gap_article(primary_keyword) if primary_keyword else None
-    brief = build_brief(results, families, family, target=target, item_type=item_type)
+    # Prefer the article brief carried inline on the task (exact topic, no lookup);
+    # fall back to looking it up in the cached plan by keyword.
+    target = inline_article or (_cd_find_gap_article(primary_keyword) if primary_keyword else None)
+    brief = build_brief(results, families, family, target=target, item_type=item_type,
+                        title=title, primary_keyword=primary_keyword)
     system, prompt = build_generation_messages(brief)
     text, err = _llm_complete(system, prompt, max_tokens=5500)
     if err:

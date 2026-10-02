@@ -102,3 +102,26 @@ def test_verify_interlinks_detects_missing():
     published_all = [{"target_url": r["url"]} for r in required]
     v2 = verify_interlinks(published_all, b)
     assert v2["all_present"] is True and v2["missing"] == []
+
+
+def test_article_without_gap_article_writes_the_requested_topic():
+    # The bug: an article request with no matched gap-article silently became a
+    # generic family pillar ("Montessori Toys: The Complete Guide") instead of the
+    # topic the task asked for. It must now write about the REQUESTED topic.
+    b = build_brief(_results(), FAMILIES, "name trains", target=None, item_type="article",
+                    title="15 Best Kids Furniture for Montessori Classrooms (2026)",
+                    primary_keyword="kids furniture for montessori classrooms")
+    assert b["item_type"] == "article"
+    assert b["topic"]["title"] == "15 Best Kids Furniture for Montessori Classrooms (2026)"
+    assert b["topic"]["primary_keyword"] == "kids furniture for montessori classrooms"
+    # Pillar scaffold must NOT have hijacked it.
+    assert "Complete Guide" not in b["topic"]["title"]
+
+
+def test_inline_gap_article_target_is_used_verbatim():
+    art = {"title": "7 Montessori Shelf Setups", "primary_keyword": "montessori shelf ideas",
+           "intent": "informational", "word_count_target": 1500,
+           "outline": ["Why shelves", "Setups"], "supporting_keywords": ["low shelf"]}
+    b = build_brief(_results(), FAMILIES, "name trains", target=art, item_type="article")
+    assert b["topic"]["title"] == "7 Montessori Shelf Setups"
+    assert b["topic"]["outline"] == ["Why shelves", "Setups"]

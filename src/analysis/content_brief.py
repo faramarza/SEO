@@ -101,19 +101,23 @@ def _pillar_scaffold(family: str) -> dict:
 
 
 def build_brief(results: list, product_families: list, family_name: str,
-                target: dict = None, item_type: str = "article") -> dict:
+                target: dict = None, item_type: str = "article",
+                title: str = None, primary_keyword: str = None) -> dict:
     """Assemble the grounded brief + output contract for one scheduled topic.
 
-    `target` is the Phase-3 gap article (title/primary_keyword/outline/…) when the
-    item is a keyword-backed article; pass None for a pillar (a structural
-    scaffold is used). Returns a dict ready for the LLM step and for later
-    verification. Pure — only real pages/links are referenced; nothing invented.
+    The draft is ALWAYS about the requested topic. Topic resolution, in order:
+      • item_type == "pillar" → a structural pillar scaffold for the family;
+      • a `target` gap-article (title/primary_keyword/outline/…) → use it;
+      • otherwise an article built from the given `title` / `primary_keyword`.
+    The family is used only for GROUNDING (which hub/products to link) — it never
+    overrides the topic, so a missing gap-article can't silently turn a requested
+    article into a generic family pillar. Pure — only real pages/links referenced.
     """
     fam = _family_block(results, product_families, family_name)
-    is_pillar = item_type == "pillar" or not target
-    topic = (target if target else _pillar_scaffold(family_name)) if not is_pillar \
-        else _pillar_scaffold(family_name)
-    if target and not is_pillar:
+    is_pillar = (item_type == "pillar")
+    if is_pillar:
+        topic = _pillar_scaffold(family_name)
+    elif target:
         topic = {
             "title": target.get("title"),
             "primary_keyword": target.get("primary_keyword"),
@@ -121,6 +125,19 @@ def build_brief(results: list, product_families: list, family_name: str,
             "word_count_target": target.get("word_count_target") or 1200,
             "outline": target.get("outline") or [],
             "supporting_keywords": target.get("supporting_keywords") or [],
+        }
+    else:
+        # Article about a specific requested topic with no matched gap-article —
+        # write about THAT topic, grounded in the family, not a family pillar.
+        pk = (primary_keyword or title or family_name or "").strip()
+        disp = (title or (pk[:1].upper() + pk[1:] if pk else family_name) or "").strip()
+        topic = {
+            "title": disp,
+            "primary_keyword": primary_keyword or title or family_name,
+            "intent": "informational",
+            "word_count_target": 1400,
+            "outline": [],
+            "supporting_keywords": [],
         }
 
     hub = (fam or {}).get("hub")

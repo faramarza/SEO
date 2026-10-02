@@ -559,6 +559,19 @@ def _from_content_gap(cg, out, max_items=12):
                   "category" if a.get("intent") == "commercial" else "blog", pk,
                   auto_review=False)
         t["dedup_key"] = f"contentgap:{pk.lower()}"   # match the board push → never double
+        # Carry the clean topic + full article brief inline, so the content writer
+        # drafts about THIS exact topic (not a re-looked-up guess that can miss).
+        t["primary_keyword"] = pk
+        t["article_title"] = a.get("title", pk)
+        t["gap_article"] = {
+            "primary_keyword": pk,
+            "title": a.get("title", pk),
+            "intent": a.get("intent", "informational"),
+            "word_count_target": a.get("word_count_target", 1200),
+            "outline": a.get("outline") or [],
+            "supporting_keywords": a.get("supporting_keywords") or [],
+            "total_volume": a.get("total_volume", 0),
+        }
         out.append(t)
 
 

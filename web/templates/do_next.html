@@ -574,12 +574,12 @@ const DN_BLOCK_SPEC = [
     ['faq_jsonld','FAQPage JSON-LD','end of body / Layout XML',null],
 ];
 async function dnGenerateArticle(t, box, btn){
-    const topic=(t.metric && t.metric.query) || t.query || '';
+    const topic=t.primary_keyword || (t.metric && t.metric.query) || t.query || '';
     if(!topic){ box.innerHTML='<p class="empty-state" style="text-align:left;">No topic on this task to write from.</p>'; if(btn) btn.disabled=false; return; }
     box.innerHTML='<p class="pb-loading" style="margin:8px 0;">Writing the draft, grounded in your catalog — separate Magento blocks, ~30–60s…</p>';
     try{
         const resp=await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({primary_keyword:topic, title:t.title})});
+            body:JSON.stringify({primary_keyword:topic, title:t.article_title||'', gap_article:t.gap_article||null})});
         const data=await resp.json();
         if(btn) btn.disabled=false;
         if(data.error){ box.innerHTML=`<p class="empty-state" style="text-align:left;">${esc(data.error)}</p>`; return; }
