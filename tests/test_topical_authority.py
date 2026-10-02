@@ -131,8 +131,12 @@ def test_cluster_map_hub_spoke_and_health():
     assert rugs["hub"] is not None
     assert rugs["link_health"]["spokes_total"] == 0
 
-    # About Us matched no family.
-    assert any("about-us" in c["url"] for c in cmap["unclustered"])
+    # About Us is a non-topical utility page — EXCLUDED entirely, not clustered
+    # and not even in "unclustered" (never offered as a link target).
+    all_urls = [c["url"] for c in cmap["unclustered"]]
+    for f in cmap["families"]:
+        all_urls += [sp["url"] for sp in f["spokes"]] + ([f["hub"]["url"]] if f["hub"] else [])
+    assert not any("about-us" in u for u in all_urls)
     assert cmap["totals"]["families_total"] == 3
 
 
@@ -290,3 +294,41 @@ def test_anchor_for_long_titles_are_descriptive_not_generic():
     assert a1 == "The Ultimate Guide to Montessori Toys"
     assert a2 == "Montessori Sensory Toys That Spark Creativity"
     assert a1 != a2 and a1.lower() != "montessori toys" and a2.lower() != "montessori toys"
+
+
+def test_nontopical_and_brand_pollution_excluded():
+    from src.analysis.topical_authority import _nontopical, _page_tokens
+    base = "https://alphabet-trains.com"
+    # utility/legal/homepage pages excluded
+    for u in ("/contact", "/shipping-policy", "/terms-conditions", "/faqs",
+              "/about-us", "/privacy-policy", "/", "/wishlist"):
+        assert _nontopical(base + u), u
+    # real product/category pages kept
+    for u in ("/name-trains.html", "/5-lbs-white-play-sand.html", "/montessori-toys.html"):
+        assert not _nontopical(base + u), u
+    # brand suffix in the title doesn't inject "train" into an unrelated product
+    toks = _page_tokens({"url": base + "/5-lbs-white-play-sand.html",
+                         "page_metadata": {"title": "5 lbs White Play Sand | Alphabet Trains & Toys",
+                                           "h1": "5 lbs White Play Sand"}})
+    assert "train" not in toks and "trains" not in toks
+
+
+def test_cluster_map_drops_nontopical_pages_from_name_trains():
+    base = "https://alphabet-trains.com"
+    def pg(url, atype, title, h1=""):
+        return {"url": url, "asset_type": atype, "gsc_impressions": 10,
+                "page_metadata": {"title": title, "h1": h1 or title, "internal_outlinks": []}}
+    results = [
+        pg(f"{base}/name-trains.html", "category", "Personalized Name Trains"),
+        pg(f"{base}/5-letter-name-train.html", "product", "5 Letter Name Train"),
+        pg(f"{base}/contact", "other", "Contact US | Alphabet Trains & Toys"),
+        pg(f"{base}/shipping-policy", "other", "Shipping Policy | Alphabet Trains"),
+        pg(f"{base}/5-lbs-white-play-sand.html", "product", "5 lbs White Play Sand | Alphabet Trains & Toys"),
+    ]
+    cmap = build_cluster_map(results, ["name trains"])
+    nt = cmap["families"][0]
+    urls = ([nt["hub"]["url"]] if nt["hub"] else []) + [s["url"] for s in nt["spokes"]]
+    joined = " ".join(urls).lower()
+    assert "contact" not in joined and "shipping" not in joined   # utility pages gone
+    assert "play-sand" not in joined                              # brand-pollution gone
+    assert "name-train" in joined                                 # real page kept

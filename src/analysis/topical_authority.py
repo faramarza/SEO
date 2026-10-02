@@ -67,15 +67,50 @@ def _family_slug(family: str) -> str:
 
 
 def _page_tokens(page: dict) -> set:
-    """Distinctive tokens describing a page — pooled from its URL slug, title and
-    H1. These are matched against each family's tokens to assign the cluster."""
+    """Distinctive tokens describing a page — from its URL slug and H1, plus the
+    title with its site-name suffix stripped. Magento titles end in "… | Brand"
+    (e.g. "| Alphabet Trains & Toys"), so the brand word ("trains") is in EVERY
+    title — left in, it swept unrelated pages (Play Sand, Contact) into the
+    "name trains" cluster. The slug and H1 carry the page's real topic; the title
+    is used only up to the first pipe."""
     pm = page.get("page_metadata", {}) or {}
+    # Drop the "| Brand" boilerplate tail from title AND h1 (a stray brand suffix
+    # in either would re-inject the brand word into every page's tokens).
+    def _debrand(s):
+        return re.split(r"\s*[|｜]\s*", s or "")[0]
     text = " ".join([
         _slug_phrase(page.get("url", "")),
-        pm.get("title", "") or "",
-        pm.get("h1", "") or "",
+        _debrand(pm.get("h1", "")),
+        _debrand(pm.get("title", "")),
     ])
     return _distinctive(text)
+
+
+# Pages that are NOT topical content — platform/system pages (handled by the
+# shared filter) plus legal/utility/account pages and the homepage. None of these
+# belong in a topic cluster or as an internal-link target.
+_NONTOPICAL_MARKERS = (
+    "shipping", "return", "refund", "privacy", "terms", "contact", "about",
+    "faq", "price-match", "purchase-order", "wishlist", "testimonial",
+    "newsletter", "customer", "account", "login", "sitemap", "cart",
+    "checkout", "search", "review", "policy", "enable-cookies", "gift-finder",
+)
+
+
+def _nontopical(url: str) -> bool:
+    """True for pages that must be excluded from clusters and interlink targets."""
+    try:
+        from src.analysis.growth_playbook import _is_system_page
+        if _is_system_page(url):
+            return True
+    except Exception:
+        pass
+    path = re.sub(r"^https?://[^/]+", "", (url or "").lower())
+    path = re.sub(r"[?#].*$", "", path).rstrip("/")
+    if path in ("", "/"):          # homepage
+        return True
+    seg = re.sub(r"\.(html?|php|aspx?)$", "", path)
+    return any(m in seg for m in _NONTOPICAL_MARKERS)
 
 
 def _singular(tok: str) -> str:
@@ -229,7 +264,9 @@ def build_cluster_map(results: list, product_families: list) -> dict:
     Pure and grounded: every page, link and count comes from the data. Nothing is
     invented. Returns a dict ready for the API / template.
     """
-    pages = [r for r in (results or []) if r.get("url")]
+    # Exclude non-topical pages (system/legal/utility + homepage) so they're
+    # never clustered, counted, or offered as interlink targets.
+    pages = [r for r in (results or []) if r.get("url") and not _nontopical(r.get("url", ""))]
     matchers = _family_matchers(product_families)
     outlinks, inlinks = _build_link_graph(pages)
 
