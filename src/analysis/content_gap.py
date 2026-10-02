@@ -11,7 +11,7 @@ import re
 # Bump when the gap logic changes in a way that invalidates cached plans (e.g. the
 # relevance filter / brand blocklist / focus theme). A cached plan without the
 # current version is ignored so old, pre-fix garbage never shows again.
-PLAN_VERSION = 11
+PLAN_VERSION = 12
 
 _STOP = {
     "the", "a", "an", "for", "and", "or", "to", "of", "in", "on", "with", "best",
@@ -54,8 +54,13 @@ _BLOCK = {"sex", "sexual", "porn", "porno", "xxx", "nsfw", "nude", "nudes", "adu
 
 
 def _distinctive(kw: str) -> set:
-    """Tokens that actually characterize a topic (drop stopwords + generic terms)."""
-    return {t for t in _tokens(kw) if t not in _GENERIC and len(t) > 2}
+    """Tokens that actually characterize a topic (drop stopwords, generic terms,
+    and anything that starts with a digit — '10ft', '24w', '2025', '135' etc. are
+    rug dimensions / sizes scraped from product URLs, not topic words. Left in,
+    they bloat the catalogue-relevance vocabulary so badly that almost any keyword
+    finds a coincidental match and the relevance filter rubber-stamps junk)."""
+    return {t for t in _tokens(kw)
+            if t not in _GENERIC and len(t) > 2 and not t[0].isdigit()}
 
 
 # Brand / manufacturer names a store RESELLS but should never write an "authority"

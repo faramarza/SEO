@@ -12577,11 +12577,18 @@ def _cg_ai_sanity(clusters: list, config: dict):
     if perr or not isinstance(parsed, dict):
         return clusters, {"checked": False, "reason": perr or "unparseable AI response"}
     kept, dropped = cg.apply_sanity(clusters, parsed.get("verdicts", []))
-    # Safety valve: if the model somehow rejected (almost) everything, distrust it
-    # and keep the deterministic result rather than ship an empty plan.
-    if clusters and len(kept) < max(1, len(clusters) // 5):
+    # TRUST THE AI. For a niche store, most of what BROAD competitors rank for is
+    # genuinely irrelevant junk — so the AI rejecting the large majority is the
+    # CORRECT answer, not a malfunction. (An earlier safety valve distrusted any
+    # heavy rejection and kept the whole deterministic set, which silently put all
+    # the junk — "car seat", "little unicorn" — back. That was the bug.) Only fall
+    # back to the deterministic set when the AI returns NOTHING usable (an empty /
+    # garbled response), never just because it rejected a lot.
+    if not parsed.get("verdicts"):
+        return clusters, {"checked": False, "reason": "AI returned no verdicts"}
+    if clusters and not kept:
         return clusters, {"checked": True, "dropped": [], "kept": len(clusters),
-                          "note": "AI rejected too many to trust — kept deterministic set."}
+                          "note": "AI kept nothing — fell back to deterministic set."}
     return kept, {"checked": True, "dropped": dropped, "kept": len(kept)}
 
 
