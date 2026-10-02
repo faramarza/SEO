@@ -13113,6 +13113,138 @@ def content_studio_page():
     return render_template("content_studio.html")
 
 
+# ── Interlinks: let the tool ADD the links for the operator (preview → apply →
+#    revert). Writes ONLY a category's description, via the guarded client path. ──
+
+_INTERLINK_WRITES_PATH = DATA_PATH / "interlink_writes.json"
+
+
+def _il_writes_load() -> dict:
+    try:
+        with open(_INTERLINK_WRITES_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _il_writes_save(d: dict):
+    _INTERLINK_WRITES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _INTERLINK_WRITES_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    tmp.replace(_INTERLINK_WRITES_PATH)
+
+
+def _il_resolve_category(source_url: str):
+    """Resolve an interlink task's source page to an editable Magento CATEGORY.
+    Returns (client, category_dict, None) or (client, None, reason)."""
+    from src.data_sources.magento_client import MagentoClient, MagentoError
+    mc = MagentoClient()
+    if not mc.configured:
+        return mc, None, ("Magento isn't connected (set MAGENTO_BASE_URL / "
+                          "MAGENTO_TOKEN) — add the links by hand for now.")
+    try:
+        cat = mc.get_category_description(source_url)
+    except MagentoError as e:
+        return mc, None, f"Couldn't read the page from Magento: {e}"
+    if not cat:
+        return mc, None, ("This page isn't a category I can safely edit "
+                          "automatically yet — add the links by hand (steps below).")
+    return mc, cat, None
+
+
+@app.route("/api/interlink/preview", methods=["POST"])
+def api_interlink_preview():
+    """Show exactly what will be written: the current description, the proposed
+    'Related guides' block, and the links newly added. No write happens."""
+    from src.analysis import link_insert as li
+    b = request.get_json(silent=True) or {}
+    source_url = (b.get("source_url") or "").strip()
+    family = (b.get("family") or "").strip()
+    links = b.get("links") or []
+    if not source_url or not links:
+        return jsonify({"editable": False, "reason": "Nothing to add."})
+    mc, cat, reason = _il_resolve_category(source_url)
+    if reason:
+        return jsonify({"editable": False, "reason": reason})
+    current = cat.get("description") or ""
+    after = li.merge_description(current, family, links)
+    added = li.added_pairs(current, family, links)
+    if not added:
+        return jsonify({"editable": True, "already_present": True,
+                        "page_name": cat.get("name", ""),
+                        "reason": "These links are already on the page."})
+    return jsonify({
+        "editable": True,
+        "page_name": cat.get("name", ""),
+        "category_id": cat.get("category_id"),
+        "added": [{"url": u, "anchor": a} for u, a in added],
+        "block": li.build_block(family, added),
+        "unchanged": current == after,
+    })
+
+
+@app.route("/api/interlink/apply", methods=["POST"])
+def api_interlink_apply():
+    """Write the merged description to the category, after storing the original
+    for one-click revert."""
+    from src.analysis import link_insert as li
+    from src.data_sources.magento_client import MagentoError
+    b = request.get_json(silent=True) or {}
+    source_url = (b.get("source_url") or "").strip()
+    family = (b.get("family") or "").strip()
+    links = b.get("links") or []
+    if not source_url or not links:
+        return jsonify({"error": "Nothing to add."}), 400
+    mc, cat, reason = _il_resolve_category(source_url)
+    if reason:
+        return jsonify({"error": reason}), 400
+    current = cat.get("description") or ""
+    cid = str(cat.get("category_id"))
+    new_desc = li.merge_description(current, family, links)
+    if new_desc == current:
+        return jsonify({"success": True, "no_change": True})
+    # Store the TRUE original (first time only) so revert fully restores.
+    store = _il_writes_load()
+    if cid not in store:
+        store[cid] = {"source_url": source_url, "page_name": cat.get("name", ""),
+                      "original_description": current,
+                      "first_applied_at": datetime.now().isoformat(timespec="seconds")}
+    try:
+        mc.update_category_description(cat["category_id"], new_desc)
+    except MagentoError as e:
+        return jsonify({"error": f"Magento write failed: {e}"}), 502
+    store[cid]["last_applied_at"] = datetime.now().isoformat(timespec="seconds")
+    _il_writes_save(store)
+    added = li.added_pairs(current, family, links)
+    return jsonify({"success": True, "added_count": len(added),
+                    "page_name": cat.get("name", ""), "can_revert": True})
+
+
+@app.route("/api/interlink/revert", methods=["POST"])
+def api_interlink_revert():
+    """Restore the page description to exactly what it was before Governor first
+    touched it."""
+    from src.data_sources.magento_client import MagentoError
+    b = request.get_json(silent=True) or {}
+    source_url = (b.get("source_url") or "").strip()
+    mc, cat, reason = _il_resolve_category(source_url)
+    if reason:
+        return jsonify({"error": reason}), 400
+    cid = str(cat.get("category_id"))
+    store = _il_writes_load()
+    rec = store.get(cid)
+    if not rec:
+        return jsonify({"error": "Nothing to revert — no Governor edit recorded for this page."}), 400
+    try:
+        mc.update_category_description(cat["category_id"], rec["original_description"])
+    except MagentoError as e:
+        return jsonify({"error": f"Magento write failed: {e}"}), 502
+    store.pop(cid, None)
+    _il_writes_save(store)
+    return jsonify({"success": True, "page_name": cat.get("name", "")})
+
+
 @app.route("/api/topical-authority/send-to-board", methods=["POST"])
 def api_topical_authority_send():
     """Turn the interlink plan into Task Board tasks — ONE task per topic cluster

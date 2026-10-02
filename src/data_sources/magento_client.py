@@ -67,6 +67,23 @@ def _assert_safe_payload(payload: dict, path_sku: str = None, echoes: dict = Non
             raise MagentoError(f"Denylisted attribute in write payload: {code}")
 
 
+def _assert_description_only(payload: dict):
+    """The description-write path's guard: the ONLY thing that may be sent is the
+    category `description` custom attribute. Anything else is a bug and is
+    refused — keeps body writes from ever touching price/status/url_key/etc."""
+    ent = payload.get("category") or {}
+    for key in ent:
+        if key != "custom_attributes":
+            raise MagentoError(f"Denylisted top-level field in description write: {key}")
+    attrs = ent.get("custom_attributes", [])
+    if not attrs:
+        raise MagentoError("Description write payload is empty — refused.")
+    for a in attrs:
+        if a.get("attribute_code") != "description":
+            raise MagentoError(f"Denylisted attribute in description write: "
+                               f"{a.get('attribute_code')}")
+
+
 def _slug_of(url: str) -> str:
     """URL → Magento url_key: last path segment, .html stripped."""
     path = re.sub(r"[?#].*$", "", url or "").rstrip("/")
@@ -326,6 +343,38 @@ class MagentoClient:
     def update_category_meta(self, category_id, meta_title=None, meta_description=None):
         payload = self._meta_payload("category", meta_title, meta_description)
         _assert_safe_payload(payload)
+        return self._write(f"/categories/{int(category_id)}", payload)
+
+    # ---- Category DESCRIPTION (separate, equally-strict write path) --------
+    # The meta path above stays locked to meta_title/meta_description. Writing a
+    # category's body description (to insert internal links) is its OWN path with
+    # its OWN assertion that NOTHING but `description` is ever sent — so the two
+    # surfaces can't bleed into each other, and the description write can never
+    # touch price/status/url_key/etc.
+    def get_category_description(self, url: str):
+        """Resolve a storefront URL to its category and return
+        {category_id, name, description} or None (never guesses a write target)."""
+        slug = _slug_of(url)
+        if not slug:
+            return None
+        q = (f"/categories/list?searchCriteria[filterGroups][0][filters][0][field]=url_key"
+             f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
+             f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
+             f"&searchCriteria[pageSize]=2")
+        items = (self._req("GET", q) or {}).get("items") or []
+        if len(items) != 1:
+            return None
+        c = items[0]
+        return {"entity_type": "category", "category_id": c.get("id"),
+                "name": c.get("name", ""),
+                "description": self._attr(c, "description")}
+
+    def update_category_description(self, category_id, new_description):
+        """Write ONLY the category description. Guarded so no other field rides
+        along."""
+        payload = {"category": {"custom_attributes": [
+            {"attribute_code": "description", "value": new_description}]}}
+        _assert_description_only(payload)
         return self._write(f"/categories/{int(category_id)}", payload)
 
     def write_meta(self, entity, meta_title=None, meta_description=None):
