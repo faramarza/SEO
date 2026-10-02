@@ -624,6 +624,9 @@ def _from_interlinks(interlinks, out):
                   {"links_present": 0},
                   "category", f"interlink:{family}")
         t["dedup_key"] = f"interlink:{family}"
+        # Structured summary so the card renders clean stats instead of a text wall.
+        t["cluster"] = {"family": family, "total_links": total_links,
+                        "n_pages": n_pages, "n_orphans": n_orphan, "demand": demand}
         out.append(t)
 
 

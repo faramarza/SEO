@@ -388,7 +388,7 @@ function plainWhat(t){
     if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)) return `Your <b>“${pg}”</b> page is nearly on page 1 — but pushing it over needs links from other websites, which is slow. <b>Skip this</b> unless you have time for outreach.`;
     if(cat==='winnable'||cat==='striking') return `Help your <b>“${pg}”</b> page rank higher by adding a few links to it from your other pages.`;
     if(cat==='orphan') return `Nothing on your site links to your <b>“${pg}”</b> page — add links to it from related pages so Google can find it.`;
-    if(cat==='interlink') return `Add a few internal links on your <b>“${pg}”</b> page — link it <b>up</b> to its topic hub and <b>down</b> to related pages — to strengthen the whole topic cluster. The exact links (and anchor text) are listed below.`;
+    if(cat==='interlink'){ const c=t.cluster||{}; return `Strengthen your <b>“${esc(c.family||'')}”</b> topic cluster by adding internal links across its pages — linking supporting pages <b>up</b> to the main hub and the hub <b>down</b> to them. This is your <b>biggest lever</b>, and it's all on pages you already own.`; }
     if(cat==='consolidation') return `Two of your pages compete for the same thing — redirect the weaker one into the stronger.`;
     if(cat==='decay') return `Your <b>“${pg}”</b> page is losing traffic — refresh its content.`;
     if(cat==='pruning') return `Your <b>“${pg}”</b> page is dead weight — remove it or hide it from Google.`;
@@ -423,6 +423,18 @@ function activeCard(t, pos, total){
             <div id="${domId}" style="margin-top:10px;"></div>`;
     } else if(isExternal){
         doBlock = `<p style="margin:0;">This one needs links from other websites — slow, hard, and not your strongest move. I'd <b>skip it</b>. If you want to try anyway, the sites to email are under <b>Advanced → Link Prospects</b>.</p>`;
+    } else if(cat==='interlink'){
+        const c=t.cluster||{};
+        // Render the step list (skip the first intro line) with page headers bold
+        // and link lines indented — but keep it COLLAPSED so it's never a wall.
+        const stepsHtml=(t.steps||[]).slice(1).map(s=>{
+            const isPage=/^•\s/.test(s);
+            return `<div style="margin:${isPage?'8px 0 2px':'2px 0'};${isPage?'font-weight:600;':'padding-left:16px;color:var(--text-muted);font-size:12.5px;'}">${esc(s)}</div>`;
+        }).join('');
+        doBlock = `<p style="margin:0 0 10px;">This is a <b>cluster project</b>, not a 2-minute task: <b>${c.total_links||0} links across ${c.n_pages||0} pages</b>${c.n_orphans?`, which also rescues <b>${c.n_orphans} orphan page(s)</b>`:''}. Work it a handful of pages at a time — it compounds, and it's the single biggest thing you can do for this topic. <b>Start with the orphans.</b></p>
+            <a class="pb-task-btn" href="/topical-authority" style="text-decoration:none;display:inline-block;">📋 Open the step-by-step checklist (Topic Map)</a>
+            <details style="margin-top:10px;"><summary style="cursor:pointer;font-weight:600;">…or show the full list of links right here</summary>
+            <div style="line-height:1.5;margin-top:8px;max-height:420px;overflow:auto;border-left:2px solid var(--border,#e5e7eb);padding-left:10px;">${stepsHtml}</div></details>`;
     } else if(cat==='winnable'||cat==='striking'||cat==='orphan'){
         doBlock = `<div style="line-height:1.6;">${(t.steps||[]).map(s=>`<div style="margin:4px 0;">• ${esc(s)}</div>`).join('')}</div>`;
     } else if(DN_AUTODELIV.has(cat)){
