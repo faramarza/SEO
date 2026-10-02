@@ -12876,10 +12876,9 @@ def api_content_draft():
     deterministically, has the LLM fill the Magento blocks under the brief's
     anti-fabrication contract, and returns the draft + a human review checklist."""
     from src.analysis.content_brief import build_brief, build_generation_messages
+    from src.analysis.topical_authority import _family_matchers, _keyword_family
     body = request.get_json(silent=True) or {}
     family = (body.get("family") or "").strip()
-    if not family:
-        return jsonify({"error": "family is required."}), 400
     primary_keyword = (body.get("primary_keyword") or "").strip()
     item_type = (body.get("item_type") or ("pillar" if not primary_keyword else "article")).strip()
 
@@ -12890,6 +12889,13 @@ def api_content_draft():
         return jsonify({"error": "No evaluation yet — run a full evaluation first."}), 400
     config = load_config()
     families = config.get("business_context", {}).get("product_families", []) or []
+    # Start Here passes only a keyword — infer which family it belongs to so the
+    # draft is grounded in that cluster (hub + real products), same as Content
+    # Studio. Fall back to the keyword itself (editorial-only, flagged) if none.
+    if not family:
+        family = _keyword_family(primary_keyword, _family_matchers(families)) or primary_keyword
+    if not family:
+        return jsonify({"error": "Need a family or a keyword to draft from."}), 400
 
     target = _cd_find_gap_article(primary_keyword) if primary_keyword else None
     brief = build_brief(results, families, family, target=target, item_type=item_type)

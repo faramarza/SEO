@@ -417,7 +417,7 @@ function activeCard(t, pos, total){
             <p style="margin:0 0 8px;">Then, for a site that checks out: copy the email, change a line so it sounds like you, and send it to the address shown.</p>
             <div id="${domId}">${cached!==undefined?cached:'<p class="pb-loading">Pulling the emails…</p>'}</div>`;
     } else if(cat==='content'){
-        doBlock = `<p style="margin:0 0 10px;">Click the button and Governor writes the whole article for you (2–4 minutes). Then paste it into Magento (<b>Content → Pages</b>), set the title and URL, and publish.</p>
+        doBlock = `<p style="margin:0 0 10px;">Governor drafts the article <b>grounded in your catalog</b> and hands it back in <b>separate blocks</b> — meta title, meta description, URL key, H1, body HTML, FAQ schema — each ready to paste into the matching Magento field (<b>Content → Pages</b>). It saves to Content Studio for review, then publish.</p>
             <button class="pb-task-btn" onclick="dnGenerate('${esc(t.dedup_key)}','${domId}',this)">✍️ Write the article for me</button>
             <div id="${domId}" style="margin-top:10px;"></div>`;
     } else if(isExternal){
@@ -560,39 +560,44 @@ async function dnGenerate(key, domId, btn){
     }catch(e){ if(btn) btn.disabled=false; box.innerHTML=`<p class="empty-state">Failed: ${esc(e.message)}</p>`; }
 }
 
-// Stream the full article for a content task via the same generator the Content
-// page uses (12-phase framework, latent-demand facets). Renders the draft as it
-// streams; adds a Copy button when done.
+// Write a content task as a GROUNDED draft in SEPARATE Magento blocks — the same
+// content creator as Content Studio (meta title, meta description, URL key, H1,
+// body HTML, FAQ schema), not one undifferentiated HTML blob. Grounds the draft
+// in the keyword's product family (hub + real products), flags unverified claims,
+// and links out to Content Studio for the full review + link-verification gate.
+const DN_BLOCK_SPEC = [
+    ['meta_title','Meta Title','Page → SEO → Meta Title',60],
+    ['meta_description','Meta Description','Page → SEO → Meta Description',155],
+    ['url_key','URL Key','Page → SEO → URL Key',75],
+    ['h1','H1 / Page Title','Page → Page Title',70],
+    ['body_html','Body HTML','Content → Show/Hide Editor → paste raw',null],
+    ['faq_jsonld','FAQPage JSON-LD','end of body / Layout XML',null],
+];
 async function dnGenerateArticle(t, box, btn){
     const topic=(t.metric && t.metric.query) || t.query || '';
     if(!topic){ box.innerHTML='<p class="empty-state" style="text-align:left;">No topic on this task to write from.</p>'; if(btn) btn.disabled=false; return; }
-    box.innerHTML='<p class="pb-loading" style="margin:8px 0;">Writing the full article — this takes 2–4 minutes…</p>';
-    let content='';
+    box.innerHTML='<p class="pb-loading" style="margin:8px 0;">Writing the draft, grounded in your catalog — separate Magento blocks, ~30–60s…</p>';
     try{
-        const resp=await fetch('/api/content/generate-article',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:topic})});
-        if(!resp.ok){ const j=await resp.json().catch(()=>({})); box.innerHTML=`<p class="empty-state" style="text-align:left;">${esc(j.error||('HTTP '+resp.status))}</p>`; if(btn) btn.disabled=false; return; }
-        const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
-        while(true){
-            const {done,value}=await reader.read();
-            if(done) break;
-            buf+=dec.decode(value,{stream:true});
-            const lines=buf.split('\n'); buf=lines.pop();
-            for(const line of lines){
-                if(!line.startsWith('data: ')) continue;
-                try{ const evt=JSON.parse(line.slice(6));
-                    if(evt.error){ box.innerHTML=`<p class="empty-state" style="text-align:left;">${esc(evt.error)}</p>`; if(btn) btn.disabled=false; return; }
-                    if(evt.text){ content+=evt.text; box.innerHTML=`<pre class="dn-article" style="white-space:pre-wrap;max-height:360px;overflow:auto;font-size:12.5px;line-height:1.5;">${esc(content)}</pre>`; box.querySelector('pre').scrollTop=1e9; }
-                }catch(e){}
-            }
-        }
-        // Styled headings (esp. the large hero h2) often omit line-height, so a
-        // wrapped title overlaps — inject a safe line-height where missing before
-        // the operator copies the HTML.
-        content=content.replace(/<(h[1-4])\b([^>]*?)style="([^"]*)"/gi, (m,tag,pre,style)=>
-            /line-height/i.test(style)?m:`<${tag}${pre}style="${style}${style.trim().endsWith(';')?'':';'}line-height:1.3"`);
-        box.innerHTML=`<div class="dn-dv-block"><div class="dn-dv-label">Full article draft</div><div class="dn-dv-row" style="align-items:flex-start;"><pre class="dn-dv-text dn-article" style="white-space:pre-wrap;max-height:420px;overflow:auto;font-size:12.5px;line-height:1.5;">${esc(content||'(empty)')}</pre><button class="dn-copy-btn" onclick="dnCopy(this)">Copy</button></div></div>`;
-    }catch(e){ box.innerHTML=`<p class="empty-state" style="text-align:left;">Failed: ${esc(e.message)}</p>`; }
-    if(btn) btn.disabled=false;
+        const resp=await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({primary_keyword:topic, title:t.title})});
+        const data=await resp.json();
+        if(btn) btn.disabled=false;
+        if(data.error){ box.innerHTML=`<p class="empty-state" style="text-align:left;">${esc(data.error)}</p>`; return; }
+        const d=data.draft||{}, b=d.blocks||{};
+        const blocks = DN_BLOCK_SPEC.map(([key,label,loc,max])=>{
+            const val=b[key]||''; const n=val.length;
+            const count = max ? ` <span style="color:${n>max?'#dc2626':'var(--text-muted)'};font-weight:400;">${n}/${max}</span>` : '';
+            return `<div class="dn-dv-block">
+                <div class="dn-dv-label">${esc(label)}${count} <span style="font-weight:400;color:var(--text-muted);">→ ${esc(loc)}</span></div>
+                <div class="dn-dv-row" style="align-items:flex-start;">
+                    <div class="dn-dv-text" style="white-space:pre-wrap;max-height:300px;overflow:auto;">${esc(val)}</div>
+                    <button class="dn-copy-btn" onclick="dnCopy(this)">Copy</button></div></div>`;
+        }).join('');
+        const flags=(d.verify_flags||[]).map(f=>`<li>${esc(f)}</li>`).join('');
+        const flagBox = flags ? `<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:7px;margin:8px 0;"><strong>🔍 Confirm before publishing:</strong><ul style="margin:4px 0 0;padding-left:18px;">${flags}</ul></div>` : '';
+        box.innerHTML = `<p class="dn-note" style="margin:4px 0 8px;">Drafted in separate blocks — paste each into the matching Magento field. Saved to <a href="/content-studio" style="color:#4f46e5;">✍️ Content Studio</a>, where you review it and verify the links went live.</p>`
+            + blocks + flagBox;
+    }catch(e){ if(btn) btn.disabled=false; box.innerHTML=`<p class="empty-state" style="text-align:left;">Failed: ${esc(e.message)}</p>`; }
 }
 
 async function dnAdoptBatch(cat, btn){
