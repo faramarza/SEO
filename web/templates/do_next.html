@@ -388,6 +388,7 @@ function plainWhat(t){
     if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)) return `Your <b>“${pg}”</b> page is nearly on page 1 — but pushing it over needs links from other websites, which is slow. <b>Skip this</b> unless you have time for outreach.`;
     if(cat==='winnable'||cat==='striking') return `Help your <b>“${pg}”</b> page rank higher by adding a few links to it from your other pages.`;
     if(cat==='orphan') return `Nothing on your site links to your <b>“${pg}”</b> page — add links to it from related pages so Google can find it.`;
+    if(cat==='interlink') return `Add a few internal links on your <b>“${pg}”</b> page — link it <b>up</b> to its topic hub and <b>down</b> to related pages — to strengthen the whole topic cluster. The exact links (and anchor text) are listed below.`;
     if(cat==='consolidation') return `Two of your pages compete for the same thing — redirect the weaker one into the stronger.`;
     if(cat==='decay') return `Your <b>“${pg}”</b> page is losing traffic — refresh its content.`;
     if(cat==='pruning') return `Your <b>“${pg}”</b> page is dead weight — remove it or hide it from Google.`;

@@ -15,6 +15,7 @@ here fabricates numbers — every value/reach comes from the underlying analysis
 which is grounded in the site's own GSC/GA4/crawl data.
 """
 
+import re
 from datetime import datetime, timedelta
 
 # Typical days until the benefit is visible in data, per category. Ecommerce SEO
@@ -89,7 +90,7 @@ QUICK_CATS = {"ctr", "schema", "merchant", "orphan", "pruning"}
 # the "while you're at it" strip no matter how small their measured value, because
 # their value is future traffic/structure that 28-day money can't see.
 NEVER_MINOR = {"winnable", "striking", "content", "cro", "decay", "orphan", "geo",
-               "links", "consolidation"}
+               "links", "consolidation", "interlink"}
 # Below this $-equivalent impact, a NON-lever task (a cheap CTR/schema/reviews
 # harvest) is "minor" — real, but it must never headline "do this next". A $10/mo
 # brand-CTR fix lands here; a $200/mo money-page fix does not.
@@ -575,6 +576,57 @@ def _from_content_gap(cg, out, max_items=12):
         out.append(t)
 
 
+def _from_interlinks(interlinks, out):
+    """The Topic Map's interlink plan as first-class Start Here tasks — ONE task
+    per TOPIC CLUSTER (not per page, which would be hundreds), ranked by cluster
+    demand. Each carries the prioritized, page-by-page checklist of internal links
+    to add: link spokes up to the hub, the hub down to spokes, rescue orphans. This
+    is the highest-value, fully-controllable topical-authority work, on pages you
+    already own — grounded in real pages and anchors."""
+    if not interlinks:
+        return
+    by_fam = {}
+    for g in (interlinks.get("groups") or []):
+        if g.get("links"):
+            by_fam.setdefault(g.get("family", ""), []).append(g)
+    DETAIL_CAP = 25  # list this many pages inline; the rest are on the Topic Map
+    for family, groups in by_fam.items():
+        total_links = sum(g.get("link_count", 0) for g in groups)
+        n_pages = len(groups)
+        demand = max((int(g.get("demand", 0) or 0) for g in groups), default=0)
+        n_orphan = sum(1 for g in groups for l in g.get("links", []) if l.get("fixes_orphan"))
+        ordered = sorted(groups, key=lambda g: (-(g.get("priority_rank", 0)),
+                                                -(int(g.get("demand", 0) or 0))))
+        steps = [f"Add {total_links} internal link(s) across {n_pages} page(s) to wire your "
+                 f"“{family}” cluster together. Edit one page at a time — links go in the "
+                 f"page BODY, not nav/footer:"]
+        for g in ordered[:DETAIL_CAP]:
+            steps.append(f"• On “{g.get('source_title') or g.get('source_url')}”:")
+            for l in g.get("links", []):
+                where = ("↑ link UP to the cluster hub" if l.get("direction") == "spoke_to_hub"
+                         else "↓ link DOWN to this page")
+                orphan = " [rescues an orphan]" if l.get("fixes_orphan") else ""
+                steps.append(f"    {where}: {l.get('target_url','')} "
+                             f"(anchor: “{l.get('anchor','')}”){orphan}")
+        if n_pages > DETAIL_CAP:
+            steps.append(f"…and {n_pages - DETAIL_CAP} more page(s) in this cluster — the full "
+                         f"list is on Topic Map → Interlink plan.")
+        steps.append("The next evaluation verifies the links went live.")
+        benefit = (f"Wires the “{family}” cluster’s internal links across {n_pages} pages"
+                   + (f", rescuing {n_orphan} orphan page(s)" if n_orphan else "")
+                   + f". Internal linking is free, fast, fully in your control — the single "
+                   f"biggest topical-authority lever on pages you ALREADY own. This cluster "
+                   f"has {demand:,} impressions of demand.")
+        t = _task("interlink", "",
+                  f"Wire up your “{family}” cluster ({total_links} internal links across {n_pages} pages)",
+                  steps, benefit, 0, demand,
+                  {"type": "cluster_interlinks", "family": family},
+                  {"links_present": 0},
+                  "category", f"interlink:{family}")
+        t["dedup_key"] = f"interlink:{family}"
+        out.append(t)
+
+
 def _from_orphans(oc, out):
     for r in ((oc or {}).get("orphans") or [])[:5]:
         link_from = r.get("link_from") or []
@@ -835,7 +887,7 @@ def _score_task(t):
     # to clicks) is weighted by COMMERCIAL INTENT `w` (product/category ≈ full,
     # blog/guide heavily discounted) — the same weight `impact` uses — instead of
     # crediting clicks a low-intent page will never turn into orders.
-    if cat in ("winnable", "striking", "orphan", "links", "consolidation"):
+    if cat in ("winnable", "striking", "orphan", "links", "consolidation", "interlink"):
         t["lever_score"] = round(max(impact, (t.get("reach") or 0) * 0.02 * w), 1)
     elif cat == "content":
         # A brand-NEW page is SPECULATIVE: 6–12 weeks to maybe rank, at low odds —
@@ -912,7 +964,7 @@ def _score_task(t):
     # on the card instead of promising a measurement that will come back
     # inconclusive. Aggregate/systemic tasks are exempt (their effect shows at
     # the site level), as is anything with measured revenue.
-    _aggregate = cat in ("links", "consolidation", "reviews", "brand", "content", "cro")
+    _aggregate = cat in ("links", "consolidation", "reviews", "brand", "content", "cro", "interlink")
     t["measurable"] = bool(
         t["expected_value"] > 0 or (t.get("reach") or 0) >= 300 or _aggregate
         # A CTR fix expected to recover a real click volume clears the 20-click
@@ -976,11 +1028,19 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
                       brand_merchant=None, striking=None, decay=None,
                       content=None, orphans=None, pruning=None, geo=None,
                       winnable=None, links_info=None, results=None,
-                      content_gap=None, limit=60):
-    """Aggregate EVERY subsystem into one ranked, do-this-next list."""
+                      content_gap=None, interlinks=None, limit=None):
+    """Aggregate EVERY subsystem into one ranked, do-this-next list.
+
+    Start Here IS the engine: everything valuable feeds in here. The Topic Map's
+    interlink plan (fix the cluster mesh on pages you already own) is a first-class
+    source. The single-keyword content-gap feed is deliberately NOT fed in — it's a
+    narrow competitor-keyword supplement that lives on its own page; it kept padding
+    this queue with low-value, often-irrelevant "write a page about X" junk. No cap
+    by default: the list shows every real task, ranked."""
     out = []
-    if content_gap:
-        _from_content_gap(content_gap, out)
+    # Topic Map interlink plan — the high-value internal-linking work, cluster-aware.
+    if interlinks:
+        _from_interlinks(interlinks, out)
     dup_losers = set()
     if links_info:
         _from_outreach(links_info, striking, out)
@@ -1004,7 +1064,10 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
         _from_decay(decay, out)
     if content:
         _from_content(content, out)
-    if orphans:
+    # The cluster-aware interlink plan already handles orphans within clusters, so
+    # the generic orphan feed only runs when there's no interlink plan (avoids
+    # listing the same orphan twice — once per cluster, once standalone).
+    if orphans and not interlinks:
         _from_orphans(orphans, out)
     if pruning:
         _from_pruning(pruning, out)
@@ -1022,19 +1085,47 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
 
     for t in out:
         _score_task(t)
-    # Order the whole plan the way the page reads it: genuine levers first (by real
-    # impact), trivial "minor" harvests last — so the #N badge on each card ascends
-    # with importance instead of the old ROI order (which put a #54 content gap at
-    # the very top of "your biggest levers").
     # TIGHTEN: drop the trivial "minor" harvests (a $10 brand-CTR nudge, a phantom
     # schema count, a page already at #1) and anything the operator can't measure
-    # or realistically action. The list should be only real, practical work — not
-    # padded with fluff. (Measurable aggregate work like links/content is exempt.)
+    # or realistically action. The list should be only real, practical work.
     out = [t for t in out if not t.get("minor")]
+    # DEDUPE across feeds: the same topic used to appear 2-3 times as different task
+    # types — e.g. "push X onto page 1 (#11)" AND "write a page for X (you have
+    # none)", which is self-contradictory. Collapse tasks that target the same
+    # query-topic (singular/plural-insensitive) to the single highest-value one.
+    out = _dedupe_by_topic(out)
     out.sort(key=lambda t: -(t.get("lever_score") or 0))
     for i, t in enumerate(out, start=1):
         t["rank"] = i
-    return out[:limit]
+    # No cap by default — show every real task. A caller may still pass `limit`.
+    return out[:limit] if limit else out
+
+
+def _topic_sig(t):
+    """A query/topic signature for dedup: singularized distinctive tokens of the
+    task's target query. None for structural tasks (no query) — those are never
+    merged. Makes 'newborn'/'newborns' and the same query across feeds collapse."""
+    m = t.get("metric") or {}
+    q = (m.get("query") or t.get("primary_keyword") or "").lower()
+    toks = [w for w in re.split(r"[^a-z0-9]+", q) if w and len(w) > 2]
+    sig = frozenset(w[:-1] if w.endswith("s") and len(w) > 3 else w for w in toks)
+    return sig or None
+
+
+def _dedupe_by_topic(tasks):
+    """Keep the single highest-lever task per query-topic. Structural tasks (no
+    topic signature) pass through untouched."""
+    best = {}
+    passthrough = []
+    for t in tasks:
+        sig = _topic_sig(t)
+        if sig is None:
+            passthrough.append(t)
+            continue
+        cur = best.get(sig)
+        if cur is None or (t.get("lever_score") or 0) > (cur.get("lever_score") or 0):
+            best[sig] = t
+    return passthrough + list(best.values())
 
 
 def review_date_for(category, from_dt=None):

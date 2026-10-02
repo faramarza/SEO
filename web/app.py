@@ -8935,12 +8935,19 @@ def api_action_plan():
 
     (ctr, cro, reviews, rich, bm, striking, decay,
      orphans, pruning, content, geo) = _build_plan_inputs(results, eval_data, disallow)
+    # The Topic Map interlink plan feeds Start Here as first-class tasks.
+    try:
+        from src.analysis.topical_authority import build_interlink_plan
+        _families = load_config().get("business_context", {}).get("product_families", []) or []
+        _interlinks = build_interlink_plan(results, _families) if _families else None
+    except Exception:
+        _interlinks = None
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
                              brand_merchant=bm, striking=striking, decay=decay,
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
                              winnable=_winnable_plan_input(),
                              links_info=_links_plan_info(), results=results,
-                             content_gap=_cg_current_plan())
+                             interlinks=_interlinks)
 
     adopted = store.get("adopted", {})
     for t in plan:
@@ -9251,12 +9258,18 @@ def _compose_weekly_digest():
 
     (ctr, cro, reviews, rich, bm, striking, decay,
      orphans, pruning, content, geo) = _build_plan_inputs(results, eval_data, disallow)
+    try:
+        from src.analysis.topical_authority import build_interlink_plan
+        _families = load_config().get("business_context", {}).get("product_families", []) or []
+        _interlinks = build_interlink_plan(results, _families) if _families else None
+    except Exception:
+        _interlinks = None
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
                              brand_merchant=bm, striking=striking, decay=decay,
                              content=content, orphans=orphans, pruning=pruning, geo=geo,
                              winnable=_winnable_plan_input(),
                              links_info=_links_plan_info(), results=results,
-                             content_gap=_cg_current_plan())
+                             interlinks=_interlinks)
     adopted = store.get("adopted", {})
     top3 = [t for t in plan if t["dedup_key"] not in adopted][:3]
 

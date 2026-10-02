@@ -476,8 +476,8 @@ def build_interlink_plan(results: list, product_families: list) -> dict:
     ordered = sorted(groups.values(), key=lambda g: (-g["_prio"], -g["_demand"],
                                                       -g["link_count"]))
     for g in ordered:
-        g.pop("_prio", None)
-        g.pop("_demand", None)
+        g["priority_rank"] = g.pop("_prio", 0)
+        g["demand"] = g.pop("_demand", 0)   # kept so Start Here can rank by it
 
     return {
         "available": cmap.get("available", True),
