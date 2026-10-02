@@ -2,26 +2,39 @@
 from src.analysis import action_plan as ap
 
 
-def _il_group(family, src, demand, orphan=True):
+def _il_group(family, src, demand, n_links=1, orphans=1):
+    links = [{"target_url": f"{src}#t{i}", "target_title": f"T{i}", "anchor": f"{family} {i}",
+              "direction": "spoke_to_hub", "fixes_orphan": i < orphans} for i in range(n_links)]
     return {"source_url": src, "source_title": src.split("/")[-1], "source_type": "category",
-            "family": family, "demand": demand, "link_count": 1, "priority_rank": 3 if orphan else 1,
-            "links": [{"target_url": src + "#hub", "target_title": "Hub", "anchor": family,
-                       "direction": "spoke_to_hub", "fixes_orphan": orphan}]}
+            "family": family, "demand": demand, "link_count": n_links, "priority_rank": 3, "links": links}
 
 
-def test_interlink_plan_feeds_start_here_one_task_per_cluster_by_demand():
+def test_interlink_tasks_are_small_atomic_batches_ranked_by_demand():
     interlinks = {"groups": [
-        _il_group("classroom rugs", "https://x.com/rug1.html", 20052),
-        _il_group("classroom rugs", "https://x.com/rug2.html", 15000),
-        _il_group("name trains", "https://x.com/train1.html", 14210),
+        _il_group("classroom rugs", "https://x.com/rug1.html", 20052, n_links=1),
+        _il_group("name trains", "https://x.com/train1.html", 14210, n_links=1),
     ]}
     plan = ap.build_action_plan(interlinks=interlinks)
     il = [t for t in plan if t["category"] == "interlink"]
-    assert len(il) == 2                           # ONE task per cluster, not per page
+    assert len(il) == 2                               # one small task per source page
     assert plan[0]["category"] == "interlink"
-    assert "classroom rugs" in plan[0]["title"].lower()   # 20k cluster leads
-    assert plan[0]["tier"] == "critical"
-    assert "across 2 pages" in plan[0]["title"]
+    assert plan[0]["tier"] == "critical"              # 20k page leads
+    # Each card carries a small, structured link list for clean rendering.
+    assert "links" in plan[0]["interlink"] and len(plan[0]["interlink"]["links"]) <= 5
+
+
+def test_big_page_is_split_into_batches_of_five_not_a_wall():
+    # A hub page needing 12 links must become 3 cards of <=5, never one wall.
+    interlinks = {"groups": [_il_group("montessori toys", "https://x.com/hub.html", 65955,
+                                       n_links=12, orphans=4)]}
+    plan = ap.build_action_plan(interlinks=interlinks)
+    il = [t for t in plan if t["category"] == "interlink"]
+    assert len(il) == 3                               # 12 links -> 5 + 5 + 2
+    assert all(len(t["interlink"]["links"]) <= 5 for t in il)
+    assert any("batch 1 of 3" in t["title"] for t in il)
+    # Orphan-rescuing links come first across the batches.
+    first_batch = next(t for t in il if "batch 1" in t["title"])
+    assert first_batch["interlink"]["links"][0]["fixes_orphan"] is True
 
 
 def test_contradictory_duplicate_is_collapsed_to_one():
@@ -54,8 +67,8 @@ def test_singular_plural_queries_merge():
 
 
 def test_no_cap_by_default():
-    # 80 topic clusters → the old limit=60 would truncate the plan; now all survive.
-    interlinks = {"groups": [_il_group(f"family {i}", f"https://x.com/p{i}.html", 100 + i)
+    # 80 source pages → the old limit=60 would truncate the plan; now all survive.
+    interlinks = {"groups": [_il_group(f"family {i}", f"https://x.com/p{i}.html", 2000 + i)
                              for i in range(80)]}
     plan = ap.build_action_plan(interlinks=interlinks)
     assert len([t for t in plan if t["category"] == "interlink"]) == 80  # none dropped

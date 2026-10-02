@@ -577,57 +577,58 @@ def _from_content_gap(cg, out, max_items=12):
 
 
 def _from_interlinks(interlinks, out):
-    """The Topic Map's interlink plan as first-class Start Here tasks — ONE task
-    per TOPIC CLUSTER (not per page, which would be hundreds), ranked by cluster
-    demand. Each carries the prioritized, page-by-page checklist of internal links
-    to add: link spokes up to the hub, the hub down to spokes, rescue orphans. This
-    is the highest-value, fully-controllable topical-authority work, on pages you
-    already own — grounded in real pages and anchors."""
+    """The Topic Map's interlink plan as SMALL, atomic Start Here tasks — each one
+    is "on this page, add up to 5 links," a real 2-minute job. A page that needs
+    many links (a hub) is split into batches so a card is never a wall; the queue
+    carries the rest and feeds them one at a time, like every other task. Ranked by
+    the page's cluster demand, orphan-rescuing links first. Grounded in real pages
+    and anchors — the highest-value lever, on pages you already own."""
     if not interlinks:
         return
-    by_fam = {}
+    BATCH = 5
     for g in (interlinks.get("groups") or []):
-        if g.get("links"):
-            by_fam.setdefault(g.get("family", ""), []).append(g)
-    DETAIL_CAP = 25  # list this many pages inline; the rest are on the Topic Map
-    for family, groups in by_fam.items():
-        total_links = sum(g.get("link_count", 0) for g in groups)
-        n_pages = len(groups)
-        demand = max((int(g.get("demand", 0) or 0) for g in groups), default=0)
-        n_orphan = sum(1 for g in groups for l in g.get("links", []) if l.get("fixes_orphan"))
-        ordered = sorted(groups, key=lambda g: (-(g.get("priority_rank", 0)),
-                                                -(int(g.get("demand", 0) or 0))))
-        steps = [f"Add {total_links} internal link(s) across {n_pages} page(s) to wire your "
-                 f"“{family}” cluster together. Edit one page at a time — links go in the "
-                 f"page BODY, not nav/footer:"]
-        for g in ordered[:DETAIL_CAP]:
-            steps.append(f"• On “{g.get('source_title') or g.get('source_url')}”:")
-            for l in g.get("links", []):
-                where = ("↑ link UP to the cluster hub" if l.get("direction") == "spoke_to_hub"
-                         else "↓ link DOWN to this page")
-                orphan = " [rescues an orphan]" if l.get("fixes_orphan") else ""
-                steps.append(f"    {where}: {l.get('target_url','')} "
-                             f"(anchor: “{l.get('anchor','')}”){orphan}")
-        if n_pages > DETAIL_CAP:
-            steps.append(f"…and {n_pages - DETAIL_CAP} more page(s) in this cluster — the full "
-                         f"list is on Topic Map → Interlink plan.")
-        steps.append("The next evaluation verifies the links went live.")
-        benefit = (f"Wires the “{family}” cluster’s internal links across {n_pages} pages"
-                   + (f", rescuing {n_orphan} orphan page(s)" if n_orphan else "")
-                   + f". Internal linking is free, fast, fully in your control — the single "
-                   f"biggest topical-authority lever on pages you ALREADY own. This cluster "
-                   f"has {demand:,} impressions of demand.")
-        t = _task("interlink", "",
-                  f"Wire up your “{family}” cluster ({total_links} internal links across {n_pages} pages)",
-                  steps, benefit, 0, demand,
-                  {"type": "cluster_interlinks", "family": family},
-                  {"links_present": 0},
-                  "category", f"interlink:{family}")
-        t["dedup_key"] = f"interlink:{family}"
-        # Structured summary so the card renders clean stats instead of a text wall.
-        t["cluster"] = {"family": family, "total_links": total_links,
-                        "n_pages": n_pages, "n_orphans": n_orphan, "demand": demand}
-        out.append(t)
+        links = g.get("links") or []
+        if not links:
+            continue
+        src_title = g.get("source_title") or g.get("source_url") or "this page"
+        src_url = g.get("source_url") or ""
+        family = g.get("family", "")
+        demand = int(g.get("demand", 0) or 0)
+        # Orphan-rescuing links first within the page, then the rest.
+        links = sorted(links, key=lambda l: (not l.get("fixes_orphan")))
+        batches = [links[i:i + BATCH] for i in range(0, len(links), BATCH)]
+        for bi, batch in enumerate(batches):
+            n = len(batch)
+            n_orphan = sum(1 for l in batch if l.get("fixes_orphan"))
+            part = f" (batch {bi + 1} of {len(batches)})" if len(batches) > 1 else ""
+            steps = [f"On your “{src_title}” page, add these {n} internal link(s) in the "
+                     f"body content (not nav/footer):"]
+            link_rows = []
+            for l in batch:
+                where = ("link UP to the main hub" if l.get("direction") == "spoke_to_hub"
+                         else "link DOWN to this page")
+                orphan = " — rescues an orphan (nothing links to it yet)" if l.get("fixes_orphan") else ""
+                steps.append(f"  → {where}: {l.get('target_url','')} "
+                             f"(anchor text: “{l.get('anchor','')}”){orphan}")
+                link_rows.append({"url": l.get("target_url", ""), "anchor": l.get("anchor", ""),
+                                  "direction": l.get("direction", ""),
+                                  "fixes_orphan": bool(l.get("fixes_orphan"))})
+            steps.append("Add them, Save, then hit DONE.")
+            orphan_note = f" ({n_orphan} of them rescue orphan pages)" if n_orphan else ""
+            benefit = (f"Connects “{src_title}” into your “{family}” topic cluster{orphan_note}. "
+                       f"Internal links are free, instant, and the biggest topical-authority "
+                       f"lever on pages you already own.")
+            t = _task("interlink", src_url,
+                      f"Add {n} internal link{'s' if n != 1 else ''} to “{src_title}”{part}",
+                      steps, benefit, 0, demand,
+                      {"type": "page_interlinks", "url": src_url},
+                      {"links_present": 0},
+                      "category", f"interlink:{src_url}:{bi}")
+            t["dedup_key"] = f"interlink:{src_url}:{bi}"
+            # Structured data so the card renders the links cleanly (small list).
+            t["interlink"] = {"family": family, "source_title": src_title,
+                              "source_url": src_url, "links": link_rows}
+            out.append(t)
 
 
 def _from_orphans(oc, out):
