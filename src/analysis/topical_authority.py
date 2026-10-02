@@ -390,11 +390,23 @@ def _anchor_for(title: str, family: str) -> str:
     title (fallback: the family term). Always presented as editable; the operator
     makes it read naturally in context. Never a fabricated phrase."""
     t = (title or "").strip()
-    # Trim a boilerplate brand/suffix tail so the anchor stays tight.
-    t = re.split(r"\s[|\-–—]\s", t)[0].strip()
+    # Take the lead clause: cut at a colon or a spaced separator (brand/suffix tail
+    # or subtitle), so "The Ultimate Guide to Montessori Toys: Types, Benefits…"
+    # becomes "The Ultimate Guide to Montessori Toys".
+    t = re.split(r"\s*[:|–—]\s*|\s+-\s+", t)[0].strip()
+    # Still too long → truncate at a word boundary near 55 chars (no ellipsis), so
+    # the anchor is a real, descriptive phrase — NOT the generic family term
+    # repeated across every link (duplicate exact-match anchors read as spam).
+    if len(t) > 60:
+        acc = ""
+        for w in t.split():
+            if len(acc) + len(w) + 1 > 55:
+                break
+            acc = (acc + " " + w).strip()
+        t = acc  # may be "" if the very first word already exceeds the limit
     if 2 <= len(t) <= 60:
         return t
-    return (family or t or "").strip().lower()
+    return (family or "").strip().lower()
 
 
 def build_interlink_plan(results: list, product_families: list) -> dict:

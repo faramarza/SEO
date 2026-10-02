@@ -280,3 +280,13 @@ def test_inferred_hub_when_no_category():
     # The product has an inlink (from the blog) so it wins the inferred hub.
     assert "wooden-name-puzzle" in fam["hub"]["url"]
     assert any("de-facto hub" in f for f in fam["flags"])
+
+
+def test_anchor_for_long_titles_are_descriptive_not_generic():
+    # Long titles must yield a distinct, descriptive anchor — NOT the bare family
+    # term repeated (which reads as spammy duplicate exact-match anchors).
+    a1 = _anchor_for("The Ultimate Guide to Montessori Toys: Types, Benefits, and Choices", "montessori toys")
+    a2 = _anchor_for("Montessori Sensory Toys That Spark Creativity: Spotlight on the Drum", "montessori toys")
+    assert a1 == "The Ultimate Guide to Montessori Toys"
+    assert a2 == "Montessori Sensory Toys That Spark Creativity"
+    assert a1 != a2 and a1.lower() != "montessori toys" and a2.lower() != "montessori toys"
