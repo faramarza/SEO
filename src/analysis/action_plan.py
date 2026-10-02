@@ -799,6 +799,14 @@ def _score_task(t):
     # Otherwise use a traffic proxy WEIGHTED by the page's commercial intent, so
     # informational reach doesn't masquerade as revenue.
     w = ASSET_INTENT_WEIGHT.get((t.get("asset_type") or "other").lower(), 0.6)
+    # A content-gap task is a NEW article to write — speculative content, not an
+    # existing money page. Even when its keyword looks "commercial" (so it was
+    # tagged category/product), writing a blog article for it converts like
+    # content, not like a category page. Cap its intent weight at the content
+    # level so a $4 new article can't borrow a money page's weight and outrank
+    # real work on pages you already have.
+    if cat == "content":
+        w = min(w, ASSET_INTENT_WEIGHT["blog"])
     if t["expected_value"] > 0:
         # Trust the measured dollars, but discount for commercial intent when
         # ranking: recovering clicks/conversions on an INFORMATIONAL page (a
