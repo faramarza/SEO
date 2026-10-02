@@ -707,6 +707,71 @@ def _site_base_url(config=None):
     return raw.rstrip("/") + "/"
 
 
+def _llm_complete(system_message: str, prompt: str, max_tokens: int = 4500,
+                  temperature: float = 0.4, timeout_sec: int = 180):
+    """Reusable single-shot LLM call. Routes to Anthropic (streamed) or OpenAI by
+    the configured model prefix, mirroring the opportunity-AI path. Returns
+    (text, error): on success error is None; on failure text is "" and error is a
+    human-readable string (never raises). Content generation defaults to
+    claude-opus-4-8 when no model is configured."""
+    import httpx
+    config = load_config()
+    ai_config = config.get("ai", {})
+    model = ai_config.get("model") or "claude-opus-4-8"
+    is_anthropic = model.startswith("claude-")
+    key_env = "ANTHROPIC_API_KEY" if is_anthropic else ai_config.get("api_key_env", "OPENAI_API_KEY")
+    api_key = os.environ.get(key_env)
+    if not api_key:
+        return "", f"{key_env} not set — add it to the environment to generate drafts."
+    api_timeout = httpx.Timeout(connect=10.0, read=float(timeout_sec), write=10.0, pool=10.0)
+    try:
+        if is_anthropic:
+            body = {"model": model, "max_tokens": max_tokens, "system": system_message,
+                    "messages": [{"role": "user", "content": prompt}], "stream": True}
+            if model == "claude-fable-5":
+                body["thinking"] = {"type": "adaptive"}
+            else:
+                body["temperature"] = temperature
+            headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01",
+                       "Content-Type": "application/json"}
+            text = ""
+            with httpx.stream("POST", "https://api.anthropic.com/v1/messages",
+                              headers=headers, json=body, timeout=api_timeout) as r:
+                if r.status_code != 200:
+                    return "", f"Anthropic API error {r.status_code}: {r.read().decode('utf-8','replace')[:500]}"
+                for line in r.iter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if not payload or payload == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(payload)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    if event.get("type") == "content_block_delta":
+                        d = event.get("delta", {})
+                        if d.get("type") == "text_delta":
+                            text += d.get("text", "")
+                    elif event.get("type") == "error":
+                        return "", f"Anthropic stream error: {event.get('error', {})}"
+            return text, None
+        else:
+            payload = {"model": model,
+                       "messages": [{"role": "system", "content": system_message},
+                                    {"role": "user", "content": prompt}],
+                       "max_tokens": max_tokens, "temperature": temperature}
+            resp = httpx.post("https://api.openai.com/v1/chat/completions",
+                              headers={"Authorization": f"Bearer {api_key}",
+                                       "Content-Type": "application/json"},
+                              json=payload, timeout=api_timeout)
+            if resp.status_code != 200:
+                return "", f"OpenAI API error {resp.status_code}: {resp.text[:500]}"
+            return resp.json().get("choices", [{}])[0].get("message", {}).get("content", ""), None
+    except Exception as e:
+        return "", f"LLM request failed: {e}"
+
+
 def _biz_params(config, asset_type=None):
     """Return (aov, cvr, margin, source) preferring the site's OWN measured
     values (GA4) over config/industry defaults. Per-type CVR when available."""
@@ -12746,6 +12811,235 @@ def _ta_topic_plan():
 @app.route("/api/topical-authority/topic-plan")
 def api_topical_authority_topic_plan():
     return jsonify(_ta_topic_plan())
+
+
+# ── Phase 4: the content creator — draft → human review → publish → verify ───
+
+_CONTENT_DRAFTS_PATH = DATA_PATH / "content_drafts.json"
+
+
+def _cd_load() -> dict:
+    try:
+        with open(_CONTENT_DRAFTS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"drafts": {}}
+
+
+def _cd_save(d: dict):
+    _CONTENT_DRAFTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _CONTENT_DRAFTS_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    tmp.replace(_CONTENT_DRAFTS_PATH)
+
+
+def _cd_find_gap_article(primary_keyword: str):
+    """Locate the real content-gap article for a keyword, so a draft is built from
+    the actual keyword research (outline, supporting keywords) — not a guess."""
+    if not primary_keyword:
+        return None
+    try:
+        articles = (_cg_load().get("plan") or {}).get("articles") or []
+    except Exception:
+        articles = []
+    pk = primary_keyword.strip().lower()
+    for a in articles:
+        if (a.get("primary_keyword") or "").strip().lower() == pk:
+            return a
+    return None
+
+
+def _cd_parse_llm_json(text: str):
+    """Parse the model's JSON output, tolerating markdown fences / stray prose."""
+    import re as _re
+    s = (text or "").strip()
+    s = _re.sub(r"^```(?:json)?\s*", "", s)
+    s = _re.sub(r"\s*```$", "", s).strip()
+    try:
+        return json.loads(s), None
+    except Exception:
+        # Grab the outermost {...} if the model wrapped it in commentary.
+        m = _re.search(r"\{.*\}", s, _re.S)
+        if m:
+            try:
+                return json.loads(m.group(0)), None
+            except Exception as e:
+                return None, f"Could not parse model output as JSON: {e}"
+        return None, "Model did not return JSON."
+
+
+@app.route("/api/content/draft", methods=["POST"])
+def api_content_draft():
+    """Generate a grounded draft for a scheduled topic and store it in REVIEW.
+    Body: {family, primary_keyword?, item_type}. Never publishes; builds the brief
+    deterministically, has the LLM fill the Magento blocks under the brief's
+    anti-fabrication contract, and returns the draft + a human review checklist."""
+    from src.analysis.content_brief import build_brief, build_generation_messages
+    body = request.get_json(silent=True) or {}
+    family = (body.get("family") or "").strip()
+    if not family:
+        return jsonify({"error": "family is required."}), 400
+    primary_keyword = (body.get("primary_keyword") or "").strip()
+    item_type = (body.get("item_type") or ("pillar" if not primary_keyword else "article")).strip()
+
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        return jsonify({"error": "No evaluation yet — run a full evaluation first."}), 400
+    config = load_config()
+    families = config.get("business_context", {}).get("product_families", []) or []
+
+    target = _cd_find_gap_article(primary_keyword) if primary_keyword else None
+    brief = build_brief(results, families, family, target=target, item_type=item_type)
+    system, prompt = build_generation_messages(brief)
+    text, err = _llm_complete(system, prompt, max_tokens=5500)
+    if err:
+        return jsonify({"error": err}), 502
+    parsed, perr = _cd_parse_llm_json(text)
+    if perr:
+        return jsonify({"error": perr, "raw_preview": (text or "")[:600]}), 502
+
+    import uuid
+    draft_id = f"CD-{uuid.uuid4().hex[:8].upper()}"
+    draft = {
+        "id": draft_id,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "review",
+        "family": family,
+        "item_type": brief["item_type"],
+        "primary_keyword": primary_keyword or brief["topic"].get("primary_keyword"),
+        "topic_title": brief["topic"].get("title"),
+        # The separate Magento blocks.
+        "blocks": {
+            "meta_title": parsed.get("meta_title", ""),
+            "meta_description": parsed.get("meta_description", ""),
+            "url_key": parsed.get("url_key", ""),
+            "h1": parsed.get("h1", ""),
+            "body_html": parsed.get("body_html", ""),
+            "faq_jsonld": parsed.get("faq_jsonld", ""),
+        },
+        "internal_links": parsed.get("internal_links", []),
+        "external_links": parsed.get("external_links", []),
+        "verify_flags": parsed.get("verify_flags", []),
+        # Kept for verification after publish.
+        "required_internal_links": brief["required_internal_links"],
+    }
+    store = _cd_load()
+    store.setdefault("drafts", {})[draft_id] = draft
+    _cd_save(store)
+    return jsonify({"success": True, "draft": draft,
+                    "review_checklist": _cd_checklist(draft)})
+
+
+def _cd_checklist(draft: dict) -> list:
+    """The human-review gate, as a concrete checklist. Honest about what the tool
+    could NOT verify — the reviewer confirms these before publishing."""
+    items = []
+    b = draft.get("blocks", {})
+    mt, md = b.get("meta_title", ""), b.get("meta_description", "")
+    if len(mt) > 60:
+        items.append({"severity": "fix", "text": f"Meta title is {len(mt)} chars (>60) — trim it."})
+    if len(md) > 155:
+        items.append({"severity": "fix", "text": f"Meta description is {len(md)} chars (>155) — trim it."})
+    for vf in (draft.get("verify_flags") or []):
+        items.append({"severity": "verify", "text": f"Confirm/replace: {vf}"})
+    ext = draft.get("external_links") or []
+    if len(ext) < 1:
+        items.append({"severity": "fix", "text": "No external authority link — add 1–3 to real, relevant sources."})
+    for e in ext:
+        items.append({"severity": "verify",
+                      "text": f"Open and confirm this external link is live & relevant: "
+                              f"{e.get('url','')} ({e.get('name','')})"})
+    if not (draft.get("internal_links")):
+        items.append({"severity": "fix", "text": "No internal links placed — link up to the hub and to products."})
+    items.append({"severity": "elevate",
+                  "text": "Add your first-hand product expertise (E-E-A-T): a real photo, a "
+                          "specific detail only you'd know, a genuine recommendation. The AI draft "
+                          "is the floor, not the ceiling."})
+    return items
+
+
+@app.route("/api/content/drafts")
+def api_content_drafts():
+    store = _cd_load()
+    out = []
+    for d in sorted(store.get("drafts", {}).values(),
+                    key=lambda x: x.get("created_at", ""), reverse=True):
+        out.append({k: d.get(k) for k in
+                    ("id", "created_at", "status", "family", "item_type",
+                     "primary_keyword", "topic_title")})
+    return jsonify({"drafts": out})
+
+
+@app.route("/api/content/draft/<draft_id>")
+def api_content_draft_get(draft_id):
+    d = _cd_load().get("drafts", {}).get(draft_id)
+    if not d:
+        return jsonify({"error": "Draft not found."}), 404
+    return jsonify({"draft": d, "review_checklist": _cd_checklist(d)})
+
+
+@app.route("/api/content/draft/<draft_id>/status", methods=["POST"])
+def api_content_draft_status(draft_id):
+    body = request.get_json(silent=True) or {}
+    new_status = (body.get("status") or "").strip()
+    if new_status not in ("review", "approved", "published", "rejected"):
+        return jsonify({"error": "status must be review/approved/published/rejected."}), 400
+    store = _cd_load()
+    d = store.get("drafts", {}).get(draft_id)
+    if not d:
+        return jsonify({"error": "Draft not found."}), 404
+    d["status"] = new_status
+    if new_status == "published" and body.get("published_url"):
+        d["published_url"] = body["published_url"].strip()
+    _cd_save(store)
+    return jsonify({"success": True, "status": new_status})
+
+
+@app.route("/api/content/draft/<draft_id>/verify", methods=["POST"])
+def api_content_draft_verify(draft_id):
+    """After publishing, check the live page actually carries the interlinks the
+    brief required. Matches the published page in the latest evaluation (by the
+    provided URL, or by the draft's url_key) and checks its internal_outlinks."""
+    from src.analysis.content_brief import verify_interlinks
+    from src.analysis.topical_authority import _norm_url
+    store = _cd_load()
+    d = store.get("drafts", {}).get(draft_id)
+    if not d:
+        return jsonify({"error": "Draft not found."}), 404
+    body = request.get_json(silent=True) or {}
+    published_url = (body.get("published_url") or d.get("published_url") or "").strip()
+    url_key = (d.get("blocks", {}).get("url_key") or "").strip().strip("/")
+    try:
+        with open(DATA_PATH / "latest_evaluation.json") as f:
+            results = json.load(f).get("results", [])
+    except Exception:
+        return jsonify({"error": "No evaluation to verify against yet."}), 400
+
+    match = None
+    if published_url:
+        pn = _norm_url(published_url)
+        match = next((r for r in results if _norm_url(r.get("url", "")) == pn), None)
+    if not match and url_key:
+        match = next((r for r in results if url_key in (r.get("url", "") or "").lower()), None)
+    if not match:
+        return jsonify({"found": False,
+                        "message": "Couldn't find the published page in the latest "
+                                   "evaluation yet. Publish it, run an evaluation (or wait "
+                                   "for the next crawl), then verify again."})
+    outlinks = (match.get("page_metadata", {}) or {}).get("internal_outlinks", [])
+    v = verify_interlinks(outlinks, d)
+    v["found"] = True
+    v["published_url"] = match.get("url")
+    return jsonify(v)
+
+
+@app.route("/content-studio")
+def content_studio_page():
+    """Review, elevate, and verify AI-drafted articles before they go to Magento."""
+    return render_template("content_studio.html")
 
 
 @app.route("/api/topical-authority/send-to-board", methods=["POST"])

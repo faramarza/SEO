@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Content Studio — Governor{% endblock %}
+{% block header %}✍️ Content Studio{% endblock %}
+{% block content %}
+<div class="page-header">
+  <p class="page-description">
+    The content creator. Pick a topic from your <strong>🗺️ Topic Map → Coverage &amp; cadence</strong>
+    (or generate one here), and the tool drafts a full article <strong>grounded in your real catalog</strong>
+    — never inventing specs, prices, or stats. Everything comes back in <strong>separate, cut-and-paste
+    blocks</strong> for Magento (meta title, meta description, URL key, H1, body HTML, FAQ schema), with the
+    cluster interlinks baked in and 1–3 authoritative external links. Drafts land in <strong>review</strong>,
+    not live: you confirm the flagged items, add your own expertise, publish, then <strong>verify</strong> the
+    links went live. The AI draft is the floor — you are the ceiling.
+  </p>
+</div>
+
+<div class="card" style="margin-bottom:14px;">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <input id="cs-family" type="text" placeholder="product family (e.g. name trains)"
+           style="flex:1;min-width:200px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;">
+    <input id="cs-kw" type="text" placeholder="target keyword (optional — blank = pillar page)"
+           style="flex:1;min-width:220px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;">
+    <button id="cs-gen" class="pb-task-btn" onclick="csGenerate()">✍️ Draft article</button>
+  </div>
+  <p style="margin:8px 0 0;color:var(--text-muted);font-size:12px;">Grounds the draft in that family's real pages. With a keyword that matches your Content Gap plan, it uses the actual keyword research (outline, sub-topics). Generation takes ~30–60s.</p>
+</div>
+
+<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+  <div style="flex:0 0 260px;max-width:100%;">
+    <h3 style="font-size:13px;margin:4px 0 8px;color:var(--text-muted);">DRAFTS</h3>
+    <div id="cs-list"><p class="pb-loading">Loading…</p></div>
+  </div>
+  <div style="flex:1;min-width:320px;">
+    <div id="cs-detail"><p class="empty-state">Select a draft, or generate one above.</p></div>
+  </div>
+</div>
+<div id="cs-toast" class="pb-toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .cs-row{padding:8px 10px;border:1px solid var(--border,#e5e7eb);border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:12.5px;}
+  .cs-row:hover{background:var(--bg-hover,#f8fafc);}
+  .cs-row.active{border-color:#6366f1;background:var(--bg-subtle,#f5f3ff);}
+  .cs-status{display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;text-transform:uppercase;}
+  .cs-s-review{background:#fef9c3;color:#854d0e;} .cs-s-approved{background:#dbeafe;color:#1e40af;}
+  .cs-s-published{background:#dcfce7;color:#166534;} .cs-s-rejected{background:#f3f4f6;color:#6b7280;}
+  .cs-block{border:1px solid var(--border,#e5e7eb);border-radius:9px;margin:10px 0;overflow:hidden;}
+  .cs-block-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 11px;background:var(--bg-subtle,#f8fafc);font-size:12px;font-weight:700;}
+  .cs-block-h .mag{font-weight:400;color:var(--text-muted);font-size:11px;}
+  .cs-block pre{margin:0;padding:10px 11px;white-space:pre-wrap;word-break:break-word;font-size:12px;max-height:340px;overflow:auto;}
+  .cs-copy{font-size:11px;padding:3px 10px;border:1px solid var(--border,#ccc);border-radius:6px;background:#fff;cursor:pointer;color:var(--text-primary);}
+  .cs-count{font-weight:400;color:var(--text-muted);font-size:11px;margin-left:6px;}
+  .cs-over{color:#dc2626;}
+  .cs-check{font-size:12.5px;padding:6px 10px;border-radius:7px;margin:5px 0;display:flex;gap:8px;align-items:flex-start;}
+  .cs-fix{background:#fee2e2;color:#991b1b;} .cs-verify{background:#fffbeb;color:#92400e;} .cs-elevate{background:#eef2ff;color:#3730a3;}
+  .cs-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;}
+  .cs-btn{font-size:12.5px;padding:7px 13px;border-radius:7px;border:1px solid var(--border,#ccc);background:#fff;cursor:pointer;font-weight:600;}
+  .cs-btn.primary{background:#4f46e5;color:#fff;border-color:#4f46e5;}
+  .cs-btn.ok{background:#16a34a;color:#fff;border-color:#16a34a;}
+</style>
+<script>
+let CS_SEL=null;
+
+function csToast(m,e){const t=document.getElementById('cs-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3200);}
+
+async function csList(){
+  const d=await (await fetch('/api/content/drafts')).json();
+  const el=document.getElementById('cs-list');
+  const drafts=d.drafts||[];
+  if(!drafts.length){ el.innerHTML='<p style="font-size:12px;color:var(--text-muted);">No drafts yet.</p>'; return; }
+  el.innerHTML=drafts.map(x=>`<div class="cs-row ${x.id===CS_SEL?'active':''}" onclick="csOpen('${x.id}')">
+    <div style="display:flex;justify-content:space-between;gap:6px;"><strong>${escHtml(x.topic_title||x.primary_keyword||x.family)}</strong>
+      <span class="cs-status cs-s-${x.status}">${x.status}</span></div>
+    <div style="color:var(--text-muted);margin-top:2px;">${escHtml(x.family)} · ${x.item_type} · ${(x.created_at||'').replace('T',' ')}</div>
+  </div>`).join('');
+}
+
+async function csGenerate(){
+  const family=document.getElementById('cs-family').value.trim();
+  const kw=document.getElementById('cs-kw').value.trim();
+  if(!family){ csToast('Enter a product family',true); return; }
+  const btn=document.getElementById('cs-gen'); btn.disabled=true; const old=btn.textContent; btn.textContent='✍️ Drafting… (~30–60s)';
+  try{
+    const r=await (await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({family, primary_keyword:kw})})).json();
+    if(r.error){ csToast(r.error,true); }
+    else { csToast('Draft ready'); CS_SEL=r.draft.id; await csList(); renderDetail(r.draft, r.review_checklist); }
+  }catch(e){ csToast('Generation failed',true); }
+  btn.disabled=false; btn.textContent=old;
+}
+
+async function csOpen(id){
+  CS_SEL=id; await csList();
+  const r=await (await fetch('/api/content/draft/'+id)).json();
+  if(r.error){ csToast(r.error,true); return; }
+  renderDetail(r.draft, r.review_checklist);
+}
+
+function block(key,label,mag,val,max){
+  const n=(val||'').length;
+  const over = max && n>max;
+  const count = max ? `<span class="cs-count ${over?'cs-over':''}">${n}/${max}</span>` : '';
+  const safe=escHtml(val||'');
+  return `<div class="cs-block">
+    <div class="cs-block-h"><span>${label}${count} <span class="mag">→ ${escHtml(mag)}</span></span>
+      <button class="cs-copy" onclick="csCopyKey('${key}')">copy</button></div>
+    <pre id="blk-${key}">${safe}</pre></div>`;
+}
+
+let CUR=null;
+function renderDetail(d, checklist){
+  CUR=d;
+  const b=d.blocks||{};
+  const blocks = [
+    block('meta_title','Meta Title','Page → SEO → Meta Title', b.meta_title, 60),
+    block('meta_description','Meta Description','Page → SEO → Meta Description', b.meta_description, 155),
+    block('url_key','URL Key','Page → SEO → URL Key', b.url_key, 75),
+    block('h1','H1 / Page Title','Page → Page Title', b.h1, 70),
+    block('body_html','Body HTML','Content → Show/Hide Editor → paste raw', b.body_html, null),
+    block('faq_jsonld','FAQPage JSON-LD','end of body / Layout XML', b.faq_jsonld, null),
+  ].join('');
+
+  const checks=(checklist||[]).map(c=>`<div class="cs-check cs-${c.severity}">
+    <span>${c.severity==='fix'?'🔧':c.severity==='verify'?'🔍':'⭐'}</span><span>${escHtml(c.text)}</span></div>`).join('');
+
+  const ext=(d.external_links||[]).map(e=>`<li><a href="${escHtml(e.url)}" target="_blank" rel="noopener">${escHtml(e.name||e.url)}</a>${e.claim_supported?` — <span style="color:var(--text-muted);">${escHtml(e.claim_supported)}</span>`:''}</li>`).join('');
+  const intl=(d.internal_links||[]).map(l=>`<li><code>${escHtml(l.anchor||'')}</code> → ${escHtml(l.url)}</li>`).join('');
+
+  document.getElementById('cs-detail').innerHTML=`
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
+        <h2 style="font-size:17px;margin:0;">${escHtml(d.topic_title||d.primary_keyword||d.family)}</h2>
+        <span class="cs-status cs-s-${d.status}">${d.status}</span>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0;">${escHtml(d.family)} · ${d.item_type} · targets “${escHtml(d.primary_keyword||'')}”</p>
+
+      <div class="cs-actions">
+        <button class="cs-btn ok" onclick="csStatus('approved')">✓ Approve</button>
+        <button class="cs-btn primary" onclick="csPublish()">📤 Mark published</button>
+        <button class="cs-btn" onclick="csVerify()">🔗 Verify links live</button>
+        <button class="cs-btn" onclick="csStatus('rejected')">✕ Reject</button>
+      </div>
+
+      <h3 style="font-size:13px;margin:14px 0 4px;">✅ Review gate — confirm before publishing</h3>
+      ${checks||'<p style="font-size:12px;color:var(--text-muted);">No checklist items.</p>'}
+
+      <h3 style="font-size:13px;margin:16px 0 4px;">📋 Cut-and-paste blocks for Magento</h3>
+      ${blocks}
+
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:12.5px;">
+        <div style="flex:1;min-width:220px;"><strong>External authority links</strong><ul style="margin:4px 0 0;padding-left:18px;">${ext||'<li style="color:#dc2626;">none — add 1–3</li>'}</ul></div>
+        <div style="flex:1;min-width:220px;"><strong>Internal links placed</strong><ul style="margin:4px 0 0;padding-left:18px;">${intl||'<li style="color:#dc2626;">none</li>'}</ul></div>
+      </div>
+      <div id="cs-verify-out" style="margin-top:10px;"></div>
+    </div>`;
+}
+
+function csCopyKey(key){
+  const el=document.getElementById('blk-'+key);
+  govCopy(el ? el.textContent : '', ()=>csToast('Copied'));
+}
+
+async function csStatus(status){
+  if(!CUR) return;
+  const r=await (await fetch(`/api/content/draft/${CUR.id}/status`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status})})).json();
+  if(r.error){ csToast(r.error,true); return; }
+  csToast('Status: '+status); csOpen(CUR.id);
+}
+
+async function csPublish(){
+  if(!CUR) return;
+  const url=prompt('Paste the LIVE Magento URL you published this at (so the tool can verify the links later):','');
+  if(url===null) return;
+  const r=await (await fetch(`/api/content/draft/${CUR.id}/status`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status:'published', published_url:url})})).json();
+  if(r.error){ csToast(r.error,true); return; }
+  csToast('Marked published'); csOpen(CUR.id);
+}
+
+async function csVerify(){
+  if(!CUR) return;
+  const out=document.getElementById('cs-verify-out');
+  out.innerHTML='<p class="pb-loading" style="font-size:12px;">Checking the live page in your latest evaluation…</p>';
+  const r=await (await fetch(`/api/content/draft/${CUR.id}/verify`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+  if(r.error){ out.innerHTML=`<div class="cs-check cs-fix">${escHtml(r.error)}</div>`; return; }
+  if(!r.found){ out.innerHTML=`<div class="cs-check cs-verify">${escHtml(r.message)}</div>`; return; }
+  const miss=(r.missing||[]).map(m=>`<li>${escHtml(m.url)} <span style="color:var(--text-muted);">(${m.direction})</span></li>`).join('');
+  out.innerHTML = r.all_present
+    ? `<div class="cs-check cs-elevate">✅ All ${r.required} required interlinks are live on ${escHtml(r.published_url)}.</div>`
+    : `<div class="cs-check cs-fix">⚠ ${(r.present||[]).length}/${r.required} interlinks live. Still missing:<ul style="margin:4px 0 0;">${miss}</ul></div>`;
+}
+
+csList();
+// Deep-link from the Topic Map cadence: ?family=...&kw=...
+(function(){
+  const q=new URLSearchParams(location.search);
+  if(q.get('family')){ document.getElementById('cs-family').value=q.get('family'); }
+  if(q.get('kw')){ document.getElementById('cs-kw').value=q.get('kw'); }
+})();
+</script>
+{% endblock %}

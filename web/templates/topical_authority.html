@@ -225,10 +225,14 @@ async function taPlanLoad(){
 function renderCoverage(f){
   const c=f.coverage||{}, sub=c.subscores||{};
   const pct=c.score||0, color=COV_COLOR[c.status]||'#9ca3af';
-  const gaps=(f.gaps||[]).map(g=>`<div class="ta-gap ta-gap-${g.type}">
+  const gaps=(f.gaps||[]).map(g=>{
+      const write = (g.type==='pillar'||g.type==='article')
+        ? ` <a class="ta-copy" style="text-decoration:none;" href="/content-studio?family=${encodeURIComponent(f.family)}${g.primary_keyword?('&kw='+encodeURIComponent(g.primary_keyword)):''}">✍️ draft</a>`
+        : '';
+      return `<div class="ta-gap ta-gap-${g.type}">
       <strong style="text-transform:capitalize;">${g.type}</strong> ${g.priority==='high'?'<span class="ta-orphan-tag">priority</span>':''} — ${escHtml(g.what)}
-      ${g.volume?`<span style="color:var(--text-muted);font-size:11px;"> (~${g.volume} searches/mo)</span>`:''}
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">No gaps — this topic is well covered.</div>';
+      ${g.volume?`<span style="color:var(--text-muted);font-size:11px;"> (~${g.volume} searches/mo)</span>`:''}${write}
+    </div>`;}).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">No gaps — this topic is well covered.</div>';
   const subTxt = Object.keys(sub).length
     ? `<span style="font-size:11px;color:var(--text-muted);">pillar ${sub.pillar}/25 · depth ${sub.depth}/30 · links ${sub.link_health}/25 · orphan-free ${sub.orphan_free}/10 · product ${sub.product}/10</span>`
     : '';
@@ -246,9 +250,10 @@ function renderCoverage(f){
 function renderCadence(cadence){
   if(!cadence.length) return '<div class="card" style="margin-top:14px;"><strong>✓ Nothing queued.</strong><p style="font-size:13px;margin:6px 0 0;">No pillar or article gaps to schedule right now.</p></div>';
   const months=cadence.map(mo=>{
-    const items=mo.items.map(it=>`<div class="ta-month-item">
-        ${it.type==='pillar'?'🏛️ <strong>Pillar</strong>':'📝'} ${escHtml(it.title||it.what)}
-        <span style="color:var(--text-muted);font-size:11px;"> · ${escHtml(it.family)}${it.volume?` · ~${it.volume}/mo`:''}</span></div>`).join('');
+    const items=mo.items.map(it=>`<div class="ta-month-item" style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+        <span>${it.type==='pillar'?'🏛️ <strong>Pillar</strong>':'📝'} ${escHtml(it.title||it.what)}
+        <span style="color:var(--text-muted);font-size:11px;"> · ${escHtml(it.family)}${it.volume?` · ~${it.volume}/mo`:''}</span></span>
+        <a class="ta-copy" style="text-decoration:none;white-space:nowrap;" href="/content-studio?family=${encodeURIComponent(it.family)}${it.primary_keyword?('&kw='+encodeURIComponent(it.primary_keyword)):''}">✍️ draft</a></div>`).join('');
     return `<div class="ta-month"><div class="ta-month-h">Month ${mo.month} <span style="font-weight:400;color:var(--text-muted);font-size:11px;">· ${mo.items.length}/${mo.capacity} articles</span></div>${items}</div>`;
   }).join('');
   return `<h3 style="font-size:14px;margin:18px 0 4px;">📅 Publishing cadence — ramped 4→8/month</h3>
