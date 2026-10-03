@@ -13382,15 +13382,17 @@ def _vet_interlink_plan(plan: dict) -> dict:
             kept = []
             for l in g.get("links", []):
                 v = verdicts.get(_spoke(g, l))
-                if v is None:
-                    kept.append(l)            # not classified (beyond cap) — keep
-                elif v.get("belongs"):
-                    # Only a hub→spoke anchor describes the classified page; a
-                    # spoke→hub anchor names the hub and is left alone.
-                    if l.get("direction") == "hub_to_spoke" and v.get("anchor"):
-                        l["anchor"] = v["anchor"]
+                cf = (v.get("family") or "").strip().lower() if v else ""
+                # KEEP unless the AI pinned the spoke to a SPECIFIC DIFFERENT
+                # product family (rug→classroom rugs, book→books → drop). "none"
+                # means it's a blog/guide that doesn't map to a product family —
+                # that's legitimate topic content, so KEEP it (dropping "none" was
+                # gutting clusters of their own articles).
+                drop = bool(v) and not v.get("belongs") and cf not in ("", "none")
+                if not drop:
+                    if v and l.get("direction") == "hub_to_spoke" and v.get("anchor"):
+                        l["anchor"] = v["anchor"]   # anchor describes the spoke target
                     kept.append(l)
-                # else: spoke classified to a DIFFERENT family (or none) — drop
             g["links"] = kept
             g["link_count"] = len(kept)
     plan["groups"] = [g for g in plan["groups"] if g.get("links")]
