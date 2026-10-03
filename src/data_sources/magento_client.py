@@ -260,7 +260,7 @@ class MagentoClient:
         # so we probe both known shapes and report the first that answers.
         checks = [("products", ["/products"]),
                   ("categories", ["/categories/list"]),
-                  ("blog posts", list(self._BLOG_POST_BASES))]
+                  ("blog posts", [r[0] for r in self._BLOG_ROUTES])]
         for label, paths in checks:
             reported = False
             for path in paths:
@@ -472,15 +472,21 @@ class MagentoClient:
     # the store actually registers (capability detection, not a guess). Blog MX
     # supports PARTIAL updates, so we send ONLY `content` — nothing else is even in
     # the payload. ACL is Magento_Catalog::products (same as product writes).
-    _BLOG_POST_BASES = ("/blog/post", "/blog")
+    # Route shapes as (LIST path, ITEM path). Confirmed from the installed module:
+    # Blog MX (3.4+) lists at GET /V1/blog/posts (plural) and reads/writes a single
+    # post at /V1/blog/post/:id — there is NO GET /V1/blog/post, so the lookup MUST
+    # use the plural path. The legacy module-blog used /V1/blog for both. Probed in
+    # order; the first whose LIST route is registered wins. Blog MX supports PARTIAL
+    # updates, so the write sends ONLY `content`.
+    _BLOG_ROUTES = (("/blog/posts", "/blog/post"), ("/blog", "/blog"))
 
     @staticmethod
     def _is_no_route(err) -> bool:
         m = str(err).lower()
         return "does not match any route" in m or "→ 404" in m or ": 404" in m
 
-    def _blog_search(self, base: str, slug: str):
-        q = (f"{base}?searchCriteria[filterGroups][0][filters][0][field]=url_key"
+    def _blog_search(self, list_path: str, slug: str):
+        q = (f"{list_path}?searchCriteria[filterGroups][0][filters][0][field]=url_key"
              f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
              f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
              f"&searchCriteria[pageSize]=2")
@@ -488,16 +494,17 @@ class MagentoClient:
 
     def find_blog_post_by_url(self, url: str):
         """Resolve a storefront blog URL to a Mirasvit post via its url_key, probing
-        the Blog MX route then the legacy one. Returns {entity_type:'blog_post',
+        the Blog MX list route then the legacy one. Returns {entity_type:'blog_post',
         entity_id, url_key, name, content, _base, _raw} or None (0/2+ matches →
-        None). Raises only if NO blog route exists (so the diag can say so)."""
+        None); `_base` is the ITEM path to write to. Raises only if NO blog route
+        exists (so the diag can say so)."""
         slug = _slug_of(url)
         if not slug:
             return None
         saw_route = False
-        for base in self._BLOG_POST_BASES:
+        for list_path, item_path in self._BLOG_ROUTES:
             try:
-                items = self._blog_search(base, slug)
+                items = self._blog_search(list_path, slug)
             except MagentoError as e:
                 if self._is_no_route(e):
                     continue                 # this shape isn't registered — try next
@@ -508,9 +515,9 @@ class MagentoClient:
             p = items[0]
             return {"entity_type": "blog_post", "entity_id": p.get("entity_id"),
                     "url_key": p.get("url_key", ""), "name": p.get("name", ""),
-                    "content": p.get("content", "") or "", "_base": base, "_raw": p}
+                    "content": p.get("content", "") or "", "_base": item_path, "_raw": p}
         if not saw_route:
-            raise MagentoError("blog REST API not available (no /blog/post or /blog "
+            raise MagentoError("blog REST API not available (no /blog/posts or /blog "
                                "route on this store)")
         return None
 

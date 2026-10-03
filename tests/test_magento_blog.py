@@ -47,22 +47,23 @@ def _no_route(path):
 
 # --- route probing + resolution -----------------------------------------------
 
-def test_find_blog_uses_mx_route_when_present():
+def test_find_blog_uses_mx_plural_list_route():
     raw = {"entity_id": 9, "url_key": "p", "name": "N", "content": "<p>b</p>"}
     seen = {}
     def req(method, path):
         seen["path"] = path
-        assert path.startswith("/blog/post")          # MX shape tried first
+        assert path.startswith("/blog/posts")          # LIST route is PLURAL
         return {"items": [raw]}
     got = _client(req).find_blog_post_by_url("https://s/blog/p")
+    # item/write base is the SINGULAR path
     assert got["entity_id"] == 9 and got["_base"] == "/blog/post"
 
 
 def test_find_blog_falls_back_to_legacy_route():
     raw = {"entity_id": 3, "url_key": "p", "name": "N", "content": "c"}
     def req(method, path):
-        if path.startswith("/blog/post"):
-            raise _no_route(path)                      # MX not registered
+        if path.startswith("/blog/posts"):
+            raise _no_route(path)                      # MX list not registered
         return {"items": [raw]}                        # legacy /blog answers
     got = _client(req).find_blog_post_by_url("https://s/blog/p")
     assert got["entity_id"] == 3 and got["_base"] == "/blog"
