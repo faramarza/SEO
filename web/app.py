@@ -13354,30 +13354,43 @@ def _vet_interlink_plan(plan: dict) -> dict:
     for g in plan["groups"]:
         by_fam.setdefault(g.get("family", ""), []).append(g)
     for family, groups in by_fam.items():
-        cand, seen = [], set()
-        for g in sorted(groups, key=lambda x: -(int(x.get("demand", 0) or 0))):
-            for l in g.get("links", []):
-                u = l.get("target_url", "")
-                if u and u not in seen:
-                    seen.add(u)
-                    cand.append(l)
-        cand.sort(key=lambda l: (not l.get("fixes_orphan")))
         hub_title = next((g.get("source_title", "") for g in groups
                           if g.get("source_type") == "category"), family)
-        verdicts = _ai_vet_links(family, hub_title, cand[:50], families=families)
+        # Classify the SPOKE (the non-hub end) of every link — NOT the hub target
+        # (which trivially classifies as the hub's family and always passes). For a
+        # hub→spoke link the spoke is the target; for a spoke→hub link the spoke is
+        # the SOURCE page. A rug/book spoke classifies to rugs/books → its links
+        # drop whichever direction they run.
+        def _spoke(g, l):
+            return (l.get("target_url", "") if l.get("direction") == "hub_to_spoke"
+                    else g.get("source_url", ""))
+        def _spoke_title(g, l):
+            return (l.get("target_title") or l.get("anchor") or "") \
+                if l.get("direction") == "hub_to_spoke" else g.get("source_title", "")
+        spokes = {}
+        for g in groups:
+            for l in g.get("links", []):
+                u = _spoke(g, l)
+                if u and u not in spokes:
+                    spokes[u] = _spoke_title(g, l)
+        spoke_list = [{"target_url": u, "target_title": t}
+                      for u, t in list(spokes.items())[:50]]
+        verdicts = _ai_vet_links(family, hub_title, spoke_list, families=families)
         if not verdicts:
             continue
         for g in groups:
             kept = []
             for l in g.get("links", []):
-                v = verdicts.get(l.get("target_url", ""))
+                v = verdicts.get(_spoke(g, l))
                 if v is None:
                     kept.append(l)            # not classified (beyond cap) — keep
                 elif v.get("belongs"):
-                    if v.get("anchor"):
+                    # Only a hub→spoke anchor describes the classified page; a
+                    # spoke→hub anchor names the hub and is left alone.
+                    if l.get("direction") == "hub_to_spoke" and v.get("anchor"):
                         l["anchor"] = v["anchor"]
                     kept.append(l)
-                # else: classified to a DIFFERENT family (or none) — drop
+                # else: spoke classified to a DIFFERENT family (or none) — drop
             g["links"] = kept
             g["link_count"] = len(kept)
     plan["groups"] = [g for g in plan["groups"] if g.get("links")]
