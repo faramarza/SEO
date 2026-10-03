@@ -13397,22 +13397,36 @@ def _vet_interlink_plan(plan: dict) -> dict:
     return plan
 
 
-def _il_resolve_category(source_url: str):
-    """Resolve an interlink task's source page to an editable Magento CATEGORY.
-    Returns (client, category_dict, None) or (client, None, reason)."""
+def _il_resolve_category(source_url: str, asset_type: str = ""):
+    """Resolve an interlink task's source page to an editable Magento entity —
+    a CATEGORY or a PRODUCT (both have a `description` we can write). Returns
+    (client, handle, None) or (client, None, reason). The handle carries
+    entity_type, name, description, and (for products) the identity echoes, plus a
+    `_write_desc(new)` closure so callers don't branch on type."""
     from src.data_sources.magento_client import MagentoClient, MagentoError
     mc = MagentoClient()
     if not mc.configured:
         return mc, None, ("Magento isn't connected (set MAGENTO_BASE_URL / "
                           "MAGENTO_TOKEN) — add the links by hand for now.")
-    try:
-        cat = mc.get_category_description(source_url)
-    except MagentoError as e:
-        return mc, None, f"Couldn't read the page from Magento: {e}"
-    if not cat:
-        return mc, None, ("This page isn't a category I can safely edit "
-                          "automatically yet — add the links by hand (steps below).")
-    return mc, cat, None
+    order = (["product", "category"] if asset_type == "product"
+             else ["category", "product"])
+    for kind in order:
+        try:
+            ent = (mc.get_category_description(source_url) if kind == "category"
+                   else mc.get_product_description(source_url))
+        except MagentoError:
+            ent = None
+        if ent:
+            if kind == "category":
+                ent["_write_desc"] = lambda new, _id=ent["category_id"]: \
+                    mc.update_category_description(_id, new)
+            else:
+                ent["_write_desc"] = lambda new, _sku=ent["sku"], \
+                    _a=ent.get("attribute_set_id"), _t=ent.get("type_id"): \
+                    mc.update_product_description(_sku, new, attribute_set_id=_a, type_id=_t)
+            return mc, ent, None
+    return mc, None, ("Couldn't find this page as an editable product or category "
+                      "in Magento — add the links by hand (steps below).")
 
 
 @app.route("/api/interlink/preview", methods=["POST"])
@@ -13460,7 +13474,7 @@ def api_interlink_apply():
     if reason:
         return jsonify({"error": reason}), 400
     current = cat.get("description") or ""
-    cid = str(cat.get("category_id"))
+    cid = "cat:" + str(cat["category_id"]) if cat.get("category_id") else "prod:" + str(cat.get("sku", ""))
     # Clean the anchors of the CHOSEN links through the AI vetter — so deep picks
     # (which weren't vetted at display time) get a tidy, descriptive anchor too.
     # Respect the user's selection: only improve the anchor, never drop a link
@@ -13484,7 +13498,7 @@ def api_interlink_apply():
                       "original_description": current,
                       "first_applied_at": datetime.now().isoformat(timespec="seconds")}
     try:
-        mc.update_category_description(cat["category_id"], new_desc)
+        cat["_write_desc"](new_desc)
     except MagentoError as e:
         return jsonify({"error": f"Magento write failed: {e}"}), 502
     store[cid]["last_applied_at"] = datetime.now().isoformat(timespec="seconds")
@@ -13504,7 +13518,7 @@ def api_interlink_apply():
     # independent of any page cache.
     confirmed = False
     try:
-        again = mc.get_category_description(source_url)
+        _mc2, again, _r = _il_resolve_category(source_url)
         confirmed = bool(again and li.MARK_START in (again.get("description") or ""))
     except Exception:
         confirmed = False
@@ -13523,13 +13537,13 @@ def api_interlink_revert():
     mc, cat, reason = _il_resolve_category(source_url)
     if reason:
         return jsonify({"error": reason}), 400
-    cid = str(cat.get("category_id"))
+    cid = "cat:" + str(cat["category_id"]) if cat.get("category_id") else "prod:" + str(cat.get("sku", ""))
     store = _il_writes_load()
     rec = store.get(cid)
     if not rec:
         return jsonify({"error": "Nothing to revert — no Governor edit recorded for this page."}), 400
     try:
-        mc.update_category_description(cat["category_id"], rec["original_description"])
+        cat["_write_desc"](rec["original_description"])
     except MagentoError as e:
         return jsonify({"error": f"Magento write failed: {e}"}), 502
     store.pop(cid, None)

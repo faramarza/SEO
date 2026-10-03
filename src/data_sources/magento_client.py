@@ -84,6 +84,33 @@ def _assert_description_only(payload: dict):
                                f"{a.get('attribute_code')}")
 
 
+def _assert_product_description_only(payload: dict, path_sku: str, echoes: dict):
+    """Product description-write guard: only `description` may change; sku and the
+    identity fields (attribute_set_id, type_id) may appear ONLY as exact echoes of
+    what we read (Magento's product save needs them in the body). Nothing else."""
+    ent = payload.get("product") or {}
+    echoes = echoes or {}
+    for key in ent:
+        if key == "custom_attributes":
+            continue
+        if key == "sku":
+            if path_sku is None or ent["sku"] != path_sku:
+                raise MagentoError("Payload sku must echo the path sku — refused.")
+            continue
+        if key in ("attribute_set_id", "type_id"):
+            if key not in echoes or ent[key] != echoes[key]:
+                raise MagentoError(f"Payload {key} must echo the read value — refused.")
+            continue
+        raise MagentoError(f"Denylisted top-level field in product description write: {key}")
+    attrs = ent.get("custom_attributes", [])
+    if not attrs:
+        raise MagentoError("Product description write payload is empty — refused.")
+    for a in attrs:
+        if a.get("attribute_code") != "description":
+            raise MagentoError(f"Denylisted attribute in product description write: "
+                               f"{a.get('attribute_code')}")
+
+
 def _slug_of(url: str) -> str:
     """URL → Magento url_key: last path segment, .html stripped."""
     path = re.sub(r"[?#].*$", "", url or "").rstrip("/")
@@ -376,6 +403,44 @@ class MagentoClient:
             {"attribute_code": "description", "value": new_description}]}}
         _assert_description_only(payload)
         return self._write(f"/categories/{int(category_id)}", payload)
+
+    def get_product_description(self, url: str):
+        """Resolve a storefront URL to its PRODUCT and return
+        {sku, name, description, attribute_set_id, type_id} or None."""
+        slug = _slug_of(url)
+        if not slug:
+            return None
+        q = (f"/products?searchCriteria[filterGroups][0][filters][0][field]=url_key"
+             f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
+             f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
+             f"&searchCriteria[pageSize]=2")
+        items = (self._req("GET", q) or {}).get("items") or []
+        if len(items) != 1:
+            return None
+        p = items[0]
+        return {"entity_type": "product", "sku": p.get("sku", ""),
+                "name": p.get("name", ""),
+                "description": self._attr(p, "description"),
+                "attribute_set_id": p.get("attribute_set_id"),
+                "type_id": p.get("type_id")}
+
+    def update_product_description(self, sku, new_description,
+                                   attribute_set_id=None, type_id=None):
+        """Write ONLY a product's description. Echoes the product's identity (sku,
+        attribute_set_id, type_id) as Magento's save requires, guarded so nothing
+        but `description` can actually change."""
+        payload = {"product": {"sku": sku, "custom_attributes": [
+            {"attribute_code": "description", "value": new_description}]}}
+        echoes = {}
+        if attribute_set_id is not None:
+            payload["product"]["attribute_set_id"] = attribute_set_id
+            echoes["attribute_set_id"] = attribute_set_id
+        if type_id:
+            payload["product"]["type_id"] = type_id
+            echoes["type_id"] = type_id
+        _assert_product_description_only(payload, path_sku=sku, echoes=echoes)
+        safe_sku = sku.replace("/", "%2F").replace(" ", "%20")
+        return self._write(f"/products/{safe_sku}", payload)
 
     def write_meta(self, entity, meta_title=None, meta_description=None):
         """Write to whichever entity resolve_url() returned."""
