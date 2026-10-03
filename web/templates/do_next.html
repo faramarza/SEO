@@ -467,7 +467,7 @@ function activeCard(t, pos, total){
                 <div style="margin-top:2px;">${(p.links||[]).map(linkRow).join('')}</div>
             </div>`).join('');
         const prog = c.remaining_after ? `<p style="font-size:12px;color:var(--text-muted);margin:8px 0 0;">After these, <b>${c.remaining_after}</b> more link(s) remain in this cluster — they'll show up here next time, a few at a time.</p>` : '';
-        doBlock = `<p style="margin:0 0 8px;">Let Governor add these for you — it inserts them as a tidy “Related guides” section on the page and shows you before anything goes live:</p>
+        doBlock = `<p style="margin:0 0 8px;">Let Governor add these for you — it adds a small “Related” links box (titled after the topic) at the end of the page, and shows you before anything goes live:</p>
             <button class="pb-task-btn" onclick="dnInterlinkAuto('${esc(t.dedup_key)}','${domId}',this)">✨ Add these links for me</button>
             <div id="${domId}" style="margin-top:10px;"></div>
             <details style="margin-top:12px;"><summary style="cursor:pointer;color:var(--text-muted);font-size:13px;">…or add them by hand in Magento</summary>
