@@ -645,8 +645,15 @@ def _from_interlinks(interlinks, out):
                   {"links_present": 0},
                   "category", f"interlink:{fam}")
         t["dedup_key"] = f"interlink:{fam}"
+        # The FULL ranked candidate list (capped) so the card can offer "show all
+        # and pick" — same order the batch was taken from (orphan rescues first,
+        # then demand). The top `shown` are the pre-checked default.
+        all_links = [{"source_url": l["source_url"], "source_title": l["source_title"],
+                      "url": l["url"], "anchor": l["anchor"], "direction": l["direction"],
+                      "fixes_orphan": l["fixes_orphan"]} for l in links[:50]]
         t["interlink"] = {"family": fam, "total": total, "shown": len(batch),
-                          "remaining_after": remaining_after, "pages": page_blocks}
+                          "remaining_after": remaining_after, "pages": page_blocks,
+                          "all_links": all_links}
         out.append(t)
 
 

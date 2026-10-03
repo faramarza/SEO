@@ -219,6 +219,7 @@ const CAT_LABEL = { ctr:'Rewrite titles', schema:'Add schema', merchant:'Fix pro
 let FOCUS_OVERRIDE = null;              // key the user chose to jump to
 const DN_ADOPTED_LOCAL = new Set();     // optimistically-adopted keys (instant next)
 const DN_DELIV = {};                    // cached paste-ready deliverables by key
+const DN_IL_SEL = {};                   // interlink candidate lists by task key (for the pick-list)
 function dnKeyId(k){ return 'k'+btoa(unescape(encodeURIComponent(k))).replace(/[^a-zA-Z0-9]/g,''); }
 function dnLS(k,def){ try{ const v=localStorage.getItem(k); return v==null?def:v; }catch(e){ return def; } }
 function dnSetLS(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
@@ -679,37 +680,66 @@ async function dnInterlinkAuto(key, domId, btn){
         box.innerHTML=`<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:7px;">${esc(reason||'This page can’t be edited automatically.')} Use “add them by hand” below.</div>`;
         return;
     }
-    let totalNew=0, totalPresent=0;
-    const blocks=pages.map(p=>{
-        const rows=(p.links||[]).map(l=>{
-            const isP=present.has(dnNormUrl(l.url));
-            if(isP){ totalPresent++; return `<li style="font-size:13px;color:var(--text-muted);">${esc(l.anchor||l.url)} <span style="font-size:11px;">— already on the page ✓</span></li>`; }
-            totalNew++; return `<li style="font-size:13px;"><a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:#4f46e5;">${esc(l.anchor||l.url)}</a></li>`;
-        }).join('');
-        return `<div style="margin:6px 0;"><div style="font-weight:600;font-size:13px;">On “${esc(names[p.source_url]||p.source_title)}”:</div>
-        <ul style="margin:4px 0 0;">${rows}</ul></div>`;
-    }).join('');
-    if(totalNew===0){
-        box.innerHTML=`<div class="dn-note" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:9px 11px;border-radius:7px;">✓ All ${totalPresent} of these are already on the page — nothing to add. Hit DONE.</div>`;
-        return;
-    }
-    const countLine = totalPresent
-        ? `I’ll add the <b>${totalNew}</b> new link${totalNew!==1?'s':''} below (${totalPresent} already on the page, skipped).`
-        : `I’ll add these <b>${totalNew}</b> link${totalNew!==1?'s':''}.`;
+    // Build a ranked CHECKLIST from the full candidate list. The top `shown` are
+    // pre-checked (the guided default — just hit Add); already-present ones are
+    // checked+locked; the rest are revealed via "show all" so you can pick more.
+    const cand=(t.interlink&&t.interlink.all_links)||pages.flatMap(p=>p.links||[]);
+    const shownN=(t.interlink&&t.interlink.shown)||Math.min(5,cand.length);
+    DN_IL_SEL[key]=cand;                         // stash for apply
+    let present0=0;
+    const rowHtml=(l,i)=>{
+        const isP=present.has(dnNormUrl(l.url));
+        if(isP) present0++;
+        const def = isP || i<shownN;             // pre-checked by default
+        const dir = l.direction==='spoke_to_hub' ? '↑ to hub' : '↓ to spoke';
+        const orphan = l.fixes_orphan ? ' <span style="color:#b45309;font-size:10px;font-weight:700;">orphan</span>' : '';
+        return `<label class="dn-il-row" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;${i>=12?'':''}">
+            <input type="checkbox" class="dn-il-cb" data-key="${esc(key)}" data-i="${i}" ${def?'checked':''} ${isP?'disabled':''} onchange="dnIlCount('${esc(key)}','${esc(domId)}')" style="margin-top:3px;">
+            <span style="font-size:13px;${isP?'color:var(--text-muted);':''}">
+              <span style="font-size:10px;color:var(--text-muted);">${dir}</span>
+              <a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:#4f46e5;">${esc(l.anchor||l.url)}</a>${orphan}
+              ${isP?' <span style="font-size:11px;color:var(--text-muted);">— already on the page ✓</span>':''}</span>
+        </label>`;
+    };
+    const firstRows=cand.slice(0,12).map(rowHtml).join('');
+    const restRows=cand.slice(12).map((l,j)=>rowHtml(l,j+12)).join('');
+    const moreToggle = cand.length>12
+        ? `<div id="ilmore-${domId}" style="display:none;">${restRows}</div>
+           <a href="#" onclick="document.getElementById('ilmore-${domId}').style.display='block';this.style.display='none';return false;" style="font-size:12px;color:#4f46e5;">▸ show all ${cand.length} candidates</a>`
+        : '';
     box.innerHTML=`<div style="border:1px solid var(--border,#e5e7eb);border-radius:9px;padding:10px 12px;">
-        <div style="font-weight:700;font-size:13px;margin-bottom:4px;">Preview — nothing is live yet</div>
-        <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 6px;">${countLine} Governor adds them as a tidy “Related guides” section; your existing content isn’t changed, and you can undo it in one click.</p>
-        ${blocks}
-        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-            <button class="pb-task-btn" onclick='dnInterlinkApply(${JSON.stringify(key)},${JSON.stringify(domId)},this)'>✅ Approve &amp; add to Magento</button>
+        <div style="font-weight:700;font-size:13px;margin-bottom:2px;">Pick the links to add — nothing is live yet</div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 6px;">Ranked by impact (orphan rescues first). The top ${shownN} are pre-checked — just approve, or check/uncheck to choose your own set. Added as a tidy “Related guides” section; your content isn’t changed; one-click undo.</p>
+        ${firstRows}${moreToggle}
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+            <button class="pb-task-btn" onclick='dnInterlinkApply(${JSON.stringify(key)},${JSON.stringify(domId)},this)'>✅ Add <span id="ilcount-${domId}"></span> to Magento</button>
             <button class="cs-btn" style="font-size:12.5px;padding:7px 13px;border-radius:7px;border:1px solid var(--border,#ccc);background:#fff;cursor:pointer;" onclick='document.getElementById(${JSON.stringify(domId)}).innerHTML=""'>Cancel</button>
+            ${present0?`<span style="font-size:12px;color:var(--text-muted);">${present0} already on the page (locked).</span>`:''}
         </div></div>`;
+    dnIlCount(key, domId);
+}
+
+// Live count of checked, addable links.
+function dnIlCount(key, domId){
+    const cbs=document.querySelectorAll('.dn-il-cb[data-key="'+CSS.escape(key)+'"]');
+    let n=0; cbs.forEach(cb=>{ if(cb.checked && !cb.disabled) n++; });
+    const el=document.getElementById('ilcount-'+domId); if(el) el.textContent=n+' link'+(n!==1?'s':'');
+    const btn=el?el.closest('button'):null; if(btn) btn.disabled = n===0;
 }
 
 async function dnInterlinkApply(key, domId, btn){
     const t=[...(DN.plan||[]),...(DN.adopted_extra||[])].find(x=>x.dedup_key===key);
     const box=document.getElementById(domId); if(!t||!box) return;
-    const pages=(t.interlink&&t.interlink.pages)||[];
+    // Gather the CHECKED candidates and group them by the page to edit.
+    const cand=DN_IL_SEL[key]||((t.interlink&&t.interlink.all_links)||[]);
+    const chosen=[];
+    document.querySelectorAll('.dn-il-cb[data-key="'+CSS.escape(key)+'"]').forEach(cb=>{
+        if(cb.checked && !cb.disabled){ const l=cand[parseInt(cb.dataset.i,10)]; if(l) chosen.push(l); }
+    });
+    if(!chosen.length){ dnToast('Nothing checked to add', true); return; }
+    const byPage={};
+    chosen.forEach(l=>{ (byPage[l.source_url]=byPage[l.source_url]||[]).push(l); });
+    const pages=Object.keys(byPage).map(u=>({source_url:u, source_title:(cand.find(l=>l.source_url===u)||{}).source_title||u, links:byPage[u]}));
     if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
     let ok=0, failed=[], confirmed=0; const applied=[]; let viewUrl='';
     for(const p of pages){
