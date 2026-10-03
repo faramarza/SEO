@@ -111,6 +111,26 @@ def _assert_product_description_only(payload: dict, path_sku: str, echoes: dict)
                                f"{a.get('attribute_code')}")
 
 
+def _assert_blog_content_only(payload: dict, original: dict):
+    """Mirasvit Blog MX post write guard. We read the post and send it back exactly
+    as read with ONLY `content` changed (read-modify-write). This refuses the write
+    unless the outgoing post has the SAME field set as the one we read and every
+    field but `content` is byte-identical — so a blog write can never touch
+    url_key, status, name, meta, store associations, etc."""
+    post = payload.get("post") or {}
+    orig = original or {}
+    if set(post.keys()) != set(orig.keys()):
+        raise MagentoError("Blog write must send the post exactly as read "
+                           "(field set changed) — refused.")
+    if "content" not in post:
+        raise MagentoError("Blog write payload has no content — refused.")
+    for k, v in post.items():
+        if k == "content":
+            continue
+        if v != orig.get(k):
+            raise MagentoError(f"Blog write changed a non-content field ({k}) — refused.")
+
+
 def _slug_of(url: str) -> str:
     """URL → Magento url_key: last path segment, .html stripped."""
     path = re.sub(r"[?#].*$", "", url or "").rstrip("/")
@@ -246,7 +266,8 @@ class MagentoClient:
         per entity type so 'wrong url_key' and 'ambiguous' are distinguishable."""
         slug = _slug_of(url)
         parts = [f"url_key '{slug}':"]
-        for label, path in (("products", "/products"), ("categories", "/categories/list")):
+        for label, path in (("products", "/products"), ("categories", "/categories/list"),
+                            ("blog posts", "/blog")):
             q = (f"{path}?searchCriteria[filterGroups][0][filters][0][field]=url_key"
                  f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
                  f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
@@ -441,6 +462,53 @@ class MagentoClient:
         _assert_product_description_only(payload, path_sku=sku, echoes=echoes)
         safe_sku = sku.replace("/", "%2F").replace(" ", "%20")
         return self._write(f"/products/{safe_sku}", payload)
+
+    # ---- Blog POST content (Mirasvit Blog MX) — own strict, reversible path ----
+    # Mirasvit exposes posts at /V1/blog (list), /V1/blog/:id (get), and
+    # PUT /V1/blog/:id -> update($id, PostInterface $post) under the
+    # Magento_Catalog::products ACL. The post body lives in the top-level `content`
+    # field. We resolve by url_key (exactly one match or we refuse) and write via
+    # read-modify-write so only `content` can change.
+    def find_blog_post_by_url(self, url: str):
+        """Resolve a storefront blog URL to a Mirasvit post via its url_key. Returns
+        {entity_type:'blog_post', entity_id, url_key, name, content, _raw} or None
+        (0 or 2+ matches → None; never guesses a write target)."""
+        slug = _slug_of(url)
+        if not slug:
+            return None
+        q = (f"/blog?searchCriteria[filterGroups][0][filters][0][field]=url_key"
+             f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
+             f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
+             f"&searchCriteria[pageSize]=2")
+        items = (self._req("GET", q) or {}).get("items") or []
+        if len(items) != 1:
+            return None
+        p = items[0]
+        return {"entity_type": "blog_post", "entity_id": p.get("entity_id"),
+                "url_key": p.get("url_key", ""), "name": p.get("name", ""),
+                "content": p.get("content", "") or "", "_raw": p}
+
+    def get_blog_post_description(self, url: str):
+        """Shaped like get_*_description so the resolver treats a blog post
+        uniformly: returns {entity_type, entity_id, name, description, _raw}
+        (description == the post content) or None."""
+        p = self.find_blog_post_by_url(url)
+        if not p:
+            return None
+        return {"entity_type": "blog_post", "entity_id": p["entity_id"],
+                "name": p["name"], "description": p["content"], "_raw": p["_raw"]}
+
+    def update_blog_post_content(self, entity_id, new_content, original_raw):
+        """Write ONLY a blog post's `content`. Sends the post back exactly as read
+        with just `content` replaced; a diff-guard refuses the write unless content
+        is the only field that changed. PUT /V1/blog/:id -> update($id, $post)."""
+        import copy
+        if not original_raw or original_raw.get("entity_id") in (None, ""):
+            raise MagentoError("Blog post write needs the original post — refused.")
+        post = copy.deepcopy(original_raw)
+        post["content"] = new_content
+        _assert_blog_content_only({"post": post}, original_raw)
+        return self._write(f"/blog/{int(entity_id)}", {"post": post})
 
     def write_meta(self, entity, meta_title=None, meta_description=None):
         """Write to whichever entity resolve_url() returned."""

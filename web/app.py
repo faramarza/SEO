@@ -13506,33 +13506,60 @@ def _vet_interlink_plan(plan: dict) -> dict:
     return plan
 
 
+def _il_entity_cid(ent: dict) -> str:
+    """Stable key for the write-store (revert) across entity types."""
+    if ent.get("category_id"):
+        return "cat:" + str(ent["category_id"])
+    if ent.get("sku"):
+        return "prod:" + str(ent["sku"])
+    if ent.get("entity_id"):
+        return "blog:" + str(ent["entity_id"])
+    return "page:" + str(ent.get("name", ""))
+
+
 def _il_resolve_category(source_url: str, asset_type: str = ""):
-    """Resolve an interlink task's source page to an editable Magento entity —
-    a CATEGORY or a PRODUCT (both have a `description` we can write). Returns
-    (client, handle, None) or (client, None, reason). The handle carries
-    entity_type, name, description, and (for products) the identity echoes, plus a
+    """Resolve an interlink task's source page to an editable Magento entity — a
+    CATEGORY, a PRODUCT, or a Mirasvit Blog MX POST (all carry a body we can
+    write). Returns (client, handle, None) or (client, None, reason). The handle
+    carries entity_type, name, description, the identity echoes, and a
     `_write_desc(new)` closure so callers don't branch on type."""
     from src.data_sources.magento_client import MagentoClient, MagentoError
     mc = MagentoClient()
     if not mc.configured:
         return mc, None, ("Magento isn't connected (set MAGENTO_BASE_URL / "
                           "MAGENTO_TOKEN) — add the links by hand for now.")
-    order = (["product", "category"] if asset_type == "product"
-             else ["category", "product"])
+    at = (asset_type or "").lower()
+    if not at:                         # same signal the crawler uses to tag blogs
+        _p = (source_url or "").lower()
+        if "/blog/" in _p or "/article/" in _p:
+            at = "blog"
+    if at == "blog":
+        order = ["blog_post", "category", "product"]
+    elif at == "product":
+        order = ["product", "category", "blog_post"]
+    else:
+        order = ["category", "product", "blog_post"]
     for kind in order:
         try:
-            ent = (mc.get_category_description(source_url) if kind == "category"
-                   else mc.get_product_description(source_url))
+            if kind == "category":
+                ent = mc.get_category_description(source_url)
+            elif kind == "product":
+                ent = mc.get_product_description(source_url)
+            else:
+                ent = mc.get_blog_post_description(source_url)
         except MagentoError:
             ent = None
         if ent:
             if kind == "category":
                 ent["_write_desc"] = lambda new, _id=ent["category_id"]: \
                     mc.update_category_description(_id, new)
-            else:
+            elif kind == "product":
                 ent["_write_desc"] = lambda new, _sku=ent["sku"], \
                     _a=ent.get("attribute_set_id"), _t=ent.get("type_id"): \
                     mc.update_product_description(_sku, new, attribute_set_id=_a, type_id=_t)
+            else:
+                ent["_write_desc"] = lambda new, _id=ent["entity_id"], \
+                    _raw=ent.get("_raw"): mc.update_blog_post_content(_id, new, _raw)
             return mc, ent, None
     # Surface the PRECISE reason (url_key match counts) so "couldn't find it"
     # isn't a dead end — 0/0 means the Magento url_key differs from the URL slug,
@@ -13542,7 +13569,8 @@ def _il_resolve_category(source_url: str, asset_type: str = ""):
         diag = mc.resolve_diag(source_url)
     except Exception:
         diag = ""
-    reason = "Couldn't find this page as an editable product or category in Magento"
+    reason = ("Couldn't find this page as an editable product, category or blog "
+              "post in Magento")
     if diag:
         reason += f" [{diag}]"
     reason += " — add the links by hand (steps below)."
@@ -13594,7 +13622,7 @@ def api_interlink_apply():
     if reason:
         return jsonify({"error": reason}), 400
     current = cat.get("description") or ""
-    cid = "cat:" + str(cat["category_id"]) if cat.get("category_id") else "prod:" + str(cat.get("sku", ""))
+    cid = _il_entity_cid(cat)
     # Clean the anchors of the CHOSEN links through the AI vetter — so deep picks
     # (which weren't vetted at display time) get a tidy, descriptive anchor too.
     # Respect the user's selection: only improve the anchor, never drop a link
@@ -13657,7 +13685,7 @@ def api_interlink_revert():
     mc, cat, reason = _il_resolve_category(source_url)
     if reason:
         return jsonify({"error": reason}), 400
-    cid = "cat:" + str(cat["category_id"]) if cat.get("category_id") else "prod:" + str(cat.get("sku", ""))
+    cid = _il_entity_cid(cat)
     store = _il_writes_load()
     rec = store.get(cid)
     if not rec:
@@ -13736,7 +13764,7 @@ def api_interlink_weave_apply():
     if reason:
         return jsonify({"error": reason}), 400
     current = cat.get("description") or ""
-    cid = "cat:" + str(cat["category_id"]) if cat.get("category_id") else "prod:" + str(cat.get("sku", ""))
+    cid = _il_entity_cid(cat)
     inline_list, sentence_list, boxed = [], [], []
     for p in placements:
         u = (p.get("url") or "").strip()
