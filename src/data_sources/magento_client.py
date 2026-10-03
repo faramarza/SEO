@@ -276,9 +276,15 @@ class MagentoClient:
                 n = len((self._req("GET", q) or {}).get("items") or [])
                 parts.append(f"{n} {label}")
             except MagentoError as e:
-                # Keep the tail of the error — that's where the status code and
-                # server message live (the head is just the long request path).
-                parts.append(f"{label} lookup failed (…{str(e)[-160:]})")
+                msg = str(e).lower()
+                if "does not match any route" in msg or "404" in msg:
+                    # The REST endpoint isn't registered (e.g. this Mirasvit Blog
+                    # version has no posts API) — say so plainly, not a raw 404.
+                    parts.append(f"{label}: REST API not available on this store")
+                else:
+                    # Keep the tail — that's where the status code and server
+                    # message live (the head is just the long request path).
+                    parts.append(f"{label} lookup failed (…{str(e)[-160:]})")
         parts.append("— if 0/0, the Magento url_key differs from the URL slug; "
                      "check the entity's Search Engine Optimization section in admin.")
         return " ".join(parts)
