@@ -413,7 +413,7 @@ function plainWhat(t){
     if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)) return `Your <b>“${pg}”</b> page is nearly on page 1 — but pushing it over needs links from other websites, which is slow. <b>Skip this</b> unless you have time for outreach.`;
     if(cat==='winnable'||cat==='striking') return `Help your <b>“${pg}”</b> page rank higher by adding a few links to it from your other pages.`;
     if(cat==='orphan') return `Nothing on your site links to your <b>“${pg}”</b> page — add links to it from related pages so Google can find it.`;
-    if(cat==='interlink'){ const c=t.interlink||{}; return `Strengthen your <b>“${esc(c.family||'')}”</b> topic cluster by adding <b>${c.shown||0}</b> in-content link${(c.shown||0)!==1?'s':''} now${c.total?` (about ${c.total} more would complete it — you do the highest-impact few each time)`:''}. The exact links and anchor text are below; about two minutes.`; }
+    if(cat==='interlink'){ const c=t.interlink||{}; const n=(c.pages||[]).reduce((a,p)=>a+((p.links||[]).length),0); return `Strengthen your <b>“${esc(c.family||'')}”</b> topic cluster by adding <b>${n}</b> in-content link${n!==1?'s':''} now${c.total&&c.total>n?` (about ${c.total-n} more would complete it — you do the highest-impact few each time)`:''}. The exact links and anchor text are below; about two minutes.`; }
     if(cat==='consolidation') return `Two of your pages compete for the same thing — redirect the weaker one into the stronger.`;
     if(cat==='decay') return `Your <b>“${pg}”</b> page is losing traffic — refresh its content.`;
     if(cat==='pruning') return `Your <b>“${pg}”</b> page is dead weight — remove it or hide it from Google.`;
@@ -654,38 +654,43 @@ async function dnGenerateArticle(t, box, btn){
 
 // Let the tool add the interlinks for the operator: preview every page, show
 // what will be written, and only write on explicit approval. Fully revertable.
+function dnNormUrl(u){ return (u||'').trim().toLowerCase().replace(/#.*$/,'').replace(/\?.*$/,'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/+$/,''); }
+
 async function dnInterlinkAuto(key, domId, btn){
     const t=[...(DN.plan||[]),...(DN.adopted_extra||[])].find(x=>x.dedup_key===key);
     const box=document.getElementById(domId); if(!t||!box) return;
-    const pages=(t.interlink&&t.interlink.pages)||[];
+    const pages=(t.interlink&&t.interlink.pages)||[];     // THE source of truth
     if(btn) btn.disabled=true;
     box.innerHTML='<p class="pb-loading" style="margin:4px 0;">Reading your page from Magento…</p>';
-    const previews=[];
+    // The card renders its OWN links; the server call only tells us which URLs are
+    // already present (to annotate) and whether the page is editable. The count
+    // shown here is always exactly the card's link list — it can't diverge.
+    const present=new Set(); let editableAny=false, reason=''; const names={};
     for(const p of pages){
         try{
             const r=await (await fetch('/api/interlink/preview',{method:'POST',headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({source_url:p.source_url, family:t.interlink.family, links:p.links})})).json();
-            previews.push({page:p, res:r});
-        }catch(e){ previews.push({page:p, res:{editable:false, reason:'Preview failed.'}}); }
+            if(r.editable){ editableAny=true; names[p.source_url]=r.page_name||p.source_title; (r.present_urls||[]).forEach(u=>present.add(u)); }
+            else if(r.reason && !reason){ reason=r.reason; }
+        }catch(e){ if(!reason) reason='Preview failed.'; }
     }
     if(btn) btn.disabled=false;
-    const editable=previews.filter(x=>x.res.editable && (x.res.links||[]).length);
-    if(!editable.length){
-        const why=previews.map(x=>x.res.reason).filter(Boolean)[0] || 'Nothing to add.';
-        box.innerHTML=`<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:7px;">${esc(why)} Use “add them by hand” below.</div>`;
+    if(!editableAny){
+        box.innerHTML=`<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:7px;">${esc(reason||'This page can’t be edited automatically.')} Use “add them by hand” below.</div>`;
         return;
     }
     let totalNew=0, totalPresent=0;
-    const blocks=editable.map(x=>{
-        const rows=(x.res.links||[]).map(l=>{
-            if(l.present){ totalPresent++; return `<li style="font-size:13px;color:var(--text-muted);">${esc(l.anchor||l.url)} <span style="font-size:11px;">— already on the page ✓</span></li>`; }
+    const blocks=pages.map(p=>{
+        const rows=(p.links||[]).map(l=>{
+            const isP=present.has(dnNormUrl(l.url));
+            if(isP){ totalPresent++; return `<li style="font-size:13px;color:var(--text-muted);">${esc(l.anchor||l.url)} <span style="font-size:11px;">— already on the page ✓</span></li>`; }
             totalNew++; return `<li style="font-size:13px;"><a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:#4f46e5;">${esc(l.anchor||l.url)}</a></li>`;
         }).join('');
-        return `<div style="margin:6px 0;"><div style="font-weight:600;font-size:13px;">On “${esc(x.res.page_name||x.page.source_title)}”:</div>
+        return `<div style="margin:6px 0;"><div style="font-weight:600;font-size:13px;">On “${esc(names[p.source_url]||p.source_title)}”:</div>
         <ul style="margin:4px 0 0;">${rows}</ul></div>`;
     }).join('');
     if(totalNew===0){
-        box.innerHTML=`<div class="dn-note" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:9px 11px;border-radius:7px;">✓ All of these are already on the page — nothing to add. Hit DONE.</div>`;
+        box.innerHTML=`<div class="dn-note" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:9px 11px;border-radius:7px;">✓ All ${totalPresent} of these are already on the page — nothing to add. Hit DONE.</div>`;
         return;
     }
     const countLine = totalPresent
