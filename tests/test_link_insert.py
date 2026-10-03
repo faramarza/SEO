@@ -141,3 +141,35 @@ def test_weave_phrases_skips_style_only_phrase():
     html, woven, missed = li.weave_phrases(css_only, [{"url": "/w.html", "phrase": "wooden train track"}])
     assert woven == [] and [p["url"] for p in missed] == ["/w.html"]
     assert html == css_only                                  # untouched
+
+
+# --- added (suggested) sentences ----------------------------------------------
+
+def test_build_added_sentence_wraps_anchor():
+    p = li.build_added_sentence("Explore our personalized name trains for any name.",
+                                "personalized name trains", "/pnt.html")
+    assert p == ('<p class="governor-added">Explore our '
+                 '<a href="/pnt.html">personalized name trains</a> for any name.</p>')
+
+
+def test_build_added_sentence_rejects_absent_anchor():
+    assert li.build_added_sentence("A sentence without the phrase.", "name trains", "/x") == ""
+
+
+def test_build_added_sentence_escapes_text():
+    p = li.build_added_sentence('Kids <3 our "trains" & more here.', "trains", "/t")
+    assert "<3" not in p and "&amp;" in p and "&quot;" in p
+    assert '<a href="/t">trains</a>' in p
+
+
+def test_insert_body_html_before_related_box():
+    withbox = li.merge_description("<p>Body.</p>", "Toys", [{"url": "/a", "anchor": "A"}])
+    out = li.insert_body_html(withbox, '<p class="governor-added">New line.</p>')
+    # the new sentence lands BEFORE the Governor block, body stays first
+    assert out.index("New line.") < out.index(li.MARK_START)
+    assert out.index("<p>Body.</p>") < out.index("New line.")
+
+
+def test_insert_body_html_appends_when_no_box():
+    out = li.insert_body_html("<p>Body.</p>", '<p class="governor-added">New.</p>')
+    assert out == '<p>Body.</p>\n<p class="governor-added">New.</p>'

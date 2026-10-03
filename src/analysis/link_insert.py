@@ -226,6 +226,41 @@ def weave_context_snippet(html: str, phrase: str, radius: int = 90) -> tuple:
     return "", ""
 
 
+def build_added_sentence(sentence: str, anchor: str, url: str) -> str:
+    """A single <p> containing `sentence` with its `anchor` phrase turned into a
+    link to `url`. Everything is escaped; the anchor must actually appear in the
+    sentence (else returns "" — we never link a phrase that isn't there). This is
+    the ONLY path that adds new words to a page, and only an operator-approved
+    sentence ever reaches it."""
+    s = (sentence or "").strip()
+    a = (anchor or "").strip()
+    u = (url or "").strip()
+    if not s or not a or not u or len(s) > 240:
+        return ""
+    i = s.lower().find(a.lower())
+    if i < 0:
+        return ""
+    before, mid, after = s[:i], s[i:i + len(a)], s[i + len(a):]
+    return (f'<p class="governor-added">{_esc_text(before)}'
+            f'<a href="{_esc_attr(u)}">{_esc_text(mid)}</a>'
+            f'{_esc_text(after)}</p>')
+
+
+def insert_body_html(html: str, snippet: str) -> str:
+    """Insert `snippet` into the body — just before the Governor 'Related' block if
+    one exists (so added sentences read as part of the copy, the box stays last),
+    otherwise at the end of the body."""
+    html = html or ""
+    snippet = (snippet or "").strip()
+    if not snippet:
+        return html
+    idx = html.find(MARK_START)
+    if idx < 0:
+        base = html.rstrip()
+        return (base + "\n" + snippet) if base else snippet
+    return html[:idx].rstrip() + "\n" + snippet + "\n" + html[idx:]
+
+
 def weave_phrases(current: str, placements: list) -> tuple:
     """Apply a list of {url, phrase} placements to the description, wrapping each
     phrase in a link to its url. Skips any url already linked in the body. Returns

@@ -13333,28 +13333,33 @@ def _ai_vet_links(family: str, hub_title: str, links: list, families: list = Non
     return verdicts
 
 
-_WEAVE_VERSION = "1"
+_WEAVE_VERSION = "2"
 
 
 def _ai_weave_phrases(page_name: str, family: str, description: str, links: list) -> dict:
-    """Pick, for each target link, a SHORT phrase that ALREADY appears verbatim in
-    this page's own copy and reads as a natural anchor for that target. Returns
-    {url: phrase}. The phrase is only a SUGGESTION: the caller wraps it with the
-    deterministic linkifier, which silently drops any phrase not actually present —
-    so a hallucinated or paraphrased phrase can never alter the page. Cached by
-    (page text + target set); graceful (no key / failure → {})."""
+    """For each target link, EITHER find a short phrase already in the page's copy
+    to turn into a link (preferred — adds no words), OR, if none fits, propose 1-2
+    short connective sentences that could be ADDED to introduce the link. Returns
+    {url: {"phrase": <verbatim existing phrase or "">,
+           "suggestions": [{"sentence": <short new sentence>,
+                            "anchor": <substring of sentence to link>}, ...]}}.
+    Both are only SUGGESTIONS: the existing phrase is wrapped by the deterministic
+    linkifier (which drops any phrase not actually present), and a suggested
+    sentence is only ever written after the operator picks it. Cached; graceful
+    (no key / failure → {})."""
     import hashlib
     from src.analysis import link_insert as li
     text = li.visible_text(description or "")   # prose only — no CSS/JS/markup
     cand = [(l.get("url") or l.get("target_url") or "").strip() for l in (links or [])]
     cand = [u for u in cand if u]
-    if not text or not cand or len(text) < 60:
-        return {}                       # too little prose to weave into → box it
+    if not cand:
+        return {}
+    has_prose = bool(text) and len(text) >= 60
     key = hashlib.md5((_WEAVE_VERSION + "|" + text[:4000] + "|" +
                        "|".join(sorted(cand))).encode()).hexdigest()[:16]
     cache = _il_weave_load()
     if key in cache:
-        return cache[key]["phrases"]
+        return cache[key]["result"]
     lines = []
     for l in (links or []):
         u = (l.get("url") or l.get("target_url") or "").strip()
@@ -13362,36 +13367,58 @@ def _ai_weave_phrases(page_name: str, family: str, description: str, links: list
         if u:
             lines.append(f"- url: {u} | about: {t}")
     system = (
-        "You place internal links INSIDE a page's existing copy, without rewriting "
-        "it. You are given the page's text and a list of target pages. For each "
-        "target, find a SHORT phrase (2-6 words) that ALREADY appears, verbatim, in "
-        "the page text and would read as a natural, relevant anchor to that target.\n"
-        "Rules: (1) Copy the phrase EXACTLY as it appears — same words, order and "
-        "spelling. Never invent or paraphrase. (2) The phrase must be genuinely "
-        "on-topic for the target; if nothing in the text fits, OMIT that target — "
-        "do not force it. (3) Keep the phrase inside a single sentence, not spanning "
-        "a heading or list. (4) Never reuse the same phrase for two targets.\n"
-        "Return ONLY JSON: {\"links\":[{\"url\":\"<exact url>\",\"phrase\":\"<verbatim "
-        "phrase copied from the text>\"}]}. Omit any target with no good phrase."
+        "You place internal links on a store page. For EACH target page you do ONE "
+        "of two things:\n"
+        "A) PREFERRED — find a SHORT phrase (2-6 words) that ALREADY appears, "
+        "verbatim, in the page text and reads as a natural, relevant anchor to that "
+        "target. Copy it EXACTLY (same words, order, spelling); never paraphrase.\n"
+        "B) ONLY IF no existing phrase fits — propose 1 or 2 SHORT sentences "
+        "(max ~18 words each) that could be ADDED to the page to introduce the "
+        "link. Each sentence must: be a natural 'related / explore' style line, "
+        "contain NO factual or numeric claim (no prices, materials, ages, counts, "
+        "awards), and contain a clear anchor phrase for the link. Give the anchor "
+        "as an exact substring of your sentence.\n"
+        "Rules: the match must be genuinely on-topic — if neither a phrase nor a "
+        "clean sentence fits, OMIT the target. Never reuse the same phrase/anchor "
+        "for two targets.\n"
+        "Return ONLY JSON: {\"links\":[{\"url\":\"<exact url>\","
+        "\"phrase\":\"<verbatim existing phrase, or empty>\","
+        "\"suggestions\":[{\"sentence\":\"<short new sentence>\","
+        "\"anchor\":\"<substring of the sentence>\"}]}]}. "
+        "Use phrase OR suggestions for a given target, not both. Omit a target with "
+        "no good option."
     )
-    prompt = (f"PAGE: {page_name} (family: {family})\n\nPAGE TEXT:\n{text[:4000]}\n\n"
+    note = ("" if has_prose else
+            "\n(NOTE: this page has little or no body prose, so option A will "
+            "rarely apply — prefer option B where a clean sentence fits.)")
+    prompt = (f"PAGE: {page_name} (family: {family})\n\nPAGE TEXT:\n{text[:4000]}{note}\n\n"
               f"TARGET PAGES:\n" + "\n".join(lines))
-    out, err = _llm_complete(system, prompt, max_tokens=700, temperature=0.1)
+    out, err = _llm_complete(system, prompt, max_tokens=900, temperature=0.2)
     if err:
         return {}
     parsed, perr = _cd_parse_llm_json(out)
     if perr or not isinstance(parsed, dict):
         return {}
-    phrases = {}
+    result = {}
     for v in (parsed.get("links") or parsed.get("pages") or []):
         u = (v.get("url") or "").strip()
+        if not u:
+            continue
         ph = (v.get("phrase") or "").strip()
-        if u and ph:
-            phrases[u] = ph
-    cache[key] = {"phrases": phrases,
+        sugg = []
+        for s in (v.get("suggestions") or [])[:2]:
+            sent = (s.get("sentence") or "").strip()
+            anc = (s.get("anchor") or "").strip()
+            # Keep only well-formed, safe suggestions: anchor present in the
+            # sentence, sentence short. Anything else is dropped here.
+            if sent and anc and anc.lower() in sent.lower() and len(sent) <= 220:
+                sugg.append({"sentence": sent, "anchor": anc})
+        if ph or sugg:
+            result[u] = {"phrase": ph, "suggestions": sugg}
+    cache[key] = {"result": result,
                   "at": datetime.now().isoformat(timespec="seconds")}
     _il_weave_save(cache)
-    return phrases
+    return result
 
 
 def _subtract_applied_interlinks(plan: dict) -> dict:
@@ -13635,10 +13662,11 @@ def api_interlink_revert():
 
 @app.route("/api/interlink/weave-preview", methods=["POST"])
 def api_interlink_weave_preview():
-    """Preview the CONTEXTUAL (in-prose) version: for each chosen link, show the
-    exact phrase already in the page copy that we'd turn into a link, with the
-    sentence around it. Links with no natural phrase fall back to the 'Related'
-    box. No write happens."""
+    """Preview the CONTEXTUAL (in-prose) version. For each chosen link the server
+    offers, in order of preference: (inline) a phrase ALREADY in the copy to turn
+    into a link, with the sentence around it; (suggest) 1-2 short sentences that
+    could be ADDED to introduce the link; (box) the Related box as the always-safe
+    fallback. No write happens — the operator picks per link, then applies."""
     from src.analysis import link_insert as li
     b = request.get_json(silent=True) or {}
     source_url = (b.get("source_url") or "").strip()
@@ -13650,68 +13678,88 @@ def api_interlink_weave_preview():
     if reason:
         return jsonify({"editable": False, "reason": reason})
     current = cat.get("description") or ""
-    phrases = _ai_weave_phrases(cat.get("name", ""), family, current, links)
+    result = _ai_weave_phrases(cat.get("name", ""), family, current, links)
     items = []
-    inline_n = 0
+    inline_n = sugg_n = 0
     for l in links:
         u = (l.get("url") or l.get("target_url") or "").strip()
         anchor = (l.get("anchor") or l.get("target_title") or "").strip()
-        ph = (phrases.get(u) or "").strip()
-        snippet, matched = ("", "")
-        mode = "box"
+        info = result.get(u) or {}
+        ph = (info.get("phrase") or "").strip()
+        suggestions = info.get("suggestions") or []
+        mode, snippet, matched = "box", "", ""
         if ph and not li.url_already_linked(current, u):
             snippet, matched = li.weave_context_snippet(current, ph)
             if matched:
                 mode = "inline"
                 inline_n += 1
+        if mode == "box" and suggestions and not li.url_already_linked(current, u):
+            mode = "suggest"
+            sugg_n += 1
         items.append({"url": u, "anchor": anchor, "mode": mode,
-                      "phrase": matched, "snippet": snippet})
+                      "phrase": matched, "snippet": snippet,
+                      "suggestions": suggestions if mode == "suggest" else []})
     return jsonify({"editable": True, "page_name": cat.get("name", ""),
-                    "inline_count": inline_n, "box_count": len(items) - inline_n,
-                    "items": items})
+                    "inline_count": inline_n, "suggest_count": sugg_n,
+                    "box_count": len(items) - inline_n - sugg_n, "items": items})
 
 
 @app.route("/api/interlink/weave-apply", methods=["POST"])
 def api_interlink_weave_apply():
-    """Apply the contextual version: wrap each chosen link's phrase inside the
-    existing copy; any link with no natural phrase is added to the 'Related' box
-    instead. Stores the original description for one-click revert (same path as the
-    box apply)."""
+    """Apply the contextual version from the operator's per-link choices. Each
+    placement is one of: {kind:"inline", phrase} wrap an existing phrase;
+    {kind:"sentence", sentence, anchor} add an approved sentence with the link in
+    it; {kind:"box"} add to the Related box. Validates every placement against the
+    live copy (an inline phrase must be present; a sentence's anchor must be inside
+    it) and falls anything that fails back to the box. Stores the original for
+    one-click revert (same path as the box apply)."""
     from src.analysis import link_insert as li
     from src.data_sources.magento_client import MagentoError
     b = request.get_json(silent=True) or {}
     source_url = (b.get("source_url") or "").strip()
     family = (b.get("family") or "").strip()
-    links = b.get("links") or []
-    if not source_url or not links:
+    placements = b.get("placements") or []
+    if not source_url or not placements:
         return jsonify({"error": "Nothing to add."}), 400
     mc, cat, reason = _il_resolve_category(source_url)
     if reason:
         return jsonify({"error": reason}), 400
     current = cat.get("description") or ""
     cid = "cat:" + str(cat["category_id"]) if cat.get("category_id") else "prod:" + str(cat.get("sku", ""))
-    phrases = _ai_weave_phrases(cat.get("name", ""), family, current, links)
-    # Split the chosen links: those with a real in-copy phrase get woven inline;
-    # the rest go to the box (so nothing the user picked is silently lost).
-    placements, boxed = [], []
-    for l in links:
-        u = (l.get("url") or l.get("target_url") or "").strip()
-        ph = (phrases.get(u) or "").strip()
-        if ph:
-            placements.append({"url": u, "phrase": ph,
-                               "anchor": (l.get("anchor") or l.get("target_title") or "").strip()})
+    inline_list, sentence_list, boxed = [], [], []
+    for p in placements:
+        u = (p.get("url") or "").strip()
+        anchor = (p.get("anchor") or "").strip()
+        if not u:
+            continue
+        kind = (p.get("kind") or "box").strip()
+        if kind == "inline" and (p.get("phrase") or "").strip():
+            inline_list.append({"url": u, "phrase": (p.get("phrase") or "").strip(), "anchor": anchor})
+        elif kind == "sentence" and (p.get("sentence") or "").strip() and (p.get("anchor") or "").strip():
+            sentence_list.append({"url": u, "sentence": (p.get("sentence") or "").strip(), "anchor": anchor})
         else:
-            boxed.append(l)
-    woven_html, woven, missed = li.weave_phrases(current, placements)
-    # Anything that didn't find a safe spot joins the box fallback.
+            boxed.append({"url": u, "anchor": anchor or u})
+    # 1) Weave existing phrases (box-fallback anything with no safe spot).
+    html, woven, missed = li.weave_phrases(current, inline_list)
     for p in missed:
-        boxed.append({"url": p.get("url"),
-                      "anchor": p.get("anchor") or p.get("url")})
-    new_desc = woven_html
-    if boxed:
-        new_desc = li.merge_description(new_desc, family, boxed)
+        boxed.append({"url": p.get("url"), "anchor": p.get("anchor") or p.get("url")})
+    # 2) Add approved sentences (box-fallback any that fail validation or would
+    #    double-link a target already linked).
+    added = 0
+    for s in sentence_list:
+        if li.url_already_linked(html, s["url"]):
+            continue
+        p_html = li.build_added_sentence(s["sentence"], s["anchor"], s["url"])
+        if p_html:
+            html = li.insert_body_html(html, p_html)
+            added += 1
+        else:
+            boxed.append({"url": s["url"], "anchor": s["anchor"] or s["url"]})
+    # 3) Related box for the rest.
+    new_desc = li.merge_description(html, family, boxed) if boxed else html
     if new_desc == current:
         return jsonify({"success": True, "no_change": True})
+    links = placements  # for applied_targets bookkeeping below
     store = _il_writes_load()
     if cid not in store:
         store[cid] = {"source_url": source_url, "page_name": cat.get("name", ""),
@@ -13736,7 +13784,7 @@ def api_interlink_weave_apply():
         confirmed = bool(again and (again.get("description") or "") != current)
     except Exception:
         confirmed = False
-    return jsonify({"success": True, "woven_count": len(woven),
+    return jsonify({"success": True, "woven_count": len(woven), "added_count": added,
                     "boxed_count": len([x for x in boxed if (x.get("url") or "").strip()]),
                     "page_name": cat.get("name", ""), "can_revert": True,
                     "confirmed": confirmed, "view_url": source_url})

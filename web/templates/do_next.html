@@ -220,6 +220,7 @@ let FOCUS_OVERRIDE = null;              // key the user chose to jump to
 const DN_ADOPTED_LOCAL = new Set();     // optimistically-adopted keys (instant next)
 const DN_DELIV = {};                    // cached paste-ready deliverables by key
 const DN_IL_SEL = {};                   // interlink candidate lists by task key (for the pick-list)
+const DN_WEAVE = {};                    // weave-preview groups by task key (for choice-driven apply)
 function dnKeyId(k){ return 'k'+btoa(unescape(encodeURIComponent(k))).replace(/[^a-zA-Z0-9]/g,''); }
 function dnLS(k,def){ try{ const v=localStorage.getItem(k); return v==null?def:v; }catch(e){ return def; } }
 function dnSetLS(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
@@ -790,9 +791,15 @@ function dnIlChosenPages(key){
         source_title:(cand.find(l=>l.source_url===u)||{}).source_title||u, links:byPage[u]}))};
 }
 
-// Contextual mode — PREVIEW: show the exact phrase in your copy each link will
-// wrap, before anything is written. Anything with no natural phrase is flagged as
-// falling back to the Related box.
+// Mark an anchor phrase inside a plain-text sentence (for display only).
+function dnMarkPhrase(sentence, anchor){
+    const s=esc(sentence||''); const a=esc(anchor||'');
+    return a && s.indexOf(a)>=0 ? s.replace(a,`<b style="background:#dcfce7;">${a}</b>`) : s;
+}
+
+// Contextual mode — PREVIEW. For each link the server offers the best option:
+// (inline) wrap a phrase already in your copy; (suggest) 1-2 short sentences you
+// can pick to ADD; (box) the Related box. You choose per link, then apply.
 async function dnInterlinkWeave(key, domId, btn){
     const box=document.getElementById(domId); if(!box) return;
     const {t, pages}=dnIlChosenPages(key);
@@ -808,56 +815,86 @@ async function dnInterlinkWeave(key, domId, btn){
     }
     if(btn){ btn.disabled=false; btn.textContent='📝 Weave into the text instead…'; }
     if(!groups.length){ box.innerHTML=`<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:7px;">Couldn’t read these pages to weave links. Use “Add to Magento” (the Related box) instead.</div>`; return; }
-    let inlineN=0, boxN=0;
-    const gHtml=groups.map(g=>{
-        const rows=(g.items||[]).map(it=>{
+    DN_WEAVE[key]=groups;                         // stash for choice-driven apply
+    let inlineN=0, suggN=0, boxN=0, idx=0;
+    const gHtml=groups.map((g,gi)=>{
+        const rows=(g.items||[]).map((it,ii)=>{
+            it._id=`w-${dnKeyId(key)}-${idx++}`;    // stable id for reading the choice
+            it._gi=gi;
             if(it.mode==='inline'){
                 inlineN++;
-                const snip=esc(it.snippet||'');
-                const ph=esc(it.phrase||'');
-                // bold the phrase within the sentence snippet
-                const marked=ph?snip.replace(ph,`<b style="background:#dcfce7;">${ph}</b>`):snip;
-                return `<div style="padding:6px 0 6px 10px;font-size:12.5px;">
-                    <span style="color:#166534;font-weight:600;">✓ link “${ph}” → ${esc(it.anchor||it.url)}</span>
+                const marked=dnMarkPhrase(it.snippet||'', it.phrase||'');
+                return `<div style="padding:6px 0 6px 10px;font-size:12.5px;" data-wid="${it._id}">
+                    <span style="color:#166534;font-weight:600;">✓ link “${esc(it.phrase)}” → ${esc(it.anchor||it.url)}</span>
                     <div style="color:var(--text-muted);margin-top:2px;">…${marked}…</div></div>`;
             }
+            if(it.mode==='suggest'){
+                suggN++;
+                const opts=(it.suggestions||[]).map((s,si)=>`
+                    <label style="display:flex;gap:7px;align-items:flex-start;padding:3px 0;font-size:12.5px;cursor:pointer;">
+                        <input type="radio" name="${it._id}" value="s${si}" style="margin-top:3px;">
+                        <span>Add sentence: “${dnMarkPhrase(s.sentence, s.anchor)}”</span></label>`).join('');
+                return `<div style="padding:6px 0 6px 10px;font-size:12.5px;" data-wid="${it._id}">
+                    <div style="font-weight:600;">“${esc(it.anchor||it.url)}” — not in your copy. Add a sentence, or box it:</div>
+                    ${opts}
+                    <label style="display:flex;gap:7px;align-items:flex-start;padding:3px 0;font-size:12.5px;cursor:pointer;color:var(--text-muted);">
+                        <input type="radio" name="${it._id}" value="box" checked style="margin-top:3px;">
+                        <span>Just add it to the Related box (no new sentence)</span></label></div>`;
+            }
             boxN++;
-            return `<div style="padding:6px 0 6px 10px;font-size:12.5px;color:var(--text-muted);">
-                • <b>${esc(it.anchor||it.url)}</b> — no natural phrase in this page’s copy, so it’ll go in the <b>Related</b> box.</div>`;
+            return `<div style="padding:6px 0 6px 10px;font-size:12.5px;color:var(--text-muted);" data-wid="${it._id}">
+                • <b>${esc(it.anchor||it.url)}</b> — no natural spot, so it’ll go in the <b>Related</b> box.</div>`;
         }).join('');
         return `<div style="margin:8px 0;"><div style="font-weight:600;font-size:12.5px;">On “${esc(g.page_name)}”:</div>${rows}</div>`;
     }).join('');
-    const payload=encodeURIComponent(JSON.stringify(groups.map(g=>({source_url:g.source_url}))));
+    const bits=[];
+    if(inlineN) bits.push(`<b>${inlineN}</b> woven into your existing sentences`);
+    if(suggN) bits.push(`<b>${suggN}</b> with a suggested new sentence to pick`);
+    if(boxN) bits.push(`<b>${boxN}</b> going to the Related box`);
     box.innerHTML=`<div style="border:1px solid var(--border,#e5e7eb);border-radius:9px;padding:10px 12px;">
         <div style="font-weight:700;font-size:13px;margin-bottom:2px;">Preview — nothing is live yet</div>
-        <p style="font-size:12px;color:var(--text-muted);margin:0 0 4px;"><b>${inlineN}</b> link${inlineN!==1?'s':''} will be woven into your existing sentences (highlighted); ${boxN?`<b>${boxN}</b> with no natural spot will go in the Related box.`:'nothing falls back to the box.'} Your wording isn’t changed — only the phrase becomes a link.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 4px;">${bits.join('; ')||'Nothing to add.'}. Existing phrases are only linked, never reworded; a picked sentence is added as-is.</p>
         ${gHtml}
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-            <button class="pb-task-btn" onclick='dnInterlinkWeaveApply(${JSON.stringify(key)},${JSON.stringify(domId)},this)'>✅ Weave these in</button>
+            <button class="pb-task-btn" onclick='dnInterlinkWeaveApply(${JSON.stringify(key)},${JSON.stringify(domId)},this)'>✅ Apply these</button>
             <button class="cs-btn" style="font-size:12.5px;padding:7px 13px;border-radius:7px;border:1px solid var(--border,#ccc);background:#fff;cursor:pointer;" onclick='dnInterlinkAuto(${JSON.stringify(key)},${JSON.stringify(domId)},this)'>← Back</button>
         </div></div>`;
 }
 
-// Contextual mode — APPLY: write the woven links (phrase-wrapped in the copy), box
-// fallback for the rest. Same per-page store/undo as the box apply.
+// Contextual mode — APPLY. Build each link's placement from the operator's choice
+// (inline phrase / picked sentence / box), group by page, write. Same store/undo.
 async function dnInterlinkWeaveApply(key, domId, btn){
     const box=document.getElementById(domId); if(!box) return;
-    const {t, pages}=dnIlChosenPages(key);
-    if(!t || !pages.length){ dnToast('Nothing to add', true); return; }
-    if(btn){ btn.disabled=true; btn.textContent='Weaving…'; }
+    const t=[...(DN.plan||[]),...(DN.adopted_extra||[])].find(x=>x.dedup_key===key);
+    const groups=DN_WEAVE[key]||[];
+    if(!t || !groups.length){ dnToast('Nothing to add', true); return; }
+    const pages=groups.map(g=>{
+        const placements=(g.items||[]).map(it=>{
+            if(it.mode==='inline') return {url:it.url, kind:'inline', phrase:it.phrase, anchor:it.anchor};
+            if(it.mode==='suggest'){
+                const sel=document.querySelector(`input[name="${it._id}"]:checked`);
+                const v=sel?sel.value:'box';
+                if(v!=='box'){ const s=(it.suggestions||[])[parseInt(v.slice(1),10)]; if(s) return {url:it.url, kind:'sentence', sentence:s.sentence, anchor:s.anchor}; }
+                return {url:it.url, kind:'box', anchor:it.anchor};
+            }
+            return {url:it.url, kind:'box', anchor:it.anchor};
+        });
+        return {source_url:g.source_url, source_title:g.page_name, placements};
+    });
+    if(btn){ btn.disabled=true; btn.textContent='Applying…'; }
     let failed=[]; const applied=[]; const results=[];
     for(const p of pages){
         try{
             const r=await (await fetch('/api/interlink/weave-apply',{method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({source_url:p.source_url, family:t.interlink.family, links:p.links})})).json();
-            if(r.success && !r.no_change){ applied.push(p.source_url); results.push({name:r.page_name||p.source_title, woven:r.woven_count||0, boxed:r.boxed_count||0, url:r.view_url||p.source_url}); }
+                body:JSON.stringify({source_url:p.source_url, family:t.interlink.family, placements:p.placements})})).json();
+            if(r.success && !r.no_change){ applied.push(p.source_url); results.push({name:r.page_name||p.source_title, woven:r.woven_count||0, added:r.added_count||0, boxed:r.boxed_count||0, url:r.view_url||p.source_url}); }
             else if(r.error){ failed.push((r.page_name||p.source_title)+': '+r.error); }
         }catch(e){ failed.push((p.source_title||'a page')+': write failed'); }
     }
     if(results.length){
         const urls=JSON.stringify(applied);
         const lines=results.map(r=>{
-            const parts=[]; if(r.woven) parts.push(`${r.woven} woven into the text`); if(r.boxed) parts.push(`${r.boxed} in the Related box`);
+            const parts=[]; if(r.woven) parts.push(`${r.woven} woven in`); if(r.added) parts.push(`${r.added} new sentence${r.added!==1?'s':''}`); if(r.boxed) parts.push(`${r.boxed} in the Related box`);
             return `<li style="font-size:12.5px;">${parts.join(' + ')||'no change'} → <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:#166534;text-decoration:underline;">${esc(r.name)}</a></li>`;
         }).join('');
         box.innerHTML=`<div class="dn-note" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:11px 13px;border-radius:7px;">
