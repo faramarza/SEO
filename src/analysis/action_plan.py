@@ -594,13 +594,21 @@ def _from_interlinks(interlinks, out):
         dem = int(g.get("demand", 0) or 0)
         fam_demand[fam] = max(fam_demand.get(fam, 0), dem)
         for l in (g.get("links") or []):
+            # Only count links with a real target + anchor — an empty/invalid one
+            # must never pad the "add N links" headline past what's actually shown.
+            tgt = (l.get("target_url") or "").strip()
+            anc = (l.get("anchor") or "").strip()
+            if not tgt or not anc:
+                continue
             by_fam.setdefault(fam, []).append({
                 "source_url": g.get("source_url", ""),
                 "source_title": g.get("source_title") or g.get("source_url") or "this page",
-                "url": l.get("target_url", ""), "anchor": l.get("anchor", ""),
+                "url": tgt, "anchor": anc,
                 "direction": l.get("direction", ""),
                 "fixes_orphan": bool(l.get("fixes_orphan")), "demand": dem})
     for fam, links in by_fam.items():
+        if not links:
+            continue
         total = len(links)
         links.sort(key=lambda l: (not l["fixes_orphan"], -l["demand"]))
         batch = links[:SHOW]

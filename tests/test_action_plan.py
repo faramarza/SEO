@@ -85,3 +85,26 @@ def test_content_gap_feed_is_not_in_start_here():
                                  "role": "supporting", "est_monthly_value": 4}]}
     plan = ap.build_action_plan(content_gap=content_gap)
     assert all("busy board" not in t.get("title", "").lower() for t in plan)
+
+
+def test_interlink_count_matches_listed_links():
+    # A batch with an invalid (empty-url / empty-anchor) link must NOT inflate the
+    # "add N links" headline past the links actually listed. This was the "says 5,
+    # lists 4" bug.
+    g = {"source_url": "https://x.com/hub.html", "source_title": "Hub",
+         "source_type": "category", "family": "name trains", "demand": 5000,
+         "link_count": 3, "priority_rank": 3,
+         "links": [
+             {"target_url": "https://x.com/a.html", "target_title": "A", "anchor": "Guide A",
+              "direction": "spoke_to_hub", "fixes_orphan": True},
+             {"target_url": "", "target_title": "", "anchor": "", "direction": "spoke_to_hub",
+              "fixes_orphan": False},                         # invalid — must be dropped
+             {"target_url": "https://x.com/b.html", "target_title": "B", "anchor": "Guide B",
+              "direction": "spoke_to_hub", "fixes_orphan": False},
+         ]}
+    plan = ap.build_action_plan(interlinks={"groups": [g]})
+    il = [t for t in plan if t["category"] == "interlink"]
+    assert len(il) == 1
+    listed = sum(len(p["links"]) for p in il[0]["interlink"]["pages"])
+    assert listed == 2                                   # only the 2 valid links
+    assert f"add {listed} internal link" in il[0]["title"]   # headline == listed

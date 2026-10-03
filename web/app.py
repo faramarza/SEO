@@ -13377,17 +13377,28 @@ def api_interlink_preview():
         return jsonify({"editable": False, "reason": reason})
     current = cat.get("description") or ""
     after = li.merge_description(current, family, links)
-    added = li.added_pairs(current, family, links)
-    if not added:
-        return jsonify({"editable": True, "already_present": True,
-                        "page_name": cat.get("name", ""),
-                        "reason": "These links are already on the page."})
+    present_urls = {u for u, _ in li.existing_links(current)}
+    # Report EVERY planned link with its status, so the count the card promised
+    # always matches the list shown — a link already on the page is marked, not
+    # silently dropped (which made "add 5" show only 4).
+    all_links, new_count = [], 0
+    for l in links:
+        u = (l.get("url") or "").strip()
+        if not u:
+            continue
+        is_present = u in present_urls
+        if not is_present:
+            new_count += 1
+        all_links.append({"url": u, "anchor": (l.get("anchor") or "").strip(),
+                          "present": is_present})
     return jsonify({
         "editable": True,
         "page_name": cat.get("name", ""),
         "category_id": cat.get("category_id"),
-        "added": [{"url": u, "anchor": a} for u, a in added],
-        "block": li.build_block(family, added),
+        "links": all_links,                 # every planned link, with status
+        "new_count": new_count,
+        "present_count": len(all_links) - new_count,
+        "already_present": new_count == 0,
         "unchanged": current == after,
     })
 
