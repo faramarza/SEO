@@ -53,9 +53,18 @@ def existing_links(html: str) -> list:
     return [(_unesc(u), _unesc(re.sub(r"\s+", " ", a).strip())) for u, a in pairs]
 
 
+def _title_case(s: str) -> str:
+    small = {"and", "or", "for", "the", "a", "an", "of", "to", "in", "with"}
+    words = (s or "").split()
+    return " ".join(w if (i and w.lower() in small) else w[:1].upper() + w[1:]
+                    for i, w in enumerate(words))
+
+
 def build_block(family: str, pairs: list) -> str:
-    """The marked 'Related guides' block for a list of (url, anchor) pairs."""
-    heading = f"Related {family} guides".strip()
+    """The marked related-links block for a list of (url, anchor) pairs. Heading is
+    honest and cased: "Related Name Trains" — NOT "guides" (the links are a mix of
+    products, categories and articles, not all guides)."""
+    heading = f"Related {_title_case(family)}".strip()
     lis = "\n".join(
         f'      <li><a href="{_esc_attr(u)}">{_esc_text(a)}</a></li>'
         for u, a in pairs if u and a)

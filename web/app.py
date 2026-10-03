@@ -13269,7 +13269,8 @@ def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
     urls = [_lu(l) for l in links if _lu(l)]
     if not urls:
         return {}
-    key = hashlib.md5((family + "|" + "|".join(sorted(urls))).encode()).hexdigest()[:16]
+    _VET_VERSION = "2"   # bump when the vetting prompt changes, to drop stale verdicts
+    key = hashlib.md5((_VET_VERSION + "|" + family + "|" + "|".join(sorted(urls))).encode()).hexdigest()[:16]
     cache = _il_ai_load()
     if key in cache:
         return cache[key]["verdicts"]
@@ -13279,16 +13280,17 @@ def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
                      f"{l.get('target_type','')}")
     system = (
         f"You vet INTERNAL links proposed FROM a store's “{family}” hub page "
-        f"(“{hub_title}”) TO other pages on the same store. For each candidate, "
-        "KEEP it (keep=true) ONLY if it is a real, working content page that is "
-        "genuinely about the same topic as the hub and would help a reader there. "
-        "DROP (keep=false): broken or draft URLs, pages from a DIFFERENT product "
-        "line that merely share a word (e.g. a classroom RUG that happens to have "
-        "‘train’ in its name does not belong on a name-trains hub; a "
-        "personalized BOOK is not a name-train), and utility pages. For KEPT links "
-        "write a concise, natural, DESCRIPTIVE anchor (3-8 words, varied between "
-        "links, reads like a human wrote it, no trailing punctuation, never a raw "
-        "slug). Judge only from the titles/URLs given; invent nothing.\n"
+        f"(“{hub_title}”) TO other pages on the same store. KEEP a link (keep=true) "
+        "ONLY if the target is the SAME KIND OF PRODUCT/TOPIC as the hub and a "
+        "shopper on the hub would genuinely want it.\n"
+        "Be strict — DROP (keep=false) anything that is a DIFFERENT product type, "
+        "even if the title shares a word with the hub. Concretely, on a "
+        f"“{family}” hub you MUST DROP: rugs/carpets, books/storybooks, furniture, "
+        "puzzles, blankets, play sand, and any other product category that is not "
+        f"itself a “{family}” product — sharing a word like ‘train’ or ‘name’ is "
+        "NOT enough. Also DROP broken/draft URLs and utility pages. When unsure, "
+        "DROP. For KEPT links write a concise, natural, DESCRIPTIVE anchor (3-8 "
+        "words, varied, human, no trailing punctuation, never a raw slug).\n"
         "Return ONLY JSON: {\"links\":[{\"url\":\"<exact url>\",\"keep\":true|false,"
         "\"anchor\":\"<clean anchor>\",\"reason\":\"<short>\"}]}."
     )

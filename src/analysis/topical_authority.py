@@ -121,6 +121,13 @@ def _singular(tok: str) -> str:
     return tok[:-1] if tok.endswith("s") and len(tok) > 3 else tok
 
 
+def _singular_slug(url: str) -> frozenset:
+    """A near-duplicate signature for a page: its slug words, singularized. So
+    '/name-train' and '/name-trains' map to the same signature ({name, train}),
+    letting us refuse to cross-link two pages that are really the same thing."""
+    return frozenset(_singular(t) for t in _distinctive(_slug_phrase(url)))
+
+
 def _sing_set(tokens) -> set:
     return {_singular(t) for t in tokens}
 
@@ -499,8 +506,15 @@ def build_interlink_plan(results: list, product_families: list) -> dict:
         if not hub:
             continue  # no pillar → that's a Phase-1 flag, not an interlink task
         family = fam["family"]
+        hub_sig = _singular_slug(hub.get("url", ""))
         orphan_urls = {u for u in (fam["link_health"].get("orphan_spokes") or [])}
         for s in fam.get("spokes", []):
+            # Never link the hub to itself or to a NEAR-DUPLICATE of the hub
+            # (e.g. /name-train vs /name-trains) — that's a pointless self-ish link
+            # and a sign those two pages should be consolidated, not cross-linked.
+            if (_norm_url(s["url"]) == _norm_url(hub.get("url", ""))
+                    or (_singular_slug(s["url"]) and _singular_slug(s["url"]) == hub_sig)):
+                continue
             is_orphan = s["url"] in orphan_urls or s.get("inlinks", 0) == 0
             # Spoke should link UP to its pillar — concentrates authority on the hub.
             if not s.get("links_to_hub"):

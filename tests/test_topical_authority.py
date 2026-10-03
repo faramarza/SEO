@@ -339,3 +339,26 @@ def test_malformed_urls_excluded():
     assert _nontopical("https://x.com/blog/name-recognition-early-literacy-developm=")
     assert _nontopical("https://x.com/page%20broken")
     assert not _nontopical("https://x.com/5-letter-name-train.html")
+
+
+def test_interlink_excludes_near_duplicate_of_hub():
+    # The hub /name-trains must NOT get a link to its near-duplicate /name-train
+    # (same thing, singular) — that's a self-ish link, not a real interlink.
+    base = "https://alphabet-trains.com"
+    def pg(url, atype, title, outlinks=None, impr=0):
+        return {"url": url, "asset_type": atype, "gsc_impressions": impr, "gsc_clicks": 0,
+                "page_metadata": {"title": title, "h1": title,
+                    "internal_outlinks": [{"target_url": t, "anchor_text": "", "location": "body"}
+                                          for t in (outlinks or [])]}}
+    results = [
+        pg(f"{base}/name-trains.html", "category", "Personalized Name Trains", impr=5000),
+        pg(f"{base}/name-train.html", "category", "Name Train", impr=10),   # near-dup
+        pg(f"{base}/5-letter-name-train-set.html", "product", "5 Letter Name Train Set", impr=600),
+    ]
+    plan = build_interlink_plan(results, ["name trains"])
+    targets = []
+    for g in plan["groups"]:
+        for l in g["links"]:
+            targets.append(_norm_url(l["target_url"]))
+        targets.append(_norm_url(g["source_url"]))
+    assert _norm_url(f"{base}/name-train.html") not in targets   # near-dup never linked
