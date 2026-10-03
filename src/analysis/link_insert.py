@@ -125,12 +125,28 @@ def added_pairs(current: str, family: str, new_links: list) -> list:
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _ANCHOR_RE = re.compile(r"<a\b[^>]*>.*?</a>", re.I | re.S)
+# <style>/<script> blocks, CONTENT included — CSS/JS is not prose. Their text
+# (rule bodies, comments like "/* Name Trains category */") must never be offered
+# as an anchor or wrapped in a link, or we'd corrupt the stylesheet/script.
+_STYLE_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>.*?</\1>", re.I | re.S)
+
+
+def visible_text(html: str) -> str:
+    """The page's visible prose only: drop the Governor block, then <style>/<script>
+    blocks (content and all), then the remaining tags; collapse whitespace. This is
+    what the AI phrase-picker sees, so it can never mistake CSS/JS for copy."""
+    s = strip_block(html or "")
+    s = _STYLE_SCRIPT_RE.sub(" ", s)
+    s = _TAG_RE.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def _protected_ranges(html: str) -> list:
-    """Byte ranges we must NOT touch: inside any tag, inside an existing <a>…</a>,
-    or inside the Governor block."""
+    """Byte ranges we must NOT touch: inside a <style>/<script> block, inside any
+    tag, inside an existing <a>…</a>, or inside the Governor block."""
     ranges = []
+    for m in _STYLE_SCRIPT_RE.finditer(html):
+        ranges.append((m.start(), m.end()))
     for m in _ANCHOR_RE.finditer(html):
         ranges.append((m.start(), m.end()))
     for m in _TAG_RE.finditer(html):
@@ -202,7 +218,8 @@ def weave_context_snippet(html: str, phrase: str, radius: int = 90) -> tuple:
             continue
         lo = max(0, m.start() - radius)
         hi = min(len(html), m.end() + radius)
-        window = re.sub(r"<[^>]+>", " ", html[lo:hi])
+        window = _STYLE_SCRIPT_RE.sub(" ", html[lo:hi])
+        window = _TAG_RE.sub(" ", window)
         snippet = re.sub(r"\s+", " ", window).strip()
         matched = re.sub(r"\s+", " ", m.group(0)).strip()
         return snippet, matched

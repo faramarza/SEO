@@ -111,3 +111,33 @@ def test_weave_snippet_marks_phrase_in_context():
 
 def test_weave_snippet_empty_when_absent():
     assert li.weave_context_snippet(PROSE, "classroom rug") == ("", "")
+
+
+STYLED = ('<style>/* ===== Name Trains category brand styles ===== */ '
+          '.nt-banner { position: relative; }</style>'
+          '<p>Our personalized Name Trains spell any name.</p>')
+
+
+def test_never_weaves_into_style_block():
+    # "Name Trains" appears in a CSS comment AND in real prose. The CSS one must be
+    # untouched; only the prose occurrence gets linked.
+    out, ok = li.linkify_phrase(STYLED, "Name Trains", "/nt.html")
+    assert ok
+    assert "<style>" in out and "</style>" in out
+    assert "/* ===== Name Trains category" in out          # CSS comment intact
+    assert '<a href="/nt.html">Name Trains</a>' in out      # prose occurrence linked
+    assert out.count("<a ") == 1                             # exactly one link added
+
+
+def test_visible_text_drops_css_and_tags():
+    vt = li.visible_text(STYLED)
+    assert "position: relative" not in vt and "nt-banner" not in vt
+    assert "personalized Name Trains spell any name" in vt
+
+
+def test_weave_phrases_skips_style_only_phrase():
+    # A phrase that exists ONLY inside the style block must miss (→ box fallback).
+    css_only = '<style>.foo{content:"wooden train track";}</style><p>Hello world.</p>'
+    html, woven, missed = li.weave_phrases(css_only, [{"url": "/w.html", "phrase": "wooden train track"}])
+    assert woven == [] and [p["url"] for p in missed] == ["/w.html"]
+    assert html == css_only                                  # untouched

@@ -13344,10 +13344,8 @@ def _ai_weave_phrases(page_name: str, family: str, description: str, links: list
     so a hallucinated or paraphrased phrase can never alter the page. Cached by
     (page text + target set); graceful (no key / failure → {})."""
     import hashlib
-    import re as _re
     from src.analysis import link_insert as li
-    text = _re.sub(r"<[^>]+>", " ", li.strip_block(description or ""))
-    text = _re.sub(r"\s+", " ", text).strip()
+    text = li.visible_text(description or "")   # prose only — no CSS/JS/markup
     cand = [(l.get("url") or l.get("target_url") or "").strip() for l in (links or [])]
     cand = [u for u in cand if u]
     if not text or not cand or len(text) < 60:
