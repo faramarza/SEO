@@ -67,23 +67,25 @@ def _family_slug(family: str) -> str:
 
 
 def _page_tokens(page: dict) -> set:
-    """Distinctive tokens describing a page — from its URL slug and H1, plus the
-    title with its site-name suffix stripped. Magento titles end in "… | Brand"
-    (e.g. "| Alphabet Trains & Toys"), so the brand word ("trains") is in EVERY
-    title — left in, it swept unrelated pages (Play Sand, Contact) into the
-    "name trains" cluster. The slug and H1 carry the page's real topic; the title
-    is used only up to the first pipe."""
+    """Distinctive tokens describing a page — from its URL slug and on-page H1,
+    which carry the page's REAL topic. The <title> is deliberately NOT used when
+    an H1 exists: Magento titles append the site name ("… | Alphabet Trains" or
+    "… - Alphabet Trains"), so the brand word "trains" is in EVERY title and swept
+    unrelated pages (Play Sand, Contact) into the "name trains" cluster. The H1
+    ("5 lbs White Play Sand") has no brand tail. Title is a last resort only when
+    there's no H1, with its separator-delimited brand tail stripped."""
     pm = page.get("page_metadata", {}) or {}
-    # Drop the "| Brand" boilerplate tail from title AND h1 (a stray brand suffix
-    # in either would re-inject the brand word into every page's tokens).
-    def _debrand(s):
-        return re.split(r"\s*[|｜]\s*", s or "")[0]
-    text = " ".join([
-        _slug_phrase(page.get("url", "")),
-        _debrand(pm.get("h1", "")),
-        _debrand(pm.get("title", "")),
-    ])
-    return _distinctive(text)
+    # A pipe in an H1 is always a site-name separator ("Name | Brand") — strip it.
+    # (Only the pipe: a dash can be real content, e.g. "Lock Box - 10 Latches".)
+    h1 = re.split(r"\s*[|｜]\s*", (pm.get("h1", "") or ""))[0].strip()
+    parts = [_slug_phrase(page.get("url", "")), h1]
+    if not h1:
+        # No H1 — fall back to the title, stripping a trailing "| Brand" / "- Brand"
+        # / "– Brand" site-name segment so the brand word can't leak in.
+        title = pm.get("title", "") or ""
+        title = re.split(r"\s*[|｜]\s*|\s+[-–—]\s+", title)[0]
+        parts.append(title)
+    return _distinctive(" ".join(parts))
 
 
 # Pages that are NOT topical content — platform/system pages (handled by the
