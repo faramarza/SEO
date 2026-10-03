@@ -13559,7 +13559,8 @@ def _il_resolve_category(source_url: str, asset_type: str = ""):
                     mc.update_product_description(_sku, new, attribute_set_id=_a, type_id=_t)
             else:
                 ent["_write_desc"] = lambda new, _id=ent["entity_id"], \
-                    _raw=ent.get("_raw"): mc.update_blog_post_content(_id, new, _raw)
+                    _b=ent.get("_base", "/blog/post"): \
+                    mc.update_blog_post_content(_id, new, base=_b)
             return mc, ent, None
     # Surface the PRECISE reason (url_key match counts) so "couldn't find it"
     # isn't a dead end — 0/0 means the Magento url_key differs from the URL slug,

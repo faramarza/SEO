@@ -111,24 +111,14 @@ def _assert_product_description_only(payload: dict, path_sku: str, echoes: dict)
                                f"{a.get('attribute_code')}")
 
 
-def _assert_blog_content_only(payload: dict, original: dict):
-    """Mirasvit Blog MX post write guard. We read the post and send it back exactly
-    as read with ONLY `content` changed (read-modify-write). This refuses the write
-    unless the outgoing post has the SAME field set as the one we read and every
-    field but `content` is byte-identical — so a blog write can never touch
+def _assert_blog_content_only(payload: dict):
+    """Mirasvit Blog MX post write guard. The payload is a PARTIAL update that may
+    carry ONLY `content` — nothing else is ever sent, so a blog write can't touch
     url_key, status, name, meta, store associations, etc."""
     post = payload.get("post") or {}
-    orig = original or {}
-    if set(post.keys()) != set(orig.keys()):
-        raise MagentoError("Blog write must send the post exactly as read "
-                           "(field set changed) — refused.")
-    if "content" not in post:
-        raise MagentoError("Blog write payload has no content — refused.")
-    for k, v in post.items():
-        if k == "content":
-            continue
-        if v != orig.get(k):
-            raise MagentoError(f"Blog write changed a non-content field ({k}) — refused.")
+    if set(post.keys()) != {"content"}:
+        raise MagentoError("Blog write payload may contain only `content` — "
+                           f"refused (saw: {sorted(post.keys())}).")
 
 
 def _slug_of(url: str) -> str:
@@ -266,25 +256,31 @@ class MagentoClient:
         per entity type so 'wrong url_key' and 'ambiguous' are distinguishable."""
         slug = _slug_of(url)
         parts = [f"url_key '{slug}':"]
-        for label, path in (("products", "/products"), ("categories", "/categories/list"),
-                            ("blog posts", "/blog")):
-            q = (f"{path}?searchCriteria[filterGroups][0][filters][0][field]=url_key"
-                 f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
-                 f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
-                 f"&searchCriteria[pageSize]=3")
-            try:
-                n = len((self._req("GET", q) or {}).get("items") or [])
-                parts.append(f"{n} {label}")
-            except MagentoError as e:
-                msg = str(e).lower()
-                if "does not match any route" in msg or "404" in msg:
-                    # The REST endpoint isn't registered (e.g. this Mirasvit Blog
-                    # version has no posts API) — say so plainly, not a raw 404.
-                    parts.append(f"{label}: REST API not available on this store")
-                else:
-                    # Keep the tail — that's where the status code and server
-                    # message live (the head is just the long request path).
+        # Products/categories have one route each; the blog route varies by version
+        # so we probe both known shapes and report the first that answers.
+        checks = [("products", ["/products"]),
+                  ("categories", ["/categories/list"]),
+                  ("blog posts", list(self._BLOG_POST_BASES))]
+        for label, paths in checks:
+            reported = False
+            for path in paths:
+                q = (f"{path}?searchCriteria[filterGroups][0][filters][0][field]=url_key"
+                     f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
+                     f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
+                     f"&searchCriteria[pageSize]=3")
+                try:
+                    n = len((self._req("GET", q) or {}).get("items") or [])
+                    parts.append(f"{n} {label}")
+                    reported = True
+                    break
+                except MagentoError as e:
+                    if self._is_no_route(e):
+                        continue            # this shape isn't registered — try next
                     parts.append(f"{label} lookup failed (…{str(e)[-160:]})")
+                    reported = True
+                    break
+            if not reported:
+                parts.append(f"{label}: REST API not available on this store")
         parts.append("— if 0/0, the Magento url_key differs from the URL slug; "
                      "check the entity's Search Engine Optimization section in admin.")
         return " ".join(parts)
@@ -470,51 +466,72 @@ class MagentoClient:
         return self._write(f"/products/{safe_sku}", payload)
 
     # ---- Blog POST content (Mirasvit Blog MX) — own strict, reversible path ----
-    # Mirasvit exposes posts at /V1/blog (list), /V1/blog/:id (get), and
-    # PUT /V1/blog/:id -> update($id, PostInterface $post) under the
-    # Magento_Catalog::products ACL. The post body lives in the top-level `content`
-    # field. We resolve by url_key (exactly one match or we refuse) and write via
-    # read-modify-write so only `content` can change.
-    def find_blog_post_by_url(self, url: str):
-        """Resolve a storefront blog URL to a Mirasvit post via its url_key. Returns
-        {entity_type:'blog_post', entity_id, url_key, name, content, _raw} or None
-        (0 or 2+ matches → None; never guesses a write target)."""
-        slug = _slug_of(url)
-        if not slug:
-            return None
-        q = (f"/blog?searchCriteria[filterGroups][0][filters][0][field]=url_key"
+    # Mirasvit's REST routing differs across versions: Blog MX uses
+    # /V1/blog/post/:id (matching its documented /V1/blog/category/:id), older
+    # module-blog used /V1/blog/:id. So we PROBE the known shapes and use whichever
+    # the store actually registers (capability detection, not a guess). Blog MX
+    # supports PARTIAL updates, so we send ONLY `content` — nothing else is even in
+    # the payload. ACL is Magento_Catalog::products (same as product writes).
+    _BLOG_POST_BASES = ("/blog/post", "/blog")
+
+    @staticmethod
+    def _is_no_route(err) -> bool:
+        m = str(err).lower()
+        return "does not match any route" in m or "→ 404" in m or ": 404" in m
+
+    def _blog_search(self, base: str, slug: str):
+        q = (f"{base}?searchCriteria[filterGroups][0][filters][0][field]=url_key"
              f"&searchCriteria[filterGroups][0][filters][0][value]={slug}"
              f"&searchCriteria[filterGroups][0][filters][0][conditionType]=eq"
              f"&searchCriteria[pageSize]=2")
-        items = (self._req("GET", q) or {}).get("items") or []
-        if len(items) != 1:
+        return (self._req("GET", q) or {}).get("items") or []
+
+    def find_blog_post_by_url(self, url: str):
+        """Resolve a storefront blog URL to a Mirasvit post via its url_key, probing
+        the Blog MX route then the legacy one. Returns {entity_type:'blog_post',
+        entity_id, url_key, name, content, _base, _raw} or None (0/2+ matches →
+        None). Raises only if NO blog route exists (so the diag can say so)."""
+        slug = _slug_of(url)
+        if not slug:
             return None
-        p = items[0]
-        return {"entity_type": "blog_post", "entity_id": p.get("entity_id"),
-                "url_key": p.get("url_key", ""), "name": p.get("name", ""),
-                "content": p.get("content", "") or "", "_raw": p}
+        saw_route = False
+        for base in self._BLOG_POST_BASES:
+            try:
+                items = self._blog_search(base, slug)
+            except MagentoError as e:
+                if self._is_no_route(e):
+                    continue                 # this shape isn't registered — try next
+                raise                        # real error (auth/500) — surface it
+            saw_route = True
+            if len(items) != 1:
+                return None                  # route exists; 0/2+ → refuse to guess
+            p = items[0]
+            return {"entity_type": "blog_post", "entity_id": p.get("entity_id"),
+                    "url_key": p.get("url_key", ""), "name": p.get("name", ""),
+                    "content": p.get("content", "") or "", "_base": base, "_raw": p}
+        if not saw_route:
+            raise MagentoError("blog REST API not available (no /blog/post or /blog "
+                               "route on this store)")
+        return None
 
     def get_blog_post_description(self, url: str):
         """Shaped like get_*_description so the resolver treats a blog post
-        uniformly: returns {entity_type, entity_id, name, description, _raw}
+        uniformly: {entity_type, entity_id, name, description, _base, _raw}
         (description == the post content) or None."""
         p = self.find_blog_post_by_url(url)
         if not p:
             return None
         return {"entity_type": "blog_post", "entity_id": p["entity_id"],
-                "name": p["name"], "description": p["content"], "_raw": p["_raw"]}
+                "name": p["name"], "description": p["content"],
+                "_base": p["_base"], "_raw": p["_raw"]}
 
-    def update_blog_post_content(self, entity_id, new_content, original_raw):
-        """Write ONLY a blog post's `content`. Sends the post back exactly as read
-        with just `content` replaced; a diff-guard refuses the write unless content
-        is the only field that changed. PUT /V1/blog/:id -> update($id, $post)."""
-        import copy
-        if not original_raw or original_raw.get("entity_id") in (None, ""):
-            raise MagentoError("Blog post write needs the original post — refused.")
-        post = copy.deepcopy(original_raw)
-        post["content"] = new_content
-        _assert_blog_content_only({"post": post}, original_raw)
-        return self._write(f"/blog/{int(entity_id)}", {"post": post})
+    def update_blog_post_content(self, entity_id, new_content, base="/blog/post"):
+        """Write ONLY a blog post's `content` via a PARTIAL update (Blog MX accepts
+        a body with just the changed field). The payload contains nothing but
+        `content`, and the guard refuses anything else. PUT {base}/:id."""
+        payload = {"post": {"content": new_content}}
+        _assert_blog_content_only(payload)
+        return self._write(f"{base}/{int(entity_id)}", payload)
 
     def write_meta(self, entity, meta_title=None, meta_description=None):
         """Write to whichever entity resolve_url() returned."""

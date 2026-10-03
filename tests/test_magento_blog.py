@@ -1,6 +1,6 @@
-"""Tests for the Mirasvit Blog MX write path — resolution, strict content-only
-guard, and read-modify-write payload shaping. Loaded by file path so it doesn't
-drag in the pydantic-dependent package __init__."""
+"""Tests for the Mirasvit Blog MX write path — route probing, strict
+content-only partial update, and url_key resolution. Loaded by file path so it
+doesn't drag in the pydantic-dependent package __init__."""
 import importlib.util
 import os
 
@@ -15,47 +15,24 @@ MagentoError = mc_mod.MagentoError
 _assert_blog_content_only = mc_mod._assert_blog_content_only
 
 
-# --- the content-only guard ---------------------------------------------------
+# --- the content-only partial guard -------------------------------------------
 
-ORIG = {"entity_id": 7, "url_key": "my-post", "name": "My Post",
-        "status": 2, "content": "<p>Old body.</p>", "meta_title": "T"}
-
-
-def test_blog_guard_allows_content_only_change():
-    post = dict(ORIG); post["content"] = "<p>New body.</p>"
-    _assert_blog_content_only({"post": post}, ORIG)   # no raise
+def test_blog_guard_allows_content_only():
+    _assert_blog_content_only({"post": {"content": "<p>x</p>"}})   # no raise
 
 
-def test_blog_guard_blocks_other_field_change():
-    post = dict(ORIG); post["content"] = "x"; post["url_key"] = "hacked"
-    try:
-        _assert_blog_content_only({"post": post}, ORIG)
-        assert False, "should have refused"
-    except MagentoError as e:
-        assert "non-content" in str(e)
+def test_blog_guard_blocks_extra_field():
+    for bad in ({"content": "x", "url_key": "y"}, {"url_key": "y"}, {}):
+        try:
+            _assert_blog_content_only({"post": bad})
+            assert False, f"should have refused {bad}"
+        except MagentoError:
+            pass
 
 
-def test_blog_guard_blocks_added_field():
-    post = dict(ORIG); post["content"] = "x"; post["price"] = 9
-    try:
-        _assert_blog_content_only({"post": post}, ORIG)
-        assert False, "should have refused"
-    except MagentoError as e:
-        assert "field set changed" in str(e)
+# --- helpers ------------------------------------------------------------------
 
-
-def test_blog_guard_blocks_removed_field():
-    post = {"entity_id": 7, "content": "x"}       # dropped url_key/name/status/meta
-    try:
-        _assert_blog_content_only({"post": post}, ORIG)
-        assert False, "should have refused"
-    except MagentoError as e:
-        assert "field set changed" in str(e)
-
-
-# --- resolution + write shaping (with a fake transport) -----------------------
-
-def _client_with_req(req_fn, write_fn=None):
+def _client(req_fn, write_fn=None):
     c = MagentoClient(base_url="https://x", token="t")
     c._req = req_fn
     if write_fn:
@@ -63,47 +40,66 @@ def _client_with_req(req_fn, write_fn=None):
     return c
 
 
-def test_find_blog_post_resolves_single_match():
-    raw = {"entity_id": 12, "url_key": "personalized-baby-gift-ideas",
-           "name": "Gift Ideas", "content": "<p>Hi.</p>", "status": 2}
-    c = _client_with_req(lambda m, p: {"items": [raw]})
-    got = c.find_blog_post_by_url("https://s/blog/personalized-baby-gift-ideas")
-    assert got["entity_type"] == "blog_post" and got["entity_id"] == 12
-    assert got["content"] == "<p>Hi.</p>" and got["_raw"] == raw
+def _no_route(path):
+    return MagentoError(f"Magento GET {path} → 404: "
+                        '{"message":"Request does not match any route."}')
 
 
-def test_find_blog_post_refuses_ambiguous_and_missing():
-    assert _client_with_req(lambda m, p: {"items": []}).find_blog_post_by_url("https://s/blog/x") is None
-    two = {"items": [{"entity_id": 1}, {"entity_id": 2}]}
-    assert _client_with_req(lambda m, p: two).find_blog_post_by_url("https://s/blog/x") is None
+# --- route probing + resolution -----------------------------------------------
+
+def test_find_blog_uses_mx_route_when_present():
+    raw = {"entity_id": 9, "url_key": "p", "name": "N", "content": "<p>b</p>"}
+    seen = {}
+    def req(method, path):
+        seen["path"] = path
+        assert path.startswith("/blog/post")          # MX shape tried first
+        return {"items": [raw]}
+    got = _client(req).find_blog_post_by_url("https://s/blog/p")
+    assert got["entity_id"] == 9 and got["_base"] == "/blog/post"
 
 
-def test_update_blog_sends_post_wrapper_with_only_content_changed():
-    raw = {"entity_id": 12, "url_key": "p", "name": "N", "status": 2,
-           "content": "<p>Old.</p>", "meta_title": "T"}
-    captured = {}
-    def fake_write(path, payload):
-        captured["path"] = path
-        captured["payload"] = payload
-        return {"entity_id": 12}
-    c = _client_with_req(lambda m, p: {"items": [raw]}, write_fn=fake_write)
-    c.update_blog_post_content(12, "<p>New with link.</p>", raw)
-    assert captured["path"] == "/blog/12"
-    assert set(captured["payload"].keys()) == {"post"}
-    sent = captured["payload"]["post"]
-    assert sent["content"] == "<p>New with link.</p>"
-    # every other field identical to what we read
-    for k, v in raw.items():
-        if k != "content":
-            assert sent[k] == v
-    # and the original dict was NOT mutated
-    assert raw["content"] == "<p>Old.</p>"
+def test_find_blog_falls_back_to_legacy_route():
+    raw = {"entity_id": 3, "url_key": "p", "name": "N", "content": "c"}
+    def req(method, path):
+        if path.startswith("/blog/post"):
+            raise _no_route(path)                      # MX not registered
+        return {"items": [raw]}                        # legacy /blog answers
+    got = _client(req).find_blog_post_by_url("https://s/blog/p")
+    assert got["entity_id"] == 3 and got["_base"] == "/blog"
 
 
-def test_update_blog_refuses_without_original():
-    c = _client_with_req(lambda m, p: {"items": []})
+def test_find_blog_raises_when_no_route_at_all():
+    def req(method, path):
+        raise _no_route(path)
     try:
-        c.update_blog_post_content(1, "x", None)
+        _client(req).find_blog_post_by_url("https://s/blog/p")
         assert False
     except MagentoError as e:
-        assert "original" in str(e)
+        assert "not available" in str(e)
+
+
+def test_find_blog_refuses_ambiguous_or_missing_when_route_exists():
+    # route exists but 0 or 2+ matches → None (never guess)
+    assert _client(lambda m, p: {"items": []}).find_blog_post_by_url("https://s/blog/p") is None
+    two = {"items": [{"entity_id": 1}, {"entity_id": 2}]}
+    assert _client(lambda m, p: two).find_blog_post_by_url("https://s/blog/p") is None
+
+
+# --- write shaping ------------------------------------------------------------
+
+def test_update_blog_sends_partial_content_only():
+    cap = {}
+    def fake_write(path, payload):
+        cap["path"] = path; cap["payload"] = payload; return {"ok": 1}
+    c = _client(lambda m, p: {"items": []}, write_fn=fake_write)
+    c.update_blog_post_content(9, "<p>new</p>", base="/blog/post")
+    assert cap["path"] == "/blog/post/9"
+    assert cap["payload"] == {"post": {"content": "<p>new</p>"}}
+
+
+def test_update_blog_honours_probed_base():
+    cap = {}
+    c = _client(lambda m, p: {"items": []},
+                write_fn=lambda path, payload: cap.setdefault("path", path))
+    c.update_blog_post_content(3, "x", base="/blog")
+    assert cap["path"] == "/blog/3"
