@@ -805,16 +805,26 @@ async function dnInterlinkWeave(key, domId, btn){
     const {t, pages}=dnIlChosenPages(key);
     if(!t || !pages.length){ dnToast('Nothing checked to add', true); return; }
     if(btn){ btn.disabled=true; btn.textContent='Finding spots in your copy…'; }
+    const pickedLinks=pages.reduce((a,p)=>a+(p.links||[]).length,0);   // what you checked
     const groups=[];
     for(const p of pages){
+        let r=null;
         try{
-            const r=await (await fetch('/api/interlink/weave-preview',{method:'POST',headers:{'Content-Type':'application/json'},
+            r=await (await fetch('/api/interlink/weave-preview',{method:'POST',headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({source_url:p.source_url, family:t.interlink.family, links:p.links})})).json();
-            if(r.editable){ groups.push({page_name:r.page_name||p.source_title, source_url:p.source_url, items:r.items||[]}); }
-        }catch(e){}
+        }catch(e){ r=null; }
+        if(r && r.editable){
+            groups.push({page_name:r.page_name||p.source_title, source_url:p.source_url, items:r.items||[], unreadable:false});
+        } else {
+            // NEVER silently drop a page the user picked. Keep its links and route
+            // them to the box so the count always reconciles.
+            groups.push({page_name:p.source_title, source_url:p.source_url, unreadable:true,
+                reason:(r&&r.reason)||'couldn’t read this page to weave',
+                items:(p.links||[]).map(l=>({url:l.url||l.target_url, anchor:l.anchor||l.target_title||l.url, mode:'box', phrase:'', snippet:'', suggestions:[]}))});
+        }
     }
     if(btn){ btn.disabled=false; btn.textContent='📝 Weave into the text instead…'; }
-    if(!groups.length){ box.innerHTML=`<div class="dn-note" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:8px 10px;border-radius:7px;">Couldn’t read these pages to weave links. Use “Add to Magento” (the Related box) instead.</div>`; return; }
+    const shownLinks=groups.reduce((a,g)=>a+(g.items||[]).length,0);
     DN_WEAVE[key]=groups;                         // stash for choice-driven apply
     let inlineN=0, suggN=0, boxN=0, idx=0;
     const gHtml=groups.map((g,gi)=>{
@@ -845,14 +855,21 @@ async function dnInterlinkWeave(key, domId, btn){
             return `<div style="padding:6px 0 6px 10px;font-size:12.5px;color:var(--text-muted);" data-wid="${it._id}">
                 • <b>${esc(it.anchor||it.url)}</b> — no natural spot, so it’ll go in the <b>Related</b> box.</div>`;
         }).join('');
-        return `<div style="margin:8px 0;"><div style="font-weight:600;font-size:12.5px;">On “${esc(g.page_name)}”:</div>${rows}</div>`;
+        const hdr=g.unreadable
+            ? `<div style="font-weight:600;font-size:12.5px;color:#b45309;">On “${esc(g.page_name)}” — ${esc(g.reason)}, so its link(s) go to the Related box:</div>`
+            : `<div style="font-weight:600;font-size:12.5px;">On “${esc(g.page_name)}”:</div>`;
+        return `<div style="margin:8px 0;">${hdr}${rows}</div>`;
     }).join('');
     const bits=[];
     if(inlineN) bits.push(`<b>${inlineN}</b> woven into your existing sentences`);
     if(suggN) bits.push(`<b>${suggN}</b> with a suggested new sentence to pick`);
     if(boxN) bits.push(`<b>${boxN}</b> going to the Related box`);
+    // Reconcile against what was checked — the count can never silently shrink.
+    const mismatch = shownLinks!==pickedLinks;
+    const recon=`<p style="font-size:12px;${mismatch?'color:#b45309;font-weight:600;':'color:var(--text-muted);'}margin:0 0 4px;">You picked <b>${pickedLinks}</b> link${pickedLinks!==1?'s':''} across <b>${pages.length}</b> page${pages.length!==1?'s':''}; all <b>${shownLinks}</b> are accounted for below.${mismatch?' ⚠︎ counts differ — tell me.':''}</p>`;
     box.innerHTML=`<div style="border:1px solid var(--border,#e5e7eb);border-radius:9px;padding:10px 12px;">
         <div style="font-weight:700;font-size:13px;margin-bottom:2px;">Preview — nothing is live yet</div>
+        ${recon}
         <p style="font-size:12px;color:var(--text-muted);margin:0 0 4px;">${bits.join('; ')||'Nothing to add.'}. Existing phrases are only linked, never reworded; a picked sentence is added as-is.</p>
         ${gHtml}
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
