@@ -13252,16 +13252,15 @@ def _il_ai_save(d: dict):
     tmp.replace(_INTERLINK_AI_PATH)
 
 
-def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
-    """AI judgment over candidate interlinks from the '{family}' hub: KEEP only
-    genuinely related, real pages (drop the rug mis-filed by a shared word, the
-    personalized book, broken/draft URLs), and write a clean, descriptive, varied
-    anchor for the keepers. Returns {url: {keep: bool, anchor: str}}. Cached by
-    (family + the exact URL set). Graceful: on no key / failure returns {} so the
-    caller keeps the deterministic links unchanged."""
+def _ai_vet_links(family: str, hub_title: str, links: list, families: list = None) -> dict:
+    """CLASSIFY each candidate page into the ONE product family it truly belongs to
+    (from the store's family list) — a sharper, more honest question than binary
+    keep/drop, which the model rubber-stamped. A rug forced to choose picks
+    'classroom rugs', not 'name trains', so it's dropped from a name-trains hub.
+    Returns {url: {family: <classified>, belongs: bool, anchor: str}}; 'belongs' is
+    whether it matches the hub's family. Cached by (families + hub family + URL
+    set). Graceful: on no key / failure returns {} (caller keeps raw links)."""
     import hashlib
-    # Key-tolerant: candidates from the plan use 'target_url'/'target_title';
-    # chosen links sent from the card use 'url'/'anchor'.
     def _lu(l):
         return (l.get("target_url") or l.get("url") or "").strip()
     def _lt(l):
@@ -13269,44 +13268,46 @@ def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
     urls = [_lu(l) for l in links if _lu(l)]
     if not urls:
         return {}
-    _VET_VERSION = "2"   # bump when the vetting prompt changes, to drop stale verdicts
-    key = hashlib.md5((_VET_VERSION + "|" + family + "|" + "|".join(sorted(urls))).encode()).hexdigest()[:16]
+    fams = [f for f in (families or []) if f] or [family]
+    _VET_VERSION = "3-classify"   # bump to invalidate stale verdicts when logic changes
+    key = hashlib.md5((_VET_VERSION + "|" + family + "|" + ",".join(sorted(fams)) +
+                       "|" + "|".join(sorted(urls))).encode()).hexdigest()[:16]
     cache = _il_ai_load()
     if key in cache:
         return cache[key]["verdicts"]
-    lines = []
-    for l in links:
-        lines.append(f"- url: {_lu(l)} | page title: {_lt(l)} | type: "
-                     f"{l.get('target_type','')}")
+    lines = [f"- url: {_lu(l)} | title: {_lt(l)}" for l in links]
+    fam_list = "; ".join(fams)
     system = (
-        f"You vet INTERNAL links proposed FROM a store's “{family}” hub page "
-        f"(“{hub_title}”) TO other pages on the same store. KEEP a link (keep=true) "
-        "ONLY if the target is the SAME KIND OF PRODUCT/TOPIC as the hub and a "
-        "shopper on the hub would genuinely want it.\n"
-        "Be strict — DROP (keep=false) anything that is a DIFFERENT product type, "
-        "even if the title shares a word with the hub. Concretely, on a "
-        f"“{family}” hub you MUST DROP: rugs/carpets, books/storybooks, furniture, "
-        "puzzles, blankets, play sand, and any other product category that is not "
-        f"itself a “{family}” product — sharing a word like ‘train’ or ‘name’ is "
-        "NOT enough. Also DROP broken/draft URLs and utility pages. When unsure, "
-        "DROP. For KEPT links write a concise, natural, DESCRIPTIVE anchor (3-8 "
-        "words, varied, human, no trailing punctuation, never a raw slug).\n"
-        "Return ONLY JSON: {\"links\":[{\"url\":\"<exact url>\",\"keep\":true|false,"
-        "\"anchor\":\"<clean anchor>\",\"reason\":\"<short>\"}]}."
+        "You classify a store's pages into exactly ONE product family. For each "
+        "page below, decide which of these families it genuinely belongs to, by "
+        "what the PRODUCT actually is — not by a word it happens to share:\n"
+        f"  FAMILIES: {fam_list}\n"
+        "A classroom rug/carpet is 'classroom rugs' even if its design says "
+        "'Alphabet Train'. A personalized storybook is a books family, not "
+        "'name trains'. If a page fits none of the families, or is a utility/"
+        "legal/broken page, answer family: \"none\". Also give a concise, natural, "
+        "descriptive anchor (3-8 words, human, no trailing punctuation, not a raw "
+        "slug) in case we link to it.\n"
+        "Return ONLY JSON: {\"pages\":[{\"url\":\"<exact url>\",\"family\":\"<one of "
+        "the families, verbatim, or none>\",\"anchor\":\"<clean anchor>\"}]}."
     )
-    prompt = f"Hub: {hub_title} (topic: {family})\nCandidate links:\n" + "\n".join(lines)
-    text, err = _llm_complete(system, prompt, max_tokens=900, temperature=0.2)
+    prompt = (f"These pages are candidate links FROM the “{family}” hub "
+              f"(“{hub_title}”). Classify each:\n" + "\n".join(lines))
+    text, err = _llm_complete(system, prompt, max_tokens=1100, temperature=0.1)
     if err:
         return {}
     parsed, perr = _cd_parse_llm_json(text)
     if perr or not isinstance(parsed, dict):
         return {}
+    famkey = family.strip().lower()
     verdicts = {}
-    for v in (parsed.get("links") or []):
+    for v in (parsed.get("pages") or parsed.get("links") or []):
         u = (v.get("url") or "").strip()
-        if u:
-            verdicts[u] = {"keep": bool(v.get("keep", True)),
-                           "anchor": (v.get("anchor") or "").strip()}
+        if not u:
+            continue
+        cf = (v.get("family") or "").strip()
+        verdicts[u] = {"family": cf, "belongs": cf.lower() == famkey,
+                       "anchor": (v.get("anchor") or "").strip()}
     cache[key] = {"verdicts": verdicts,
                   "at": datetime.now().isoformat(timespec="seconds")}
     _il_ai_save(cache)
@@ -13341,11 +13342,14 @@ def _subtract_applied_interlinks(plan: dict) -> dict:
 
 
 def _vet_interlink_plan(plan: dict) -> dict:
-    """Run the AI vetting over an interlink plan's candidate links — drop the
-    irrelevant/broken, re-anchor the keepers — BEFORE Start Here picks the top few.
-    One cheap call per family (top candidates), cached. Graceful if AI is off."""
+    """AI-CLASSIFY the candidate link targets into their true family and drop any
+    whose family isn't the hub's (a rug → 'classroom rugs' → dropped from a
+    name-trains hub), re-anchoring the keepers. Runs on the full candidate set so
+    the pick-list is clean top-to-bottom. One call per family, cached. Graceful if
+    the AI is off (links pass through unchanged)."""
     if not plan or not plan.get("groups"):
         return plan
+    families = load_config().get("business_context", {}).get("product_families", []) or []
     by_fam = {}
     for g in plan["groups"]:
         by_fam.setdefault(g.get("family", ""), []).append(g)
@@ -13360,7 +13364,7 @@ def _vet_interlink_plan(plan: dict) -> dict:
         cand.sort(key=lambda l: (not l.get("fixes_orphan")))
         hub_title = next((g.get("source_title", "") for g in groups
                           if g.get("source_type") == "category"), family)
-        verdicts = _ai_vet_links(family, hub_title, cand[:14])
+        verdicts = _ai_vet_links(family, hub_title, cand[:50], families=families)
         if not verdicts:
             continue
         for g in groups:
@@ -13368,12 +13372,12 @@ def _vet_interlink_plan(plan: dict) -> dict:
             for l in g.get("links", []):
                 v = verdicts.get(l.get("target_url", ""))
                 if v is None:
-                    kept.append(l)            # beyond the vetted top — leave as-is
-                elif v["keep"]:
-                    if v["anchor"]:
+                    kept.append(l)            # not classified (beyond cap) — keep
+                elif v.get("belongs"):
+                    if v.get("anchor"):
                         l["anchor"] = v["anchor"]
                     kept.append(l)
-                # else: dropped by the AI
+                # else: classified to a DIFFERENT family (or none) — drop
             g["links"] = kept
             g["link_count"] = len(kept)
     plan["groups"] = [g for g in plan["groups"] if g.get("links")]
@@ -13449,10 +13453,11 @@ def api_interlink_apply():
     # Respect the user's selection: only improve the anchor, never drop a link
     # they deliberately checked. Cached + graceful (no key → anchors unchanged).
     try:
-        verdicts = _ai_vet_links(family, cat.get("name", ""), links)
+        _fams = load_config().get("business_context", {}).get("product_families", []) or []
+        verdicts = _ai_vet_links(family, cat.get("name", ""), links, families=_fams)
         for l in links:
             v = verdicts.get((l.get("url") or l.get("target_url") or "").strip())
-            if v and v.get("anchor"):
+            if v and v.get("anchor"):   # respect the user's pick; just tidy the anchor
                 l["anchor"] = v["anchor"]
     except Exception:
         pass
