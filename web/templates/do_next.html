@@ -685,32 +685,35 @@ async function dnInterlinkAuto(key, domId, btn){
     // checked+locked; the rest are revealed via "show all" so you can pick more.
     const cand=(t.interlink&&t.interlink.all_links)||pages.flatMap(p=>p.links||[]);
     const shownN=(t.interlink&&t.interlink.shown)||Math.min(5,cand.length);
-    DN_IL_SEL[key]=cand;                         // stash for apply
+    DN_IL_SEL[key]=cand;                         // stash for apply (indices match)
     let present0=0;
     const rowHtml=(l,i)=>{
         const isP=present.has(dnNormUrl(l.url));
         if(isP) present0++;
         const def = isP || i<shownN;             // pre-checked by default
-        const dir = l.direction==='spoke_to_hub' ? '↑ to hub' : '↓ to spoke';
         const orphan = l.fixes_orphan ? ' <span style="color:#b45309;font-size:10px;font-weight:700;">orphan</span>' : '';
-        return `<label class="dn-il-row" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;${i>=12?'':''}">
+        return `<label class="dn-il-row" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0 5px 10px;">
             <input type="checkbox" class="dn-il-cb" data-key="${esc(key)}" data-i="${i}" ${def?'checked':''} ${isP?'disabled':''} onchange="dnIlCount('${esc(key)}','${esc(domId)}')" style="margin-top:3px;">
             <span style="font-size:13px;${isP?'color:var(--text-muted);':''}">
-              <span style="font-size:10px;color:var(--text-muted);">${dir}</span>
               <a href="${esc(l.url)}" target="_blank" rel="noopener" style="color:#4f46e5;">${esc(l.anchor||l.url)}</a>${orphan}
-              ${isP?' <span style="font-size:11px;color:var(--text-muted);">— already on the page ✓</span>':''}</span>
+              ${isP?' <span style="font-size:11px;color:var(--text-muted);">— already there ✓</span>':''}</span>
         </label>`;
     };
-    const firstRows=cand.slice(0,12).map(rowHtml).join('');
-    const restRows=cand.slice(12).map((l,j)=>rowHtml(l,j+12)).join('');
-    const moreToggle = cand.length>12
-        ? `<div id="ilmore-${domId}" style="display:none;">${restRows}</div>
-           <a href="#" onclick="document.getElementById('ilmore-${domId}').style.display='block';this.style.display='none';return false;" style="font-size:12px;color:#4f46e5;">▸ show all ${cand.length} candidates</a>`
-        : '';
+    // GROUP by the page each link is added to (its source page), so it's obvious
+    // the links land on DIFFERENT pages — the 3-vs-5 confusion came from links
+    // destined for other pages not showing on the hub.
+    const bySrc={}; const order=[];
+    cand.forEach((l,i)=>{ const u=l.source_url||''; if(!(u in bySrc)){bySrc[u]=[];order.push(u);} bySrc[u].push({l,i}); });
+    const multi = order.length>1;
+    const groupsHtml = order.map(u=>{
+        const title=(bySrc[u][0].l.source_title)||u;
+        const rows=bySrc[u].map(({l,i})=>rowHtml(l,i)).join('');
+        return `<div style="margin:8px 0 4px;"><div style="font-weight:600;font-size:12.5px;">✏️ On your “${esc(title)}” page — add:</div>${rows}</div>`;
+    }).join('');
     box.innerHTML=`<div style="border:1px solid var(--border,#e5e7eb);border-radius:9px;padding:10px 12px;">
         <div style="font-weight:700;font-size:13px;margin-bottom:2px;">Pick the links to add — nothing is live yet</div>
-        <p style="font-size:12px;color:var(--text-muted);margin:0 0 6px;">Ranked by impact (orphan rescues first). The top ${shownN} are pre-checked — just approve, or check/uncheck to choose your own set. Anchor text is auto-tidied when added. Shown as a “Related guides” section; your content isn’t changed; one-click undo.</p>
-        ${firstRows}${moreToggle}
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 6px;">Ranked by impact (orphan rescues first). The top ${shownN} are pre-checked — just approve, or check/uncheck. Anchor text is auto-tidied when added; one-click undo.${multi?' <b>Note:</b> these links go on <b>different pages</b> (grouped below) — not all on one page.':''}</p>
+        ${groupsHtml}
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
             <button class="pb-task-btn" onclick='dnInterlinkApply(${JSON.stringify(key)},${JSON.stringify(domId)},this)'>✅ Add <span id="ilcount-${domId}"></span> to Magento</button>
             <button class="cs-btn" style="font-size:12.5px;padding:7px 13px;border-radius:7px;border:1px solid var(--border,#ccc);background:#fff;cursor:pointer;" onclick='document.getElementById(${JSON.stringify(domId)}).innerHTML=""'>Cancel</button>
@@ -741,26 +744,26 @@ async function dnInterlinkApply(key, domId, btn){
     chosen.forEach(l=>{ (byPage[l.source_url]=byPage[l.source_url]||[]).push(l); });
     const pages=Object.keys(byPage).map(u=>({source_url:u, source_title:(cand.find(l=>l.source_url===u)||{}).source_title||u, links:byPage[u]}));
     if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
-    let ok=0, failed=[], confirmed=0; const applied=[]; let viewUrl='';
+    let failed=[]; const applied=[]; const results=[];
     for(const p of pages){
         try{
             const r=await (await fetch('/api/interlink/apply',{method:'POST',headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({source_url:p.source_url, family:t.interlink.family, links:p.links})})).json();
-            if(r.success && !r.no_change){ ok++; applied.push(p.source_url); if(r.confirmed) confirmed++; if(r.view_url) viewUrl=r.view_url; }
-            else if(r.error){ failed.push(r.error); }
-        }catch(e){ failed.push('Write failed.'); }
+            if(r.success && !r.no_change){ applied.push(p.source_url); results.push({name:r.page_name||p.source_title, n:p.links.length, url:r.view_url||p.source_url}); }
+            else if(r.error){ failed.push((r.page_name||p.source_title)+': '+r.error); }
+        }catch(e){ failed.push((p.source_title||'a page')+': write failed'); }
     }
+    const ok=results.length;
     if(ok){
         const urls=JSON.stringify(applied);
-        const confLine = confirmed>=ok
-            ? `✅ <b>Done.</b> I added the links and <b>confirmed they’re saved in Magento</b>.`
-            : `✅ <b>Added the links to Magento.</b>`;
-        const viewBtn = viewUrl ? `<a href="${esc(viewUrl)}" target="_blank" rel="noopener" class="pb-task-btn" style="text-decoration:none;display:inline-block;">🔗 View the page</a>` : '';
+        const totalLinks=results.reduce((a,r)=>a+r.n,0);
+        // Explicit per-page breakdown, so it's clear WHERE each link landed.
+        const lines=results.map(r=>`<li style="font-size:12.5px;">${r.n} link${r.n!==1?'s':''} → <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:#166534;text-decoration:underline;">${esc(r.name)}</a></li>`).join('');
         box.innerHTML=`<div class="dn-note" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:11px 13px;border-radius:7px;">
-            ${confLine}${ok>1?` (${ok} pages)`:''}
-            <p style="font-size:12.5px;margin:7px 0;color:#166534;"><b>How to check:</b> click below to open the page and scroll to the bottom — you’ll see a new <b>“Related guides”</b> list. <i>Don’t see it?</i> That’s just your page cache, not a failure — the links are safely saved (I verified). To clear it: Magento admin → <b>System → Cache Management → Flush Magento Cache</b>.</p>
+            ✅ <b>Done.</b> Added <b>${totalLinks}</b> link${totalLinks!==1?'s':''} across <b>${ok}</b> page${ok!==1?'s':''}${ok>1?' — note they’re on different pages':''}:
+            <ul style="margin:6px 0;">${lines}</ul>
+            <p style="font-size:12.5px;margin:7px 0;color:#166534;"><b>Don’t see a link on a page yet?</b> That’s just page cache — the links are saved (I verified). Clear it: Magento → <b>System → Cache Management → Flush Magento Cache</b>.</p>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
-                ${viewBtn}
                 <button class="cs-btn" style="font-size:12px;padding:6px 12px;border-radius:7px;border:1px solid #ccc;background:#fff;cursor:pointer;" onclick='dnInterlinkRevert(${urls},this)'>↩︎ Undo</button>
                 <span style="font-size:12px;color:var(--text-muted);">Looks good? Hit <b>✅ DONE</b> above.</span>
             </div>
