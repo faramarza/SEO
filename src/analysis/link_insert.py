@@ -109,3 +109,123 @@ def added_pairs(current: str, family: str, new_links: list) -> list:
         if u and u not in have:
             out.append((u, (l.get("anchor") or "").strip()))
     return out
+
+
+# ---------------------------------------------------------------------------
+# In-prose (contextual) linking — the SAFE variant.
+#
+# We never rewrite a sentence or add words. We only wrap a phrase that ALREADY
+# EXISTS in the page's own copy in an <a> tag. The AI's only job is to pick that
+# phrase; the mechanics below do the wrapping deterministically and refuse
+# anything that would touch a tag, an existing link, or the Governor box. If no
+# existing phrase fits, the caller falls back to the appended "Related" block.
+# Because the apply path stores and restores the whole original description, a
+# woven link reverts exactly like the block — no per-sentence bookkeeping.
+# ---------------------------------------------------------------------------
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_ANCHOR_RE = re.compile(r"<a\b[^>]*>.*?</a>", re.I | re.S)
+
+
+def _protected_ranges(html: str) -> list:
+    """Byte ranges we must NOT touch: inside any tag, inside an existing <a>…</a>,
+    or inside the Governor block."""
+    ranges = []
+    for m in _ANCHOR_RE.finditer(html):
+        ranges.append((m.start(), m.end()))
+    for m in _TAG_RE.finditer(html):
+        ranges.append((m.start(), m.end()))
+    mb = re.search(re.escape(MARK_START) + r".*?" + re.escape(MARK_END), html, re.S)
+    if mb:
+        ranges.append((mb.start(), mb.end()))
+    return ranges
+
+
+def _overlaps(a: int, b: int, ranges: list) -> bool:
+    return any(not (b <= s or a >= e) for s, e in ranges)
+
+
+def _phrase_pattern(phrase: str):
+    """Case-insensitive, whitespace-flexible matcher for a phrase, bounded so it
+    doesn't match inside a bigger word."""
+    words = [w for w in phrase.split() if w]
+    if not words:
+        return None
+    body = r"\s+".join(re.escape(w) for w in words)
+    return re.compile(r"(?<!\w)" + body + r"(?!\w)", re.I)
+
+
+def url_already_linked(html: str, url: str) -> bool:
+    """True if `url` is already the href of some <a> anywhere in the body."""
+    u = (url or "").strip()
+    if not u:
+        return False
+    for m in _ANCHOR_RE.finditer(html or ""):
+        hm = re.search(r'href="([^"]+)"', m.group(0))
+        if hm and hm.group(1).strip() == u:
+            return True
+    return False
+
+
+def linkify_phrase(html: str, phrase: str, url: str) -> tuple:
+    """Wrap the FIRST free occurrence of `phrase` (an existing phrase in the copy)
+    in a link to `url`. 'Free' = not inside a tag, an existing link, or the
+    Governor block. Returns (new_html, ok). ok=False means no safe spot — nothing
+    changed."""
+    html = html or ""
+    phrase = (phrase or "").strip()
+    url = (url or "").strip()
+    pat = _phrase_pattern(phrase)
+    if not pat or not url:
+        return html, False
+    ranges = _protected_ranges(html)
+    for m in pat.finditer(html):
+        if _overlaps(m.start(), m.end(), ranges):
+            continue
+        matched = m.group(0)          # keep the page's own casing/spacing
+        anchor = f'<a href="{_esc_attr(url)}">{matched}</a>'
+        return html[:m.start()] + anchor + html[m.end():], True
+    return html, False
+
+
+def weave_context_snippet(html: str, phrase: str, radius: int = 90) -> tuple:
+    """A plain-text window around the first linkable occurrence of `phrase`, for
+    the human before/after preview. Returns (snippet, matched_phrase) or ('', '')
+    when there's no free spot."""
+    html = html or ""
+    pat = _phrase_pattern((phrase or "").strip())
+    if not pat:
+        return "", ""
+    ranges = _protected_ranges(html)
+    for m in pat.finditer(html):
+        if _overlaps(m.start(), m.end(), ranges):
+            continue
+        lo = max(0, m.start() - radius)
+        hi = min(len(html), m.end() + radius)
+        window = re.sub(r"<[^>]+>", " ", html[lo:hi])
+        snippet = re.sub(r"\s+", " ", window).strip()
+        matched = re.sub(r"\s+", " ", m.group(0)).strip()
+        return snippet, matched
+    return "", ""
+
+
+def weave_phrases(current: str, placements: list) -> tuple:
+    """Apply a list of {url, phrase} placements to the description, wrapping each
+    phrase in a link to its url. Skips any url already linked in the body. Returns
+    (new_html, woven, missed) where woven/missed are the placement dicts that did /
+    did not find a safe spot — `missed` is what the caller falls back to the box."""
+    html = current or ""
+    woven, missed = [], []
+    for p in (placements or []):
+        u = (p.get("url") or "").strip()
+        ph = (p.get("phrase") or "").strip()
+        if not u or not ph or url_already_linked(html, u):
+            missed.append(p)
+            continue
+        new_html, ok = linkify_phrase(html, ph, u)
+        if ok:
+            html = new_html
+            woven.append(p)
+        else:
+            missed.append(p)
+    return html, woven, missed

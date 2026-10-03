@@ -48,3 +48,66 @@ def test_block_escapes_html_in_anchor_and_url():
     out = li.build_block("Toys", [("https://x.com/?a=1&b=2", "A <script> & \"x\"")])
     assert "<script>" not in out          # escaped
     assert "&amp;" in out
+
+
+# --- in-prose (contextual) weaving --------------------------------------------
+
+PROSE = ("<p>Our wooden train track sets are built to last. Pair them with a "
+         "personalized name train for extra fun.</p>")
+
+
+def test_linkify_wraps_existing_phrase_only():
+    out, ok = li.linkify_phrase(PROSE, "personalized name train", "/pnt.html")
+    assert ok
+    assert '<a href="/pnt.html">personalized name train</a>' in out
+    # nothing but the one anchor was added — strip it and we're back to the original
+    assert out.replace('<a href="/pnt.html">', "").replace("</a>", "") == PROSE
+
+
+def test_linkify_misses_phrase_not_present():
+    out, ok = li.linkify_phrase(PROSE, "classroom rug", "/rug.html")
+    assert not ok and out == PROSE          # no spot → no change
+
+
+def test_linkify_never_touches_existing_anchor_links_free_occurrence():
+    d = '<p>See our <a href="/a.html">wooden train</a> and more wooden train fun.</p>'
+    out, ok = li.linkify_phrase(d, "wooden train", "/b.html")
+    assert ok
+    assert out.count("<a ") == 2                      # original + new, original intact
+    assert '<a href="/a.html">wooden train</a>' in out
+    assert '<a href="/b.html">wooden train</a>' in out
+
+
+def test_linkify_case_insensitive_keeps_page_casing():
+    d = "<p>Wooden Train Track Sets are great.</p>"
+    out, ok = li.linkify_phrase(d, "wooden train track sets", "/w.html")
+    assert ok
+    assert '<a href="/w.html">Wooden Train Track Sets</a>' in out   # page's casing kept
+
+
+def test_linkify_respects_word_boundary():
+    d = "<p>The nametrain is not a name train.</p>"
+    out, ok = li.linkify_phrase(d, "name train", "/n.html")
+    assert ok
+    assert "<a" in out and "nametrain is" in out       # did NOT match inside 'nametrain'
+
+
+def test_weave_phrases_splits_woven_and_missed_and_no_double_url():
+    html, woven, missed = li.weave_phrases(PROSE, [
+        {"url": "/pnt.html", "phrase": "personalized name train"},
+        {"url": "/none.html", "phrase": "no such phrase"},
+        {"url": "/pnt.html", "phrase": "wooden train track sets"},   # url already linked
+    ])
+    assert [p["url"] for p in woven] == ["/pnt.html"]
+    assert {p["url"] for p in missed} == {"/none.html", "/pnt.html"}
+    assert html.count('href="/pnt.html"') == 1
+
+
+def test_weave_snippet_marks_phrase_in_context():
+    snip, matched = li.weave_context_snippet(PROSE, "personalized name train")
+    assert matched == "personalized name train"
+    assert "personalized name train" in snip and "<" not in snip   # plain text window
+
+
+def test_weave_snippet_empty_when_absent():
+    assert li.weave_context_snippet(PROSE, "classroom rug") == ("", "")

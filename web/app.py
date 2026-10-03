@@ -13252,6 +13252,25 @@ def _il_ai_save(d: dict):
     tmp.replace(_INTERLINK_AI_PATH)
 
 
+_INTERLINK_WEAVE_PATH = DATA_PATH / "interlink_weave.json"
+
+
+def _il_weave_load() -> dict:
+    try:
+        with open(_INTERLINK_WEAVE_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _il_weave_save(d: dict):
+    _INTERLINK_WEAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _INTERLINK_WEAVE_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    tmp.replace(_INTERLINK_WEAVE_PATH)
+
+
 def _ai_vet_links(family: str, hub_title: str, links: list, families: list = None) -> dict:
     """CLASSIFY each candidate page into the ONE product family it truly belongs to
     (from the store's family list) — a sharper, more honest question than binary
@@ -13312,6 +13331,69 @@ def _ai_vet_links(family: str, hub_title: str, links: list, families: list = Non
                   "at": datetime.now().isoformat(timespec="seconds")}
     _il_ai_save(cache)
     return verdicts
+
+
+_WEAVE_VERSION = "1"
+
+
+def _ai_weave_phrases(page_name: str, family: str, description: str, links: list) -> dict:
+    """Pick, for each target link, a SHORT phrase that ALREADY appears verbatim in
+    this page's own copy and reads as a natural anchor for that target. Returns
+    {url: phrase}. The phrase is only a SUGGESTION: the caller wraps it with the
+    deterministic linkifier, which silently drops any phrase not actually present —
+    so a hallucinated or paraphrased phrase can never alter the page. Cached by
+    (page text + target set); graceful (no key / failure → {})."""
+    import hashlib
+    import re as _re
+    from src.analysis import link_insert as li
+    text = _re.sub(r"<[^>]+>", " ", li.strip_block(description or ""))
+    text = _re.sub(r"\s+", " ", text).strip()
+    cand = [(l.get("url") or l.get("target_url") or "").strip() for l in (links or [])]
+    cand = [u for u in cand if u]
+    if not text or not cand or len(text) < 60:
+        return {}                       # too little prose to weave into → box it
+    key = hashlib.md5((_WEAVE_VERSION + "|" + text[:4000] + "|" +
+                       "|".join(sorted(cand))).encode()).hexdigest()[:16]
+    cache = _il_weave_load()
+    if key in cache:
+        return cache[key]["phrases"]
+    lines = []
+    for l in (links or []):
+        u = (l.get("url") or l.get("target_url") or "").strip()
+        t = (l.get("target_title") or l.get("anchor") or "").strip()
+        if u:
+            lines.append(f"- url: {u} | about: {t}")
+    system = (
+        "You place internal links INSIDE a page's existing copy, without rewriting "
+        "it. You are given the page's text and a list of target pages. For each "
+        "target, find a SHORT phrase (2-6 words) that ALREADY appears, verbatim, in "
+        "the page text and would read as a natural, relevant anchor to that target.\n"
+        "Rules: (1) Copy the phrase EXACTLY as it appears — same words, order and "
+        "spelling. Never invent or paraphrase. (2) The phrase must be genuinely "
+        "on-topic for the target; if nothing in the text fits, OMIT that target — "
+        "do not force it. (3) Keep the phrase inside a single sentence, not spanning "
+        "a heading or list. (4) Never reuse the same phrase for two targets.\n"
+        "Return ONLY JSON: {\"links\":[{\"url\":\"<exact url>\",\"phrase\":\"<verbatim "
+        "phrase copied from the text>\"}]}. Omit any target with no good phrase."
+    )
+    prompt = (f"PAGE: {page_name} (family: {family})\n\nPAGE TEXT:\n{text[:4000]}\n\n"
+              f"TARGET PAGES:\n" + "\n".join(lines))
+    out, err = _llm_complete(system, prompt, max_tokens=700, temperature=0.1)
+    if err:
+        return {}
+    parsed, perr = _cd_parse_llm_json(out)
+    if perr or not isinstance(parsed, dict):
+        return {}
+    phrases = {}
+    for v in (parsed.get("links") or parsed.get("pages") or []):
+        u = (v.get("url") or "").strip()
+        ph = (v.get("phrase") or "").strip()
+        if u and ph:
+            phrases[u] = ph
+    cache[key] = {"phrases": phrases,
+                  "at": datetime.now().isoformat(timespec="seconds")}
+    _il_weave_save(cache)
+    return phrases
 
 
 def _subtract_applied_interlinks(plan: dict) -> dict:
@@ -13551,6 +13633,115 @@ def api_interlink_revert():
     store.pop(cid, None)
     _il_writes_save(store)
     return jsonify({"success": True, "page_name": cat.get("name", "")})
+
+
+@app.route("/api/interlink/weave-preview", methods=["POST"])
+def api_interlink_weave_preview():
+    """Preview the CONTEXTUAL (in-prose) version: for each chosen link, show the
+    exact phrase already in the page copy that we'd turn into a link, with the
+    sentence around it. Links with no natural phrase fall back to the 'Related'
+    box. No write happens."""
+    from src.analysis import link_insert as li
+    b = request.get_json(silent=True) or {}
+    source_url = (b.get("source_url") or "").strip()
+    family = (b.get("family") or "").strip()
+    links = b.get("links") or []
+    if not source_url or not links:
+        return jsonify({"editable": False, "reason": "Nothing to add."})
+    mc, cat, reason = _il_resolve_category(source_url)
+    if reason:
+        return jsonify({"editable": False, "reason": reason})
+    current = cat.get("description") or ""
+    phrases = _ai_weave_phrases(cat.get("name", ""), family, current, links)
+    items = []
+    inline_n = 0
+    for l in links:
+        u = (l.get("url") or l.get("target_url") or "").strip()
+        anchor = (l.get("anchor") or l.get("target_title") or "").strip()
+        ph = (phrases.get(u) or "").strip()
+        snippet, matched = ("", "")
+        mode = "box"
+        if ph and not li.url_already_linked(current, u):
+            snippet, matched = li.weave_context_snippet(current, ph)
+            if matched:
+                mode = "inline"
+                inline_n += 1
+        items.append({"url": u, "anchor": anchor, "mode": mode,
+                      "phrase": matched, "snippet": snippet})
+    return jsonify({"editable": True, "page_name": cat.get("name", ""),
+                    "inline_count": inline_n, "box_count": len(items) - inline_n,
+                    "items": items})
+
+
+@app.route("/api/interlink/weave-apply", methods=["POST"])
+def api_interlink_weave_apply():
+    """Apply the contextual version: wrap each chosen link's phrase inside the
+    existing copy; any link with no natural phrase is added to the 'Related' box
+    instead. Stores the original description for one-click revert (same path as the
+    box apply)."""
+    from src.analysis import link_insert as li
+    from src.data_sources.magento_client import MagentoError
+    b = request.get_json(silent=True) or {}
+    source_url = (b.get("source_url") or "").strip()
+    family = (b.get("family") or "").strip()
+    links = b.get("links") or []
+    if not source_url or not links:
+        return jsonify({"error": "Nothing to add."}), 400
+    mc, cat, reason = _il_resolve_category(source_url)
+    if reason:
+        return jsonify({"error": reason}), 400
+    current = cat.get("description") or ""
+    cid = "cat:" + str(cat["category_id"]) if cat.get("category_id") else "prod:" + str(cat.get("sku", ""))
+    phrases = _ai_weave_phrases(cat.get("name", ""), family, current, links)
+    # Split the chosen links: those with a real in-copy phrase get woven inline;
+    # the rest go to the box (so nothing the user picked is silently lost).
+    placements, boxed = [], []
+    for l in links:
+        u = (l.get("url") or l.get("target_url") or "").strip()
+        ph = (phrases.get(u) or "").strip()
+        if ph:
+            placements.append({"url": u, "phrase": ph,
+                               "anchor": (l.get("anchor") or l.get("target_title") or "").strip()})
+        else:
+            boxed.append(l)
+    woven_html, woven, missed = li.weave_phrases(current, placements)
+    # Anything that didn't find a safe spot joins the box fallback.
+    for p in missed:
+        boxed.append({"url": p.get("url"),
+                      "anchor": p.get("anchor") or p.get("url")})
+    new_desc = woven_html
+    if boxed:
+        new_desc = li.merge_description(new_desc, family, boxed)
+    if new_desc == current:
+        return jsonify({"success": True, "no_change": True})
+    store = _il_writes_load()
+    if cid not in store:
+        store[cid] = {"source_url": source_url, "page_name": cat.get("name", ""),
+                      "original_description": current,
+                      "first_applied_at": datetime.now().isoformat(timespec="seconds")}
+    try:
+        cat["_write_desc"](new_desc)
+    except MagentoError as e:
+        return jsonify({"error": f"Magento write failed: {e}"}), 502
+    store[cid]["last_applied_at"] = datetime.now().isoformat(timespec="seconds")
+    applied = set(store[cid].get("applied_targets", []))
+    for l in links:
+        tu = (l.get("url") or l.get("target_url") or "").strip()
+        if tu:
+            applied.add(tu)
+    store[cid]["applied_targets"] = sorted(applied)
+    store[cid]["applied_source"] = source_url
+    _il_writes_save(store)
+    confirmed = False
+    try:
+        _mc2, again, _r = _il_resolve_category(source_url)
+        confirmed = bool(again and (again.get("description") or "") != current)
+    except Exception:
+        confirmed = False
+    return jsonify({"success": True, "woven_count": len(woven),
+                    "boxed_count": len([x for x in boxed if (x.get("url") or "").strip()]),
+                    "page_name": cat.get("name", ""), "can_revert": True,
+                    "confirmed": confirmed, "view_url": source_url})
 
 
 @app.route("/api/topical-authority/send-to-board", methods=["POST"])
