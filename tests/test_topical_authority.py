@@ -332,3 +332,10 @@ def test_cluster_map_drops_nontopical_pages_from_name_trains():
     assert "contact" not in joined and "shipping" not in joined   # utility pages gone
     assert "play-sand" not in joined                              # brand-pollution gone
     assert "name-train" in joined                                 # real page kept
+
+
+def test_malformed_urls_excluded():
+    from src.analysis.topical_authority import _nontopical
+    assert _nontopical("https://x.com/blog/name-recognition-early-literacy-developm=")
+    assert _nontopical("https://x.com/page%20broken")
+    assert not _nontopical("https://x.com/5-letter-name-train.html")

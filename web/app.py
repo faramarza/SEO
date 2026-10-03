@@ -8940,6 +8940,8 @@ def api_action_plan():
         from src.analysis.topical_authority import build_interlink_plan
         _families = load_config().get("business_context", {}).get("product_families", []) or []
         _interlinks = build_interlink_plan(results, _families) if _families else None
+        if _interlinks:
+            _interlinks = _vet_interlink_plan(_interlinks)   # AI relevance + clean anchors
     except Exception:
         _interlinks = None
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
@@ -9262,6 +9264,8 @@ def _compose_weekly_digest():
         from src.analysis.topical_authority import build_interlink_plan
         _families = load_config().get("business_context", {}).get("product_families", []) or []
         _interlinks = build_interlink_plan(results, _families) if _families else None
+        if _interlinks:
+            _interlinks = _vet_interlink_plan(_interlinks)   # AI relevance + clean anchors
     except Exception:
         _interlinks = None
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
@@ -13225,6 +13229,118 @@ def _il_writes_save(d: dict):
     with open(tmp, "w") as f:
         json.dump(d, f, indent=2)
     tmp.replace(_INTERLINK_WRITES_PATH)
+
+
+_INTERLINK_AI_PATH = DATA_PATH / "interlink_ai.json"
+
+
+def _il_ai_load() -> dict:
+    try:
+        with open(_INTERLINK_AI_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _il_ai_save(d: dict):
+    _INTERLINK_AI_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _INTERLINK_AI_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    tmp.replace(_INTERLINK_AI_PATH)
+
+
+def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
+    """AI judgment over candidate interlinks from the '{family}' hub: KEEP only
+    genuinely related, real pages (drop the rug mis-filed by a shared word, the
+    personalized book, broken/draft URLs), and write a clean, descriptive, varied
+    anchor for the keepers. Returns {url: {keep: bool, anchor: str}}. Cached by
+    (family + the exact URL set). Graceful: on no key / failure returns {} so the
+    caller keeps the deterministic links unchanged."""
+    import hashlib
+    urls = [l.get("target_url", "") for l in links if l.get("target_url")]
+    if not urls:
+        return {}
+    key = hashlib.md5((family + "|" + "|".join(sorted(urls))).encode()).hexdigest()[:16]
+    cache = _il_ai_load()
+    if key in cache:
+        return cache[key]["verdicts"]
+    lines = []
+    for l in links:
+        lines.append(f"- url: {l.get('target_url','')} | page title: "
+                     f"{l.get('target_title','')} | type: {l.get('target_type','')}")
+    system = (
+        f"You vet INTERNAL links proposed FROM a store's “{family}” hub page "
+        f"(“{hub_title}”) TO other pages on the same store. For each candidate, "
+        "KEEP it (keep=true) ONLY if it is a real, working content page that is "
+        "genuinely about the same topic as the hub and would help a reader there. "
+        "DROP (keep=false): broken or draft URLs, pages from a DIFFERENT product "
+        "line that merely share a word (e.g. a classroom RUG that happens to have "
+        "‘train’ in its name does not belong on a name-trains hub; a "
+        "personalized BOOK is not a name-train), and utility pages. For KEPT links "
+        "write a concise, natural, DESCRIPTIVE anchor (3-8 words, varied between "
+        "links, reads like a human wrote it, no trailing punctuation, never a raw "
+        "slug). Judge only from the titles/URLs given; invent nothing.\n"
+        "Return ONLY JSON: {\"links\":[{\"url\":\"<exact url>\",\"keep\":true|false,"
+        "\"anchor\":\"<clean anchor>\",\"reason\":\"<short>\"}]}."
+    )
+    prompt = f"Hub: {hub_title} (topic: {family})\nCandidate links:\n" + "\n".join(lines)
+    text, err = _llm_complete(system, prompt, max_tokens=900, temperature=0.2)
+    if err:
+        return {}
+    parsed, perr = _cd_parse_llm_json(text)
+    if perr or not isinstance(parsed, dict):
+        return {}
+    verdicts = {}
+    for v in (parsed.get("links") or []):
+        u = (v.get("url") or "").strip()
+        if u:
+            verdicts[u] = {"keep": bool(v.get("keep", True)),
+                           "anchor": (v.get("anchor") or "").strip()}
+    cache[key] = {"verdicts": verdicts,
+                  "at": datetime.now().isoformat(timespec="seconds")}
+    _il_ai_save(cache)
+    return verdicts
+
+
+def _vet_interlink_plan(plan: dict) -> dict:
+    """Run the AI vetting over an interlink plan's candidate links — drop the
+    irrelevant/broken, re-anchor the keepers — BEFORE Start Here picks the top few.
+    One cheap call per family (top candidates), cached. Graceful if AI is off."""
+    if not plan or not plan.get("groups"):
+        return plan
+    by_fam = {}
+    for g in plan["groups"]:
+        by_fam.setdefault(g.get("family", ""), []).append(g)
+    for family, groups in by_fam.items():
+        cand, seen = [], set()
+        for g in sorted(groups, key=lambda x: -(int(x.get("demand", 0) or 0))):
+            for l in g.get("links", []):
+                u = l.get("target_url", "")
+                if u and u not in seen:
+                    seen.add(u)
+                    cand.append(l)
+        cand.sort(key=lambda l: (not l.get("fixes_orphan")))
+        hub_title = next((g.get("source_title", "") for g in groups
+                          if g.get("source_type") == "category"), family)
+        verdicts = _ai_vet_links(family, hub_title, cand[:14])
+        if not verdicts:
+            continue
+        for g in groups:
+            kept = []
+            for l in g.get("links", []):
+                v = verdicts.get(l.get("target_url", ""))
+                if v is None:
+                    kept.append(l)            # beyond the vetted top — leave as-is
+                elif v["keep"]:
+                    if v["anchor"]:
+                        l["anchor"] = v["anchor"]
+                    kept.append(l)
+                # else: dropped by the AI
+            g["links"] = kept
+            g["link_count"] = len(kept)
+    plan["groups"] = [g for g in plan["groups"] if g.get("links")]
+    return plan
 
 
 def _il_resolve_category(source_url: str):

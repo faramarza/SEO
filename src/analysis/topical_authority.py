@@ -111,6 +111,8 @@ def _nontopical(url: str) -> bool:
     path = re.sub(r"[?#].*$", "", path).rstrip("/")
     if path in ("", "/"):          # homepage
         return True
+    if "=" in path or "%" in path:  # malformed/truncated slug (e.g. "…developm=")
+        return True
     seg = re.sub(r"\.(html?|php|aspx?)$", "", path)
     return any(m in seg for m in _NONTOPICAL_MARKERS)
 
