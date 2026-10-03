@@ -13260,7 +13260,13 @@ def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
     (family + the exact URL set). Graceful: on no key / failure returns {} so the
     caller keeps the deterministic links unchanged."""
     import hashlib
-    urls = [l.get("target_url", "") for l in links if l.get("target_url")]
+    # Key-tolerant: candidates from the plan use 'target_url'/'target_title';
+    # chosen links sent from the card use 'url'/'anchor'.
+    def _lu(l):
+        return (l.get("target_url") or l.get("url") or "").strip()
+    def _lt(l):
+        return (l.get("target_title") or l.get("anchor") or "").strip()
+    urls = [_lu(l) for l in links if _lu(l)]
     if not urls:
         return {}
     key = hashlib.md5((family + "|" + "|".join(sorted(urls))).encode()).hexdigest()[:16]
@@ -13269,8 +13275,8 @@ def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
         return cache[key]["verdicts"]
     lines = []
     for l in links:
-        lines.append(f"- url: {l.get('target_url','')} | page title: "
-                     f"{l.get('target_title','')} | type: {l.get('target_type','')}")
+        lines.append(f"- url: {_lu(l)} | page title: {_lt(l)} | type: "
+                     f"{l.get('target_type','')}")
     system = (
         f"You vet INTERNAL links proposed FROM a store's “{family}” hub page "
         f"(“{hub_title}”) TO other pages on the same store. For each candidate, "
@@ -13436,6 +13442,18 @@ def api_interlink_apply():
         return jsonify({"error": reason}), 400
     current = cat.get("description") or ""
     cid = str(cat.get("category_id"))
+    # Clean the anchors of the CHOSEN links through the AI vetter — so deep picks
+    # (which weren't vetted at display time) get a tidy, descriptive anchor too.
+    # Respect the user's selection: only improve the anchor, never drop a link
+    # they deliberately checked. Cached + graceful (no key → anchors unchanged).
+    try:
+        verdicts = _ai_vet_links(family, cat.get("name", ""), links)
+        for l in links:
+            v = verdicts.get((l.get("url") or l.get("target_url") or "").strip())
+            if v and v.get("anchor"):
+                l["anchor"] = v["anchor"]
+    except Exception:
+        pass
     new_desc = li.merge_description(current, family, links)
     if new_desc == current:
         return jsonify({"success": True, "no_change": True})
