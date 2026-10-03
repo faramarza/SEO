@@ -13534,8 +13534,19 @@ def _il_resolve_category(source_url: str, asset_type: str = ""):
                     _a=ent.get("attribute_set_id"), _t=ent.get("type_id"): \
                     mc.update_product_description(_sku, new, attribute_set_id=_a, type_id=_t)
             return mc, ent, None
-    return mc, None, ("Couldn't find this page as an editable product or category "
-                      "in Magento — add the links by hand (steps below).")
+    # Surface the PRECISE reason (url_key match counts) so "couldn't find it"
+    # isn't a dead end — 0/0 means the Magento url_key differs from the URL slug,
+    # 2+ means it's ambiguous. Diagnostic runs only on the failure path.
+    diag = ""
+    try:
+        diag = mc.resolve_diag(source_url)
+    except Exception:
+        diag = ""
+    reason = "Couldn't find this page as an editable product or category in Magento"
+    if diag:
+        reason += f" [{diag}]"
+    reason += " — add the links by hand (steps below)."
+    return mc, None, reason
 
 
 @app.route("/api/interlink/preview", methods=["POST"])
