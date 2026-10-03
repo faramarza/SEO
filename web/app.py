@@ -55,6 +55,7 @@ def _load_dotenv():
               flush=True)
         return
     loaded = 0
+    shadowed = []
     try:
         for line in env_path.read_text().splitlines():
             line = line.strip()
@@ -63,13 +64,28 @@ def _load_dotenv():
             key, _, val = line.partition("=")
             key = key.strip()
             val = val.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = val
-                loaded += 1
+            if not key:
+                continue
+            if key in os.environ:
+                # A pre-existing env var wins (so a systemd EnvironmentFile can
+                # override). But silently skipping a DIFFERENT value is a footgun:
+                # a stale MAGENTO_TOKEN exported in the shell/service masks .env and
+                # looks like an auth bug. Make it LOUD so it's never a silent mystery.
+                if os.environ[key] != val:
+                    shadowed.append(key)
+                continue
+            os.environ[key] = val
+            loaded += 1
     except OSError as e:
         print(f"[ENV] Could not read {env_path}: {e}", flush=True)
         return
     print(f"[ENV] Loaded {loaded} var(s) from {env_path}", flush=True)
+    if shadowed:
+        print("[ENV] WARNING: these .env keys were IGNORED because a DIFFERENT value "
+              "is already set in the process environment (that value wins, not .env): "
+              + ", ".join(sorted(shadowed)) + ". If one looks stale, unset it in the "
+              "service unit / shell (e.g. `unset MAGENTO_TOKEN`) so .env takes effect.",
+              flush=True)
 
 
 _load_dotenv()
