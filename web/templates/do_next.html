@@ -413,7 +413,7 @@ function plainWhat(t){
     if((cat==='winnable'||cat==='striking') && _leverIsExternal(t)) return `Your <b>“${pg}”</b> page is nearly on page 1 — but pushing it over needs links from other websites, which is slow. <b>Skip this</b> unless you have time for outreach.`;
     if(cat==='winnable'||cat==='striking') return `Help your <b>“${pg}”</b> page rank higher by adding a few links to it from your other pages.`;
     if(cat==='orphan') return `Nothing on your site links to your <b>“${pg}”</b> page — add links to it from related pages so Google can find it.`;
-    if(cat==='interlink'){ const c=t.interlink||{}; return `Strengthen your <b>“${esc(c.family||'')}”</b> topic cluster by adding <b>${c.shown||0}</b> internal link${(c.shown||0)!==1?'s':''} now${c.total?` (${c.total} missing in total — you do the highest-impact few each time)`:''}. The exact links and anchor text are below; about two minutes.`; }
+    if(cat==='interlink'){ const c=t.interlink||{}; return `Strengthen your <b>“${esc(c.family||'')}”</b> topic cluster by adding <b>${c.shown||0}</b> in-content link${(c.shown||0)!==1?'s':''} now${c.total?` (about ${c.total} more would complete it — you do the highest-impact few each time)`:''}. The exact links and anchor text are below; about two minutes.`; }
     if(cat==='consolidation') return `Two of your pages compete for the same thing — redirect the weaker one into the stronger.`;
     if(cat==='decay') return `Your <b>“${pg}”</b> page is losing traffic — refresh its content.`;
     if(cat==='pruning') return `Your <b>“${pg}”</b> page is dead weight — remove it or hide it from Google.`;

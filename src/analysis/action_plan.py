@@ -620,8 +620,9 @@ def _from_interlinks(interlinks, out):
         page_blocks = [{"source_url": k[0], "source_title": k[1], "links": v}
                        for k, v in pages.items()]
         n_orphan = sum(1 for l in batch if l["fixes_orphan"])
-        steps = [f"Your “{fam}” cluster is missing {total} internal link(s). Add these "
-                 f"{len(batch)} highest-impact ones now — the rest appear here as you finish:"]
+        steps = [f"Your “{fam}” pages could use about {total} more in-content link(s) to "
+                 f"each other (links the tool already added are excluded). Add these "
+                 f"{len(batch)} highest-impact now — the rest appear here as you finish:"]
         for pb in page_blocks:
             steps.append(f"On your “{pb['source_title']}” page, in the body content:")
             for l in pb["links"]:
@@ -631,10 +632,10 @@ def _from_interlinks(interlinks, out):
                 steps.append(f"  → {where}: {l['url']} (anchor text: “{l['anchor']}”){orphan}")
         steps.append("Add them, Save, then hit DONE.")
         orphan_note = f" ({n_orphan} rescue orphan pages)" if n_orphan else ""
-        benefit = (f"Your “{fam}” cluster ({fam_demand[fam]:,} impressions) is missing {total} "
-                   f"internal links{orphan_note} — the biggest topical-authority lever on pages "
-                   f"you already own. Do the top {len(batch)} now; keep coming back and you close "
-                   f"the whole cluster, a couple of minutes at a time.")
+        benefit = (f"Your “{fam}” cluster ({fam_demand[fam]:,} impressions) could use about "
+                   f"{total} more in-content links between its pages{orphan_note} — the biggest "
+                   f"topical-authority lever on pages you already own. Do the top {len(batch)} "
+                   f"now; keep coming back and you close the cluster a couple of minutes at a time.")
         more = f" ({remaining_after} more to go after these)" if remaining_after else ""
         t = _task("interlink", "",
                   f"Strengthen your “{fam}” cluster — add {len(batch)} internal link"

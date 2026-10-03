@@ -8941,7 +8941,8 @@ def api_action_plan():
         _families = load_config().get("business_context", {}).get("product_families", []) or []
         _interlinks = build_interlink_plan(results, _families) if _families else None
         if _interlinks:
-            _interlinks = _vet_interlink_plan(_interlinks)   # AI relevance + clean anchors
+            _interlinks = _subtract_applied_interlinks(_interlinks)  # drop links already added
+            _interlinks = _vet_interlink_plan(_interlinks)           # AI relevance + clean anchors
     except Exception:
         _interlinks = None
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
@@ -9265,7 +9266,8 @@ def _compose_weekly_digest():
         _families = load_config().get("business_context", {}).get("product_families", []) or []
         _interlinks = build_interlink_plan(results, _families) if _families else None
         if _interlinks:
-            _interlinks = _vet_interlink_plan(_interlinks)   # AI relevance + clean anchors
+            _interlinks = _subtract_applied_interlinks(_interlinks)  # drop links already added
+            _interlinks = _vet_interlink_plan(_interlinks)           # AI relevance + clean anchors
     except Exception:
         _interlinks = None
     plan = build_action_plan(ctr=ctr, cro=cro, reviews=reviews, rich=rich,
@@ -13303,6 +13305,33 @@ def _ai_vet_links(family: str, hub_title: str, links: list) -> dict:
     return verdicts
 
 
+def _subtract_applied_interlinks(plan: dict) -> dict:
+    """Drop links the tool has ALREADY added (recorded on apply) from the plan, so
+    the 'N missing' count and the suggested links reflect reality immediately —
+    without waiting for the next crawl to re-see them. Keyed by (source → targets)."""
+    from src.analysis.topical_authority import _norm_url
+    if not plan or not plan.get("groups"):
+        return plan
+    applied = {}
+    for rec in (_il_writes_load() or {}).values():
+        src = _norm_url(rec.get("applied_source") or rec.get("source_url") or "")
+        if not src:
+            continue
+        applied.setdefault(src, set()).update(_norm_url(u) for u in (rec.get("applied_targets") or []))
+    if not applied:
+        return plan
+    for g in plan["groups"]:
+        src = _norm_url(g.get("source_url", ""))
+        done = applied.get(src)
+        if not done:
+            continue
+        g["links"] = [l for l in g.get("links", [])
+                      if _norm_url(l.get("target_url", "")) not in done]
+        g["link_count"] = len(g["links"])
+    plan["groups"] = [g for g in plan["groups"] if g.get("links")]
+    return plan
+
+
 def _vet_interlink_plan(plan: dict) -> dict:
     """Run the AI vetting over an interlink plan's candidate links — drop the
     irrelevant/broken, re-anchor the keepers — BEFORE Start Here picks the top few.
@@ -13434,6 +13463,15 @@ def api_interlink_apply():
     except MagentoError as e:
         return jsonify({"error": f"Magento write failed: {e}"}), 502
     store[cid]["last_applied_at"] = datetime.now().isoformat(timespec="seconds")
+    # Record the target URLs we added from THIS source, so the plan can subtract
+    # them immediately (the crawl won't reflect them until its next run).
+    applied = set(store[cid].get("applied_targets", []))
+    for l in links:
+        tu = (l.get("url") or l.get("target_url") or "").strip()
+        if tu:
+            applied.add(tu)
+    store[cid]["applied_targets"] = sorted(applied)
+    store[cid]["applied_source"] = source_url
     _il_writes_save(store)
     added = li.added_pairs(current, family, links)
     # CONFIRM by reading the saved description straight back from Magento (the
