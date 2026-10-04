@@ -486,15 +486,14 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
     lo, hi = brief["external_links_required"]
     auth = (competitor or {}).get("authority_links") or []
     if auth:
-        # REAL, live authority URLs from the SERP — cite these verbatim, don't guess.
-        lines.append(f"Include {hi} external authority links — use ALL of these REAL, live "
-                     "URLs from the current SERP (cite each one where it backs a claim), and "
-                     "link them EXACTLY as written, never altering the path:")
+        # REAL, live, pre-filtered authority URLs — cite the RELEVANT ones verbatim.
+        lines.append(f"External authority links — candidates below are real & live. Cite "
+                     f"the {lo}–{hi} that genuinely back a claim in THIS article (right "
+                     "topic and age), linking them EXACTLY as written. RELEVANCE OVER "
+                     "COUNT: skip any that don't clearly fit — do NOT cite a page just to "
+                     f"reach {hi}, and never invent or alter a URL:")
         for a in auth:
             lines.append(f"   • {a['url']}" + (f" — {a['title']}" if a.get("title") else ""))
-        if len(auth) < hi:
-            lines.append("If you need another citation beyond these, use only an org's "
-                         "HOMEPAGE and add a [VERIFY] flag — never invent a deep path.")
     else:
         lines.append(f"Include {lo}–{hi} external links to RELEVANT pages on real "
                      "authorities. Do NOT guess a deep URL path (it may 404) — link the "

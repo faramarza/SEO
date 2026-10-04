@@ -59,18 +59,90 @@ _AUTHORITY_RE = re.compile(
     r"aota|asha)\b", re.I)
 
 
-def _authority_links(organic: list) -> list:
-    """Real authority URLs present in the live SERP (one per domain), to hand the
-    drafter as citeable sources instead of letting it guess a deep path."""
+def _age_months(text: str):
+    """Rough age-in-months from a string ('5-years' -> 60, '12 months' -> 12,
+    'toddler' -> 18), or None if no age is named."""
+    t = (text or "").lower()
+    m = re.search(r"(\d{1,2})\s*[-\s]?\s*(?:year|yr)s?\b", t)
+    if m:
+        return int(m.group(1)) * 12
+    m = re.search(r"(\d{1,2})\s*[-\s]?\s*(?:month|mo)s?\b", t)
+    if m:
+        return int(m.group(1))
+    if "newborn" in t or "infant" in t:
+        return 2
+    if "toddler" in t:
+        return 18
+    if "preschool" in t or "pre-k" in t:
+        return 42
+    if "kindergart" in t:
+        return 60
+    return None
+
+
+def _authority_candidate(url, title, html, kw_tokens, article_age):
+    """Keep an authority citation only if it's genuinely relevant: not a clearly
+    different age than the article, and (when we have the page) actually about the
+    topic. Returns True to keep, False to drop."""
+    blob = (url + " " + (title or "")).lower()
+    cand_age = _age_months(blob)
+    if article_age is not None and cand_age is not None and abs(cand_age - article_age) > 18:
+        return False   # e.g. a "5-years" milestones page on a 1-year-old article
+    if html is not None:
+        text = _clean_text(html).lower()
+        topic = {w for w in (kw_tokens or set()) if len(w) > 2} | {"toy", "toys", "play"}
+        if not any(re.search(r"\b" + re.escape(w) + r"\b", text) for w in topic):
+            return False   # page doesn't mention the topic at all
+    return True
+
+
+def _source_authority_links(serp, fetch_serp_fn, fetch_page_fn, kw):
+    """Assemble up to 5 REAL, relevant, live authority citations. Candidates come
+    from the live SERP first (they rank for the real query, so they're on-topic),
+    then — only if needed — from targeted `site:domain keyword` lookups (top 3 each,
+    not just #1). Every candidate is age- and topic-filtered, and (for top-ups)
+    content-checked, so we offer the drafter relevant sources, not the first hit."""
+    kw_tokens = set(_tokens(kw))
+    article_age = _age_months(kw)
     out, seen = [], set()
-    for r in (organic or []):
-        u = r.get("url") or ""
+
+    def _add(url, title, verify_content):
+        u = (url or "").strip()
         dom = _domain(u)
-        if not dom or dom in seen:
+        if not u or dom in seen or not _AUTHORITY_RE.search(u):
+            return
+        # cheap age/URL filter first; fetch the page only for top-ups (verify_content)
+        if not _authority_candidate(u, title, None, kw_tokens, article_age):
+            return
+        html = None
+        if verify_content:
+            try:
+                html = fetch_page_fn(u)
+            except Exception:
+                html = None
+        if not _authority_candidate(u, title, html, kw_tokens, article_age):
+            return
+        seen.add(dom)
+        out.append({"url": u, "title": (title or "").strip(), "domain": dom})
+
+    # 1) From the live SERP (on-topic by definition — they rank for the query).
+    for r in (serp.get("organic_results") or []):
+        _add(r.get("url", ""), r.get("title", ""), verify_content=False)
+        if len(out) >= 5:
+            return out
+
+    # 2) Top up from targeted site: queries, content-checked (max a few fetches).
+    for dom in _DEFAULT_AUTHORITY_DOMAINS:
+        if len(out) >= 4 or any(dom in d for d in seen):
             continue
-        if _AUTHORITY_RE.search(u):
-            seen.add(dom)
-            out.append({"url": u, "title": (r.get("title") or "").strip(), "domain": dom})
+        try:
+            s2 = fetch_serp_fn(f"site:{dom} {kw}")
+        except Exception:
+            s2 = None
+        for r in ((s2 or {}).get("organic_results") or [])[:3]:
+            if any(dom in d for d in seen):
+                break
+            _add(r.get("url", ""), r.get("title", ""), verify_content=True)
     return out[:5]
 
 
@@ -266,26 +338,8 @@ def build_competitor_brief(keyword: str, fetch_serp_fn, fetch_page_fn,
         spec["headings"] = [h for h in spec["headings"] if not _has_brand(h, brand)]
         spec["questions"] = [q for q in spec["questions"] if not _has_brand(q, brand)]
 
-    # Real authority citations from the SERP; if the main SERP had none, source a
-    # real DEEP page per authority via a targeted site: query (cached in this brief).
-    auth = _authority_links(serp.get("organic_results") or [])
-    have = {a["domain"] for a in auth}
-    if len(auth) < 3:                      # aim for 3 real authority citations
-        for dom in _DEFAULT_AUTHORITY_DOMAINS:
-            if len(auth) >= 3:
-                break
-            if any(dom in d for d in have):
-                continue
-            try:
-                s2 = fetch_serp_fn(f"site:{dom} {kw}")
-            except Exception:
-                s2 = None
-            for r in ((s2 or {}).get("organic_results") or [])[:1]:
-                u = r.get("url") or ""
-                if dom in _domain(u):
-                    auth.append({"url": u, "title": (r.get("title") or "").strip(),
-                                 "domain": _domain(u)})
-                    have.add(_domain(u))
-    spec["authority_links"] = auth[:3]
+    # Real, relevant, live authority citations — age- and topic-filtered so we never
+    # offer a "5-years milestones" page on a 1-year-old article or an off-topic page.
+    spec["authority_links"] = _source_authority_links(serp, fetch_serp_fn, fetch_page_fn, kw)
     spec["keyword"] = kw
     return spec

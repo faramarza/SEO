@@ -12917,7 +12917,7 @@ def _cd_save(d: dict):
 
 
 _COMPETITOR_BRIEF_PATH = DATA_PATH / "competitor_briefs.json"
-_CB_VERSION = "5"   # top-up now targets 3 authority links
+_CB_VERSION = "6"   # authority links now age+topic filtered for relevance
 _CB_TTL_DAYS = 14
 
 

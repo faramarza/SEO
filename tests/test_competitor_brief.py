@@ -103,6 +103,34 @@ def test_authority_links_sourced_from_serp():
     assert not any("rival-store" in u or "amazon" in u for u in auth)
 
 
+def test_authority_links_filtered_by_age_relevance():
+    # On a 1-year-old article, a CDC "5-years" page must be rejected in favour of the
+    # site's age-appropriate "12-months" page (same domain).
+    def serp(q):
+        if q.startswith("site:cdc.gov"):
+            return {"organic_results": [
+                {"url": "https://www.cdc.gov/act-early/milestones/5-years.html", "title": "Milestones by 5 Years"},
+                {"url": "https://www.cdc.gov/act-early/milestones/12-months.html", "title": "Milestones by 1 Year"}]}
+        if q.startswith("site:"):
+            return {"organic_results": []}
+        return {"organic_results": [{"url": "https://rival.com/x"}], "people_also_ask": ["What age?"]}
+    page = lambda u: "<p>play, toys and developmental milestones for your child</p>" * 5
+    b = cbf.build_competitor_brief("montessori toys for 1 year old", serp, page)
+    urls = [a["url"] for a in b["authority_links"]]
+    assert any("12-months" in u for u in urls)
+    assert not any("5-years" in u for u in urls)
+
+
+def test_authority_candidate_rejects_offtopic_page():
+    # A live authority page that never mentions the topic is dropped (content check).
+    assert cbf._authority_candidate(
+        "https://www.naeyc.org/x", "Some Page",
+        "<p>membership dues and conference registration</p>", {"montessori", "toys"}, 12) is False
+    assert cbf._authority_candidate(
+        "https://www.naeyc.org/x", "Toys & Play",
+        "<p>the right toys support play and learning</p>", {"montessori", "toys"}, 12) is True
+
+
 def test_none_when_no_serp():
     assert cbf.build_competitor_brief("x", lambda q: None, _fake_page) is None
 
