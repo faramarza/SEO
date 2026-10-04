@@ -30,7 +30,7 @@
              style="flex:1;min-width:220px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;">
       <button id="cs-gen" class="pb-task-btn" onclick="csGenerate()">✍️ Draft article</button>
     </div>
-    <p style="margin:8px 0 0;color:var(--text-muted);font-size:12px;">Grounds the draft in that family's real pages. With a keyword that matches your Content Gap plan, it uses the actual keyword research (outline, sub-topics). Generation takes ~30–60s. Use the picker above unless you want a topic the plan didn't surface.</p>
+    <p style="margin:8px 0 0;color:var(--text-muted);font-size:12px;">Grounds the draft in that family's real pages. With a keyword that matches your Content Gap plan, it uses the actual keyword research (outline, sub-topics). Generation takes up to ~1–3 min. Use the picker above unless you want a topic the plan didn't surface.</p>
   </div>
 </details>
 
@@ -134,7 +134,7 @@ async function csDoDraft(family, kw, btn){
   const old = btn ? btn.textContent : '';
   if(btn){ btn.disabled=true; btn.textContent='✍️ Drafting…'; }
   const detail=document.getElementById('cs-detail');
-  detail.innerHTML='<p class="pb-loading">✍️ Drafting “'+escHtml(kw||family)+'” — grounded in your catalog, ~30–60s…</p>';
+  detail.innerHTML='<p class="pb-loading">✍️ Drafting “'+escHtml(kw||family)+'” — grounded in your catalog, up to ~1–3 min…</p>';
   detail.scrollIntoView({behavior:'smooth', block:'nearest'});
   try{
     const r=await (await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},

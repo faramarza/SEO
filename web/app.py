@@ -12987,7 +12987,9 @@ def api_content_draft():
     brief = build_brief(results, families, family, target=target, item_type=item_type,
                         title=title, primary_keyword=primary_keyword)
     system, prompt = build_generation_messages(brief)
-    text, err = _llm_complete(system, prompt, max_tokens=5500)
+    # House-template articles are deep (a 51-item listicle runs ~5k words); give the
+    # model room and time or it truncates mid-article.
+    text, err = _llm_complete(system, prompt, max_tokens=16000, timeout_sec=600)
     if err:
         return jsonify({"error": err}), 502
     parsed, perr = _cd_parse_llm_json(text)

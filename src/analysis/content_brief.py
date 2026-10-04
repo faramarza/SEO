@@ -23,6 +23,10 @@ published page actually carries the links the brief required. All pure functions
 """
 from __future__ import annotations
 
+import functools
+import os
+import re
+
 from src.analysis.topical_authority import (
     build_cluster_map, _family_matchers, _family_slug, _norm_url, _anchor_for,
 )
@@ -70,6 +74,67 @@ OUTPUT_BLOCKS = [
 
 TARGET_PRODUCTS = 3     # real product pages to surface as CTAs / link-downs
 TARGET_EXTERNAL = (1, 3)  # min/max authoritative external links
+
+
+@functools.lru_cache(maxsize=1)
+def house_style_block() -> str:
+    """The operator's house <style> block, lifted verbatim from the sample article
+    template so every draft inherits the same brand styling (hero, benefit grid,
+    numbered cards, product-integration callouts, tip/warning boxes). Empty string
+    if the template file is missing (the drafter then falls back to plain HTML)."""
+    path = os.path.join(os.path.dirname(__file__), "article_template.html")
+    try:
+        html = open(path, encoding="utf-8").read()
+    except OSError:
+        return ""
+    m = re.search(r"<style[^>]*>.*?</style>", html, re.S | re.I)
+    return m.group(0).strip() if m else ""
+
+
+# The house article structure, described generically (the sample is a listicle,
+# but these components apply to any topic). The class names match house_style_block
+# so reusing them inherits the styling.
+HOUSE_STRUCTURE = (
+    "HOUSE TEMPLATE — build body_html in THIS structure, reusing these exact class "
+    "names so the page inherits the brand styling:\n"
+    "1) Begin body_html with the provided <style> block reproduced VERBATIM.\n"
+    "2) Hero: <div class=\"hero-dance\"> with the <h2> title and a one-line promise.\n"
+    "3) <div class=\"quick-nav\"> with in-page jump links to the main sections.\n"
+    "4) A short intro, then a <div class=\"benefits-box\"> whose <div class=\"benefit-grid\"> "
+    "holds several <div class=\"benefit-item\"> cards (emoji icon + bold heading + one line) "
+    "— the 'why it matters' section. Put ONE real, cited statistic here (or a [VERIFY] flag).\n"
+    "5) The main content at real depth. For a LIST/“best/top/N” article: a "
+    "<div class=\"age-filter-buttons\"> of <button class=\"age-filter-btn\"> age filters, then "
+    "the numbered collection — each item a <div class=\"game-card\"> containing a "
+    "<span class=\"game-number\">, a heading with an <span class=\"age-tag\">Ages X–Y</span>, "
+    "the how-to, and a <div class=\"materials-box\"> listing what's needed. For a guide/"
+    "comparison/pillar: use clear <h2>/<h3> sections instead of cards, same depth.\n"
+    "6) Weave 1–2 <div class=\"product-integration\"> callouts between sections that feature "
+    "the real products provided (a 'Shop the Setup' style CTA linking those URLs).\n"
+    "7) Use <div class=\"tip-box\"> for pro tips and <div class=\"warning-box\"> for safety notes.\n"
+    "8) End with an FAQ section, and return the matching faq_jsonld block separately.\n"
+    "Match the SAMPLE'S DEPTH — this is a comprehensive article, not a summary."
+)
+
+_LISTICLE_RE = re.compile(
+    r"\b(\d{1,3}|best|top|ideas|activities|games|ways|examples|tips|types|list|ultimate)\b", re.I)
+_AGE_RE = re.compile(
+    r"(newborns?|infants?|bab(?:y|ies)|toddlers?|preschool(?:er)?s?|kindergarten(?:ers?)?"
+    r"|\d+\s*[-– ]?\s*(?:month|year)s?(?:[-\s]?olds?)?)", re.I)
+
+
+def _is_listicle(title: str, primary_keyword: str) -> bool:
+    return bool(_LISTICLE_RE.search(((title or "") + " " + (primary_keyword or "")).strip()))
+
+
+def _age_context(title: str, primary_keyword: str) -> str:
+    m = _AGE_RE.search(((title or "") + " " + (primary_keyword or "")).strip())
+    return re.sub(r"\s+", " ", m.group(0)).strip() if m else ""
+
+
+def _listicle_count(title: str, primary_keyword: str) -> int:
+    m = re.search(r"\b(\d{1,3})\b", ((title or "") + " " + (primary_keyword or "")))
+    return int(m.group(1)) if m else 0
 
 
 def _family_block(results: list, product_families: list, family_name: str):
@@ -199,15 +264,25 @@ _DRAFTING_RULES = [
     "WIRE THE CLUSTER. Link UP to the hub once with a natural anchor, and link to "
     "the given sibling product pages where relevant (a 'Shop the Setup' style CTA). "
     "Use ONLY the real URLs provided; never link to a URL not in the brief.",
-    "FORMAT FOR MAGENTO. Return each output block separately. Keep the meta title "
-    "≤60 chars and the meta description ≤155 chars. The body is self-contained HTML "
-    "with an inline <style> block; include an FAQ section plus a matching FAQPage "
-    "JSON-LD block. Do not include a <title> tag or <meta> tags in the body — the "
-    "meta fields are separate blocks.",
+    "ONE CITED STATISTIC. Open the 'why it matters' section with a single concrete, "
+    "compelling statistic from a named authority — and CITE it (link the source in "
+    "external_links). If you cannot ground a real figure, write the sentence with a "
+    "[VERIFY: stat to find — add source] placeholder instead; never invent a number.",
+    "FOLLOW THE HOUSE TEMPLATE. Build body_html in the house structure provided, "
+    "starting with the given <style> block reproduced VERBATIM and reusing its "
+    "component classes (hero, benefits-box/benefit-item, product-integration, "
+    "tip-box/warning-box, and the numbered .game-card collection with .age-tag for "
+    "list articles). Return each Magento block separately; meta title ≤60 chars, "
+    "meta description ≤155. Do NOT put a <title> or <meta> tag in the body.",
+    "WRITE TO DEPTH. Hit the required word count with genuine substance — real "
+    "how-to detail, specifics, examples — not padding or keyword stuffing. A thin "
+    "draft that skips the house structure is a failure.",
+    "AGE-APPROPRIATE ONLY. When the topic targets a specific age, feature only "
+    "products and advice suitable for that age; omit any provided product that "
+    "doesn't fit rather than forcing it in.",
     "HUMAN-READY, NOT PUBLISHED. This is a draft for human review. Write for a real "
-    "parent/educator audience with genuine substance; no filler, no keyword "
-    "stuffing. A person will elevate it with first-hand product expertise before "
-    "publishing.",
+    "parent/educator audience; a person will elevate it with first-hand product "
+    "expertise before publishing — the AI draft is the floor, not the ceiling.",
 ]
 
 
@@ -223,15 +298,16 @@ def build_generation_messages(brief: dict) -> tuple:
     rules = "\n".join(f"{i+1}. {r}" for i, r in enumerate(brief["drafting_rules"]))
     system = (
         "You are a content creator for a real e-commerce store that sells "
-        "personalized children's products. You write genuinely useful articles for "
-        "parents and educators that are grounded in the store's real catalog and in "
-        "real authoritative sources. You NEVER invent product specs, prices, "
-        "statistics, or citations.\n\n"
+        "personalized children's products. You write genuinely useful, in-depth "
+        "articles for parents and educators, grounded in the store's real catalog "
+        "and in real authoritative sources, and formatted in the store's HOUSE "
+        "TEMPLATE. You NEVER invent product specs, prices, statistics, or citations.\n\n"
         "RULES:\n" + rules + "\n\n"
         "Return ONLY a valid JSON object (no markdown fences) with these keys:\n"
         "  meta_title, meta_description, url_key, h1 (strings);\n"
-        "  body_html (self-contained HTML with an inline <style>, the article, a "
-        "'Shop the Setup' CTA to the real product URLs, and an FAQ section);\n"
+        "  body_html (self-contained HTML built in the HOUSE TEMPLATE below: it MUST "
+        "start with the provided <style> block reproduced verbatim, use the house "
+        "component classes, feature the real products, and end with an FAQ section);\n"
         "  faq_jsonld (a single <script type=\"application/ld+json\"> FAQPage block "
         "matching the FAQ section);\n"
         "  internal_links (array of {url, anchor} you actually placed — must be a "
@@ -243,14 +319,42 @@ def build_generation_messages(brief: dict) -> tuple:
     )
 
     t = brief["topic"]
+    listicle = _is_listicle(t.get("title"), t.get("primary_keyword"))
+    age = _age_context(t.get("title"), t.get("primary_keyword"))
+    n_items = _listicle_count(t.get("title"), t.get("primary_keyword"))
+    # Hard length floor: listicles scale with their item count (~90 words/item),
+    # everything else holds a real-article minimum. Never below the brief target.
+    floor = max(int(t.get("word_count_target") or 0),
+                1500, (n_items * 90 if listicle and n_items else 0))
+
+    style_block = house_style_block()
     lines = [
         f"TOPIC: {t['title']}",
         f"Target keyword: {t['primary_keyword']}  |  intent: {t['intent']}  |  "
-        f"~{t['word_count_target']} words  |  type: {brief['item_type']}",
+        f"type: {brief['item_type']}",
         f"Product family: {brief['family']}",
+        f"LENGTH: write AT LEAST {floor} words of real, substantive body copy — "
+        "match the house sample's depth. A short draft is a failure.",
     ]
+    if age:
+        lines.append(f"AGE FOCUS: this article is specifically for {age}. Only feature "
+                     f"products and advice appropriate for {age}; if a provided product "
+                     f"is for a different age, OMIT it rather than force it in.")
+    if listicle:
+        lines.append("FORMAT: this is a LIST article — use the numbered .game-card "
+                     "collection with per-item .age-tag and .materials-box, plus the "
+                     ".age-filter-buttons, exactly as in the HOUSE TEMPLATE."
+                     + (f" Produce all {n_items} items." if n_items else ""))
+    else:
+        lines.append("FORMAT: this is a guide/comparison/pillar — use clear <h2>/<h3> "
+                     "sections (not numbered cards), at the same depth, with the house "
+                     "hero, benefits-box, product-integration callouts and tip/warning boxes.")
+    if style_block:
+        lines.append("\nHOUSE <style> BLOCK — reproduce this VERBATIM at the very start "
+                     "of body_html:\n" + style_block)
+    lines.append("\n" + HOUSE_STRUCTURE)
     if t.get("outline"):
-        lines.append("Suggested outline (adapt as needed): " + " → ".join(t["outline"]))
+        lines.append("Suggested outline (adapt to the house structure): " + " → ".join(t["outline"]))
     if t.get("supporting_keywords"):
         lines.append("Cover these sub-topics as sections: " + ", ".join(t["supporting_keywords"]))
     if brief["link_up"]:
