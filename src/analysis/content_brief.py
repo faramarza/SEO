@@ -338,10 +338,12 @@ _DRAFTING_RULES = [
 ]
 
 
-def build_generation_messages(brief: dict) -> tuple:
+def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
     """Turn a brief into (system_message, user_prompt) for the LLM. The system
     message encodes the anti-fabrication contract and the exact JSON output shape;
-    the user prompt carries the grounded, page-specific inputs."""
+    the user prompt carries the grounded, page-specific inputs. `competitor` is the
+    optional SERP coverage spec (terms/headings/questions/target length) from
+    competitor_brief — when present, the draft is steered to cover what ranks."""
     blocks_desc = "\n".join(
         f"  - {b['key']}: {b['label']}"
         + (f" (≤{b['max_chars']} chars)" if b.get("max_chars") else "")
@@ -375,9 +377,11 @@ def build_generation_messages(brief: dict) -> tuple:
     age = _age_context(t.get("title"), t.get("primary_keyword"))
     n_items = _listicle_count(t.get("title"), t.get("primary_keyword"))
     # Hard length floor: listicles scale with their item count (~90 words/item),
-    # everything else holds a real-article minimum. Never below the brief target.
+    # everything else holds a real-article minimum, and we never undershoot what the
+    # ranking pages actually run (the competitor median) — never below the brief target.
+    comp_words = int((competitor or {}).get("target_words") or 0)
     floor = max(int(t.get("word_count_target") or 0),
-                1500, (n_items * 90 if listicle and n_items else 0))
+                1500, (n_items * 90 if listicle and n_items else 0), comp_words)
 
     style_block = house_style_block()
     lines = [
@@ -430,6 +434,26 @@ def build_generation_messages(brief: dict) -> tuple:
         lines.append("Suggested outline (adapt to the house structure): " + " → ".join(t["outline"]))
     if t.get("supporting_keywords"):
         lines.append("Cover these sub-topics as sections: " + ", ".join(t["supporting_keywords"]))
+    # SERP coverage — what the current top-ranking pages cover. This is how the page
+    # earns its rank: include these terms, sections and questions (where genuinely
+    # relevant — never stuff), grounded as always.
+    if competitor:
+        terms = [x.get("term") for x in (competitor.get("terms") or []) if x.get("term")]
+        heads = competitor.get("headings") or []
+        qs = competitor.get("questions") or []
+        if terms:
+            lines.append("\nSERP COVERAGE — the top-ranking pages share these terms/"
+                         "entities; weave the relevant ones in naturally (never keyword-"
+                         "stuff): " + ", ".join(terms[:30]))
+        if heads:
+            lines.append("Sections competitors cover (use the ones that fit as your "
+                         "<h2>/<h3> or cards): " + " | ".join(heads[:15]))
+        if qs:
+            lines.append("Questions to answer (work into the body and/or the FAQ): "
+                         + " | ".join(qs[:10]))
+        if competitor.get("target_words"):
+            lines.append(f"Competitors run ~{competitor['target_words']} words — meet or "
+                         "exceed that depth with substance, not padding.")
     if brief["link_up"]:
         lines.append(f"LINK UP to the hub (pillar) once: {brief['link_up']['url']} "
                      f"(suggested anchor: “{brief['link_up']['anchor_suggestion']}”)")

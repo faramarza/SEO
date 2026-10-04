@@ -12916,6 +12916,88 @@ def _cd_save(d: dict):
     tmp.replace(_CONTENT_DRAFTS_PATH)
 
 
+_COMPETITOR_BRIEF_PATH = DATA_PATH / "competitor_briefs.json"
+_CB_VERSION = "1"
+_CB_TTL_DAYS = 14
+
+
+def _store_domain() -> str:
+    """The store's own domain, so the competitor brief never learns from our page."""
+    from urllib.parse import urlparse
+    base = os.environ.get("MAGENTO_BASE_URL", "") or (
+        load_config().get("business_context", {}).get("site_url", "") if callable(load_config) else "")
+    try:
+        return (urlparse(base).netloc or "").lower().replace("www.", "")
+    except Exception:
+        return ""
+
+
+def _cb_fetch_page(url: str):
+    """Fetch a competitor page's HTML for term extraction. Server-side (egress ok);
+    bounded by a timeout and a size cap; HTML only. Returns text or None."""
+    import httpx
+    try:
+        with httpx.stream("GET", url, follow_redirects=True, timeout=12.0,
+                          headers={"User-Agent": "Mozilla/5.0 (compatible; GovernorBot/1.0)"}) as r:
+            if r.status_code != 200:
+                return None
+            ctype = (r.headers.get("content-type") or "").lower()
+            if "html" not in ctype:
+                return None
+            chunks, total = [], 0
+            for chunk in r.iter_text():
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > 1_200_000:     # ~1.2MB cap — plenty for an article
+                    break
+            return "".join(chunks)
+    except Exception:
+        return None
+
+
+def _competitor_brief_for(keyword: str):
+    """Cached SERP competitor coverage spec for a keyword (terms/headings/questions/
+    target length). Cached on disk with a TTL so re-drafting doesn't re-scrape or
+    burn Serper quota. Returns the spec or None (no key/quota/failure → drafter
+    proceeds without it)."""
+    kw = (keyword or "").strip().lower()
+    if not kw or not os.environ.get("SERPER_API_KEY"):
+        return None
+    try:
+        with open(_COMPETITOR_BRIEF_PATH) as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    ent = cache.get(kw)
+    if ent and ent.get("v") == _CB_VERSION:
+        try:
+            age = (datetime.now() - datetime.fromisoformat(ent["at"])).days
+            if age <= _CB_TTL_DAYS:
+                return ent["spec"]
+        except Exception:
+            pass
+    try:
+        from src.analysis.competitor_brief import build_competitor_brief
+        from src.data_sources.serp_client import fetch_serp
+        spec = build_competitor_brief(keyword, fetch_serp, _cb_fetch_page,
+                                      own_domain=_store_domain())
+    except Exception as e:
+        print(f"[CB] competitor brief failed for {kw!r}: {e}", flush=True)
+        return None
+    if not spec:
+        return None
+    cache[kw] = {"v": _CB_VERSION, "at": datetime.now().isoformat(timespec="seconds"), "spec": spec}
+    try:
+        _COMPETITOR_BRIEF_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _COMPETITOR_BRIEF_PATH.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(cache, f, indent=2)
+        tmp.replace(_COMPETITOR_BRIEF_PATH)
+    except Exception:
+        pass
+    return spec
+
+
 def _cd_find_gap_article(primary_keyword: str):
     """Locate the real content-gap article for a keyword, so a draft is built from
     the actual keyword research (outline, supporting keywords) — not a guess."""
@@ -12986,7 +13068,11 @@ def api_content_draft():
     target = inline_article or (_cd_find_gap_article(primary_keyword) if primary_keyword else None)
     brief = build_brief(results, families, family, target=target, item_type=item_type,
                         title=title, primary_keyword=primary_keyword)
-    system, prompt = build_generation_messages(brief)
+    # SERP competitor coverage (terms/headings/questions/length) so the draft covers
+    # what the ranking pages do. Cached; graceful when Serper isn't configured.
+    _serp_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
+    competitor = _competitor_brief_for(_serp_kw)
+    system, prompt = build_generation_messages(brief, competitor=competitor)
     # House-template articles are deep (a 51-item listicle runs ~5k words); give the
     # model room and time or it truncates mid-article.
     text, err = _llm_complete(system, prompt, max_tokens=16000, timeout_sec=600)
