@@ -270,7 +270,7 @@ def build_competitor_brief(keyword: str, fetch_serp_fn, fetch_page_fn,
     # real DEEP page per authority via a targeted site: query (cached in this brief).
     auth = _authority_links(serp.get("organic_results") or [])
     have = {a["domain"] for a in auth}
-    if len(auth) < 2:
+    if len(auth) < 3:                      # aim for 3 real authority citations
         for dom in _DEFAULT_AUTHORITY_DOMAINS:
             if len(auth) >= 3:
                 break

@@ -73,7 +73,7 @@ OUTPUT_BLOCKS = [
 ]
 
 TARGET_PRODUCTS = 3     # real product pages to surface as CTAs / link-downs
-TARGET_EXTERNAL = (1, 3)  # min/max authoritative external links
+TARGET_EXTERNAL = (2, 3)  # min/max authoritative external links — aim for 3
 
 
 @functools.lru_cache(maxsize=1)
@@ -110,9 +110,12 @@ HOUSE_STRUCTURE = (
     "the how-to, and a <div class=\"materials-box\"> listing what's needed. For a guide/"
     "comparison/pillar: use clear <h2>/<h3> sections instead of cards, same depth.\n"
     "6) Weave 1–2 <div class=\"product-integration\"> callouts between sections that feature "
-    "the real products provided (a 'Shop the Setup' style CTA linking those URLs).\n"
+    "the real products provided — each with its own <h3> heading (e.g. 'Shop the Setup'), a "
+    "line of copy, and the product link(s).\n"
     "7) Use <div class=\"tip-box\"> for pro tips and <div class=\"warning-box\"> for safety notes.\n"
-    "8) End with an FAQ section, and return the matching faq_jsonld block separately.\n"
+    "8) End with an FAQ section under <h2 id=\"faq\">: each item a plain <h3> question followed "
+    "by a <p> answer. Do NOT wrap FAQ items in .game-card (cards are for the main list only). "
+    "Return the matching faq_jsonld block separately.\n"
     "Match the SAMPLE'S DEPTH — this is a comprehensive article, not a summary."
 )
 
@@ -484,13 +487,14 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
     auth = (competitor or {}).get("authority_links") or []
     if auth:
         # REAL, live authority URLs from the SERP — cite these verbatim, don't guess.
-        lines.append(f"Include {lo}–{hi} external authority links. PREFER these REAL, "
-                     "live URLs from the current SERP — link them EXACTLY as written, "
-                     "do not alter the path:")
+        lines.append(f"Include {hi} external authority links — use ALL of these REAL, live "
+                     "URLs from the current SERP (cite each one where it backs a claim), and "
+                     "link them EXACTLY as written, never altering the path:")
         for a in auth:
             lines.append(f"   • {a['url']}" + (f" — {a['title']}" if a.get("title") else ""))
-        lines.append("If you cite any other authority, use only the org's homepage and "
-                     "add a [VERIFY] flag — never invent a deep path that may 404.")
+        if len(auth) < hi:
+            lines.append("If you need another citation beyond these, use only an org's "
+                         "HOMEPAGE and add a [VERIFY] flag — never invent a deep path.")
     else:
         lines.append(f"Include {lo}–{hi} external links to RELEVANT pages on real "
                      "authorities. Do NOT guess a deep URL path (it may 404) — link the "
