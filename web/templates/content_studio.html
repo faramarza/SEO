@@ -4,8 +4,8 @@
 {% block content %}
 <div class="page-header">
   <p class="page-description">
-    The content creator. Pick a topic from your <strong>🗺️ Topic Map → Coverage &amp; cadence</strong>
-    (or generate one here), and the tool drafts a full article <strong>grounded in your real catalog</strong>
+    The content creator. Pick a topic from the <strong>ranked list below</strong> (pulled straight from your
+    🗺️ Topic Map — pillars and the thinnest, highest-demand gaps first), and the tool drafts a full article <strong>grounded in your real catalog</strong>
     — never inventing specs, prices, or stats. Everything comes back in <strong>separate, cut-and-paste
     blocks</strong> for Magento (meta title, meta description, URL key, H1, body HTML, FAQ schema), with the
     cluster interlinks baked in and 1–3 authoritative external links. Drafts land in <strong>review</strong>,
@@ -15,15 +15,24 @@
 </div>
 
 <div class="card" style="margin-bottom:14px;">
-  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-    <input id="cs-family" type="text" placeholder="product family (e.g. name trains)"
-           style="flex:1;min-width:200px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;">
-    <input id="cs-kw" type="text" placeholder="target keyword (optional — blank = pillar page)"
-           style="flex:1;min-width:220px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;">
-    <button id="cs-gen" class="pb-task-btn" onclick="csGenerate()">✍️ Draft article</button>
-  </div>
-  <p style="margin:8px 0 0;color:var(--text-muted);font-size:12px;">Grounds the draft in that family's real pages. With a keyword that matches your Content Gap plan, it uses the actual keyword research (outline, sub-topics). Generation takes ~30–60s.</p>
+  <div style="font-weight:700;font-size:13px;margin-bottom:2px;">✍️ Write these next — from your Topic Map</div>
+  <p style="margin:0 0 8px;color:var(--text-muted);font-size:12px;">Ranked the way the plan schedules them: missing pillars first, then the thinnest, highest-demand clusters. Click <b>Draft</b> and it fills the topic and writes it — no typing. Already-drafted ones are marked.</p>
+  <div id="cs-suggest"><p class="pb-loading" style="font-size:12px;">Loading your topic plan…</p></div>
 </div>
+
+<details style="margin-bottom:14px;">
+  <summary style="cursor:pointer;color:var(--text-muted);font-size:13px;font-weight:600;">…or draft a custom topic by hand</summary>
+  <div class="card" style="margin-top:8px;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input id="cs-family" type="text" placeholder="product family (e.g. name trains)"
+             style="flex:1;min-width:200px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;">
+      <input id="cs-kw" type="text" placeholder="target keyword (optional — blank = pillar page)"
+             style="flex:1;min-width:220px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;">
+      <button id="cs-gen" class="pb-task-btn" onclick="csGenerate()">✍️ Draft article</button>
+    </div>
+    <p style="margin:8px 0 0;color:var(--text-muted);font-size:12px;">Grounds the draft in that family's real pages. With a keyword that matches your Content Gap plan, it uses the actual keyword research (outline, sub-topics). Generation takes ~30–60s. Use the picker above unless you want a topic the plan didn't surface.</p>
+  </div>
+</details>
 
 <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
   <div style="flex:0 0 260px;max-width:100%;">
@@ -76,16 +85,61 @@ async function csList(){
   </div>`).join('');
 }
 
+// Engine-fed pick-list: the plan's ranked writable gaps (pillars first, then
+// thinnest/high-demand), each a one-click Draft. No typing, no mis-grounded family.
+async function csSuggest(){
+  const el=document.getElementById('cs-suggest');
+  let plan, drafts;
+  try{ plan=await (await fetch('/api/topical-authority/topic-plan')).json(); }
+  catch(e){ el.innerHTML='<p style="font-size:12px;color:var(--text-muted);">Couldn’t load the topic plan.</p>'; return; }
+  try{ drafts=((await (await fetch('/api/content/drafts')).json()).drafts)||[]; }catch(e){ drafts=[]; }
+  const norm=s=>(s||'').trim().toLowerCase();
+  const draftKeys=new Set(drafts.map(d=> norm(d.family)+'|'+(d.item_type==='pillar'?'#pillar':norm(d.primary_keyword))));
+  let items=[];
+  (plan.cadence||[]).forEach(m=>(m.items||[]).forEach(it=>items.push(it)));   // already ranked
+  if(!items.length){
+    (plan.families||[]).forEach(f=>(f.gaps||[]).forEach(g=>{
+      if(g.type==='pillar'||g.type==='article')
+        items.push({family:f.family, type:g.type, title:g.title, primary_keyword:g.primary_keyword, volume:g.volume||0});
+    }));
+  }
+  if(!items.length){ el.innerHTML='<p style="font-size:12px;color:var(--text-muted);">No article gaps right now — either your clusters are covered, or set up <b>Content Gap</b> (competitors) to surface keyword-backed topics worth writing.</p>'; return; }
+  items=items.slice(0,14);
+  el.innerHTML=items.map(it=>{
+    const isP=it.type==='pillar';
+    const kw=isP?'':(it.primary_keyword||'');
+    const done=draftKeys.has(norm(it.family)+'|'+(isP?'#pillar':norm(it.primary_keyword)));
+    const label=isP?`Pillar page for “${escHtml(it.family)}”`:escHtml(it.title||it.primary_keyword||'');
+    const badge=isP?' <span style="font-size:10px;font-weight:700;color:#6d28d9;">PILLAR</span>':'';
+    const vol=it.volume?` · ${it.volume} vol`:'';
+    return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#eee);">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">${label}${badge}</div>
+        <div style="font-size:11.5px;color:var(--text-muted);">${escHtml(it.family)}${isP?'':' · targets “'+escHtml(it.primary_keyword||'')+'”'}${vol}</div>
+      </div>
+      ${done
+        ? '<span class="cs-status cs-s-review" style="white-space:nowrap;">drafted ✓</span>'
+        : `<button class="cs-copy" style="white-space:nowrap;padding:5px 12px;font-weight:600;" onclick="csDraftGap('${encodeURIComponent(it.family)}','${encodeURIComponent(kw)}')">✍️ Draft</button>`}
+    </div>`;
+  }).join('');
+}
+
+function csDraftGap(family, kw){
+  document.getElementById('cs-family').value=decodeURIComponent(family);
+  document.getElementById('cs-kw').value=decodeURIComponent(kw);
+  csGenerate();
+}
+
 async function csGenerate(){
   const family=document.getElementById('cs-family').value.trim();
   const kw=document.getElementById('cs-kw').value.trim();
-  if(!family){ csToast('Enter a product family',true); return; }
+  if(!family){ csToast('Pick a topic above, or enter a product family',true); return; }
   const btn=document.getElementById('cs-gen'); btn.disabled=true; const old=btn.textContent; btn.textContent='✍️ Drafting… (~30–60s)';
   try{
     const r=await (await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({family, primary_keyword:kw})})).json();
     if(r.error){ csToast(r.error,true); }
-    else { csToast('Draft ready'); CS_SEL=r.draft.id; await csList(); renderDetail(r.draft, r.review_checklist); }
+    else { csToast('Draft ready'); CS_SEL=r.draft.id; await csList(); csSuggest(); renderDetail(r.draft, r.review_checklist); }
   }catch(e){ csToast('Generation failed',true); }
   btn.disabled=false; btn.textContent=old;
 }
@@ -193,6 +247,7 @@ async function csVerify(){
 }
 
 csList();
+csSuggest();
 // Deep-link from the Topic Map cadence: ?family=...&kw=...
 (function(){
   const q=new URLSearchParams(location.search);
