@@ -44,9 +44,11 @@ def test_brief_is_grounded_in_real_pages_only():
     # Only real product URLs are offered for link/CTA.
     prod_urls = {p["url"] for p in b["link_products"]}
     assert prod_urls <= {f"{BASE}/personalized-name-train.html", f"{BASE}/wooden-name-train.html"}
-    # Required internal links include the hub (up) and the products.
+    # Only the hub link is MANDATORY (the cluster bond to verify live); products are
+    # offered for linking but not force-required, since which fit depends on age/topic.
     dirs = {r["direction"] for r in b["required_internal_links"]}
-    assert "up_to_hub" in dirs and "to_product" in dirs
+    assert dirs == {"up_to_hub"}
+    assert b["link_products"]  # products still surfaced for the drafter to feature
     # External authority candidates are real, named orgs.
     assert b["external_authority_candidates"] is EXTERNAL_AUTHORITY_CANDIDATES
     assert b["output_blocks"] is OUTPUT_BLOCKS
@@ -86,22 +88,26 @@ def test_no_catalog_match_flag_when_family_absent():
 
 
 def test_verify_interlinks_detects_missing():
+    # verify_interlinks checks a published page against ANY required-link list.
+    # Hub present, product missing → detects the gap; both present → all good.
+    required = [
+        {"url": f"{BASE}/name-trains.html", "direction": "up_to_hub"},
+        {"url": f"{BASE}/personalized-name-train.html", "direction": "to_product"},
+    ]
+    published = [{"target_url": f"{BASE}/name-trains.html"}]
+    v = verify_interlinks(published, required)
+    assert any(r["url"] == f"{BASE}/name-trains.html" for r in v["present"])
+    assert v["missing"] and v["all_present"] is False
+    published_all = [{"target_url": r["url"]} for r in required]
+    v2 = verify_interlinks(published_all, required)
+    assert v2["all_present"] is True and v2["missing"] == []
+
+    # And the brief itself now hard-requires only the hub link.
     b = build_brief(_results(), FAMILIES, "name trains",
                     target={"title": "T", "primary_keyword": "name train letters",
                             "intent": "informational", "word_count_target": 1000,
                             "outline": [], "supporting_keywords": []})
-    required = b["required_internal_links"]
-    assert required, "fixture should require at least the hub link"
-    # Published page links to the hub but not the product → one present, rest missing.
-    published = [{"target_url": f"{BASE}/name-trains.html"}]
-    v = verify_interlinks(published, b)
-    assert any(r["url"] == f"{BASE}/name-trains.html" for r in v["present"])
-    assert v["missing"]  # product link(s) not yet placed
-    assert v["all_present"] is False
-    # All present → all_present True.
-    published_all = [{"target_url": r["url"]} for r in required]
-    v2 = verify_interlinks(published_all, b)
-    assert v2["all_present"] is True and v2["missing"] == []
+    assert [r["direction"] for r in b["required_internal_links"]] == ["up_to_hub"]
 
 
 def test_article_without_gap_article_writes_the_requested_topic():

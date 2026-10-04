@@ -116,15 +116,25 @@ HOUSE_STRUCTURE = (
     "Match the SAMPLE'S DEPTH — this is a comprehensive article, not a summary."
 )
 
-_LISTICLE_RE = re.compile(
-    r"\b(\d{1,3}|best|top|ideas|activities|games|ways|examples|tips|types|list|ultimate)\b", re.I)
+# Age numbers ("1 year old", "0-3 months") must NOT be read as list counts, so we
+# strip them before testing for a listicle.
+_AGE_NUM_RE = re.compile(
+    r"\b\d{1,3}\s*[-– ]?\s*\d{0,3}\s*(?:year|yr|month|mo|week)s?(?:[-\s]?olds?)?\b", re.I)
 _AGE_RE = re.compile(
     r"(newborns?|infants?|bab(?:y|ies)|toddlers?|preschool(?:er)?s?|kindergarten(?:ers?)?"
-    r"|\d+\s*[-– ]?\s*(?:month|year)s?(?:[-\s]?olds?)?)", re.I)
+    r"|\d+\s*[-– ]?\s*(?:month|year|week)s?(?:[-\s]?olds?)?)", re.I)
+_LIST_KW_RE = re.compile(
+    r"\b(best|top|ideas|activities|games|ways|examples|tips|types|list|ultimate|checklist)\b", re.I)
+
+
+def _strip_age(s: str) -> str:
+    return _AGE_NUM_RE.sub(" ", s or "")
 
 
 def _is_listicle(title: str, primary_keyword: str) -> bool:
-    return bool(_LISTICLE_RE.search(((title or "") + " " + (primary_keyword or "")).strip()))
+    s = _strip_age(((title or "") + " " + (primary_keyword or "")).strip())
+    # A list keyword, OR a standalone number that ISN'T an age (ages were stripped).
+    return bool(_LIST_KW_RE.search(s) or re.search(r"\b\d{1,3}\b", s))
 
 
 def _age_context(title: str, primary_keyword: str) -> str:
@@ -133,7 +143,8 @@ def _age_context(title: str, primary_keyword: str) -> str:
 
 
 def _listicle_count(title: str, primary_keyword: str) -> int:
-    m = re.search(r"\b(\d{1,3})\b", ((title or "") + " " + (primary_keyword or "")))
+    s = _strip_age(((title or "") + " " + (primary_keyword or "")))
+    m = re.search(r"\b(\d{1,3})\b", s)
     return int(m.group(1)) if m else 0
 
 
@@ -222,13 +233,14 @@ def build_brief(results: list, product_families: list, family_name: str,
     cross_links = [{"url": b["url"], "title": b["title"]}
                    for b in sorted(blogs, key=lambda x: -(x.get("impressions") or 0))[:2]]
 
+    # Only the hub link is MANDATORY (the cluster bond that must be verified live).
+    # Product link-downs are strongly encouraged in the prompt but NOT hard-required,
+    # because which products fit depends on the topic/age — forcing a fixed set would
+    # flag a legitimately-omitted off-age product as a "missing" link in verification.
     required_internal = []
     if link_up:
         required_internal.append({"url": link_up["url"], "direction": "up_to_hub",
                                   "anchor_suggestion": link_up["anchor_suggestion"]})
-    for p in link_products:
-        required_internal.append({"url": p["url"], "direction": "to_product",
-                                  "anchor_suggestion": _anchor_for(p["title"], family_name)})
 
     return {
         "family": family_name,
@@ -337,18 +349,36 @@ def build_generation_messages(brief: dict) -> tuple:
         "match the house sample's depth. A short draft is a failure.",
     ]
     if age:
-        lines.append(f"AGE FOCUS: this article is specifically for {age}. Only feature "
-                     f"products and advice appropriate for {age}; if a provided product "
-                     f"is for a different age, OMIT it rather than force it in.")
+        lines.append(f"AGE FOCUS: this article is specifically for {age}. Every idea, "
+                     f"recommendation and product MUST be genuinely appropriate for {age}. "
+                     f"NEVER include a product meant for a different age (e.g. a newborn "
+                     f"tummy-time item in a 1-year-old article) — leave it out entirely, "
+                     f"even if that means featuring fewer of the store's products.")
     if listicle:
-        lines.append("FORMAT: this is a LIST article — use the numbered .game-card "
-                     "collection with per-item .age-tag and .materials-box, plus the "
-                     ".age-filter-buttons, exactly as in the HOUSE TEMPLATE."
-                     + (f" Produce all {n_items} items." if n_items else ""))
+        want = n_items if n_items else 12
+        lines.append(
+            "FORMAT: this is a LIST article. The numbered .game-card items are IDEAS / "
+            "recommendations / toy-types / activities — NOT one card per store product. "
+            f"Produce {want} substantial cards, each with a real how-to or buying rationale, "
+            "what it develops, the <span class=\"age-tag\">, and a .materials-box where it "
+            "fits. FEATURE the store's real products where they genuinely match a card (link "
+            "them in that card) and/or in 1–2 .product-integration callouts — only where "
+            "age-appropriate. Do not pad with off-age or irrelevant products to reach the "
+            "count; reach it with genuine ideas.")
+        # The age-filter row only makes sense across MULTIPLE ages; a single-age
+        # article ("for 1 year old") has nothing to filter, so omit it there.
+        if age:
+            lines.append("Do NOT include the .age-filter-buttons row — this article covers "
+                         "a single age, so there is nothing to filter.")
+        else:
+            lines.append("Include the .age-filter-buttons row with one button per age band "
+                         "you actually cover, matching the .age-tag values on the cards.")
     else:
         lines.append("FORMAT: this is a guide/comparison/pillar — use clear <h2>/<h3> "
                      "sections (not numbered cards), at the same depth, with the house "
                      "hero, benefits-box, product-integration callouts and tip/warning boxes.")
+    lines.append("JUMP LINKS: give every major section an id and make the .quick-nav links "
+                 "point to those exact ids (e.g. <h2 id=\"faq\">), so the nav actually works.")
     if style_block:
         lines.append("\nHOUSE <style> BLOCK — reproduce this VERBATIM at the very start "
                      "of body_html:\n" + style_block)
@@ -360,9 +390,15 @@ def build_generation_messages(brief: dict) -> tuple:
     if brief["link_up"]:
         lines.append(f"LINK UP to the hub (pillar) once: {brief['link_up']['url']} "
                      f"(suggested anchor: “{brief['link_up']['anchor_suggestion']}”)")
-    if brief["link_products"]:
-        lines.append("REAL product pages to feature / link (Shop the Setup) — use only these URLs:")
-        for p in brief["link_products"]:
+    # Offer the FULL real-product set (capped) so the model can pick the ones that
+    # genuinely fit the topic/age and skip the rest — rather than being forced to
+    # feature a fixed 3. Never invent a product or URL outside this list.
+    avail = brief.get("grounding_products") or brief["link_products"]
+    if avail:
+        lines.append("REAL products you MAY feature / link (Shop the Setup) — choose the "
+                     "ones that genuinely fit this topic and age; use ONLY these URLs, and "
+                     "do not feature one that doesn't fit:")
+        for p in avail[:14]:
             lines.append(f"   • {p['title']} — {p['url']}")
     if brief["cross_links"]:
         lines.append("Related existing articles you may cross-link:")
