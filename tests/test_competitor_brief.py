@@ -86,6 +86,23 @@ def test_competitor_brand_and_promo_filtered_out():
     assert any("Developmental Benefits" in h for h in b["headings"])  # legit heading kept
 
 
+def test_authority_links_sourced_from_serp():
+    # Real authority URLs in the SERP are surfaced to cite; rivals/marketplaces aren't.
+    serp = lambda q: {"organic_results": [
+        {"url": "https://www.healthychildren.org/English/ages/Play.aspx", "title": "AAP Play"},
+        {"url": "https://rival-store.com/montessori", "title": "Rival"},
+        {"url": "https://www.cdc.gov/child/toddlers.html", "title": "CDC"},
+        {"url": "https://www.amazon.com/x", "title": "Amazon"}],
+        "people_also_ask": ["What age are Montessori toys for?"]}
+    page = lambda u: ("<h2>Benefits</h2><p>object permanence stacking rings fine motor "
+                      "shape sorter hand eye coordination problem solving sensory play.</p>") * 5
+    b = cbf.build_competitor_brief("montessori toys 1 year old", serp, page)
+    auth = [a["url"] for a in b.get("authority_links", [])]
+    assert any("healthychildren.org" in u for u in auth)
+    assert any("cdc.gov" in u for u in auth)
+    assert not any("rival-store" in u or "amazon" in u for u in auth)
+
+
 def test_none_when_no_serp():
     assert cbf.build_competitor_brief("x", lambda q: None, _fake_page) is None
 

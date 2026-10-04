@@ -51,6 +51,29 @@ _TAG = re.compile(r"<[^>]+>")
 _WORD = re.compile(r"[a-z][a-z'\-]{1,}")
 
 
+# Authority domains worth citing when they appear in the live SERP — real, ranking,
+# live URLs beat a model-guessed deep path. .gov/.edu plus known child-dev orgs.
+_AUTHORITY_RE = re.compile(
+    r"(\.gov|\.edu)(/|$|:)|(?:healthychildren|aap|naeyc|cdc|nih|ncbi\.nlm|zerotothree|"
+    r"montessori-ami|amshq|nifplay|developingchild\.harvard|who\.int|unicef|aacap|"
+    r"aota|asha)\b", re.I)
+
+
+def _authority_links(organic: list) -> list:
+    """Real authority URLs present in the live SERP (one per domain), to hand the
+    drafter as citeable sources instead of letting it guess a deep path."""
+    out, seen = [], set()
+    for r in (organic or []):
+        u = r.get("url") or ""
+        dom = _domain(u)
+        if not dom or dom in seen:
+            continue
+        if _AUTHORITY_RE.search(u):
+            seen.add(dom)
+            out.append({"url": u, "title": (r.get("title") or "").strip(), "domain": dom})
+    return out[:5]
+
+
 def _domain(url: str) -> str:
     try:
         return (urlparse(url or "").netloc or "").lower().replace("www.", "")
@@ -204,5 +227,6 @@ def build_competitor_brief(keyword: str, fetch_serp_fn, fetch_page_fn,
             questions.append(q.strip())
     spec["questions"] = questions[:10]
     spec["source_urls"] = urls
+    spec["authority_links"] = _authority_links(serp.get("organic_results") or [])
     spec["keyword"] = kw
     return spec

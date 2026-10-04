@@ -481,9 +481,22 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
         for c in brief["cross_links"]:
             lines.append(f"   • {c['title']} — {c['url']}")
     lo, hi = brief["external_links_required"]
-    lines.append(f"Include {lo}–{hi} external links to RELEVANT pages on real authorities, e.g.:")
-    for e in brief["external_authority_candidates"]:
-        lines.append(f"   • {e['name']} ({e['domain']}) — good for: {e['good_for']}")
+    auth = (competitor or {}).get("authority_links") or []
+    if auth:
+        # REAL, live authority URLs from the SERP — cite these verbatim, don't guess.
+        lines.append(f"Include {lo}–{hi} external authority links. PREFER these REAL, "
+                     "live URLs from the current SERP — link them EXACTLY as written, "
+                     "do not alter the path:")
+        for a in auth:
+            lines.append(f"   • {a['url']}" + (f" — {a['title']}" if a.get("title") else ""))
+        lines.append("If you cite any other authority, use only the org's homepage and "
+                     "add a [VERIFY] flag — never invent a deep path that may 404.")
+    else:
+        lines.append(f"Include {lo}–{hi} external links to RELEVANT pages on real "
+                     "authorities. Do NOT guess a deep URL path (it may 404) — link the "
+                     "org's HOMEPAGE and add a [VERIFY] flag to confirm a deep page, e.g.:")
+        for e in brief["external_authority_candidates"]:
+            lines.append(f"   • {e['name']} (https://{e['domain']}/) — good for: {e['good_for']}")
     if brief["no_catalog_match"]:
         lines.append("NOTE: no catalog products were found for this family — do NOT "
                      "invent any. Write the editorial content and add a [VERIFY] flag "

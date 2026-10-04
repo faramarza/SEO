@@ -12917,7 +12917,7 @@ def _cd_save(d: dict):
 
 
 _COMPETITOR_BRIEF_PATH = DATA_PATH / "competitor_briefs.json"
-_CB_VERSION = "2"   # bumped: v1 briefs predate the brand/self-promo filter — rebuild them
+_CB_VERSION = "3"   # v1: pre brand-filter; v2: pre authority_links — rebuild to add them
 _CB_TTL_DAYS = 14
 
 
@@ -12996,6 +12996,119 @@ def _competitor_brief_for(keyword: str):
     except Exception:
         pass
     return spec
+
+
+def _url_status(url: str):
+    """Classify a URL's liveness: 'live' (2xx/3xx), 'blocked' (401/403/405/429 —
+    ambiguous bot-block, keep but flag), or 'dead' (404/410/5xx/error — replace or
+    drop). HEAD first, GET fallback. Server-side; bounded."""
+    import httpx
+    if not url or not url.startswith("http"):
+        return "dead"
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; GovernorBot/1.0)"}
+    for method in ("HEAD", "GET"):
+        try:
+            r = httpx.request(method, url, follow_redirects=True, timeout=8.0, headers=hdrs)
+            c = r.status_code
+            if c < 400:
+                return "live"
+            if c in (401, 403, 405, 429):
+                return "blocked"
+            if method == "HEAD" and c in (400, 501):
+                continue   # some servers reject HEAD — try GET
+            return "dead"
+        except Exception:
+            if method == "GET":
+                return "dead"
+    return "dead"
+
+
+def _find_live_authority(domain: str, keyword: str):
+    """Find a REAL, live page on `domain` for `keyword` via Serper (site: search),
+    so we can replace a model-guessed deep URL that 404s. Returns a live URL or None."""
+    if not os.environ.get("SERPER_API_KEY") or not domain:
+        return None
+    try:
+        from src.data_sources.serp_client import fetch_serp
+        from urllib.parse import urlparse
+        serp = fetch_serp(f"site:{domain} {keyword}".strip())
+    except Exception:
+        return None
+    if not serp:
+        return None
+    for r in (serp.get("organic_results") or []):
+        u = r.get("url") or ""
+        try:
+            dom = (urlparse(u).netloc or "").lower().replace("www.", "")
+        except Exception:
+            dom = ""
+        if domain.replace("www.", "") in dom and _url_status(u) == "live":
+            return u
+    return None
+
+
+def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict):
+    """Check every link the draft placed. Dead EXTERNAL links are repaired via a real
+    Serper lookup on the same authority (or dropped), and the body HTML is rewritten
+    to match. Dead/blocked INTERNAL links are flagged for the human. Mutates `parsed`
+    in place; returns a list of human-readable note strings for the review gate."""
+    from urllib.parse import urlparse
+    notes = []
+    body = parsed.get("body_html") or ""
+    # Real catalog URLs we handed the model — any internal link must be one of these.
+    real_internal = {(p.get("url") or "").strip()
+                     for p in (brief.get("grounding_products") or [])}
+    hub = (brief.get("link_up") or {}).get("url")
+    if hub:
+        real_internal.add(hub)
+
+    # --- external links: verify, repair, or drop ---
+    ext = parsed.get("external_links") or []
+    kept = []
+    for e in ext:
+        url = (e.get("url") or "").strip()
+        if not url:
+            continue
+        status = _url_status(url)
+        if status == "live":
+            kept.append(e)
+            continue
+        if status == "blocked":
+            kept.append(e)
+            notes.append(f"External link returns a block/again status (verify by hand): {url}")
+            continue
+        # dead → try to replace with a real live page on the same authority
+        dom = ""
+        try:
+            dom = (urlparse(url).netloc or "").lower()
+        except Exception:
+            dom = ""
+        repl = _find_live_authority(dom, keyword) if dom else None
+        if repl:
+            body = body.replace(url, repl)
+            e["url"] = repl
+            kept.append(e)
+            notes.append(f"Replaced a dead external link with a live page on {dom}: {repl}")
+        else:
+            body = re.sub(r'<a\b[^>]*href="' + re.escape(url) + r'"[^>]*>(.*?)</a>',
+                          r"\1", body, flags=re.S | re.I)   # unwrap the dead <a>, keep text
+            notes.append(f"Removed a dead external link (no live replacement found): {url}")
+    parsed["external_links"] = kept
+
+    # --- internal links: flag dead/foreign ones (don't auto-rewrite product URLs) ---
+    for m in re.finditer(r'<a\b[^>]*href="([^"]+)"', body):
+        u = m.group(1).strip()
+        try:
+            host = (urlparse(u).netloc or "").lower().replace("www.", "")
+        except Exception:
+            host = ""
+        store_dom = _store_domain()
+        if store_dom and host and store_dom in host:   # it's one of our own pages
+            if u not in real_internal and _url_status(u) in ("dead",):
+                notes.append(f"Internal link 404s — fix or remove before publishing: {u}")
+
+    parsed["body_html"] = body
+    return notes
 
 
 def _cd_find_gap_article(primary_keyword: str):
@@ -13081,6 +13194,16 @@ def api_content_draft():
     parsed, perr = _cd_parse_llm_json(text)
     if perr:
         return jsonify({"error": perr, "raw_preview": (text or "")[:600]}), 502
+
+    # Verify every link is live: repair dead external links from a real Serper lookup
+    # (no more guessed 404 paths), drop unrepairable ones, flag dead internal links.
+    try:
+        _link_notes = _validate_and_repair_links(parsed, _serp_kw, brief)
+    except Exception as e:
+        print(f"[CD] link validation failed: {e}", flush=True)
+        _link_notes = []
+    if _link_notes:   # surface in the human review gate
+        parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _link_notes
 
     import uuid
     final_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
