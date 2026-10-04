@@ -148,6 +148,41 @@ def _listicle_count(title: str, primary_keyword: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+# Product titles that signal a NEWBORN / very-young-infant product. The model kept
+# forcing these onto older-age articles (a tummy-time mirror on a 1-year-old
+# listicle), so we exclude them in CODE for any article aimed above infancy —
+# don't rely on the model's judgement.
+_NEWBORN_PRODUCT_RE = re.compile(
+    r"\b(tummy[\s-]?time|newborn|0[\s-]*6\s*months?|infant mirror|crib (?:toy|mobile)|rattle)\b", re.I)
+
+
+def _is_infant_article(age_str: str) -> bool:
+    """True when the article itself targets newborns/young infants (0–12 mo), in
+    which case newborn products ARE appropriate and must not be filtered out."""
+    a = (age_str or "").lower()
+    if not a:
+        return False
+    if "newborn" in a or "infant" in a:
+        return True
+    m = re.search(r"(\d{1,2})\s*(month|week)", a)
+    if m:
+        return True   # measured in months/weeks → infant
+    m = re.search(r"\b(\d{1,2})\b", a)   # "0" or "1" year → still include; else older
+    return bool(m and int(m.group(1)) <= 0)
+
+
+def _filter_products_for_age(products: list, age_str: str) -> list:
+    """Drop clearly-newborn products from an article aimed above infancy. Conservative:
+    only strong newborn signals are removed, and only when the article isn't itself
+    about infants. Never filters when there's no age focus."""
+    if not age_str or _is_infant_article(age_str):
+        return products
+    kept = [p for p in products if not _NEWBORN_PRODUCT_RE.search(p.get("title", ""))]
+    # Safety: if the filter would wipe out everything, keep the originals (better to
+    # let the model judge than to ground on nothing).
+    return kept if kept else products
+
+
 def _family_block(results: list, product_families: list, family_name: str):
     cmap = build_cluster_map(results, product_families)
     for f in cmap["families"]:
@@ -220,6 +255,11 @@ def build_brief(results: list, product_families: list, family_name: str,
     spokes = (fam or {}).get("spokes", [])
     products = [s for s in spokes if s.get("asset_type") == "product"]
     blogs = [s for s in spokes if s.get("asset_type") == "blog"]
+
+    # Age-gate the products in CODE: a newborn item (tummy-time mirror, rattle) must
+    # never be offered to a toddler+ article — the model repeatedly forced them in.
+    _age = _age_context(topic.get("title"), topic.get("primary_keyword"))
+    products = _filter_products_for_age(products, _age)
 
     # Required interlinks — a new spoke must tie into its cluster.
     link_up = None
@@ -359,12 +399,15 @@ def build_generation_messages(brief: dict) -> tuple:
         lines.append(
             "FORMAT: this is a LIST article. The numbered .game-card items are IDEAS / "
             "recommendations / toy-types / activities — NOT one card per store product. "
-            f"Produce {want} substantial cards, each with a real how-to or buying rationale, "
-            "what it develops, the <span class=\"age-tag\">, and a .materials-box where it "
-            "fits. FEATURE the store's real products where they genuinely match a card (link "
-            "them in that card) and/or in 1–2 .product-integration callouts — only where "
-            "age-appropriate. Do not pad with off-age or irrelevant products to reach the "
-            "count; reach it with genuine ideas.")
+            f"Produce {want} substantial cards. EACH card is 3–5 sentences: what it is, what "
+            "it develops at this age, how a parent uses it, and one practical tip — a "
+            "one-sentence card is a failure. Put the <span class=\"age-tag\"> on the heading. "
+            "GROUNDING: only put a .materials-box or state specific materials/brand when the "
+            "card features one of the REAL products listed below — and then LINK that product "
+            "in the card. For a generic toy-type idea you don't stock, describe the type "
+            "without inventing materials, a brand, or a link. Also weave 1–2 "
+            ".product-integration callouts for real products. Never feature an off-age or "
+            "invented product to reach the count.")
         # The age-filter row only makes sense across MULTIPLE ages; a single-age
         # article ("for 1 year old") has nothing to filter, so omit it there.
         if age:
