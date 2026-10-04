@@ -12995,10 +12995,30 @@ def api_content_draft():
         return jsonify({"error": perr, "raw_preview": (text or "")[:600]}), 502
 
     import uuid
-    draft_id = f"CD-{uuid.uuid4().hex[:8].upper()}"
+    final_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
+    store = _cd_load()
+    drafts = store.setdefault("drafts", {})
+
+    def _dkey(fam, kw, it):
+        return ((fam or "").strip().lower() + "|" + (kw or "").strip().lower()
+                + "|" + (it or "").strip().lower())
+
+    # Dedup: regenerating the SAME topic REPLACES its existing (non-published)
+    # draft instead of piling up duplicates, and prunes any leftover copies of
+    # that topic (so a double-clicked topic collapses back to one draft). A
+    # published draft is never touched.
+    want = _dkey(family, final_kw, brief["item_type"])
+    matches = [did for did, d in drafts.items()
+               if d.get("status") != "published"
+               and _dkey(d.get("family"), d.get("primary_keyword"), d.get("item_type")) == want]
+    draft_id = matches[0] if matches else f"CD-{uuid.uuid4().hex[:8].upper()}"
+    created_at = drafts.get(draft_id, {}).get("created_at") \
+        or datetime.now().isoformat(timespec="seconds")
+    for extra in matches[1:]:              # prune duplicate copies of this topic
+        drafts.pop(extra, None)
     draft = {
         "id": draft_id,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "created_at": created_at,
         "status": "review",
         "family": family,
         "item_type": brief["item_type"],
@@ -13019,8 +13039,9 @@ def api_content_draft():
         # Kept for verification after publish.
         "required_internal_links": brief["required_internal_links"],
     }
-    store = _cd_load()
-    store.setdefault("drafts", {})[draft_id] = draft
+    if matches:
+        draft["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    drafts[draft_id] = draft
     _cd_save(store)
     return jsonify({"success": True, "draft": draft,
                     "review_checklist": _cd_checklist(draft)})
@@ -13089,6 +13110,19 @@ def api_content_draft_status(draft_id):
         d["published_url"] = body["published_url"].strip()
     _cd_save(store)
     return jsonify({"success": True, "status": new_status})
+
+
+@app.route("/api/content/draft/<draft_id>/delete", methods=["POST"])
+def api_content_draft_delete(draft_id):
+    """Permanently remove a draft (for clearing out duplicates / rejects). A
+    local file only — nothing on the live store is touched."""
+    store = _cd_load()
+    drafts = store.get("drafts", {})
+    if draft_id not in drafts:
+        return jsonify({"error": "Draft not found."}), 404
+    drafts.pop(draft_id, None)
+    _cd_save(store)
+    return jsonify({"success": True})
 
 
 @app.route("/api/content/draft/<draft_id>/verify", methods=["POST"])

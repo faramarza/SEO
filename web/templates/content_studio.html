@@ -79,8 +79,9 @@ async function csList(){
   const drafts=d.drafts||[];
   if(!drafts.length){ el.innerHTML='<p style="font-size:12px;color:var(--text-muted);">No drafts yet.</p>'; return; }
   el.innerHTML=drafts.map(x=>`<div class="cs-row ${x.id===CS_SEL?'active':''}" onclick="csOpen('${x.id}')">
-    <div style="display:flex;justify-content:space-between;gap:6px;"><strong>${escHtml(x.topic_title||x.primary_keyword||x.family)}</strong>
-      <span class="cs-status cs-s-${x.status}">${x.status}</span></div>
+    <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;"><strong>${escHtml(x.topic_title||x.primary_keyword||x.family)}</strong>
+      <span style="display:flex;gap:6px;align-items:center;white-space:nowrap;"><span class="cs-status cs-s-${x.status}">${x.status}</span>
+      <span title="Delete draft" onclick="event.stopPropagation();csDelete('${x.id}')" style="cursor:pointer;color:var(--text-muted);font-size:13px;">🗑</span></span></div>
     <div style="color:var(--text-muted);margin-top:2px;">${escHtml(x.family)} · ${x.item_type} · ${(x.created_at||'').replace('T',' ')}</div>
   </div>`).join('');
 }
@@ -152,6 +153,15 @@ function csGenerate(){
 
 function csDraftGap(family, kw, btn){
   csDoDraft(decodeURIComponent(family), decodeURIComponent(kw), btn);
+}
+
+async function csDelete(id){
+  if(!confirm('Delete this draft? This only removes it from Content Studio — nothing on your live store changes.')) return;
+  const r=await (await fetch(`/api/content/draft/${id}/delete`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+  if(r.error){ csToast(r.error,true); return; }
+  csToast('Draft deleted');
+  if(CS_SEL===id){ CS_SEL=null; document.getElementById('cs-detail').innerHTML='<p class="empty-state">Select a draft, or generate one above.</p>'; }
+  csList(); csSuggest();
 }
 
 async function csOpen(id){
