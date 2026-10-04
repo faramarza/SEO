@@ -13205,6 +13205,30 @@ def api_content_draft():
     if _link_notes:   # surface in the human review gate
         parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _link_notes
 
+    # Auto-expand: if the body came in short, make ONE more call to deepen it to the
+    # target length — without changing structure, styling, or links.
+    try:
+        from src.analysis.content_brief import length_floor, build_expand_messages
+        from src.analysis.link_insert import visible_text
+        _floor = length_floor(brief["topic"], brief["item_type"], competitor)
+        _body = parsed.get("body_html") or ""
+        _wc = len(visible_text(_body).split())
+        if _body and _wc < int(_floor * 0.85):
+            _es, _eu = build_expand_messages(_body, _floor, brief)
+            _etext, _eerr = _llm_complete(_es, _eu, max_tokens=16000, timeout_sec=600)
+            if not _eerr and _etext:
+                _new = re.sub(r"^```[a-z]*\s*|\s*```$", "", _etext.strip()).strip()
+                import re as _re2
+                orig_hrefs = set(_re2.findall(r'href="([^"]+)"', _body))
+                new_hrefs = set(_re2.findall(r'href="([^"]+)"', _new))
+                style_ok = ("<style" in _new) if "<style" in _body else True
+                # accept only if longer, style kept, and NO original link was dropped
+                if (len(visible_text(_new).split()) > _wc and style_ok
+                        and orig_hrefs.issubset(new_hrefs)):
+                    parsed["body_html"] = _new
+    except Exception as e:
+        print(f"[CD] auto-expand skipped: {e}", flush=True)
+
     import uuid
     final_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
     store = _cd_load()

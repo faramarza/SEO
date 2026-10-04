@@ -344,6 +344,40 @@ _DRAFTING_RULES = [
 ]
 
 
+def length_floor(topic: dict, item_type: str, competitor: dict = None) -> int:
+    """The minimum body word count for a draft: a real-article floor (1500), scaled
+    up for listicles (~90 words/item) and never under the competitor median. Shared
+    by the generation prompt and the auto-expand check so they agree."""
+    title, pk = topic.get("title"), topic.get("primary_keyword")
+    listicle = _is_listicle(title, pk)
+    n = _listicle_count(title, pk) if listicle else 0
+    comp = int((competitor or {}).get("target_words") or 0)
+    return max(int(topic.get("word_count_target") or 0), 1500,
+               (n * 90 if listicle and n else 0), comp)
+
+
+def build_expand_messages(body_html: str, floor: int, brief: dict) -> tuple:
+    """Prompt to DEEPEN an existing draft to the target length without changing its
+    structure, styling, links, or facts. Returns (system, user); the model returns
+    ONLY the expanded body_html."""
+    system = (
+        "You expand an existing draft article to greater depth. You NEVER change its "
+        "structure, the <style> block, headings (or their ids), the FAQ, or ANY link "
+        "(<a href>). You never add or alter product links or external URLs, and never "
+        "invent specs, prices, or statistics — if tempted, write [VERIFY: …] instead. "
+        "You only add substance WITHIN the existing sections/cards. Return ONLY the "
+        "expanded body_html — no JSON, no markdown fences, no commentary."
+    )
+    user = (
+        f"Expand this article to AT LEAST {floor} words of body copy by deepening each "
+        "existing section and card with specific, grounded how-to detail, concrete "
+        "examples, and parent-facing guidance. Keep the exact same <style> block, every "
+        "heading with its id, the FAQ, and every existing <a href> link — add nothing "
+        "new that links out. Here is the current body_html:\n\n" + (body_html or "")
+    )
+    return system, user
+
+
 def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
     """Turn a brief into (system_message, user_prompt) for the LLM. The system
     message encodes the anti-fabrication contract and the exact JSON output shape;
@@ -382,12 +416,8 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
     listicle = _is_listicle(t.get("title"), t.get("primary_keyword"))
     age = _age_context(t.get("title"), t.get("primary_keyword"))
     n_items = _listicle_count(t.get("title"), t.get("primary_keyword"))
-    # Hard length floor: listicles scale with their item count (~90 words/item),
-    # everything else holds a real-article minimum, and we never undershoot what the
-    # ranking pages actually run (the competitor median) — never below the brief target.
-    comp_words = int((competitor or {}).get("target_words") or 0)
-    floor = max(int(t.get("word_count_target") or 0),
-                1500, (n_items * 90 if listicle and n_items else 0), comp_words)
+    # Hard length floor (shared with the auto-expand check so they agree).
+    floor = length_floor(t, brief["item_type"], competitor)
 
     style_block = house_style_block()
     lines = [
