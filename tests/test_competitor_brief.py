@@ -66,6 +66,26 @@ def test_target_words_is_median_and_headings_present():
     assert b["pages_analyzed"] == 3
 
 
+def test_competitor_brand_and_promo_filtered_out():
+    # A competitor's self-promo heading must never surface as a section/question.
+    pages = [{"url": "https://rival.com/p",
+              "html": ("<h2>What makes Hazel & Fawn a trusted source for Montessori toys?</h2>"
+                       "<p>object permanence stacking rings fine motor hand eye coordination "
+                       "shape sorter wooden puzzle problem solving sensory play development "
+                       "milestones motor skills.</p>"
+                       "<h2>About Us</h2><h2>Developmental Benefits</h2>"
+                       "<h3>Why choose Lovevery</h3>") * 4}]
+    serp = lambda q: {"organic_results": [{"url": pages[0]["url"]}],
+                      "people_also_ask": ["What age are Montessori toys for?",
+                                          "Why shop at Hazel & Fawn?"]}
+    page = lambda u: pages[0]["html"]
+    b = cbf.build_competitor_brief("montessori toys", serp, page)
+    blob = " || ".join((b.get("headings") or []) + (b.get("questions") or []))
+    assert "Hazel" not in blob and "Lovevery" not in blob and "About Us" not in blob
+    assert "What age are Montessori toys for?" in b["questions"]      # legit PAA kept
+    assert any("Developmental Benefits" in h for h in b["headings"])  # legit heading kept
+
+
 def test_none_when_no_serp():
     assert cbf.build_competitor_brief("x", lambda q: None, _fake_page) is None
 

@@ -87,6 +87,20 @@ def _is_question(s: str) -> bool:
     return s.endswith("?") or bool(re.match(r"(?i)^(what|how|why|when|where|which|who|can|are|is|do|does|should)\b", s))
 
 
+# Competitor brand / self-promo phrasing. A scraped heading like "What makes Hazel
+# & Fawn a trusted source" is a COMPETITOR promoting itself — it must never become
+# a section or FAQ on our page. Drop any heading/question matching these.
+_PROMO_RE = re.compile(
+    r"(trusted source|why (?:choose|shop|buy)\b|best place to buy|about us|our (?:story|mission|"
+    r"commitment|promise|values)|what makes .+\b(?:a |the )?(?:trusted|best|top|leading|reliable|"
+    r"go-to|number[ -]?one)\b|customer (?:reviews|testimonials)|free shipping|returns?\b|"
+    r"discount|coupon|promo code|why we|meet the team|\bgift (?:card|guide)s?\b)", re.I)
+
+
+def _is_promo(s: str) -> bool:
+    return bool(_PROMO_RE.search(s or ""))
+
+
 def extract_from_pages(pages: list, keyword: str) -> dict:
     """Pure distillation of scraped competitor pages into a coverage spec.
     `pages` = [{url, html}]. Terms are document-frequency weighted (how many
@@ -127,8 +141,8 @@ def extract_from_pages(pages: list, keyword: str) -> dict:
     top_terms = (phrases + unigrams)[:30]
 
     headings = [h for h, _ in heading_counter.most_common(40)
-                if not _is_question(h)][:18]
-    heading_qs = [h for h in heading_counter if _is_question(h)]
+                if not _is_question(h) and not _is_promo(h)][:18]
+    heading_qs = [h for h in heading_counter if _is_question(h) and not _is_promo(h)]
 
     target_words = int(statistics.median(word_counts)) if word_counts else 0
     return {
@@ -185,7 +199,7 @@ def build_competitor_brief(keyword: str, fetch_serp_fn, fetch_page_fn,
     qseen, questions = set(), []
     for q in paa + spec.pop("heading_questions", []):
         k = q.strip().lower()
-        if k and k not in qseen:
+        if k and k not in qseen and not _is_promo(q):   # never echo a competitor's self-promo
             qseen.add(k)
             questions.append(q.strip())
     spec["questions"] = questions[:10]

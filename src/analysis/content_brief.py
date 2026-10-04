@@ -329,6 +329,9 @@ _DRAFTING_RULES = [
     "WRITE TO DEPTH. Hit the required word count with genuine substance — real "
     "how-to detail, specifics, examples — not padding or keyword stuffing. A thin "
     "draft that skips the house structure is a failure.",
+    "OUR BRAND ONLY. Never name, link, or promote another retailer or competing "
+    "brand. If a competitor's name slips into the SERP inputs, ignore it — the only "
+    "store this page represents is ours.",
     "AGE-APPROPRIATE ONLY. When the topic targets a specific age, feature only "
     "products and advice suitable for that age; omit any provided product that "
     "doesn't fit rather than forcing it in.",
@@ -446,8 +449,10 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
                          "entities; weave the relevant ones in naturally (never keyword-"
                          "stuff): " + ", ".join(terms[:30]))
         if heads:
-            lines.append("Sections competitors cover (use the ones that fit as your "
-                         "<h2>/<h3> or cards): " + " | ".join(heads[:15]))
+            lines.append("Sections competitors cover — write a real <h2> PROSE section "
+                         "for the relevant ones (developmental benefits, how to choose, "
+                         "safety, by-stage, etc.), in ADDITION to any product cards. This "
+                         "editorial depth is where the ranking comes from: " + " | ".join(heads[:15]))
         if qs:
             lines.append("Questions to answer (work into the body and/or the FAQ): "
                          + " | ".join(qs[:10]))
