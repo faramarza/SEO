@@ -119,29 +119,39 @@ async function csSuggest(){
       </div>
       ${done
         ? '<span class="cs-status cs-s-review" style="white-space:nowrap;">drafted ✓</span>'
-        : `<button class="cs-copy" style="white-space:nowrap;padding:5px 12px;font-weight:600;" onclick="csDraftGap('${encodeURIComponent(it.family)}','${encodeURIComponent(kw)}')">✍️ Draft</button>`}
+        : `<button class="cs-copy" style="white-space:nowrap;padding:5px 12px;font-weight:600;" onclick="csDraftGap('${encodeURIComponent(it.family)}','${encodeURIComponent(kw)}',this)">✍️ Draft</button>`}
     </div>`;
   }).join('');
 }
 
-function csDraftGap(family, kw){
-  document.getElementById('cs-family').value=decodeURIComponent(family);
-  document.getElementById('cs-kw').value=decodeURIComponent(kw);
-  csGenerate();
-}
-
-async function csGenerate(){
-  const family=document.getElementById('cs-family').value.trim();
-  const kw=document.getElementById('cs-kw').value.trim();
+// One drafting path, with VISIBLE feedback on the clicked button and in the
+// detail pane (the old code hid all feedback on the collapsed custom-box button,
+// so a Draft click looked like it did nothing during the 30–60s generation).
+async function csDoDraft(family, kw, btn){
+  family=(family||'').trim(); kw=(kw||'').trim();
   if(!family){ csToast('Pick a topic above, or enter a product family',true); return; }
-  const btn=document.getElementById('cs-gen'); btn.disabled=true; const old=btn.textContent; btn.textContent='✍️ Drafting… (~30–60s)';
+  const old = btn ? btn.textContent : '';
+  if(btn){ btn.disabled=true; btn.textContent='✍️ Drafting…'; }
+  const detail=document.getElementById('cs-detail');
+  detail.innerHTML='<p class="pb-loading">✍️ Drafting “'+escHtml(kw||family)+'” — grounded in your catalog, ~30–60s…</p>';
+  detail.scrollIntoView({behavior:'smooth', block:'nearest'});
   try{
     const r=await (await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({family, primary_keyword:kw})})).json();
-    if(r.error){ csToast(r.error,true); }
+    if(r.error){ csToast(r.error,true); detail.innerHTML='<p class="empty-state" style="color:#dc2626;">'+escHtml(r.error)+'</p>'; }
     else { csToast('Draft ready'); CS_SEL=r.draft.id; await csList(); csSuggest(); renderDetail(r.draft, r.review_checklist); }
-  }catch(e){ csToast('Generation failed',true); }
-  btn.disabled=false; btn.textContent=old;
+  }catch(e){ csToast('Generation failed',true); detail.innerHTML='<p class="empty-state" style="color:#dc2626;">Generation failed — try again.</p>'; }
+  if(btn){ btn.disabled=false; btn.textContent=old; }
+}
+
+function csGenerate(){
+  csDoDraft(document.getElementById('cs-family').value,
+            document.getElementById('cs-kw').value,
+            document.getElementById('cs-gen'));
+}
+
+function csDraftGap(family, kw, btn){
+  csDoDraft(decodeURIComponent(family), decodeURIComponent(kw), btn);
 }
 
 async function csOpen(id){
