@@ -12917,7 +12917,7 @@ def _cd_save(d: dict):
 
 
 _COMPETITOR_BRIEF_PATH = DATA_PATH / "competitor_briefs.json"
-_CB_VERSION = "3"   # v1: pre brand-filter; v2: pre authority_links — rebuild to add them
+_CB_VERSION = "4"   # +brand-name filter +authority deep-link top-up
 _CB_TTL_DAYS = 14
 
 

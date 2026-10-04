@@ -124,6 +124,36 @@ def _is_promo(s: str) -> bool:
     return bool(_PROMO_RE.search(s or ""))
 
 
+# Generic topic words that appear in competitor domains but are NOT brand names —
+# never treat these as a brand to filter, or we'd nuke legitimate topic terms.
+_GENERIC_BRANDISH = set("""montessori toys toy kids kid baby babies wooden wood learning
+learn play shop store the and for natural education educational child children toddler
+toddlers best top guide reviews mom mama parenting family home little tiny mini""".split())
+
+# Authority domains to source a REAL deep citation from when the main SERP has none.
+_DEFAULT_AUTHORITY_DOMAINS = ["healthychildren.org", "naeyc.org", "cdc.gov",
+                              "zerotothree.org", "aap.org"]
+
+
+def _brand_tokens(source_urls: list) -> set:
+    """Distinctive brand tokens from the scraped competitor domains (e.g.
+    hazelandfawn.com → {hazel, fawn}), so a competitor named in a heading/question
+    ('does Hazel & Fawn offer…') can be filtered out. Generic topic words are
+    excluded so we never strip legitimate terms."""
+    toks = set()
+    for u in source_urls or []:
+        label = (_domain(u).split(".")[0] if _domain(u) else "").lower()
+        for p in re.split(r"[^a-z0-9]+|(?:and|the|shop|store|toys?|kids|baby|co)", label):
+            if len(p) >= 4 and p not in _GENERIC_BRANDISH:
+                toks.add(p)
+    return toks
+
+
+def _has_brand(text: str, brand_tokens: set) -> bool:
+    low = (text or "").lower()
+    return any(re.search(r"\b" + re.escape(bt) + r"\b", low) for bt in brand_tokens)
+
+
 def extract_from_pages(pages: list, keyword: str) -> dict:
     """Pure distillation of scraped competitor pages into a coverage spec.
     `pages` = [{url, html}]. Terms are document-frequency weighted (how many
@@ -227,6 +257,35 @@ def build_competitor_brief(keyword: str, fetch_serp_fn, fetch_page_fn,
             questions.append(q.strip())
     spec["questions"] = questions[:10]
     spec["source_urls"] = urls
-    spec["authority_links"] = _authority_links(serp.get("organic_results") or [])
+
+    # Strip any competitor BRAND named in the terms/headings/questions (derived from
+    # the scraped competitor domains) — a competitor must never be named on our page.
+    brand = _brand_tokens(urls)
+    if brand:
+        spec["terms"] = [t for t in spec["terms"] if not _has_brand(t.get("term", ""), brand)]
+        spec["headings"] = [h for h in spec["headings"] if not _has_brand(h, brand)]
+        spec["questions"] = [q for q in spec["questions"] if not _has_brand(q, brand)]
+
+    # Real authority citations from the SERP; if the main SERP had none, source a
+    # real DEEP page per authority via a targeted site: query (cached in this brief).
+    auth = _authority_links(serp.get("organic_results") or [])
+    have = {a["domain"] for a in auth}
+    if len(auth) < 2:
+        for dom in _DEFAULT_AUTHORITY_DOMAINS:
+            if len(auth) >= 3:
+                break
+            if any(dom in d for d in have):
+                continue
+            try:
+                s2 = fetch_serp_fn(f"site:{dom} {kw}")
+            except Exception:
+                s2 = None
+            for r in ((s2 or {}).get("organic_results") or [])[:1]:
+                u = r.get("url") or ""
+                if dom in _domain(u):
+                    auth.append({"url": u, "title": (r.get("title") or "").strip(),
+                                 "domain": _domain(u)})
+                    have.add(_domain(u))
+    spec["authority_links"] = auth[:3]
     spec["keyword"] = kw
     return spec
