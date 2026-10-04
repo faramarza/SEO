@@ -12917,7 +12917,7 @@ def _cd_save(d: dict):
 
 
 _COMPETITOR_BRIEF_PATH = DATA_PATH / "competitor_briefs.json"
-_CB_VERSION = "1"
+_CB_VERSION = "2"   # bumped: v1 briefs predate the brand/self-promo filter — rebuild them
 _CB_TTL_DAYS = 14
 
 
