@@ -392,8 +392,12 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
         f"Target keyword: {t['primary_keyword']}  |  intent: {t['intent']}  |  "
         f"type: {brief['item_type']}",
         f"Product family: {brief['family']}",
-        f"LENGTH: write AT LEAST {floor} words of real, substantive body copy — "
-        "match the house sample's depth. A short draft is a failure.",
+        f"LENGTH: write AT LEAST {floor} words of real body copy — match the house "
+        "sample's depth. Per-component budgets (this is how you reach the length with "
+        "substance, not padding): intro 120+ words; EACH prose <h2> section 150–250 "
+        "words; EACH product/idea card 90–140 words (4–6 sentences: what it is, what it "
+        "develops at this age, how a parent uses it, a tip); each FAQ answer 40–80 words. "
+        "A thin, one-line-per-card draft is a failure.",
     ]
     if age:
         lines.append(f"AGE FOCUS: this article is specifically for {age}. Every idea, "
