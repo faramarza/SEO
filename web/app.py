@@ -13096,7 +13096,17 @@ def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict):
                           r"\1 [VERIFY: add a live source]", body, flags=re.S | re.I)
             notes.append(f"Removed a dead external link and left a [VERIFY] marker in the "
                          f"body — add a live source before publishing: {url}")
-    parsed["external_links"] = kept
+    # Reconcile: external_links must be exactly the external links actually placed in
+    # the body — drop any "listed but not placed" ghosts so the review box matches the
+    # article, and flag a kept link that the model left out of the body entirely.
+    body_hrefs = set(re.findall(r'href="([^"]+)"', body))
+    placed, not_placed = [], []
+    for e in kept:
+        (placed if (e.get("url") or "").strip() in body_hrefs else not_placed).append(e)
+    parsed["external_links"] = placed
+    for e in not_placed:
+        notes.append("An external source was listed but not linked anywhere in the "
+                     f"body — placed it only if relevant, else ignore: {e.get('url','')}")
 
     # --- internal links: flag dead/foreign ones (don't auto-rewrite product URLs) ---
     for m in re.finditer(r'<a\b[^>]*href="([^"]+)"', body):

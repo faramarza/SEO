@@ -328,6 +328,10 @@ _DRAFTING_RULES = [
     "source. If you don't have a real URL for it, either drop the 'according to X' "
     "framing and state it plainly as general guidance, or write [VERIFY: add source]. "
     "Never attribute a claim to a named authority without a working link.",
+    "PLACE CITATIONS INLINE. Each external authority link goes INLINE as an <a href> "
+    "right on the sentence/claim it supports — do NOT gather them into a separate "
+    "'Sources' or 'References' box at the end. external_links must list exactly the "
+    "links you placed inline in the body, and nothing that isn't in the body.",
     "FOLLOW THE HOUSE TEMPLATE. Build body_html in the house structure provided, "
     "starting with the given <style> block reproduced VERBATIM and reusing its "
     "component classes (hero, benefits-box/benefit-item, product-integration, "
