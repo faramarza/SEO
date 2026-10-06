@@ -525,12 +525,15 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
     lo, hi = brief["external_links_required"]
     auth = (competitor or {}).get("authority_links") or []
     if auth:
-        # REAL, live, pre-filtered authority URLs — cite the RELEVANT ones verbatim.
-        lines.append(f"External authority links — candidates below are real & live. Cite "
-                     f"the {lo}–{hi} that genuinely back a claim in THIS article (right "
-                     "topic and age), linking them EXACTLY as written. RELEVANCE OVER "
-                     "COUNT: skip any that don't clearly fit — do NOT cite a page just to "
-                     f"reach {hi}, and never invent or alter a URL:")
+        # REAL, live, pre-filtered authority URLs — PLACE them inline, spread out.
+        lines.append(f"External authority links — the candidates below are real, live, and "
+                     f"relevant to child development/safety. PLACE {lo}–{hi} of them INLINE "
+                     "as <a href> in the body (not in a box), each on the claim it best "
+                     "supports, and SPREAD across different sections — e.g. one on the "
+                     "why-it-matters stat, one in the developmental-benefits section, one "
+                     "in safety. Link each EXACTLY as written; place 3 if you have 3 good "
+                     "spots (you do), and skip one only if it genuinely doesn't fit. Do not "
+                     "list anything in external_links that you didn't place inline:")
         for a in auth:
             lines.append(f"   • {a['url']}" + (f" — {a['title']}" if a.get("title") else ""))
     else:
