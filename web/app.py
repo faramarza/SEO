@@ -13227,20 +13227,34 @@ def api_content_draft():
         _body = parsed.get("body_html") or ""
         _wc = len(visible_text(_body).split())
         if _body and _wc < int(_floor * 0.85):
+            print(f"[CD] auto-expand: {_wc}w < floor {_floor} — expanding…", flush=True)
             _es, _eu = build_expand_messages(_body, _floor, brief)
             _etext, _eerr = _llm_complete(_es, _eu, max_tokens=16000, timeout_sec=600)
-            if not _eerr and _etext:
+            if _eerr:
+                print(f"[CD] auto-expand call failed: {_eerr}", flush=True)
+            elif _etext:
                 _new = re.sub(r"^```[a-z]*\s*|\s*```$", "", _etext.strip()).strip()
-                import re as _re2
-                orig_hrefs = set(_re2.findall(r'href="([^"]+)"', _body))
-                new_hrefs = set(_re2.findall(r'href="([^"]+)"', _new))
-                style_ok = ("<style" in _new) if "<style" in _body else True
-                # accept only if longer, style kept, and NO original link was dropped
-                if (len(visible_text(_new).split()) > _wc and style_ok
-                        and orig_hrefs.issubset(new_hrefs)):
+                # Re-attach the house <style> block if the expansion dropped it
+                # (it's deterministic — no reason to reject a good expansion over it).
+                _sm = re.search(r"<style[^>]*>.*?</style>", _body, re.S | re.I)
+                if _sm and "<style" not in _new:
+                    _new = _sm.group(0) + "\n" + _new
+                _norm = lambda u: u.replace("&amp;", "&").rstrip("/")
+                orig = {_norm(u) for u in re.findall(r'href="([^"]+)"', _body)}
+                new = {_norm(u) for u in re.findall(r'href="([^"]+)"', _new)}
+                _nwc = len(visible_text(_new).split())
+                dropped = orig - new
+                if _nwc > _wc and not dropped:
                     parsed["body_html"] = _new
+                    print(f"[CD] auto-expand: accepted ({_wc}w → {_nwc}w)", flush=True)
+                else:
+                    reason = ("no links kept/longer" if _nwc <= _wc
+                              else f"dropped links {sorted(dropped)[:3]}")
+                    print(f"[CD] auto-expand: REJECTED ({_wc}w → {_nwc}w; {reason})", flush=True)
+        else:
+            print(f"[CD] auto-expand: {_wc}w ≥ floor {_floor} — no expand needed", flush=True)
     except Exception as e:
-        print(f"[CD] auto-expand skipped: {e}", flush=True)
+        print(f"[CD] auto-expand skipped (error): {e}", flush=True)
 
     import uuid
     final_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
