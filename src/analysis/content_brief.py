@@ -365,41 +365,176 @@ def length_floor(topic: dict, item_type: str, competitor: dict = None) -> int:
                (n * 90 if listicle and n else 0), comp)
 
 
-def build_expand_messages(body_html: str, floor: int, brief: dict) -> tuple:
-    """Prompt to DEEPEN an existing draft to the target length without changing its
-    structure, styling, links, or facts. Returns (system, user); the model returns
-    ONLY the expanded body_html."""
-    system = (
-        "You expand an existing draft article to greater depth. You NEVER change its "
-        "structure, the <style> block, headings (or their ids), the FAQ, or ANY link "
-        "(<a href>). You never add or alter product links or external URLs, and never "
-        "invent specs, prices, or statistics — if tempted, write [VERIFY: …] instead. "
-        "You only add substance WITHIN the existing sections/cards. Return ONLY the "
-        "expanded body_html — no JSON, no markdown fences, no commentary."
-    )
-    user = (
-        f"Expand this article to AT LEAST {floor} words of body copy by deepening each "
-        "existing section and card with specific, grounded how-to detail, concrete "
-        "examples, and parent-facing guidance. Keep the exact same <style> block, every "
-        "heading with its id, the FAQ, and every existing <a href> link — add nothing "
-        "new that links out. Here is the current body_html:\n\n" + (body_html or "")
-    )
-    return system, user
+def _prompt_ctx(brief: dict, competitor: dict = None) -> dict:
+    """Derived values every prompt section may need — computed once."""
+    t = brief["topic"]
+    return {
+        "t": t,
+        "listicle": _is_listicle(t.get("title"), t.get("primary_keyword")),
+        "age": _age_context(t.get("title"), t.get("primary_keyword")),
+        "n_items": _listicle_count(t.get("title"), t.get("primary_keyword")),
+        "floor": length_floor(t, brief["item_type"], competitor),
+        "style_block": house_style_block(),
+    }
 
 
-def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
-    """Turn a brief into (system_message, user_prompt) for the LLM. The system
-    message encodes the anti-fabrication contract and the exact JSON output shape;
-    the user prompt carries the grounded, page-specific inputs. `competitor` is the
-    optional SERP coverage spec (terms/headings/questions/target length) from
-    competitor_brief — when present, the draft is steered to cover what ranks."""
+# ─── PROMPT SECTIONS — one concern each. To change how the draft handles a given
+# concern (length, age-fit, format, house template, SERP coverage, internal links,
+# external citations), edit ONLY that section function; nothing else is affected. ──
+
+def _sec_header(brief, competitor, ctx):
+    t = ctx["t"]
+    return [f"TOPIC: {t['title']}",
+            f"Target keyword: {t['primary_keyword']}  |  intent: {t['intent']}  |  "
+            f"type: {brief['item_type']}",
+            f"Product family: {brief['family']}"]
+
+
+def _sec_length(brief, competitor, ctx):
+    return [f"LENGTH: write AT LEAST {ctx['floor']} words of real body copy — match the "
+            "house sample's depth. Per-component budgets (this is how you reach the length "
+            "with substance, not padding): intro 120+ words; EACH prose <h2> section 150–250 "
+            "words; EACH product/idea card 90–140 words (4–6 sentences: what it is, what it "
+            "develops at this age, how a parent uses it, a tip); each FAQ answer 40–80 words. "
+            "A thin, one-line-per-card draft is a failure."]
+
+
+def _sec_age(brief, competitor, ctx):
+    if not ctx["age"]:
+        return []
+    a = ctx["age"]
+    return [f"AGE FOCUS: this article is specifically for {a}. Every idea, recommendation "
+            f"and product MUST be genuinely appropriate for {a}. NEVER include a product "
+            "meant for a different age (e.g. a newborn tummy-time item in a 1-year-old "
+            "article) — leave it out entirely, even if that means featuring fewer of the "
+            "store's products."]
+
+
+def _sec_format(brief, competitor, ctx):
+    age, listicle, n_items = ctx["age"], ctx["listicle"], ctx["n_items"]
+    out = []
+    if listicle:
+        want = n_items if n_items else 12
+        out.append(
+            "FORMAT: this is a LIST article. The numbered .game-card items are IDEAS / "
+            "recommendations / toy-types / activities — NOT one card per store product. "
+            f"Produce {want} substantial cards. EACH card is 3–5 sentences: what it is, what "
+            "it develops at this age, how a parent uses it, and one practical tip — a "
+            "one-sentence card is a failure. Put the <span class=\"age-tag\"> on the heading. "
+            "GROUNDING: only put a .materials-box or state specific materials/brand when the "
+            "card features one of the REAL products listed below — and then LINK that product "
+            "in the card. For a generic toy-type idea you don't stock, describe the type "
+            "without inventing materials, a brand, or a link. Also weave 1–2 "
+            ".product-integration callouts for real products. Never feature an off-age or "
+            "invented product to reach the count.")
+        out.append("Do NOT include the .age-filter-buttons row — this article covers a single "
+                   "age, so there is nothing to filter." if age else
+                   "Include the .age-filter-buttons row with one button per age band you "
+                   "actually cover, matching the .age-tag values on the cards.")
+    else:
+        out.append("FORMAT: this is a guide/comparison/pillar — use clear <h2>/<h3> sections "
+                   "(not numbered cards), at the same depth, with the house hero, benefits-box, "
+                   "product-integration callouts and tip/warning boxes.")
+    out.append("JUMP LINKS: give every major section an id and make the .quick-nav links point "
+               "to those exact ids (e.g. <h2 id=\"faq\">), so the nav actually works.")
+    return out
+
+
+def _sec_house(brief, competitor, ctx):
+    out = []
+    if ctx["style_block"]:
+        out.append("\nHOUSE <style> BLOCK — reproduce this VERBATIM at the very start of "
+                   "body_html:\n" + ctx["style_block"])
+    out.append("\n" + HOUSE_STRUCTURE)
+    t = ctx["t"]
+    if t.get("outline"):
+        out.append("Suggested outline (adapt to the house structure): " + " → ".join(t["outline"]))
+    if t.get("supporting_keywords"):
+        out.append("Cover these sub-topics as sections: " + ", ".join(t["supporting_keywords"]))
+    return out
+
+
+def _sec_coverage(brief, competitor, ctx):
+    if not competitor:
+        return []
+    out = []
+    terms = [x.get("term") for x in (competitor.get("terms") or []) if x.get("term")]
+    heads = competitor.get("headings") or []
+    qs = competitor.get("questions") or []
+    if terms:
+        out.append("\nSERP COVERAGE — the top-ranking pages share these terms/entities; weave "
+                   "the relevant ones in naturally (never keyword-stuff): " + ", ".join(terms[:30]))
+    if heads:
+        out.append("Sections competitors cover — write a real <h2> PROSE section for the "
+                   "relevant ones (developmental benefits, how to choose, safety, by-stage, "
+                   "etc.), in ADDITION to any product cards. This editorial depth is where the "
+                   "ranking comes from: " + " | ".join(heads[:15]))
+    if qs:
+        out.append("Questions to answer (work into the body and/or the FAQ): " + " | ".join(qs[:10]))
+    if competitor.get("target_words"):
+        out.append(f"Competitors run ~{competitor['target_words']} words — meet or exceed that "
+                   "depth with substance, not padding.")
+    return out
+
+
+def _sec_internal(brief, competitor, ctx):
+    out = []
+    if brief["link_up"]:
+        out.append(f"LINK UP to the hub (pillar) once: {brief['link_up']['url']} "
+                   f"(suggested anchor: “{brief['link_up']['anchor_suggestion']}”)")
+    avail = brief.get("grounding_products") or brief["link_products"]
+    if avail:
+        out.append("REAL products you MAY feature / link (Shop the Setup) — choose the ones that "
+                   "genuinely fit this topic and age; use ONLY these URLs, and do not feature one "
+                   "that doesn't fit:")
+        out += [f"   • {p['title']} — {p['url']}" for p in avail[:14]]
+    if brief["cross_links"]:
+        out.append("Related existing articles you may cross-link:")
+        out += [f"   • {c['title']} — {c['url']}" for c in brief["cross_links"]]
+    return out
+
+
+def _sec_citations(brief, competitor, ctx):
+    lo, hi = brief["external_links_required"]
+    auth = (competitor or {}).get("authority_links") or []
+    out = []
+    if auth:
+        out.append(f"External authority links — the candidates below are real, live, and "
+                   f"relevant to child development/safety. PLACE {lo}–{hi} of them INLINE as "
+                   "<a href> in the body (not in a box), each on the claim it best supports, and "
+                   "SPREAD across different sections — e.g. one on the why-it-matters stat, one "
+                   "in the developmental-benefits section, one in safety. Link each EXACTLY as "
+                   "written; place 3 if you have 3 good spots (you do), and skip one only if it "
+                   "genuinely doesn't fit. Do not list anything in external_links that you didn't "
+                   "place inline:")
+        out += [f"   • {a['url']}" + (f" — {a['title']}" if a.get("title") else "") for a in auth]
+    else:
+        out.append(f"Include {lo}–{hi} external links to RELEVANT pages on real authorities. Do "
+                   "NOT guess a deep URL path (it may 404) — link the org's HOMEPAGE and add a "
+                   "[VERIFY] flag to confirm a deep page, e.g.:")
+        out += [f"   • {e['name']} (https://{e['domain']}/) — good for: {e['good_for']}"
+                for e in brief["external_authority_candidates"]]
+    if brief["no_catalog_match"]:
+        out.append("NOTE: no catalog products were found for this family — do NOT invent any. "
+                   "Write the editorial content and add a [VERIFY] flag asking which product "
+                   "pages to link.")
+    return out
+
+
+# The prompt is composed from these, in order. Add/remove/reorder a concern here.
+_PROMPT_SECTIONS = [_sec_header, _sec_length, _sec_age, _sec_format,
+                    _sec_house, _sec_coverage, _sec_internal, _sec_citations]
+
+
+def _build_system(brief: dict) -> str:
+    """The fixed contract: output shape + anti-fabrication rules. Concern-specific
+    wording lives in the _sec_* sections / _DRAFTING_RULES, not here."""
     blocks_desc = "\n".join(
         f"  - {b['key']}: {b['label']}"
         + (f" (≤{b['max_chars']} chars)" if b.get("max_chars") else "")
-        for b in brief["output_blocks"]
-    )
+        for b in brief["output_blocks"])
     rules = "\n".join(f"{i+1}. {r}" for i, r in enumerate(brief["drafting_rules"]))
-    system = (
+    return (
         "You are a content creator for a real e-commerce store that sells "
         "personalized children's products. You write genuinely useful, in-depth "
         "articles for parents and educators, grounded in the store's real catalog "
@@ -418,137 +553,19 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
         "  external_links (array of {url, name, claim_supported} — 1 to 3 real "
         "authoritative sources);\n"
         "  verify_flags (array of strings — every [VERIFY] item for the human).\n"
-        "Output blocks to produce:\n" + blocks_desc
-    )
+        "Output blocks to produce:\n" + blocks_desc)
 
-    t = brief["topic"]
-    listicle = _is_listicle(t.get("title"), t.get("primary_keyword"))
-    age = _age_context(t.get("title"), t.get("primary_keyword"))
-    n_items = _listicle_count(t.get("title"), t.get("primary_keyword"))
-    # Hard length floor (shared with the auto-expand check so they agree).
-    floor = length_floor(t, brief["item_type"], competitor)
 
-    style_block = house_style_block()
-    lines = [
-        f"TOPIC: {t['title']}",
-        f"Target keyword: {t['primary_keyword']}  |  intent: {t['intent']}  |  "
-        f"type: {brief['item_type']}",
-        f"Product family: {brief['family']}",
-        f"LENGTH: write AT LEAST {floor} words of real body copy — match the house "
-        "sample's depth. Per-component budgets (this is how you reach the length with "
-        "substance, not padding): intro 120+ words; EACH prose <h2> section 150–250 "
-        "words; EACH product/idea card 90–140 words (4–6 sentences: what it is, what it "
-        "develops at this age, how a parent uses it, a tip); each FAQ answer 40–80 words. "
-        "A thin, one-line-per-card draft is a failure.",
-    ]
-    if age:
-        lines.append(f"AGE FOCUS: this article is specifically for {age}. Every idea, "
-                     f"recommendation and product MUST be genuinely appropriate for {age}. "
-                     f"NEVER include a product meant for a different age (e.g. a newborn "
-                     f"tummy-time item in a 1-year-old article) — leave it out entirely, "
-                     f"even if that means featuring fewer of the store's products.")
-    if listicle:
-        want = n_items if n_items else 12
-        lines.append(
-            "FORMAT: this is a LIST article. The numbered .game-card items are IDEAS / "
-            "recommendations / toy-types / activities — NOT one card per store product. "
-            f"Produce {want} substantial cards. EACH card is 3–5 sentences: what it is, what "
-            "it develops at this age, how a parent uses it, and one practical tip — a "
-            "one-sentence card is a failure. Put the <span class=\"age-tag\"> on the heading. "
-            "GROUNDING: only put a .materials-box or state specific materials/brand when the "
-            "card features one of the REAL products listed below — and then LINK that product "
-            "in the card. For a generic toy-type idea you don't stock, describe the type "
-            "without inventing materials, a brand, or a link. Also weave 1–2 "
-            ".product-integration callouts for real products. Never feature an off-age or "
-            "invented product to reach the count.")
-        # The age-filter row only makes sense across MULTIPLE ages; a single-age
-        # article ("for 1 year old") has nothing to filter, so omit it there.
-        if age:
-            lines.append("Do NOT include the .age-filter-buttons row — this article covers "
-                         "a single age, so there is nothing to filter.")
-        else:
-            lines.append("Include the .age-filter-buttons row with one button per age band "
-                         "you actually cover, matching the .age-tag values on the cards.")
-    else:
-        lines.append("FORMAT: this is a guide/comparison/pillar — use clear <h2>/<h3> "
-                     "sections (not numbered cards), at the same depth, with the house "
-                     "hero, benefits-box, product-integration callouts and tip/warning boxes.")
-    lines.append("JUMP LINKS: give every major section an id and make the .quick-nav links "
-                 "point to those exact ids (e.g. <h2 id=\"faq\">), so the nav actually works.")
-    if style_block:
-        lines.append("\nHOUSE <style> BLOCK — reproduce this VERBATIM at the very start "
-                     "of body_html:\n" + style_block)
-    lines.append("\n" + HOUSE_STRUCTURE)
-    if t.get("outline"):
-        lines.append("Suggested outline (adapt to the house structure): " + " → ".join(t["outline"]))
-    if t.get("supporting_keywords"):
-        lines.append("Cover these sub-topics as sections: " + ", ".join(t["supporting_keywords"]))
-    # SERP coverage — what the current top-ranking pages cover. This is how the page
-    # earns its rank: include these terms, sections and questions (where genuinely
-    # relevant — never stuff), grounded as always.
-    if competitor:
-        terms = [x.get("term") for x in (competitor.get("terms") or []) if x.get("term")]
-        heads = competitor.get("headings") or []
-        qs = competitor.get("questions") or []
-        if terms:
-            lines.append("\nSERP COVERAGE — the top-ranking pages share these terms/"
-                         "entities; weave the relevant ones in naturally (never keyword-"
-                         "stuff): " + ", ".join(terms[:30]))
-        if heads:
-            lines.append("Sections competitors cover — write a real <h2> PROSE section "
-                         "for the relevant ones (developmental benefits, how to choose, "
-                         "safety, by-stage, etc.), in ADDITION to any product cards. This "
-                         "editorial depth is where the ranking comes from: " + " | ".join(heads[:15]))
-        if qs:
-            lines.append("Questions to answer (work into the body and/or the FAQ): "
-                         + " | ".join(qs[:10]))
-        if competitor.get("target_words"):
-            lines.append(f"Competitors run ~{competitor['target_words']} words — meet or "
-                         "exceed that depth with substance, not padding.")
-    if brief["link_up"]:
-        lines.append(f"LINK UP to the hub (pillar) once: {brief['link_up']['url']} "
-                     f"(suggested anchor: “{brief['link_up']['anchor_suggestion']}”)")
-    # Offer the FULL real-product set (capped) so the model can pick the ones that
-    # genuinely fit the topic/age and skip the rest — rather than being forced to
-    # feature a fixed 3. Never invent a product or URL outside this list.
-    avail = brief.get("grounding_products") or brief["link_products"]
-    if avail:
-        lines.append("REAL products you MAY feature / link (Shop the Setup) — choose the "
-                     "ones that genuinely fit this topic and age; use ONLY these URLs, and "
-                     "do not feature one that doesn't fit:")
-        for p in avail[:14]:
-            lines.append(f"   • {p['title']} — {p['url']}")
-    if brief["cross_links"]:
-        lines.append("Related existing articles you may cross-link:")
-        for c in brief["cross_links"]:
-            lines.append(f"   • {c['title']} — {c['url']}")
-    lo, hi = brief["external_links_required"]
-    auth = (competitor or {}).get("authority_links") or []
-    if auth:
-        # REAL, live, pre-filtered authority URLs — PLACE them inline, spread out.
-        lines.append(f"External authority links — the candidates below are real, live, and "
-                     f"relevant to child development/safety. PLACE {lo}–{hi} of them INLINE "
-                     "as <a href> in the body (not in a box), each on the claim it best "
-                     "supports, and SPREAD across different sections — e.g. one on the "
-                     "why-it-matters stat, one in the developmental-benefits section, one "
-                     "in safety. Link each EXACTLY as written; place 3 if you have 3 good "
-                     "spots (you do), and skip one only if it genuinely doesn't fit. Do not "
-                     "list anything in external_links that you didn't place inline:")
-        for a in auth:
-            lines.append(f"   • {a['url']}" + (f" — {a['title']}" if a.get("title") else ""))
-    else:
-        lines.append(f"Include {lo}–{hi} external links to RELEVANT pages on real "
-                     "authorities. Do NOT guess a deep URL path (it may 404) — link the "
-                     "org's HOMEPAGE and add a [VERIFY] flag to confirm a deep page, e.g.:")
-        for e in brief["external_authority_candidates"]:
-            lines.append(f"   • {e['name']} (https://{e['domain']}/) — good for: {e['good_for']}")
-    if brief["no_catalog_match"]:
-        lines.append("NOTE: no catalog products were found for this family — do NOT "
-                     "invent any. Write the editorial content and add a [VERIFY] flag "
-                     "asking which product pages to link.")
-    user = "\n".join(lines)
-    return system, user
-
+def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
+    """Turn a brief into (system_message, user_prompt). MODULAR: the user prompt is
+    composed from the independent _sec_* concern functions (edit one concern in one
+    place, nothing else moves); the system message is the fixed contract. `competitor`
+    is the optional SERP coverage spec from competitor_brief."""
+    ctx = _prompt_ctx(brief, competitor)
+    lines = []
+    for section in _PROMPT_SECTIONS:
+        lines += section(brief, competitor, ctx)
+    return _build_system(brief), "\n".join(lines)
 
 def verify_interlinks(published_outlinks: list, brief_or_links) -> dict:
     """After the page is published and re-crawled, check it actually carries the
