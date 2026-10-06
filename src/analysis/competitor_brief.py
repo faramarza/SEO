@@ -59,6 +59,18 @@ _AUTHORITY_RE = re.compile(
     r"aota|asha)\b", re.I)
 
 
+# DISTINCTIVE, on-topic words. Generic parenting words ("toddler", "child",
+# "parenting") are deliberately absent, so a CDC "Giving Directions" page that only
+# talks about toddlers can't pass as toy-relevant. Both singular/plural forms are
+# listed because the relevance check matches whole words, not stems.
+_AUTH_TOPIC = {
+    "toy", "toys", "play", "playtime", "plaything", "playthings",
+    "montessori", "learning", "learn", "sensory", "motor",
+    "developmental", "development", "develop", "milestone", "milestones",
+    "cognitive", "stem", "skill", "skills", "educational",
+}
+
+
 def _age_months(text: str):
     """Rough age-in-months from a string ('5-years' -> 60, '12 months' -> 12,
     'toddler' -> 18), or None if no age is named."""
@@ -80,19 +92,36 @@ def _age_months(text: str):
     return None
 
 
-def _authority_candidate(url, title, html, kw_tokens, article_age):
-    """Keep an authority citation only if it's genuinely relevant: not a clearly
-    different age than the article, and (when we have the page) actually about the
-    topic. Returns True to keep, False to drop."""
+def _authority_candidate(url, title, html, kw_tokens, article_age, strict=True):
+    """Keep an authority citation only if it's genuinely relevant. An age clearly
+    different from the article is always dropped. For `strict` candidates — the
+    `site:` top-ups, which do NOT rank for our query — the title must carry a
+    distinctive topic word and (when we have the page) the body must be substantively
+    on-topic; this is what kills a CDC "Giving Directions" top-up that only mentions
+    "play" in passing. Organic SERP results already rank for the real query, so they
+    are trusted without the topic gate (strict=False). Returns True to keep."""
     blob = (url + " " + (title or "")).lower()
     cand_age = _age_months(blob)
     if article_age is not None and cand_age is not None and abs(cand_age - article_age) > 18:
         return False   # e.g. a "5-years" milestones page on a 1-year-old article
+    if not strict:
+        return True
+    # DISTINCTIVE topic words only — generic "toddler/child/parenting" words do NOT
+    # count, so a CDC "Giving Directions" page can't pass as toy-relevant.
+    topic = _AUTH_TOPIC | {w for w in (kw_tokens or set()) if len(w) > 3}
+
+    def _hits(s):
+        return sum(1 for w in topic if re.search(r"\b" + re.escape(w) + r"\b", s))
+
+    # The TITLE must be on-topic — this is what kills "Giving Directions"-type pages
+    # even when the body mentions "play" once in passing.
+    if title and _hits(title.lower()) == 0:
+        return False
     if html is not None:
         text = _clean_text(html).lower()
-        topic = {w for w in (kw_tokens or set()) if len(w) > 2} | {"toy", "toys", "play"}
-        if not any(re.search(r"\b" + re.escape(w) + r"\b", text) for w in topic):
-            return False   # page doesn't mention the topic at all
+        # must be substantively about the topic, not a single incidental mention
+        if _hits(text) < 2 and "toy" not in text:
+            return False
     return True
 
 
@@ -111,8 +140,11 @@ def _source_authority_links(serp, fetch_serp_fn, fetch_page_fn, kw):
         dom = _domain(u)
         if not u or dom in seen or not _AUTHORITY_RE.search(u):
             return
-        # cheap age/URL filter first; fetch the page only for top-ups (verify_content)
-        if not _authority_candidate(u, title, None, kw_tokens, article_age):
+        # cheap age/URL filter first; fetch the page only for top-ups (verify_content).
+        # Organic SERP results (verify_content=False) rank for the query → trusted
+        # (strict=False); `site:` top-ups get the full title+content relevance gate.
+        if not _authority_candidate(u, title, None, kw_tokens, article_age,
+                                    strict=verify_content):
             return
         html = None
         if verify_content:
@@ -120,7 +152,8 @@ def _source_authority_links(serp, fetch_serp_fn, fetch_page_fn, kw):
                 html = fetch_page_fn(u)
             except Exception:
                 html = None
-        if not _authority_candidate(u, title, html, kw_tokens, article_age):
+        if not _authority_candidate(u, title, html, kw_tokens, article_age,
+                                    strict=verify_content):
             return
         seen.add(dom)
         out.append({"url": u, "title": (title or "").strip(), "domain": dom})
