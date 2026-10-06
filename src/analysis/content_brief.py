@@ -312,10 +312,12 @@ _DRAFTING_RULES = [
     "piece but you don't have it, write the sentence and mark the unverified part "
     "with [VERIFY: what to check] instead of inventing a value. Collect every such "
     "flag in verify_flags.",
-    "CITE REAL AUTHORITY. Include 1–3 outbound links to a relevant page on one of "
-    "the listed real authoritative organizations, placed where it backs a specific "
-    "claim. Use the organization's real domain; do not invent a deep URL — give "
-    "your best path and add it to external_links so a human confirms it in review.",
+    "CITE ONLY PROVIDED URLS — NEVER GUESS ONE. Every external link MUST be copied "
+    "EXACTLY from the authority candidates the brief gives you. NEVER invent, guess, "
+    "or construct an authority URL — no made-up '.aspx', no deep paths you haven't "
+    "been handed. A guessed link is a fabrication and will be stripped. If no provided "
+    "source fits a claim, drop the 'according to X' framing or write [VERIFY: add "
+    "source] — do not reach for a plausible-looking URL.",
     "WIRE THE CLUSTER. Link UP to the hub once with a natural anchor, and link to "
     "the given sibling product pages where relevant (a 'Shop the Setup' style CTA). "
     "Use ONLY the real URLs provided; never link to a URL not in the brief.",

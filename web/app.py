@@ -13066,14 +13066,31 @@ def _find_live_authority(domain: str, keyword: str):
     return None
 
 
-def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict):
-    """Check every link the draft placed. Dead EXTERNAL links are repaired via a real
-    Serper lookup on the same authority (or dropped), and the body HTML is rewritten
-    to match. Dead/blocked INTERNAL links are flagged for the human. Mutates `parsed`
-    in place; returns a list of human-readable note strings for the review gate."""
+def _reg_domain(url: str) -> str:
+    """Registrable-ish domain (last two labels) of a URL, lowercased — so
+    'www.aap.org' and 'publications.aap.org' both map to 'aap.org'."""
+    from urllib.parse import urlparse
+    try:
+        net = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return ""
+    parts = [p for p in net.split(".") if p]
+    return ".".join(parts[-2:]) if len(parts) >= 2 else net
+
+
+def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict, allow_external=None):
+    """Check every link the draft placed.
+
+    EXTERNAL links: an UNSOURCED url (one not in `allow_external`, the real SERP-sourced
+    candidate list) is treated as a model guess — replaced with a real, relevant, live
+    page on the SAME authority (gated `site:` lookup) or dropped to a [VERIFY] marker,
+    even if it returns a 'blocked' status. Sourced links are verified live / repaired if
+    dead. INTERNAL links: dead/foreign ones are flagged for the human. Mutates `parsed`
+    in place; returns human-readable note strings for the review gate."""
     from urllib.parse import urlparse
     notes = []
     body = parsed.get("body_html") or ""
+    allow = {(u or "").strip() for u in (allow_external or set()) if u}
     # Real catalog URLs we handed the model — any internal link must be one of these.
     real_internal = {(p.get("url") or "").strip()
                      for p in (brief.get("grounding_products") or [])}
@@ -13081,12 +13098,38 @@ def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict):
     if hub:
         real_internal.add(hub)
 
-    # --- external links: verify, repair, or drop ---
+    def _repair_on_domain(url):
+        """A real, live, relevant page on the url's authority, or None. Uses the
+        registrable domain so a wrong subdomain/path still finds the right page."""
+        reg = _reg_domain(url)
+        return _find_live_authority(reg, keyword) if reg else None
+
+    def _unwrap_verify(b, url):
+        return re.sub(r'<a\b[^>]*href="' + re.escape(url) + r'"[^>]*>(.*?)</a>',
+                      r"\1 [VERIFY: add a live source]", b, flags=re.S | re.I)
+
+    # --- external links: enforce the sourced allowlist, then verify/repair/drop ---
     ext = parsed.get("external_links") or []
     kept = []
     for e in ext:
         url = (e.get("url") or "").strip()
         if not url:
+            continue
+        # (0) Unsourced guess: the model cited a URL we never handed it. Do NOT trust it
+        # even if it looks live — swap in a real sourced page on the same authority, else
+        # strip to [VERIFY]. This is what kills a guessed '.aspx' AAP-style URL.
+        if allow and url not in allow:
+            repl = _repair_on_domain(url)   # already verified live by _find_live_authority
+            if repl:
+                body = body.replace(url, repl)
+                e["url"] = repl
+                kept.append(e)
+                notes.append(f"Replaced a model-guessed external URL with a real sourced "
+                             f"page on {_reg_domain(url)}: {repl}")
+            else:
+                body = _unwrap_verify(body, url)
+                notes.append(f"Removed a model-guessed external URL that was not in the "
+                             f"sourced list and left a [VERIFY] marker: {url}")
             continue
         status = _url_status(url)
         if status == "live":
@@ -13097,17 +13140,12 @@ def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict):
             notes.append(f"External link returns a block/again status (verify by hand): {url}")
             continue
         # dead → try to replace with a real live page on the same authority
-        dom = ""
-        try:
-            dom = (urlparse(url).netloc or "").lower()
-        except Exception:
-            dom = ""
-        repl = _find_live_authority(dom, keyword) if dom else None
+        repl = _repair_on_domain(url)
         if repl:
             body = body.replace(url, repl)
             e["url"] = repl
             kept.append(e)
-            notes.append(f"Replaced a dead external link with a live page on {dom}: {repl}")
+            notes.append(f"Replaced a dead external link with a live page on {_reg_domain(url)}: {repl}")
         else:
             # Unwrap the dead <a> but leave a VISIBLE marker, so a now-uncited claim
             # ("according to AAP…") is never silently published as fact.
@@ -13241,8 +13279,19 @@ def api_content_draft():
 
     # Verify every link is live: repair dead external links from a real Serper lookup
     # (no more guessed 404 paths), drop unrepairable ones, flag dead internal links.
+    # Allowlist of REAL external URLs the model was actually handed: the SERP-sourced
+    # authority links plus the candidate org homepages. Anything else in the draft is a
+    # model guess and gets replaced/stripped in validation.
+    _allow_external = {(a.get("url") or "").strip()
+                       for a in ((competitor or {}).get("authority_links") or [])
+                       if a.get("url")}
+    for _c in (brief.get("external_authority_candidates") or []):
+        _d = (_c.get("domain") or "").strip()
+        if _d:
+            _allow_external.add(f"https://{_d}/")
     try:
-        _link_notes = _validate_and_repair_links(parsed, _serp_kw, brief)
+        _link_notes = _validate_and_repair_links(parsed, _serp_kw, brief,
+                                                  allow_external=_allow_external)
     except Exception as e:
         print(f"[CD] link validation failed: {e}", flush=True)
         _link_notes = []
