@@ -13181,6 +13181,30 @@ def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict, allow_ex
     return notes
 
 
+def _emoji_to_entities(html: str) -> str:
+    """Magento's content tables / WYSIWYG mangle raw 4-byte UTF-8 (emoji such as 🧠),
+    so convert every ASTRAL-plane character (code point ≥ U+10000) AND common BMP
+    emoji/symbol ranges to a numeric HTML entity (&#N;). Plain 3-byte text — curly
+    quotes, em-dashes, accents — is valid in utf8 columns and left untouched so the
+    stored copy stays readable. Entities render identically to the raw glyph."""
+    if not html:
+        return html
+
+    def _is_emoji_bmp(cp: int) -> bool:
+        return (0x2190 <= cp <= 0x21FF        # arrows
+                or 0x2300 <= cp <= 0x27BF     # misc technical, dingbats, symbols
+                or 0x2B00 <= cp <= 0x2BFF     # misc symbols/arrows
+                or 0x2600 <= cp <= 0x26FF     # misc symbols
+                or 0xFE00 <= cp <= 0xFE0F     # variation selectors
+                or cp in (0x20E3, 0x2122, 0x2139, 0x3030, 0x303D, 0x3297, 0x3299))
+
+    out = []
+    for ch in html:
+        cp = ord(ch)
+        out.append(f"&#{cp};" if (cp >= 0x10000 or _is_emoji_bmp(cp)) else ch)
+    return "".join(out)
+
+
 def _count_prose_words(html: str) -> int:
     """Count VISIBLE prose words in a body — tags, <style>/<script> blocks and HTML
     entities stripped, so CSS and markup never inflate the number. This is what the
@@ -13297,6 +13321,13 @@ def api_content_draft():
         _link_notes = []
     if _link_notes:   # surface in the human review gate
         parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _link_notes
+
+    # Magento-safe output: convert emoji/astral characters to numeric HTML entities so
+    # the body HTML survives Magento's content storage/WYSIWYG intact (raw emoji break
+    # on non-utf8mb4 columns). h1 too; meta fields are left as plain text.
+    parsed["body_html"] = _emoji_to_entities(parsed.get("body_html", ""))
+    if parsed.get("h1"):
+        parsed["h1"] = _emoji_to_entities(parsed["h1"])
 
     # Measure the produced body against the length floor so a thin draft is FLAGGED
     # in the review gate instead of shipping silently (counts visible prose only —

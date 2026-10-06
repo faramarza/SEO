@@ -44,6 +44,18 @@ def test_guessed_external_url_is_replaced_with_sourced_page(monkeypatch):
     assert sourced_naeyc in finals                     # a genuinely sourced link is kept
 
 
+def test_emoji_converted_to_entities_but_plain_text_kept():
+    # Raw emoji break Magento content columns; they must become numeric HTML entities.
+    s = '<div class="benefit-icon">🧠</div><p>🤲 🌱</p>'
+    out = A._emoji_to_entities(s)
+    assert "🧠" not in out and "&#129504;" in out      # brain  U+1F9E0
+    assert "&#129330;" in out and "&#127793;" in out    # palms, seedling
+    assert A._emoji_to_entities("❤") == "&#10084;"  # ❤ (BMP emoji) too
+    # readable 3-byte text (curly quote, em dash, accent) stays as-is
+    plain = "It’s a well—made café"
+    assert A._emoji_to_entities(plain) == plain
+
+
 def test_unsourced_url_with_no_replacement_becomes_verify(monkeypatch):
     guess = "https://www.example-authority.org/made-up.aspx"
     monkeypatch.setattr(A, "_url_status", lambda u: "live")       # even if it "works"
