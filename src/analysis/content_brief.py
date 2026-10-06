@@ -323,6 +323,11 @@ _DRAFTING_RULES = [
     "compelling statistic from a named authority — and CITE it (link the source in "
     "external_links). If you cannot ground a real figure, write the sentence with a "
     "[VERIFY: stat to find — add source] placeholder instead; never invent a number.",
+    "NEVER MAKE AN UNCITED AUTHORITY CLAIM. Any sentence that says 'according to "
+    "<organization>' or quotes research/a statistic MUST carry a real link to that "
+    "source. If you don't have a real URL for it, either drop the 'according to X' "
+    "framing and state it plainly as general guidance, or write [VERIFY: add source]. "
+    "Never attribute a claim to a named authority without a working link.",
     "FOLLOW THE HOUSE TEMPLATE. Build body_html in the house structure provided, "
     "starting with the given <style> block reproduced VERBATIM and reusing its "
     "component classes (hero, benefits-box/benefit-item, product-integration, "

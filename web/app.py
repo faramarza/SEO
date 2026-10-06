@@ -13090,9 +13090,12 @@ def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict):
             kept.append(e)
             notes.append(f"Replaced a dead external link with a live page on {dom}: {repl}")
         else:
+            # Unwrap the dead <a> but leave a VISIBLE marker, so a now-uncited claim
+            # ("according to AAP…") is never silently published as fact.
             body = re.sub(r'<a\b[^>]*href="' + re.escape(url) + r'"[^>]*>(.*?)</a>',
-                          r"\1", body, flags=re.S | re.I)   # unwrap the dead <a>, keep text
-            notes.append(f"Removed a dead external link (no live replacement found): {url}")
+                          r"\1 [VERIFY: add a live source]", body, flags=re.S | re.I)
+            notes.append(f"Removed a dead external link and left a [VERIFY] marker in the "
+                         f"body — add a live source before publishing: {url}")
     parsed["external_links"] = kept
 
     # --- internal links: flag dead/foreign ones (don't auto-rewrite product URLs) ---
