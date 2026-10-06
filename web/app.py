@@ -13218,43 +13218,10 @@ def api_content_draft():
     if _link_notes:   # surface in the human review gate
         parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _link_notes
 
-    # Auto-expand: if the body came in short, make ONE more call to deepen it to the
-    # target length — without changing structure, styling, or links.
-    try:
-        from src.analysis.content_brief import length_floor, build_expand_messages
-        from src.analysis.link_insert import visible_text
-        _floor = length_floor(brief["topic"], brief["item_type"], competitor)
-        _body = parsed.get("body_html") or ""
-        _wc = len(visible_text(_body).split())
-        if _body and _wc < int(_floor * 0.85):
-            print(f"[CD] auto-expand: {_wc}w < floor {_floor} — expanding…", flush=True)
-            _es, _eu = build_expand_messages(_body, _floor, brief)
-            _etext, _eerr = _llm_complete(_es, _eu, max_tokens=16000, timeout_sec=600)
-            if _eerr:
-                print(f"[CD] auto-expand call failed: {_eerr}", flush=True)
-            elif _etext:
-                _new = re.sub(r"^```[a-z]*\s*|\s*```$", "", _etext.strip()).strip()
-                # Re-attach the house <style> block if the expansion dropped it
-                # (it's deterministic — no reason to reject a good expansion over it).
-                _sm = re.search(r"<style[^>]*>.*?</style>", _body, re.S | re.I)
-                if _sm and "<style" not in _new:
-                    _new = _sm.group(0) + "\n" + _new
-                _norm = lambda u: u.replace("&amp;", "&").rstrip("/")
-                orig = {_norm(u) for u in re.findall(r'href="([^"]+)"', _body)}
-                new = {_norm(u) for u in re.findall(r'href="([^"]+)"', _new)}
-                _nwc = len(visible_text(_new).split())
-                dropped = orig - new
-                if _nwc > _wc and not dropped:
-                    parsed["body_html"] = _new
-                    print(f"[CD] auto-expand: accepted ({_wc}w → {_nwc}w)", flush=True)
-                else:
-                    reason = ("no links kept/longer" if _nwc <= _wc
-                              else f"dropped links {sorted(dropped)[:3]}")
-                    print(f"[CD] auto-expand: REJECTED ({_wc}w → {_nwc}w; {reason})", flush=True)
-        else:
-            print(f"[CD] auto-expand: {_wc}w ≥ floor {_floor} — no expand needed", flush=True)
-    except Exception as e:
-        print(f"[CD] auto-expand skipped (error): {e}", flush=True)
+    # (Removed the auto-expand second pass: a wholesale body rewrite was too blunt —
+    # it clobbered the inline citations and FAQ it was told to preserve. Depth now
+    # comes only from the first-pass per-component word budgets, which never touch
+    # already-correct structure/links. A human elevates the draft from there.)
 
     import uuid
     final_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
