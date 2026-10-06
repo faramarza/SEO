@@ -70,6 +70,8 @@
 </style>
 <script>
 let CS_SEL=null;
+let CS_PENDING=[];        // not-yet-drafted suggestions, for the "Draft all" batch
+let CS_BATCH_STOP=false;
 
 function csToast(m,e){const t=document.getElementById('cs-toast');t.textContent=m;t.className='pb-toast show'+(e?' error':'');setTimeout(()=>t.className='pb-toast',3200);}
 
@@ -104,9 +106,14 @@ async function csSuggest(){
         items.push({family:f.family, type:g.type, title:g.title, primary_keyword:g.primary_keyword, volume:g.volume||0});
     }));
   }
-  if(!items.length){ el.innerHTML='<p style="font-size:12px;color:var(--text-muted);">No article gaps right now — either your clusters are covered, or set up <b>Content Gap</b> (competitors) to surface keyword-backed topics worth writing.</p>'; return; }
+  if(!items.length){ el.innerHTML='<p style="font-size:12px;color:var(--text-muted);">No article gaps right now — either your clusters are covered, or set up <b>Content Gap</b> (competitors) to surface keyword-backed topics worth writing.</p>'; CS_PENDING=[]; return; }
   items=items.slice(0,14);
-  el.innerHTML=items.map(it=>{
+  // Stash the NOT-yet-drafted items for the "Draft all" batch.
+  CS_PENDING = items
+    .filter(it=>!draftKeys.has(norm(it.family)+'|'+(it.type==='pillar'?'#pillar':norm(it.primary_keyword))))
+    .map(it=>({family:it.family, kw:(it.type==='pillar'?'':(it.primary_keyword||'')),
+               label:(it.type==='pillar'?('Pillar: '+it.family):(it.title||it.primary_keyword||it.family))}));
+  const rows=items.map(it=>{
     const isP=it.type==='pillar';
     const kw=isP?'':(it.primary_keyword||'');
     const done=draftKeys.has(norm(it.family)+'|'+(isP?'#pillar':norm(it.primary_keyword)));
@@ -123,6 +130,42 @@ async function csSuggest(){
         : `<button class="cs-copy" style="white-space:nowrap;padding:5px 12px;font-weight:600;" onclick="csDraftGap('${encodeURIComponent(it.family)}','${encodeURIComponent(kw)}',this)">✍️ Draft</button>`}
     </div>`;
   }).join('');
+  const batchBar = CS_PENDING.length>1 ? `
+    <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+      <button id="cs-draftall" class="pb-task-btn" onclick="csDraftAll(this)">✍️ Draft all ${CS_PENDING.length} remaining</button>
+      <span id="cs-batch-prog" style="font-size:12px;color:var(--text-muted);"></span>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin:6px 0 0;">Drafts one after another (each ~1–3 min) and lands them all in Review — nothing goes live. You can stop anytime.</p>` : '';
+  el.innerHTML = rows + batchBar;
+}
+
+// Batch: draft every not-yet-drafted suggestion, one at a time (each its own
+// request, so no single-call timeout), with progress and a stop. Safe — all land
+// in Review. Re-click while running to stop.
+async function csDraftAll(btn){
+  if(btn && btn.dataset.run==='1'){ CS_BATCH_STOP=true; btn.textContent='Stopping…'; return; }
+  const queue=[...(CS_PENDING||[])];
+  if(!queue.length){ csToast('Nothing left to draft'); return; }
+  CS_BATCH_STOP=false;
+  const prog=document.getElementById('cs-batch-prog');
+  const total=queue.length; let ok=0, fail=0, i=0;
+  if(btn){ btn.dataset.run='1'; btn.textContent='■ Stop'; }
+  for(const it of queue){
+    if(CS_BATCH_STOP) break;
+    i++;
+    if(prog) prog.textContent=`Drafting ${i} of ${total}: ${it.label}…`;
+    try{
+      const r=await (await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({family:it.family, primary_keyword:it.kw})})).json();
+      (r && r.success && !r.error) ? ok++ : fail++;
+    }catch(e){ fail++; }
+    await csList();
+  }
+  if(prog) prog.textContent = CS_BATCH_STOP
+    ? `Stopped — ${ok} drafted${fail?`, ${fail} failed`:''}. The rest are still queued below.`
+    : `Done — ${ok} drafted${fail?`, ${fail} failed (try those individually)`:''}.`;
+  if(btn){ btn.dataset.run=''; }
+  csSuggest();   // refresh the list (drafted ones flip to ✓, batch bar updates)
 }
 
 // One drafting path, with VISIBLE feedback on the clicked button and in the
