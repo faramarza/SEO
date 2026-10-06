@@ -391,12 +391,27 @@ def _sec_header(brief, competitor, ctx):
 
 
 def _sec_length(brief, competitor, ctx):
-    return [f"LENGTH: write AT LEAST {ctx['floor']} words of real body copy — match the "
-            "house sample's depth. Per-component budgets (this is how you reach the length "
-            "with substance, not padding): intro 120+ words; EACH prose <h2> section 150–250 "
-            "words; EACH product/idea card 90–140 words (4–6 sentences: what it is, what it "
-            "develops at this age, how a parent uses it, a tip); each FAQ answer 40–80 words. "
-            "A thin, one-line-per-card draft is a failure."]
+    floor = ctx["floor"]
+    lines = [f"LENGTH: write AT LEAST {floor} words of real body copy — match the "
+             "house sample's depth. Per-component budgets (this is how you reach the length "
+             "with substance, not padding): intro 120+ words; EACH prose <h2> section 150–250 "
+             "words; EACH product/idea card 90–140 words (4–6 sentences: what it is, what it "
+             "develops at this age, how a parent uses it, a tip); each FAQ answer 40–80 words. "
+             "A thin, one-line-per-card draft is a failure."]
+    if not ctx["listicle"]:
+        # A 1500-word article cannot be reached with 3–4 sections at the budgets above.
+        # Mandate a concrete section count derived from the floor so the model spreads
+        # the required depth across enough <h2> sections (drawn from the brief's
+        # questions and sub-topics) instead of writing four thin ones.
+        min_secs = max(5, (floor + 249) // 250)
+        lines.append(f"SECTION COUNT: this article MUST have at least {min_secs} substantive "
+                     "prose <h2> sections, PLUS the intro and the FAQ. Three or four sections "
+                     f"cannot reach {floor} words — turn the brief's questions and sub-topics "
+                     "into their own <h2> sections rather than cramming them into a few.")
+    lines.append(f"SELF-CHECK before you finish: count the words in your body copy. If it is "
+                 f"under {floor}, you are not done — add more sections or deepen existing ones "
+                 "(never pad with filler) until you clear the floor. Do not submit a short draft.")
+    return lines
 
 
 def _sec_age(brief, competitor, ctx):

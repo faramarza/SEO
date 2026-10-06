@@ -13143,6 +13143,18 @@ def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict):
     return notes
 
 
+def _count_prose_words(html: str) -> int:
+    """Count VISIBLE prose words in a body — tags, <style>/<script> blocks and HTML
+    entities stripped, so CSS and markup never inflate the number. This is what the
+    length floor is measured against (the same way a reader would count)."""
+    if not html:
+        return 0
+    h = re.sub(r"(?is)<(style|script)\b.*?</\1>", " ", html)
+    h = re.sub(r"<[^>]+>", " ", h)
+    h = re.sub(r"&[a-z#0-9]+;", " ", h, flags=re.I)
+    return len(re.findall(r"[A-Za-z0-9']+", h))
+
+
 def _cd_find_gap_article(primary_keyword: str):
     """Locate the real content-gap article for a keyword, so a draft is built from
     the actual keyword research (outline, supporting keywords) — not a guess."""
@@ -13237,6 +13249,13 @@ def api_content_draft():
     if _link_notes:   # surface in the human review gate
         parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _link_notes
 
+    # Measure the produced body against the length floor so a thin draft is FLAGGED
+    # in the review gate instead of shipping silently (counts visible prose only —
+    # tags and CSS excluded). No auto-rewrite: the reviewer/model expands it.
+    from src.analysis.content_brief import length_floor as _length_floor
+    _word_floor = _length_floor(brief["topic"], brief["item_type"], competitor)
+    _word_count = _count_prose_words(parsed.get("body_html", ""))
+
     # (Removed the auto-expand second pass: a wholesale body rewrite was too blunt —
     # it clobbered the inline citations and FAQ it was told to preserve. Depth now
     # comes only from the first-pass per-component word budgets, which never touch
@@ -13284,6 +13303,9 @@ def api_content_draft():
         "internal_links": parsed.get("internal_links", []),
         "external_links": parsed.get("external_links", []),
         "verify_flags": parsed.get("verify_flags", []),
+        # Length check (visible prose words vs. the floor) for the review gate.
+        "word_count": _word_count,
+        "word_floor": _word_floor,
         # Kept for verification after publish.
         "required_internal_links": brief["required_internal_links"],
     }
@@ -13307,6 +13329,12 @@ def _cd_checklist(draft: dict) -> list:
         items.append({"severity": "fix", "text": f"Meta description is {len(md)} chars (>155) — trim it."})
     for vf in (draft.get("verify_flags") or []):
         items.append({"severity": "verify", "text": f"Confirm/replace: {vf}"})
+    wc, floor = draft.get("word_count"), draft.get("word_floor")
+    if floor and wc is not None and wc < floor:
+        items.append({"severity": "fix",
+                      "text": f"Body is {wc} words of prose — under the {floor}-word floor. "
+                              "Expand the thin sections (add sections / more depth, no filler) "
+                              "before publishing."})
     ext = draft.get("external_links") or []
     if len(ext) < 1:
         items.append({"severity": "fix", "text": "No external authority link — add 1–3 to real, relevant sources."})
