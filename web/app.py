@@ -12917,7 +12917,7 @@ def _cd_save(d: dict):
 
 
 _COMPETITOR_BRIEF_PATH = DATA_PATH / "competitor_briefs.json"
-_CB_VERSION = "6"   # authority links now age+topic filtered for relevance
+_CB_VERSION = "7"   # authority links title+content relevance-gated (drops off-topic .gov pages)
 _CB_TTL_DAYS = 14
 
 
@@ -13024,25 +13024,44 @@ def _url_status(url: str):
 
 
 def _find_live_authority(domain: str, keyword: str):
-    """Find a REAL, live page on `domain` for `keyword` via Serper (site: search),
-    so we can replace a model-guessed deep URL that 404s. Returns a live URL or None."""
+    """Find a REAL, live, RELEVANT page on `domain` for `keyword` via Serper (site:
+    search), so we can replace a model-guessed deep URL that 404s. The candidate must
+    pass the same title+content relevance gate the brief uses — a `site:cdc.gov` top
+    hit for an off-topic page (e.g. 'Giving Directions') is rejected rather than
+    swapped in. Returns a live, on-topic URL or None."""
     if not os.environ.get("SERPER_API_KEY") or not domain:
         return None
     try:
         from src.data_sources.serp_client import fetch_serp
+        from src.analysis.competitor_brief import _authority_candidate, _tokens, _age_months
         from urllib.parse import urlparse
         serp = fetch_serp(f"site:{domain} {keyword}".strip())
     except Exception:
         return None
     if not serp:
         return None
+    kw_tokens = set(_tokens(keyword or ""))
+    article_age = _age_months(keyword or "")
     for r in (serp.get("organic_results") or []):
         u = r.get("url") or ""
+        title = r.get("title") or ""
         try:
             dom = (urlparse(u).netloc or "").lower().replace("www.", "")
         except Exception:
             dom = ""
-        if domain.replace("www.", "") in dom and _url_status(u) == "live":
+        if domain.replace("www.", "") not in dom:
+            continue
+        # title gate first (cheap), then fetch + content gate, then liveness
+        if not _authority_candidate(u, title, None, kw_tokens, article_age, strict=True):
+            continue
+        html = None
+        try:
+            html = _cb_fetch_page(u)
+        except Exception:
+            html = None
+        if not _authority_candidate(u, title, html, kw_tokens, article_age, strict=True):
+            continue
+        if _url_status(u) == "live":
             return u
     return None
 
