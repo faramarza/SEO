@@ -13476,6 +13476,10 @@ def api_content_draft():
         "word_floor": _word_floor,
         # Owner-pasted grounding notes, retained for reference/re-draft (NOT published).
         "field_notes": field_notes,
+        # Real catalog products this draft is grounded in — shown next to the notes box
+        # so the owner knows which products to gather reviews for.
+        "products": [{"url": p.get("url"), "title": p.get("title")}
+                     for p in (brief.get("grounding_products") or []) if p.get("url")],
         # Kept for verification after publish.
         "required_internal_links": brief["required_internal_links"],
     }
