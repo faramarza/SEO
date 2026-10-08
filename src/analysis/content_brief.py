@@ -677,6 +677,73 @@ def build_generation_messages(brief: dict, competitor: dict = None) -> tuple:
         lines += section(brief, competitor, ctx)
     return _build_system(brief), "\n".join(lines)
 
+
+def build_expand_messages(brief: dict, competitor: dict, current_body: str,
+                          current_words: int, floor: int) -> tuple:
+    """Prompt for an APPEND-ONLY expansion pass: add brand-new <h2> sections to lift a
+    short draft to the length floor WITHOUT touching any existing content, link,
+    product card, or the FAQ. Returns (system, user_prompt); the caller inserts the
+    returned new_sections_html before the FAQ and re-runs the link/verbatim guards.
+
+    This is the SAFE replacement for the old auto-expand — that one rewrote the whole
+    body and clobbered citations/FAQ; this one may only ADD sections."""
+    t = brief["topic"]
+    age = _age_context(t.get("title"), t.get("primary_keyword"))
+    deficit = max(0, floor - int(current_words or 0))
+    target_add = deficit + 150   # headroom so it actually clears the floor
+    prods = brief.get("grounding_products") or brief.get("link_products") or []
+    prod_lines = [f"   • {p.get('title','')} — {p.get('url','')}"
+                  for p in prods if p.get("url")]
+    hub = brief.get("link_up") or {}
+    notes = (brief.get("field_notes") or "").strip()
+
+    system = (
+        "You expand an existing, already-good article by ADDING new sections. You are "
+        "FORBIDDEN from modifying, rewriting, reordering, shortening, or deleting ANY "
+        "existing text, heading, link, product card, or the FAQ. You only produce NEW "
+        "<h2> sections. You never invent product specs, prices, statistics, or citations. "
+        "Return ONLY a JSON object: {\"new_sections_html\": \"<the new sections as HTML>\"}."
+    )
+
+    lines = [f"TOPIC: {t.get('title')}  (target keyword: {t.get('primary_keyword')})"]
+    if age:
+        lines.append(f"AUDIENCE AGE: {age} — every new section MUST stay age-appropriate for this age.")
+    lines += [
+        f"The current article body is {current_words} words; the minimum is {floor}. Write "
+        f"approximately {target_add} words of BRAND-NEW material as new <h2> sections.",
+        "STRICT RULES:",
+        "  • Do NOT reproduce, rewrite, or restate any existing section — cover NEW "
+        "angles the article doesn't yet have (e.g. how to introduce/rotate toys, "
+        "play ideas by skill, setting up a play space, common mistakes, a day-in-the-life).",
+        "  • Each new <h2> section: 150–250 words of genuine, specific, useful "
+        "content — no filler, no repetition of what's already written.",
+        "  • Use the house component classes where they fit (benefits-box, tip-box, "
+        "warning-box, game-card, product-integration) so it matches the article.",
+        "  • Do NOT add any EXTERNAL links or citations (the article already has them).",
+        "  • Any internal link must use ONLY a product/hub URL listed below, copied "
+        "EXACTLY; never invent a URL.",
+        "  • Do NOT add an FAQ — the article already ends with one.",
+        "  • Never invent a product spec, price, rating or statistic; mark any unknown "
+        "with [VERIFY: what to check].",
+    ]
+    if notes:
+        lines += [
+            "REAL FIELD NOTES / REVIEWS (private grounding — PARAPHRASE, never copy "
+            "verbatim; strip competitor/reviewer names). Use for concrete first-hand detail:",
+            "--- FIELD NOTES START ---", notes, "--- FIELD NOTES END ---",
+        ]
+    if prod_lines:
+        lines.append("Real product URLs you MAY link to (exact URLs only):")
+        lines += prod_lines
+    if hub.get("url"):
+        lines.append(f"Hub page (optional single up-link): {hub.get('url')}")
+    lines += [
+        "EXISTING ARTICLE BODY — READ-ONLY. Your output is inserted BEFORE its FAQ, so "
+        "do not repeat anything here and do not echo it back:",
+        "--- EXISTING BODY START ---", current_body or "", "--- EXISTING BODY END ---",
+    ]
+    return system, "\n".join(lines)
+
 def verify_interlinks(published_outlinks: list, brief_or_links) -> dict:
     """After the page is published and re-crawled, check it actually carries the
     internal links the brief required. `published_outlinks` is the page's

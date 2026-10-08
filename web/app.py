@@ -13236,6 +13236,19 @@ def _strip_pasted_verbatim(html: str, notes: str, min_words: int = 10):
     return html, stripped
 
 
+def _insert_before_faq(body: str, new_html: str) -> str:
+    """Insert new sections just before the FAQ heading so the FAQ stays last; if no FAQ
+    is found, append at the end. Pure string surgery — existing content is untouched."""
+    if not new_html:
+        return body
+    m = re.search(r'<h2\b[^>]*\bid\s*=\s*["\']faq["\'][^>]*>', body or "", re.I)
+    if not m:
+        m = re.search(r'<h2\b[^>]*>\s*(?:faqs?\b|frequently\s+asked)', body or "", re.I)
+    if m:
+        return body[:m.start()] + new_html.rstrip() + "\n" + body[m.start():]
+    return (body or "") + "\n" + new_html
+
+
 def _count_prose_words(html: str) -> int:
     """Count VISIBLE prose words in a body — tags, <style>/<script> blocks and HTML
     entities stripped, so CSS and markup never inflate the number. This is what the
@@ -13360,32 +13373,61 @@ def api_content_draft():
     # Enforce the field-notes rule in CODE: strip any text copied verbatim from the
     # owner's pasted reviews so it can never reach the published page (copyright /
     # duplicate-content). Each stripped run leaves a [VERIFY] gap + a review flag.
-    if field_notes:
-        _b2, _copied = _strip_pasted_verbatim(parsed.get("body_html", ""), field_notes)
-        if _copied:
-            parsed["body_html"] = _b2
-            parsed["verify_flags"] = (parsed.get("verify_flags") or []) + [
+    def _enforce_verbatim(ps):
+        if not field_notes:
+            return
+        _b, _c = _strip_pasted_verbatim(ps.get("body_html", ""), field_notes)
+        if _c:
+            ps["body_html"] = _b
+            ps["verify_flags"] = (ps.get("verify_flags") or []) + [
                 f"Pasted review text was copied verbatim and removed (paraphrase it): "
-                f"“{s}”" for s in _copied]
+                f"“{s}”" for s in _c]
+    _enforce_verbatim(parsed)
 
-    # Magento-safe output: convert emoji/astral characters to numeric HTML entities so
-    # the body HTML survives Magento's content storage/WYSIWYG intact (raw emoji break
-    # on non-utf8mb4 columns). h1 too; meta fields are left as plain text.
-    parsed["body_html"] = _emoji_to_entities(parsed.get("body_html", ""))
-    if parsed.get("h1"):
-        parsed["h1"] = _emoji_to_entities(parsed["h1"])
-
-    # Measure the produced body against the length floor so a thin draft is FLAGGED
-    # in the review gate instead of shipping silently (counts visible prose only —
-    # tags and CSS excluded). No auto-rewrite: the reviewer/model expands it.
-    from src.analysis.content_brief import length_floor as _length_floor
+    # Measure the produced body against the length floor.
+    from src.analysis.content_brief import length_floor as _length_floor, build_expand_messages
     _word_floor = _length_floor(brief["topic"], brief["item_type"], competitor)
     _word_count = _count_prose_words(parsed.get("body_html", ""))
 
-    # (Removed the auto-expand second pass: a wholesale body rewrite was too blunt —
-    # it clobbered the inline citations and FAQ it was told to preserve. Depth now
-    # comes only from the first-pass per-component word budgets, which never touch
-    # already-correct structure/links. A human elevates the draft from there.)
+    # APPEND-ONLY EXPANSION: if the body is meaningfully under the floor, run a second
+    # pass that ADDS new <h2> sections only — it may not touch existing content, links,
+    # product cards, or the FAQ (the safe replacement for the old whole-body rewrite).
+    # The new sections then go through the SAME link + verbatim guards before encoding.
+    if _word_floor - _word_count >= 150:
+        try:
+            _ex_sys, _ex_prompt = build_expand_messages(brief, competitor,
+                                                        parsed.get("body_html", ""),
+                                                        _word_count, _word_floor)
+            _ex_text, _ex_err = _llm_complete(_ex_sys, _ex_prompt,
+                                              max_tokens=8000, timeout_sec=400)
+            if not _ex_err:
+                _ex_parsed, _ = _cd_parse_llm_json(_ex_text)
+                _new = ((_ex_parsed or {}).get("new_sections_html") or "")
+                # defensive: never let the expansion re-inject a <style>/<script> block
+                _new = re.sub(r"(?is)<(style|script)\b.*?</\1>", "", _new).strip()
+                if _new:
+                    parsed["body_html"] = _insert_before_faq(parsed.get("body_html", ""), _new)
+                    # re-run the guards on the merged body (new internal links verified,
+                    # any guessed external link replaced/stripped, verbatim copies removed)
+                    try:
+                        _ln2 = _validate_and_repair_links(parsed, _serp_kw, brief,
+                                                          allow_external=_allow_external)
+                        if _ln2:
+                            parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _ln2
+                    except Exception as _e:
+                        print(f"[CD] post-expand link validation failed: {_e}", flush=True)
+                    _enforce_verbatim(parsed)
+                    _word_count = _count_prose_words(parsed.get("body_html", ""))
+        except Exception as _e:
+            print(f"[CD] expansion pass failed: {_e}", flush=True)
+
+    # Magento-safe output: convert emoji/astral characters to numeric HTML entities so
+    # the body HTML survives Magento's content storage/WYSIWYG intact (raw emoji break
+    # on non-utf8mb4 columns). h1 too; meta fields are left as plain text. Done LAST so
+    # any expansion sections are encoded too.
+    parsed["body_html"] = _emoji_to_entities(parsed.get("body_html", ""))
+    if parsed.get("h1"):
+        parsed["h1"] = _emoji_to_entities(parsed["h1"])
 
     import uuid
     final_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()

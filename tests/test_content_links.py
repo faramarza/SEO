@@ -56,6 +56,16 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_insert_before_faq_keeps_faq_last():
+    body = '<h2 id="intro">Intro</h2><p>a</p><h2 id="faq">FAQs</h2><h3>Q</h3><p>ans</p>'
+    out = A._insert_before_faq(body, "<h2>New Section</h2><p>more depth</p>")
+    assert out.index("New Section") < out.index('id="faq"')      # added before FAQ
+    assert out.index('id="faq"') < out.index("<h3>Q")            # FAQ block intact
+    assert "Intro" in out and "ans" in out                       # nothing dropped
+    # no FAQ present -> appended at the end
+    assert A._insert_before_faq("<h2>Only</h2>", "<h2>End</h2>").rstrip().endswith("<h2>End</h2>")
+
+
 def test_pasted_review_verbatim_is_stripped_but_paraphrase_kept():
     notes = ("The latches are quite stiff and my thirteen month old needed help opening "
              "them at first.")
