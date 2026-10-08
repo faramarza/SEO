@@ -173,17 +173,20 @@ async function csDraftAll(btn){
 // One drafting path, with VISIBLE feedback on the clicked button and in the
 // detail pane (the old code hid all feedback on the collapsed custom-box button,
 // so a Draft click looked like it did nothing during the 30–60s generation).
-async function csDoDraft(family, kw, btn, notes){
+async function csDoDraft(family, kw, btn, notes, items){
   family=(family||'').trim(); kw=(kw||'').trim(); notes=(notes||'').trim();
+  items=(items||[]).filter(x=>x&&(x.notes||'').trim());
   if(!family){ csToast('Pick a topic above, or enter a product family',true); return; }
   const old = btn ? btn.textContent : '';
   if(btn){ btn.disabled=true; btn.textContent='✍️ Drafting…'; }
   const detail=document.getElementById('cs-detail');
-  detail.innerHTML='<p class="pb-loading">✍️ Drafting “'+escHtml(kw||family)+'” — grounded in your catalog'+(notes?' + your pasted notes':'')+', up to ~1–3 min…</p>';
+  const hasNotes = notes || items.length;
+  detail.innerHTML='<p class="pb-loading">✍️ Drafting “'+escHtml(kw||family)+'” — grounded in your catalog'+(hasNotes?' + your pasted reviews':'')+', up to ~1–3 min…</p>';
   detail.scrollIntoView({behavior:'smooth', block:'nearest'});
   try{
     const payload={family, primary_keyword:kw};
     if(notes){ payload.field_notes=notes; }
+    if(items.length){ payload.field_notes_items=items; }
     const r=await (await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(payload)})).json();
     if(r.error){ csToast(r.error,true); detail.innerHTML='<p class="empty-state" style="color:#dc2626;">'+escHtml(r.error)+'</p>'; }
@@ -246,17 +249,23 @@ function renderDetail(d, checklist){
   const checks=(checklist||[]).map(c=>`<div class="cs-check cs-${c.severity}">
     <span>${c.severity==='fix'?'🔧':c.severity==='verify'?'🔍':'⭐'}</span><span>${escHtml(c.text)}</span></div>`).join('');
 
-  // Products this draft is grounded in — guidance for "reviews of WHAT?"
+  // Products this draft is grounded in — ONE paste box per product so reviews are
+  // attributed correctly (a Lock Box review can't bleed onto the Ball Tracker).
   let _prods=(d.products||[]).filter(p=>p&&p.url);
+  let _notesMap={}; (d.field_notes_items||[]).forEach(it=>{ if(it&&it.url) _notesMap[it.url]=it.notes||''; });
   const prodHints = _prods.length
-    ? `<div style="background:var(--bg-subtle,#f8f9ff);border:1px solid var(--border,#e0e7ff);border-radius:7px;padding:10px 12px;margin:0 0 8px;">
-        <div style="font-size:12px;font-weight:600;margin-bottom:5px;">Reviews of what? — the products in this draft:</div>
-        <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;">
-          ${_prods.slice(0,12).map(p=>`<li><a href="${escHtml(p.url)}" target="_blank" rel="noopener">${escHtml(p.title||p.url)}</a></li>`).join('')}
-        </ul>
-        <div style="font-size:11.5px;color:var(--text-muted);margin-top:5px;">Open a product, copy a few real customer reviews, paste them below. You don't need reviews for all of them — even 2–3 products helps.</div>
+    ? `<div style="background:var(--bg-subtle,#f8f9ff);border:1px solid var(--border,#e0e7ff);border-radius:7px;padding:10px 12px;margin:0 0 10px;">
+        <div style="font-size:12px;font-weight:600;margin-bottom:2px;">Paste each product's reviews under THAT product</div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px;">Open a product (links below), copy a few real reviews, paste them in its box. You don't need all of them — even 2–3 products helps. Off-age or price comments are ignored automatically.</div>
+        ${_prods.slice(0,20).map((p,i)=>`
+          <div style="margin:0 0 9px;">
+            <div style="font-size:12.5px;font-weight:600;margin-bottom:3px;"><a href="${escHtml(p.url)}" target="_blank" rel="noopener">${escHtml(p.title||p.url)}</a></div>
+            <textarea class="cs-pnote" data-url="${escHtml(p.url)}" data-title="${escHtml(p.title||'')}" rows="2"
+              placeholder="Paste reviews for this product…"
+              style="width:100%;font-size:12.5px;padding:7px 9px;border:1px solid var(--border,#ccc);border-radius:6px;resize:vertical;box-sizing:border-box;">${escHtml(_notesMap[p.url]||'')}</textarea>
+          </div>`).join('')}
       </div>`
-    : `<p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;font-style:italic;">Tip: re-draft once to list this article's products here as review targets.</p>`;
+    : `<p style="font-size:12px;color:var(--text-muted);margin:0 0 8px;font-style:italic;">Tip: re-draft once to list this article's products here, each with its own review box.</p>`;
 
   const ext=(d.external_links||[]).map(e=>`<li><a href="${escHtml(e.url)}" target="_blank" rel="noopener">${escHtml(e.name||e.url)}</a>${e.claim_supported?` — <span style="color:var(--text-muted);">${escHtml(e.claim_supported)}</span>`:''}</li>`).join('');
   const intl=(d.internal_links||[]).map(l=>`<li><code>${escHtml(l.anchor||'')}</code> → ${escHtml(l.url)}</li>`).join('');
@@ -280,11 +289,14 @@ function renderDetail(d, checklist){
       ${checks||'<p style="font-size:12px;color:var(--text-muted);">No checklist items.</p>'}
 
       <h3 style="font-size:13px;margin:16px 0 4px;">🧩 Add real reviews / notes, then re-draft (optional)</h3>
-      <p style="font-size:12px;color:var(--text-muted);margin:0 0 6px;">Paste real customer reviews (e.g. from Amazon) or your own notes about these products. Used as private grounding for genuine first-hand detail (E-E-A-T) and more depth — <strong>paraphrased into the draft, never published word-for-word</strong>; competitor/reviewer names are stripped. Re-drafting replaces this draft.</p>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 6px;">Paste real customer reviews (e.g. from Amazon) per product below. Used as private grounding for genuine first-hand detail (E-E-A-T) and more depth — <strong>paraphrased into the draft, never published word-for-word</strong>; each product's reviews stay tied to that product; competitor/reviewer names and off-age/price mentions are stripped. Re-drafting replaces this draft.</p>
       ${prodHints}
-      <textarea id="cs-detail-notes" rows="5" placeholder="Paste real reviews or notes here — one per line is fine…"
-                style="width:100%;font-size:13px;padding:8px 10px;border:1px solid var(--border,#ccc);border-radius:7px;resize:vertical;box-sizing:border-box;">${escHtml(d.field_notes||'')}</textarea>
-      <button class="cs-btn primary" style="margin-top:8px;" onclick="csRedraftWithNotes(this)">♻️ Re-draft with these notes</button>
+      <details style="margin:0 0 6px;">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);">General notes (not tied to one product) — optional</summary>
+        <textarea id="cs-detail-notes" rows="3" placeholder="Anything that isn't about one specific product…"
+                  style="width:100%;margin-top:6px;font-size:12.5px;padding:7px 9px;border:1px solid var(--border,#ccc);border-radius:6px;resize:vertical;box-sizing:border-box;">${escHtml(d.field_notes||'')}</textarea>
+      </details>
+      <button class="cs-btn primary" style="margin-top:4px;" onclick="csRedraftWithNotes(this)">♻️ Re-draft with these notes</button>
 
       <h3 style="font-size:13px;margin:16px 0 4px;">📋 Cut-and-paste blocks for Magento</h3>
       ${blocks}
@@ -299,11 +311,15 @@ function renderDetail(d, checklist){
 
 function csRedraftWithNotes(btn){
   if(!CUR) return;
+  // Collect per-product review boxes (attribution kept) + the optional general box.
+  const items=[...document.querySelectorAll('.cs-pnote')]
+    .map(t=>({url:t.dataset.url, title:t.dataset.title, notes:(t.value||'').trim()}))
+    .filter(x=>x.notes);
   const ta=document.getElementById('cs-detail-notes');
-  const notes=(ta ? ta.value : '').trim();
-  if(!notes){ csToast('Paste some reviews/notes first',true); if(ta) ta.focus(); return; }
+  const general=(ta ? ta.value : '').trim();
+  if(!items.length && !general){ csToast('Paste reviews into at least one product box first',true); return; }
   // Re-run the SAME topic with the notes; the backend replaces this draft in place.
-  csDoDraft(CUR.family, CUR.primary_keyword||'', btn, notes);
+  csDoDraft(CUR.family, CUR.primary_keyword||'', btn, general, items);
 }
 
 function csCopyKey(key){

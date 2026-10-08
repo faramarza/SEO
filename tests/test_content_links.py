@@ -56,6 +56,20 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_assemble_field_notes_attributes_by_product():
+    out = A._assemble_field_notes(
+        [{"url": "u1", "title": "Lock Box", "notes": "Great for little hands."},
+         {"url": "u2", "title": "Ball Tracker", "notes": "Balls roll for ages."},
+         {"url": "u3", "title": "Empty", "notes": "   "}],
+        "Ships quickly.")
+    assert "## Lock Box — u1" in out and "Great for little hands." in out
+    assert "## Ball Tracker — u2" in out and "Balls roll for ages." in out
+    assert "Empty" not in out                       # blank note dropped
+    assert "## General notes" in out and "Ships quickly." in out
+    assert "applies ONLY to that product" in out or "A detail under a product" in out
+    assert A._assemble_field_notes([], "") == ""     # nothing pasted → empty
+
+
 def test_insert_before_faq_keeps_faq_last():
     body = '<h2 id="intro">Intro</h2><p>a</p><h2 id="faq">FAQs</h2><h3>Q</h3><p>ans</p>'
     out = A._insert_before_faq(body, "<h2>New Section</h2><p>more depth</p>")

@@ -261,7 +261,7 @@ def _pillar_scaffold(family: str) -> dict:
     }
 
 
-def _clean_field_notes(text, cap: int = 8000) -> str:
+def _clean_field_notes(text, cap: int = 16000) -> str:
     """Sanitize owner-pasted field notes / customer reviews before they become
     grounding: strip any HTML (a paste can't inject markup into the prompt or page),
     collapse whitespace, and cap length. The cleaned text is GROUNDING ONLY — it is
@@ -624,6 +624,12 @@ def _sec_field_notes(brief, competitor, ctx):
         "tempting, write [VERIFY: confirm] instead of inventing it.",
         "  (4) Weave the detail into the relevant product cards and sections — do NOT add "
         "a separate 'Reviews' block or quote anyone.",
+        "  (5) ATTRIBUTION: notes are grouped under '## <product name> — <url>' headings. "
+        "A detail under a product applies ONLY to that product — NEVER carry a note from "
+        "one product onto another. Notes under 'General notes' are not product-specific.",
+        "  (6) STAY ON-AGE: reviews may mention other ages or uses (older kids, adults, "
+        "therapy/rehab) or the price — IGNORE anything off-topic for this article's age; "
+        "keep only detail relevant to the target age, and never mention price.",
         "--- FIELD NOTES START ---",
         notes,
         "--- FIELD NOTES END ---",

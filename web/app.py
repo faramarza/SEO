@@ -13236,6 +13236,32 @@ def _strip_pasted_verbatim(html: str, notes: str, min_words: int = 10):
     return html, stripped
 
 
+def _assemble_field_notes(items, general: str) -> str:
+    """Turn per-product note boxes into ONE structured grounding string the model can
+    attribute correctly: each product's reviews go under a '## <title> — <url>' header,
+    general notes under their own header. Prevents one product's review from being
+    applied to another. Returns '' when nothing was pasted."""
+    parts = []
+    for it in (items or []):
+        if not isinstance(it, dict):
+            continue
+        n = (it.get("notes") or "").strip()
+        if not n:
+            continue
+        t = (it.get("title") or "").strip()
+        u = (it.get("url") or "").strip()
+        hdr = ("## " + " — ".join([x for x in (t, u) if x])).strip()
+        parts.append(f"{hdr}\n{n}" if hdr != "##" else n)
+    g = (general or "").strip()
+    if g:
+        parts.append(f"## General notes (not product-specific)\n{g}")
+    if not parts:
+        return ""
+    return ("NOTES ARE GROUPED BY PRODUCT. A detail under a product's '## <name> — <url>' "
+            "heading applies ONLY to that product; never attribute it to another.\n\n"
+            + "\n\n".join(parts))
+
+
 def _insert_before_faq(body: str, new_html: str) -> str:
     """Insert new sections just before the FAQ heading so the FAQ stays last; if no FAQ
     is found, append at the end. Pure string surgery — existing content is untouched."""
@@ -13312,7 +13338,12 @@ def api_content_draft():
     item_type = (body.get("item_type") or ("pillar" if not primary_keyword else "article")).strip()
     # Optional owner-pasted real notes / customer reviews — private grounding for
     # first-hand, E-E-A-T detail. Used to write the draft; never published verbatim.
-    field_notes = (body.get("field_notes") or "").strip()
+    # Per-product boxes keep attribution straight (one product's review can't be
+    # applied to another); a general box carries non-product notes. Both are optional.
+    _general_notes = (body.get("field_notes") or "").strip()
+    _notes_items = [it for it in (body.get("field_notes_items") or [])
+                    if isinstance(it, dict) and (it.get("notes") or "").strip()]
+    field_notes = _assemble_field_notes(_notes_items, _general_notes)
 
     try:
         with open(DATA_PATH / "latest_evaluation.json") as f:
@@ -13474,8 +13505,13 @@ def api_content_draft():
         # Length check (visible prose words vs. the floor) for the review gate.
         "word_count": _word_count,
         "word_floor": _word_floor,
-        # Owner-pasted grounding notes, retained for reference/re-draft (NOT published).
-        "field_notes": field_notes,
+        # Owner-pasted grounding, retained for round-trip/re-draft (NOT published):
+        # the general box and the per-product boxes, stored separately so the UI can
+        # repopulate each product's box.
+        "field_notes": _general_notes,
+        "field_notes_items": [{"url": it.get("url"), "title": it.get("title"),
+                               "notes": (it.get("notes") or "").strip()}
+                              for it in _notes_items],
         # Real catalog products this draft is grounded in — shown next to the notes box
         # so the owner knows which products to gather reviews for.
         "products": [{"url": p.get("url"), "title": p.get("title")}
