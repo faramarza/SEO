@@ -267,6 +267,12 @@ function renderDetail(d, checklist){
       <h3 style="font-size:13px;margin:14px 0 4px;">✅ Review gate — confirm before publishing</h3>
       ${checks||'<p style="font-size:12px;color:var(--text-muted);">No checklist items.</p>'}
 
+      <h3 style="font-size:13px;margin:16px 0 4px;">🧩 Add real reviews / notes, then re-draft (optional)</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 6px;">Paste real customer reviews (e.g. from Amazon) or your own notes about these products. Used as private grounding for genuine first-hand detail (E-E-A-T) and more depth — <strong>paraphrased into the draft, never published word-for-word</strong>; competitor/reviewer names are stripped. Re-drafting replaces this draft.</p>
+      <textarea id="cs-detail-notes" rows="5" placeholder="Paste real reviews or notes here — one per line is fine…"
+                style="width:100%;font-size:13px;padding:8px 10px;border:1px solid var(--border,#ccc);border-radius:7px;resize:vertical;box-sizing:border-box;">${escHtml(d.field_notes||'')}</textarea>
+      <button class="cs-btn primary" style="margin-top:8px;" onclick="csRedraftWithNotes(this)">♻️ Re-draft with these notes</button>
+
       <h3 style="font-size:13px;margin:16px 0 4px;">📋 Cut-and-paste blocks for Magento</h3>
       ${blocks}
 
@@ -276,6 +282,15 @@ function renderDetail(d, checklist){
       </div>
       <div id="cs-verify-out" style="margin-top:10px;"></div>
     </div>`;
+}
+
+function csRedraftWithNotes(btn){
+  if(!CUR) return;
+  const ta=document.getElementById('cs-detail-notes');
+  const notes=(ta ? ta.value : '').trim();
+  if(!notes){ csToast('Paste some reviews/notes first',true); if(ta) ta.focus(); return; }
+  // Re-run the SAME topic with the notes; the backend replaces this draft in place.
+  csDoDraft(CUR.family, CUR.primary_keyword||'', btn, notes);
 }
 
 function csCopyKey(key){
