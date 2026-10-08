@@ -56,6 +56,26 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_pasted_review_verbatim_is_stripped_but_paraphrase_kept():
+    notes = ("The latches are quite stiff and my thirteen month old needed help opening "
+             "them at first.")
+    # a verbatim copy of >=10 words must be removed and flagged
+    body = ("<p>Parents note that the latches are quite stiff and my thirteen month old "
+            "needed help opening them at first.</p>")
+    nb, copied = A._strip_pasted_verbatim(body, notes)
+    assert "[VERIFY: paraphrase" in nb and copied
+    assert "needed help opening them at first" not in nb
+    # a paraphrase sharing only short fragments is left untouched
+    para = "<p>The latches can be stiff, so younger babies may need a hand at first.</p>"
+    nb2, copied2 = A._strip_pasted_verbatim(para, notes)
+    assert nb2 == para and copied2 == []
+    # replacement never eats an HTML tag boundary
+    split = ("<p>the latches are quite stiff</p><p>and my thirteen month old needed "
+             "help opening</p>")
+    nb3, _ = A._strip_pasted_verbatim(split, notes)
+    assert "</p><p>" in nb3
+
+
 def test_unsourced_url_with_no_replacement_becomes_verify(monkeypatch):
     guess = "https://www.example-authority.org/made-up.aspx"
     monkeypatch.setattr(A, "_url_status", lambda u: "live")       # even if it "works"

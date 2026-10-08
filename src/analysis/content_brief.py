@@ -214,9 +214,23 @@ def _pillar_scaffold(family: str) -> dict:
     }
 
 
+def _clean_field_notes(text, cap: int = 8000) -> str:
+    """Sanitize owner-pasted field notes / customer reviews before they become
+    grounding: strip any HTML (a paste can't inject markup into the prompt or page),
+    collapse whitespace, and cap length. The cleaned text is GROUNDING ONLY — it is
+    never written to the published page verbatim (enforced downstream)."""
+    if not text:
+        return ""
+    t = re.sub(r"<[^>]+>", " ", str(text))
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    return t[:cap]
+
+
 def build_brief(results: list, product_families: list, family_name: str,
                 target: dict = None, item_type: str = "article",
-                title: str = None, primary_keyword: str = None) -> dict:
+                title: str = None, primary_keyword: str = None,
+                field_notes: str = None) -> dict:
     """Assemble the grounded brief + output contract for one scheduled topic.
 
     The draft is ALWAYS about the requested topic. Topic resolution, in order:
@@ -301,6 +315,8 @@ def build_brief(results: list, product_families: list, family_name: str,
         "output_blocks": OUTPUT_BLOCKS,
         "drafting_rules": _DRAFTING_RULES,
         "no_catalog_match": fam is None or not products,
+        # Owner-pasted real notes/reviews — private grounding, never published verbatim.
+        "field_notes": _clean_field_notes(field_notes),
     }
 
 
@@ -538,9 +554,39 @@ def _sec_citations(brief, competitor, ctx):
     return out
 
 
+def _sec_field_notes(brief, competitor, ctx):
+    """Fold owner-pasted real notes / customer reviews in as PRIVATE grounding — the
+    one source of first-hand, specific, E-E-A-T detail the model can't otherwise know.
+    Emits nothing when no notes were pasted."""
+    notes = (brief.get("field_notes") or "").strip()
+    if not notes:
+        return []
+    return [
+        "REAL FIELD NOTES / CUSTOMER REVIEWS (private grounding the store owner pasted — "
+        "real observations about THESE products). Use them to add SPECIFIC, truthful, "
+        "first-hand detail you could not otherwise know: how a product is actually used, "
+        "what age/stage it suits, practical setup tips, genuine pros and cons. This is "
+        "how you earn depth and E-E-A-T — prefer concrete detail from here over generic "
+        "filler. HARD RULES:",
+        "  (1) PARAPHRASE in your own words — NEVER copy a sentence verbatim. Copied runs "
+        "are stripped from the page automatically, leaving a [VERIFY] gap, so rewrite.",
+        "  (2) Do NOT reproduce any competitor brand, store, seller or reviewer NAME — "
+        "strip them; keep only the product insight.",
+        "  (3) Ground only what these notes (or the catalog) actually support. Do NOT "
+        "extrapolate a claim, rating, or number beyond them; if a specific figure is "
+        "tempting, write [VERIFY: confirm] instead of inventing it.",
+        "  (4) Weave the detail into the relevant product cards and sections — do NOT add "
+        "a separate 'Reviews' block or quote anyone.",
+        "--- FIELD NOTES START ---",
+        notes,
+        "--- FIELD NOTES END ---",
+    ]
+
+
 # The prompt is composed from these, in order. Add/remove/reorder a concern here.
 _PROMPT_SECTIONS = [_sec_header, _sec_length, _sec_age, _sec_format,
-                    _sec_house, _sec_coverage, _sec_internal, _sec_citations]
+                    _sec_house, _sec_coverage, _sec_field_notes,
+                    _sec_internal, _sec_citations]
 
 
 def _build_system(brief: dict) -> str:

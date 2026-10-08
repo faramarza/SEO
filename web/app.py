@@ -13205,6 +13205,37 @@ def _emoji_to_entities(html: str) -> str:
     return "".join(out)
 
 
+def _strip_pasted_verbatim(html: str, notes: str, min_words: int = 10):
+    """ENFORCE the 'never republish pasted notes verbatim' rule in code, not just in
+    the prompt. Any run of >= min_words consecutive words from the owner-pasted field
+    notes that appears verbatim in the body is replaced with a [VERIFY] marker (so a
+    copied customer review can't leak into the published page / cause duplicate
+    content). Matching is case-insensitive and whitespace-flexible but never crosses an
+    HTML tag boundary. Returns (new_html, [stripped_snippets])."""
+    if not html or not notes:
+        return html, []
+    stripped = []
+    seen = set()
+    for span in re.split(r"[\n.!?]+", notes):
+        words = span.split()
+        if len(words) < min_words:
+            continue
+        key = " ".join(w.lower() for w in words)
+        if key in seen:
+            continue
+        seen.add(key)
+        # words in order, separated by non-word runs that never include a tag bracket
+        pat = r"\b" + r"[^<>\w]+".join(re.escape(w) for w in words) + r"\b"
+        try:
+            rx = re.compile(pat, re.I)
+        except re.error:
+            continue
+        if rx.search(html):
+            html = rx.sub(" [VERIFY: paraphrase — pasted review text was copied verbatim] ", html)
+            stripped.append(" ".join(words[:12]) + ("…" if len(words) > 12 else ""))
+    return html, stripped
+
+
 def _count_prose_words(html: str) -> int:
     """Count VISIBLE prose words in a body — tags, <style>/<script> blocks and HTML
     entities stripped, so CSS and markup never inflate the number. This is what the
@@ -13266,6 +13297,9 @@ def api_content_draft():
     title = (body.get("title") or "").strip() or None
     inline_article = body.get("gap_article") if isinstance(body.get("gap_article"), dict) else None
     item_type = (body.get("item_type") or ("pillar" if not primary_keyword else "article")).strip()
+    # Optional owner-pasted real notes / customer reviews — private grounding for
+    # first-hand, E-E-A-T detail. Used to write the draft; never published verbatim.
+    field_notes = (body.get("field_notes") or "").strip()
 
     try:
         with open(DATA_PATH / "latest_evaluation.json") as f:
@@ -13286,7 +13320,8 @@ def api_content_draft():
     # fall back to looking it up in the cached plan by keyword.
     target = inline_article or (_cd_find_gap_article(primary_keyword) if primary_keyword else None)
     brief = build_brief(results, families, family, target=target, item_type=item_type,
-                        title=title, primary_keyword=primary_keyword)
+                        title=title, primary_keyword=primary_keyword,
+                        field_notes=field_notes)
     # SERP competitor coverage (terms/headings/questions/length) so the draft covers
     # what the ranking pages do. Cached; graceful when Serper isn't configured.
     _serp_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
@@ -13321,6 +13356,17 @@ def api_content_draft():
         _link_notes = []
     if _link_notes:   # surface in the human review gate
         parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _link_notes
+
+    # Enforce the field-notes rule in CODE: strip any text copied verbatim from the
+    # owner's pasted reviews so it can never reach the published page (copyright /
+    # duplicate-content). Each stripped run leaves a [VERIFY] gap + a review flag.
+    if field_notes:
+        _b2, _copied = _strip_pasted_verbatim(parsed.get("body_html", ""), field_notes)
+        if _copied:
+            parsed["body_html"] = _b2
+            parsed["verify_flags"] = (parsed.get("verify_flags") or []) + [
+                f"Pasted review text was copied verbatim and removed (paraphrase it): "
+                f"“{s}”" for s in _copied]
 
     # Magento-safe output: convert emoji/astral characters to numeric HTML entities so
     # the body HTML survives Magento's content storage/WYSIWYG intact (raw emoji break
@@ -13386,6 +13432,8 @@ def api_content_draft():
         # Length check (visible prose words vs. the floor) for the review gate.
         "word_count": _word_count,
         "word_floor": _word_floor,
+        # Owner-pasted grounding notes, retained for reference/re-draft (NOT published).
+        "field_notes": field_notes,
         # Kept for verification after publish.
         "required_internal_links": brief["required_internal_links"],
     }
