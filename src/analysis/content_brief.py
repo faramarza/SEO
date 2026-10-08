@@ -159,6 +159,16 @@ _NEWBORN_PRODUCT_RE = re.compile(
     r"\b(tummy[\s-]?time|newborn|0[\s-]*6\s*months?|infant mirror|crib (?:toy|mobile)|rattle)\b", re.I)
 
 
+# Product titles that signal an OLDER-CHILD product (roughly 3+): a puppet theatre,
+# board games, preschool/kindergarten gear, explicit "3+/ages 4" markers. The model
+# kept forcing these onto young articles (a puppet theater on a 1-year-old piece), so
+# exclude them in CODE for articles aimed at infants/young toddlers (≤ ~24 months).
+_OLDER_PRODUCT_RE = re.compile(
+    r"\b(puppets?|puppet[\s-]?theat(?:er|re)|marionette|board[\s-]?game|"
+    r"preschool|pre-?k|kindergart|chess|checkers|scrabble|dominoes|"
+    r"science\s*kit|chemistry\s*set|ages?\s*[3-9]|[3-9]\s*\+|[3-9]\s*years?\s*\+)\b", re.I)
+
+
 def _is_infant_article(age_str: str) -> bool:
     """True when the article itself targets newborns/young infants (0–12 mo), in
     which case newborn products ARE appropriate and must not be filtered out."""
@@ -174,16 +184,53 @@ def _is_infant_article(age_str: str) -> bool:
     return bool(m and int(m.group(1)) <= 0)
 
 
+def _article_age_months(age_str: str):
+    """Approx age in months the article targets, or None. '1 year old'→12,
+    '18 months'→18, 'toddler'→18, 'newborn'→1, 'preschool'→42."""
+    a = (age_str or "").lower()
+    if not a:
+        return None
+    if "newborn" in a:
+        return 1
+    m = re.search(r"(\d{1,2})\s*(?:month|mo|week)", a)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"(\d{1,2})\s*(?:year|yr)", a)
+    if m:
+        return int(m.group(1)) * 12
+    if "infant" in a or "baby" in a or "babies" in a:
+        return 6
+    if "toddler" in a:
+        return 18
+    if "preschool" in a or "pre-k" in a:
+        return 42
+    if "kindergart" in a:
+        return 60
+    m = re.search(r"\b(\d{1,2})\b", a)   # a bare number means years
+    if m:
+        return int(m.group(1)) * 12
+    return None
+
+
 def _filter_products_for_age(products: list, age_str: str) -> list:
-    """Drop clearly-newborn products from an article aimed above infancy. Conservative:
-    only strong newborn signals are removed, and only when the article isn't itself
-    about infants. Never filters when there's no age focus."""
-    if not age_str or _is_infant_article(age_str):
+    """Keep the grounding products age-appropriate, in CODE (don't trust the model):
+      • drop clearly-NEWBORN products from an article aimed above infancy;
+      • drop clearly-OLDER-child (≈3+) products from a young article (≤ ~24 months).
+    Conservative — only strong signals are removed, only when the article has a clear
+    age, and never down to nothing (falls back to the originals)."""
+    if not age_str:
         return products
-    kept = [p for p in products if not _NEWBORN_PRODUCT_RE.search(p.get("title", ""))]
-    # Safety: if the filter would wipe out everything, keep the originals (better to
-    # let the model judge than to ground on nothing).
-    return kept if kept else products
+    kept = products
+    # 1) newborn products off an above-infancy article
+    if not _is_infant_article(age_str):
+        k = [p for p in kept if not _NEWBORN_PRODUCT_RE.search(p.get("title", ""))]
+        kept = k or kept
+    # 2) older-child (3+) products off a young (infant / young-toddler) article
+    months = _article_age_months(age_str)
+    if months is not None and months <= 24:
+        k = [p for p in kept if not _OLDER_PRODUCT_RE.search(p.get("title", ""))]
+        kept = k or kept
+    return kept
 
 
 def _family_block(results: list, product_families: list, family_name: str):

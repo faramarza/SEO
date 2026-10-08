@@ -7,7 +7,26 @@ that verification catches a missing required link. No network, no LLM.
 from src.analysis.content_brief import (
     build_brief, build_generation_messages, verify_interlinks,
     OUTPUT_BLOCKS, EXTERNAL_AUTHORITY_CANDIDATES,
+    _filter_products_for_age,
 )
+
+
+def test_age_filter_drops_older_products_from_young_articles():
+    prods = [{"title": "Montessori Lock Box Toy"},
+             {"title": "Montessori Puppet Theater For Kids"},
+             {"title": "Montessori Lowercase Alphabet Puzzle"}]
+    T = lambda ps: [p["title"] for p in ps]
+    # young article: the 3+ puppet theater is dropped, age-appropriate toys kept
+    young = T(_filter_products_for_age(prods, "1 year old"))
+    assert "Montessori Puppet Theater For Kids" not in young
+    assert "Montessori Lock Box Toy" in young and "Montessori Lowercase Alphabet Puzzle" in young
+    assert "Montessori Puppet Theater For Kids" not in T(_filter_products_for_age(prods, "toddler"))
+    # older article: the puppet theater is appropriate and kept
+    assert "Montessori Puppet Theater For Kids" in T(_filter_products_for_age(prods, "3 year old"))
+    # no age focus → nothing filtered; never wipes to nothing
+    assert len(_filter_products_for_age(prods, "")) == len(prods)
+    only_old = [{"title": "Puppet Theater"}, {"title": "Chess Set"}]
+    assert _filter_products_for_age(only_old, "1 year old") == only_old
 
 BASE = "https://alphabet-trains.com"
 FAMILIES = ["name trains", "step stools"]
