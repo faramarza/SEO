@@ -261,14 +261,46 @@ def _pillar_scaffold(family: str) -> dict:
     }
 
 
+# Predictable marketplace-review chrome (Amazon et al.) — stripped deterministically so
+# the model sees only real review text, not boilerplate. Reviewer NAMES are left to the
+# model (any name is undetectable in code); everything here is a fixed phrase/line.
+_RV_DROP_LINE = re.compile(
+    r"^\s*(?:"
+    r"verified\s+purchase"
+    r"|helpful"
+    r"|report"
+    r"|reviewed\s+in\b.*"                                   # "Reviewed in the US on <date>"
+    r"|(?:\d+|one|a\s+few|several)\s+(?:people|person)\s+found\s+this\s+helpful.*"
+    r"|top\s+reviews?\b.*"
+    r"|see\s+all\s+reviews.*"
+    r"|\d+\s+global\s+ratings?.*"
+    r")\s*$", re.I)
+# "5 out of 5 stars" (often glued to the review TITLE) — drop just the rating prefix,
+# keep whatever title text follows.
+_RV_STARS = re.compile(r"^\s*\d(?:\.\d)?\s*out\s+of\s+\d\s*stars\s*", re.I)
+
+
+def _strip_review_boilerplate(text: str) -> str:
+    """Remove fixed marketplace-review chrome (star lines, 'Verified Purchase', the
+    'Reviewed in … on …' line, 'N people found this helpful', 'Helpful', 'Report')
+    line by line. Keeps review titles, bodies, and names (names handled by the model)."""
+    out = []
+    for ln in (text or "").splitlines():
+        if _RV_DROP_LINE.match(ln):
+            continue
+        out.append(_RV_STARS.sub("", ln))
+    return "\n".join(out)
+
+
 def _clean_field_notes(text, cap: int = 16000) -> str:
     """Sanitize owner-pasted field notes / customer reviews before they become
     grounding: strip any HTML (a paste can't inject markup into the prompt or page),
-    collapse whitespace, and cap length. The cleaned text is GROUNDING ONLY — it is
-    never written to the published page verbatim (enforced downstream)."""
+    remove predictable marketplace boilerplate, collapse whitespace, and cap length.
+    The cleaned text is GROUNDING ONLY — never written to the published page verbatim."""
     if not text:
         return ""
     t = re.sub(r"<[^>]+>", " ", str(text))
+    t = _strip_review_boilerplate(t)
     t = re.sub(r"[ \t]+", " ", t)
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
     return t[:cap]

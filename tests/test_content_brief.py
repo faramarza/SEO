@@ -7,8 +7,26 @@ that verification catches a missing required link. No network, no LLM.
 from src.analysis.content_brief import (
     build_brief, build_generation_messages, verify_interlinks,
     OUTPUT_BLOCKS, EXTERNAL_AUTHORITY_CANDIDATES,
-    _filter_products_for_age,
+    _filter_products_for_age, _clean_field_notes,
 )
+
+
+def test_clean_field_notes_strips_marketplace_boilerplate():
+    paste = ("5 out of 5 starsExcellent for little hands.\n"
+             "Reviewed in the United States on March 15, 2017\n"
+             "Verified Purchase\n"
+             "Excellent for little hands to learn grasp and manipulation. Hide a toy in the "
+             "3 sections and let the child figure out how to get it out.\n"
+             "2 people found this helpful\nHelpful\nReport")
+    out = _clean_field_notes(paste)
+    for noise in ("Verified Purchase", "Reviewed in", "found this helpful",
+                  "out of 5 stars"):
+        assert noise.lower() not in out.lower()
+    # real review body (and the title text after the rating) survive
+    assert "little hands to learn grasp and manipulation" in out
+    assert "Excellent for little hands." in out
+    # standalone chrome lines gone
+    assert "\nHelpful" not in out and "\nReport" not in out
 
 
 def test_age_filter_drops_older_products_from_young_articles():
