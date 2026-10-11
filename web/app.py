@@ -12921,6 +12921,81 @@ _CB_VERSION = "7"   # authority links title+content relevance-gated (drops off-t
 _CB_TTL_DAYS = 14
 
 
+_PRODUCT_FACTS_PATH = DATA_PATH / "product_facts.json"
+_PF_TTL_DAYS = 30
+_PF_VERSION = "1"
+
+
+def _parse_product_facts(html: str) -> dict:
+    """From a product page, extract the explicit min age (months) and the real short
+    description — parsed ONLY from the curated meta/og description fields. The page body
+    is never scanned: it carries sidebar age-filter badges for every bracket, which
+    would corrupt the age. Returns {age_min_months|None, description}."""
+    import html as _htmlmod
+    blobs = []
+    for prop in ('name="description"', 'property="og:description"'):
+        m = re.search(r'<meta[^>]*' + prop + r'[^>]*content="([^"]*)"', html or "", re.I)
+        if m:
+            blobs.append(_htmlmod.unescape(m.group(1)))
+    desc = max(blobs, key=len) if blobs else ""
+    blob = " ".join(blobs)
+    age = None
+    m = re.search(r'(?:ages?\s*)?(\d{1,2})\s*months?\s*\+?', blob, re.I)   # months first
+    if m:
+        age = int(m.group(1))
+    else:
+        m = re.search(r'(?:ages?\s*)?(\d{1,2})\s*(?:years?)?\s*\+', blob, re.I)  # "ages 3+" / "3 years+"
+        if m:
+            age = int(m.group(1)) * 12
+    return {"age_min_months": age, "description": (desc or "").strip()[:400]}
+
+
+def _product_facts_for(products: list) -> dict:
+    """Cached {url: {age_min_months, description}} for the given {url,title} products.
+    Each product page is fetched once (TTL cache on disk) so re-drafting is cheap. Never
+    fatal — a fetch/parse failure just yields unknown facts for that product."""
+    out = {}
+    try:
+        with open(_PRODUCT_FACTS_PATH) as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    changed = False
+    for p in (products or []):
+        u = (p.get("url") or "").strip()
+        if not u or u in out:
+            continue
+        ent = cache.get(u)
+        fresh = False
+        if ent and ent.get("v") == _PF_VERSION:
+            try:
+                fresh = (datetime.now() - datetime.fromisoformat(ent["at"])).days <= _PF_TTL_DAYS
+            except Exception:
+                fresh = False
+        if fresh:
+            out[u] = ent["facts"]
+            continue
+        html = None
+        try:
+            html = _cb_fetch_page(u)
+        except Exception:
+            html = None
+        facts = _parse_product_facts(html) if html else {"age_min_months": None, "description": ""}
+        cache[u] = {"v": _PF_VERSION, "at": datetime.now().isoformat(timespec="seconds"), "facts": facts}
+        out[u] = facts
+        changed = True
+    if changed:
+        try:
+            _PRODUCT_FACTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _PRODUCT_FACTS_PATH.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                json.dump(cache, f, indent=2)
+            tmp.replace(_PRODUCT_FACTS_PATH)
+        except Exception:
+            pass
+    return out
+
+
 def _store_domain() -> str:
     """The store's own domain, so the competitor brief never learns from our page."""
     from urllib.parse import urlparse
@@ -13366,6 +13441,32 @@ def api_content_draft():
     brief = build_brief(results, families, family, target=target, item_type=item_type,
                         title=title, primary_keyword=primary_keyword,
                         field_notes=field_notes)
+
+    # Ground products in REAL catalog data (not name-guesses): fetch each product's page
+    # for its stated age + real description, drop any product whose stated minimum age is
+    # clearly too old for this article (e.g. a 3+ lock box on a 1-year-old piece), and
+    # hand the model the real descriptions so card specs and age tags are accurate.
+    try:
+        from src.analysis.content_brief import _age_context as _agectx, _article_age_months as _aam
+        _art_age = _aam(_agectx(brief["topic"].get("title"), brief["topic"].get("primary_keyword")))
+        _pf = _product_facts_for((brief.get("grounding_products") or [])
+                                 + (brief.get("link_products") or []))
+
+        def _age_ok(p):
+            f = _pf.get((p.get("url") or "").strip()) or {}
+            amin = f.get("age_min_months")
+            return amin is None or _art_age is None or amin <= _art_age + 12
+
+        _gp = [p for p in (brief.get("grounding_products") or []) if _age_ok(p)]
+        if _gp:                                   # never strip down to nothing
+            brief["grounding_products"] = _gp
+        brief["link_products"] = [p for p in (brief.get("link_products") or []) if _age_ok(p)] \
+            or brief.get("link_products")
+        # facts only for the products we kept
+        _kept = {(p.get("url") or "").strip() for p in brief.get("grounding_products") or []}
+        brief["product_facts"] = {u: f for u, f in _pf.items() if u in _kept and f}
+    except Exception as _e:
+        print(f"[CD] product enrichment failed: {_e}", flush=True)
     # SERP competitor coverage (terms/headings/questions/length) so the draft covers
     # what the ranking pages do. Cached; graceful when Serper isn't configured.
     _serp_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()

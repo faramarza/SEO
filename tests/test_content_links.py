@@ -56,6 +56,24 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_parse_product_facts_age_and_description():
+    # explicit "ages 3+" in the meta description → 36 months
+    h = '<meta name="description" content="Child-safe wooden lock box for ages 3+."/>'
+    f = A._parse_product_facts(h)
+    assert f["age_min_months"] == 36 and "lock box" in f["description"].lower()
+    # months form
+    assert A._parse_product_facts(
+        '<meta name="description" content="Sensory toy for 6 months+ babies."/>'
+    )["age_min_months"] == 6
+    # no stated age → None (do NOT guess), description still captured
+    f2 = A._parse_product_facts('<meta name="description" content="Wooden sorting cube."/>')
+    assert f2["age_min_months"] is None and "sorting cube" in f2["description"]
+    # page body is never scanned (sidebar age badges must not leak in)
+    body = ('<meta name="description" content="A wooden toy."/>'
+            '<div class="card-label">3 Years+</div><div class="card-label">6 Months+</div>')
+    assert A._parse_product_facts(body)["age_min_months"] is None
+
+
 def test_assemble_field_notes_attributes_by_product():
     out = A._assemble_field_notes(
         [{"url": "u1", "title": "Lock Box", "notes": "Great for little hands."},

@@ -400,9 +400,11 @@ def build_brief(results: list, product_families: list, family_name: str,
 
 
 _DRAFTING_RULES = [
-    "GROUND EVERY FACT. Only state a product fact (material, size, feature, "
-    "personalization option) that is given in the grounding products or that is "
-    "obviously true; never invent specifications, prices, review counts or stats.",
+    "GROUND EVERY FACT. Only state a product fact (material, size, feature, age rating, "
+    "personalization option) that is given in the REAL PRODUCT FACTS / grounding products "
+    "or that is obviously true; do NOT guess a material or spec from the product's name "
+    "(e.g. don't assume 'metal latches' or a specific material unless stated). Never "
+    "invent specifications, prices, review counts or stats.",
     "FLAG, DON'T FABRICATE. Where a specific number or claim would strengthen the "
     "piece but you don't have it, write the sentence and mark the unverified part "
     "with [VERIFY: what to check] instead of inventing a value. Collect every such "
@@ -668,10 +670,38 @@ def _sec_field_notes(brief, competitor, ctx):
     ]
 
 
+def _sec_product_facts(brief, competitor, ctx):
+    """Give the model each kept product's REAL catalog facts (stated age + real
+    description) so card specs and age tags are accurate instead of guessed from the
+    product name. Emits nothing when no facts were enriched."""
+    facts = brief.get("product_facts") or {}
+    if not facts:
+        return []
+    title_by_url = {(p.get("url") or ""): p.get("title")
+                    for p in (brief.get("grounding_products") or [])}
+    out = ["REAL PRODUCT FACTS (from the catalog — USE THESE; do not guess specs from a "
+           "product's name). For any product you feature: base its description and ANY "
+           "material/feature claim on the real description below; if a detail isn't given, "
+           "do NOT state it. If an age is given, put THAT on the card's age tag — never a "
+           "blanket 'Ages 1+'. Products are already age-filtered for this article."]
+    for url, f in facts.items():
+        if not f:
+            continue
+        age = f.get("age_min_months")
+        if age:
+            agelbl = f"Ages {age // 12}+" if age % 12 == 0 and age >= 12 else f"Ages {age}mo+"
+        else:
+            agelbl = "age not stated"
+        d = (f.get("description") or "").strip()
+        t = title_by_url.get(url) or url
+        out.append(f"   • {t} [{agelbl}]" + (f" — {d}" if d else ""))
+    return out
+
+
 # The prompt is composed from these, in order. Add/remove/reorder a concern here.
 _PROMPT_SECTIONS = [_sec_header, _sec_length, _sec_age, _sec_format,
-                    _sec_house, _sec_coverage, _sec_field_notes,
-                    _sec_internal, _sec_citations]
+                    _sec_house, _sec_coverage, _sec_product_facts,
+                    _sec_field_notes, _sec_internal, _sec_citations]
 
 
 def _build_system(brief: dict) -> str:
