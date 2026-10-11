@@ -56,6 +56,14 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_slug_age_months():
+    assert A._slug_age_months("montessori-toys-for-1-year-olds.html") == 12
+    assert A._slug_age_months("montessori-toys-2-year-olds.html") == 24
+    assert A._slug_age_months("montessori-toys-for-infants.html") == 3
+    assert A._slug_age_months("montessori-toys-for-toddlers.html") == 18
+    assert A._slug_age_months("made-in-usa-montessori-toys.html") is None
+
+
 def test_parse_product_facts_age_and_description():
     # explicit "ages 3+" in the meta description → 36 months
     h = '<meta name="description" content="Child-safe wooden lock box for ages 3+."/>'

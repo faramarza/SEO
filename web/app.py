@@ -12996,6 +12996,92 @@ def _product_facts_for(products: list) -> dict:
     return out
 
 
+_AGE_CAT_PATH = DATA_PATH / "age_category_products.json"
+_AC_TTL_DAYS = 7
+
+
+def _slug_age_months(slug: str):
+    """Age (in months) a category slug targets, or None. 'montessori-toys-3-year-olds'
+    -> 36; '...-for-1-year-olds' -> 12; '...-for-infants' -> 3; '...-toddler' -> 18."""
+    s = (slug or "").lower()
+    m = re.search(r'(\d{1,2})-year', s)
+    if m:
+        return int(m.group(1)) * 12
+    m = re.search(r'(\d{1,2})-month', s)
+    if m:
+        return int(m.group(1))
+    if any(w in s for w in ("infant", "newborn", "baby")):
+        return 3
+    if "toddler" in s:
+        return 18
+    if "preschool" in s or "pre-k" in s:
+        return 48
+    return None
+
+
+def _age_category_products(hub_url: str, article_age_months, max_products: int = 20) -> list:
+    """The store's OWN age-appropriate product selection for this article's age: find the
+    age category under the same family (e.g. 'montessori-toys-for-1-year-olds') whose age
+    matches, and return its listed products as [{url,title}]. This trusts the owner's
+    curation instead of guessing per-product ages. Cached; [] when there's no match."""
+    import html as _htmlmod
+    from urllib.parse import urljoin, urlparse
+    if not hub_url or article_age_months is None:
+        return []
+    ckey = f"{hub_url}|{article_age_months}"
+    try:
+        with open(_AGE_CAT_PATH) as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    ent = cache.get(ckey)
+    if ent:
+        try:
+            if (datetime.now() - datetime.fromisoformat(ent["at"])).days <= _AC_TTL_DAYS:
+                return ent["products"]
+        except Exception:
+            pass
+    base = re.sub(r'\.html?$', '', (urlparse(hub_url).path or '').rsplit('/', 1)[-1])
+    if not base:
+        return []
+    nav = _cb_fetch_page(hub_url)
+    if not nav:
+        return []
+    # discover sibling age categories of the same family from the nav
+    cats = {}
+    for m in re.finditer(r'href="(?:https?://[^"/]+)?/(' + re.escape(base) + r'[a-z0-9-]*\.html)"', nav, re.I):
+        a = _slug_age_months(m.group(1))
+        if a is not None:
+            cats.setdefault(a, m.group(1))
+    if not cats:
+        return []
+    best = min(cats, key=lambda a: abs(a - article_age_months))
+    if abs(best - article_age_months) > 6:      # no close-enough age category
+        return []
+    cat_html = _cb_fetch_page(urljoin(hub_url, "/" + cats[best]))
+    if not cat_html:
+        return []
+    products, seen = [], set()
+    for m in re.finditer(r'class="product-item-link"[^>]*href="([^"]+)"[^>]*>\s*([^<]+)', cat_html):
+        u = m.group(1).strip()
+        t = _htmlmod.unescape(re.sub(r'\s+', ' ', m.group(2)).strip())
+        if u and u not in seen:
+            seen.add(u)
+            products.append({"url": u, "title": t})
+        if len(products) >= max_products:
+            break
+    cache[ckey] = {"at": datetime.now().isoformat(timespec="seconds"), "products": products}
+    try:
+        _AGE_CAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _AGE_CAT_PATH.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(cache, f, indent=2)
+        tmp.replace(_AGE_CAT_PATH)
+    except Exception:
+        pass
+    return products
+
+
 def _store_domain() -> str:
     """The store's own domain, so the competitor brief never learns from our page."""
     from urllib.parse import urlparse
@@ -13449,6 +13535,16 @@ def api_content_draft():
     try:
         from src.analysis.content_brief import _age_context as _agectx, _article_age_months as _aam
         _art_age = _aam(_agectx(brief["topic"].get("title"), brief["topic"].get("primary_keyword")))
+
+        # BEST source of age-appropriate products: the store's OWN age category (e.g.
+        # "montessori-toys-for-1-year-olds"). If one matches this article's age, use its
+        # curated products as the grounding set — the owner already vetted them for age.
+        _hub_url = (brief.get("link_up") or {}).get("url") or (brief.get("hub") or {}).get("url")
+        _cat_prods = _age_category_products(_hub_url, _art_age)
+        if len(_cat_prods) >= 3:
+            brief["grounding_products"] = _cat_prods
+            brief["link_products"] = _cat_prods[:6]
+
         _pf = _product_facts_for((brief.get("grounding_products") or [])
                                  + (brief.get("link_products") or []))
 
