@@ -56,6 +56,27 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_tidy_body_strips_buttons_syncs_nav_caps_links():
+    body = ('<div class="hero-dance"><h2>Montessori Toys for 1-Year-Olds</h2></div>'
+            '<div class="quick-nav"><a href="#dev">Dev</a></div>'
+            '<h2 id="dev">Developmental Benefits</h2>'
+            '<div class="age-filter-buttons"><button class="age-filter-btn">Ages 2+</button></div>'
+            '<p><a href="https://alphabet-trains.com/x.html">X</a></p>'
+            '<h2>Setting Up a Play Space</h2>'
+            '<p><a href="https://alphabet-trains.com/x.html">X</a>'
+            '<a href="https://alphabet-trains.com/x.html">X</a>'
+            '<a href="https://alphabet-trains.com/x.html">X</a>'
+            '<a href="https://www.naeyc.org/p">ext</a></p>')
+    out = A._tidy_body_html(body, store_dom="alphabet-trains.com", link_cap=3)
+    assert "age-filter-buttons" not in out                       # dead buttons stripped
+    assert 'id="setting-up-a-play-space"' in out                 # new section got an id
+    nav = out[out.index('quick-nav'):].split('</div>')[0]
+    assert "#setting-up-a-play-space" in nav and "#dev" in nav    # nav rebuilt from sections
+    assert "Montessori Toys for 1-Year-Olds" not in nav          # hero title excluded
+    assert out.count('href="https://alphabet-trains.com/x.html"') == 3   # capped at 3
+    assert 'href="https://www.naeyc.org/p"' in out               # external untouched
+
+
 def test_slug_age_months():
     assert A._slug_age_months("montessori-toys-for-1-year-olds.html") == 12
     assert A._slug_age_months("montessori-toys-2-year-olds.html") == 24

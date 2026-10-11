@@ -13423,6 +13423,75 @@ def _assemble_field_notes(items, general: str) -> str:
             + "\n\n".join(parts))
 
 
+def _tidy_body_html(body: str, store_dom: str = "", link_cap: int = 3) -> str:
+    """Deterministic cleanup of the final body, for issues the model leaves behind:
+      1. strip the non-functional 'age-filter-buttons' (styled buttons with no JS that
+         look clickable but do nothing in a static article);
+      2. give every content <h2> an id and rebuild the quick-nav from the ACTUAL
+         sections (so expansion sections aren't missing from the nav / unlinkable);
+      3. cap how many times any one internal product URL is linked (unwrap the extras
+         to plain text) so the same product isn't link-stuffed 4–5×.
+    Pure string surgery; never removes section content."""
+    from urllib.parse import urlparse
+    if not body:
+        return body
+    # 1) remove dead age-filter buttons
+    body = re.sub(r'\s*<div class="age-filter-buttons">.*?</div>', '', body, flags=re.S | re.I)
+
+    # hero <h2> text (the article title) — excluded from the nav
+    hero = re.search(r'<div class="hero-dance">.*?<h2[^>]*>(.*?)</h2>', body, flags=re.S | re.I)
+    hero_txt = re.sub(r'<[^>]+>', '', hero.group(1)).strip() if hero else ''
+
+    def _slug(text):
+        s = re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', text).strip().lower()).strip('-')
+        return s[:50] or 'section'
+
+    # 2) ensure ids on every <h2>, collect content sections in order
+    sections, used = [], set()
+    def _h2(m):
+        attrs, inner = m.group(1), m.group(2)
+        label = re.sub(r'<[^>]+>', '', inner).strip()
+        idm = re.search(r'id="([^"]+)"', attrs)
+        hid = idm.group(1) if idm else _slug(label)
+        base = hid
+        n = 2
+        while hid in used:
+            hid = f"{base}-{n}"; n += 1
+        used.add(hid)
+        if not idm:
+            attrs = attrs + f' id="{hid}"'
+        if label and label != hero_txt:
+            sections.append((hid, label))
+        return f'<h2{attrs}>{inner}</h2>'
+    body = re.sub(r'<h2([^>]*)>(.*?)</h2>', _h2, body, flags=re.S | re.I)
+
+    # rebuild the quick-nav from the real sections
+    if sections:
+        nav = ('<div class="quick-nav">\n  '
+               + ' | \n  '.join(f'<a href="#{i}">{l}</a>' for i, l in sections)
+               + '\n</div>')
+        if re.search(r'<div class="quick-nav">.*?</div>', body, flags=re.S | re.I):
+            body = re.sub(r'<div class="quick-nav">.*?</div>', lambda _m: nav, body,
+                          count=1, flags=re.S | re.I)
+
+    # 3) cap repeated internal product links
+    if store_dom:
+        counts = {}
+        def _cap(m):
+            whole, url, text = m.group(0), m.group(1), m.group(2)
+            try:
+                host = (urlparse(url).netloc or '').lower().replace('www.', '')
+            except Exception:
+                host = ''
+            if store_dom in host:
+                counts[url] = counts.get(url, 0) + 1
+                if counts[url] > link_cap:
+                    return text        # unwrap the extra occurrence to plain text
+            return whole
+        body = re.sub(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', _cap, body, flags=re.S | re.I)
+    return body
+
+
 def _insert_before_faq(body: str, new_html: str) -> str:
     """Insert new sections just before the FAQ heading so the FAQ stays last; if no FAQ
     is found, append at the end. Pure string surgery — existing content is untouched."""
@@ -13652,6 +13721,15 @@ def api_content_draft():
                     _word_count = _count_prose_words(parsed.get("body_html", ""))
         except Exception as _e:
             print(f"[CD] expansion pass failed: {_e}", flush=True)
+
+    # Deterministic tidy of the final body: strip non-functional age-filter buttons,
+    # give every section an id and rebuild the quick-nav from the real sections (so
+    # expansion sections are linkable and listed), and cap repeated internal product
+    # links. Runs after expansion so the new sections are included.
+    try:
+        parsed["body_html"] = _tidy_body_html(parsed.get("body_html", ""), _store_domain())
+    except Exception as _e:
+        print(f"[CD] body tidy failed: {_e}", flush=True)
 
     # Magento-safe output: convert emoji/astral characters to numeric HTML entities so
     # the body HTML survives Magento's content storage/WYSIWYG intact (raw emoji break
