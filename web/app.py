@@ -13533,14 +13533,18 @@ def api_content_draft():
     # clearly too old for this article (e.g. a 3+ lock box on a 1-year-old piece), and
     # hand the model the real descriptions so card specs and age tags are accurate.
     try:
-        from src.analysis.content_brief import _age_context as _agectx, _article_age_months as _aam
+        from src.analysis.content_brief import (_age_context as _agectx,
+                                                _article_age_months as _aam,
+                                                _drop_non_toy_products as _dropnontoy)
         _art_age = _aam(_agectx(brief["topic"].get("title"), brief["topic"].get("primary_keyword")))
 
         # BEST source of age-appropriate products: the store's OWN age category (e.g.
         # "montessori-toys-for-1-year-olds"). If one matches this article's age, use its
         # curated products as the grounding set — the owner already vetted them for age.
+        # The category still mixes in furniture/environment pieces (mirror cabinets,
+        # stools), so drop those — a toys article features toys.
         _hub_url = (brief.get("link_up") or {}).get("url") or (brief.get("hub") or {}).get("url")
-        _cat_prods = _age_category_products(_hub_url, _art_age)
+        _cat_prods = _dropnontoy(_age_category_products(_hub_url, _art_age))
         if len(_cat_prods) >= 3:
             brief["grounding_products"] = _cat_prods
             brief["link_products"] = _cat_prods[:6]

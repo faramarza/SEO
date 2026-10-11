@@ -7,8 +7,28 @@ that verification catches a missing required link. No network, no LLM.
 from src.analysis.content_brief import (
     build_brief, build_generation_messages, verify_interlinks,
     OUTPUT_BLOCKS, EXTERNAL_AUTHORITY_CANDIDATES,
-    _filter_products_for_age, _clean_field_notes,
+    _filter_products_for_age, _clean_field_notes, _drop_non_toy_products,
 )
+
+
+def test_non_toy_furniture_products_dropped():
+    prods = [{"title": "Montessori Stacking Ring"},
+             {"title": "I-See-Me Toddler Mirror Cabinet"},
+             {"title": "Kids Vertical Or Horizontal Mirror With Stand"},
+             {"title": "Heirloom Name Puzzle Stool"},
+             {"title": "Montessori Spinning Drum"}]
+    kept = [p["title"] for p in _drop_non_toy_products(prods)]
+    assert "Montessori Stacking Ring" in kept and "Montessori Spinning Drum" in kept
+    for furniture in ("I-See-Me Toddler Mirror Cabinet",
+                      "Kids Vertical Or Horizontal Mirror With Stand",
+                      "Heirloom Name Puzzle Stool"):
+        assert furniture not in kept
+    # never strips to nothing
+    only = [{"title": "Mirror Cabinet"}, {"title": "Step Stool"}]
+    assert _drop_non_toy_products(only) == only
+    # the age filter applies it too
+    assert all("Cabinet" not in p["title"]
+               for p in _filter_products_for_age(prods, "1 year old"))
 
 
 def test_clean_field_notes_strips_marketplace_boilerplate():

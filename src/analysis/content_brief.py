@@ -169,6 +169,24 @@ _OLDER_PRODUCT_RE = re.compile(
     r"science\s*kit|chemistry\s*set|ages?\s*[3-9]|[3-9]\s*\+|[3-9]\s*years?\s*\+)\b", re.I)
 
 
+# Furniture / Montessori-ENVIRONMENT pieces that are age-tagged like toys but aren't
+# toys to feature in a "toys" article (mirror cabinets, mirrors-with-stands, stools,
+# shelves, tables). The store's age categories include these; a toys article shouldn't.
+_NON_TOY_RE = re.compile(
+    r"\b(cabinet|wardrobe|bookcase|book\s?shelf|shelf|shelving|storage|"
+    r"step\s?stool|stool|chair|table|desk|bench|easel|coat\s?rack|"
+    r"floor\s?bed|\bbed\b|\brug\b|\bmat\b|"
+    r"mirror\s?cabinet|mirror[^,]{0,10}stand|wall\s?mirror|floor\s?mirror|mirror\s?with)\b",
+    re.I)
+
+
+def _drop_non_toy_products(products: list) -> list:
+    """Remove furniture / environment pieces (mirror cabinets, stools, shelves) that are
+    age-appropriate but not toys to feature in a toys article. Never strips to nothing."""
+    kept = [p for p in (products or []) if not _NON_TOY_RE.search(p.get("title", ""))]
+    return kept if kept else list(products or [])
+
+
 def _is_infant_article(age_str: str) -> bool:
     """True when the article itself targets newborns/young infants (0–12 mo), in
     which case newborn products ARE appropriate and must not be filtered out."""
@@ -219,8 +237,8 @@ def _filter_products_for_age(products: list, age_str: str) -> list:
     Conservative — only strong signals are removed, only when the article has a clear
     age, and never down to nothing (falls back to the originals)."""
     if not age_str:
-        return products
-    kept = products
+        return _drop_non_toy_products(products)
+    kept = _drop_non_toy_products(products)       # furniture/environment pieces first
     # 1) newborn products off an above-infancy article
     if not _is_infant_article(age_str):
         k = [p for p in kept if not _NEWBORN_PRODUCT_RE.search(p.get("title", ""))]
