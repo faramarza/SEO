@@ -13820,8 +13820,14 @@ def api_content_draft():
         field_notes = _assemble_field_notes(_merged_items, _general_notes)
         from src.analysis.content_brief import _clean_field_notes as _cfn
         brief["field_notes"] = _cfn(field_notes)
+        # Diagnostics for the review gate: which products' reviews were actually applied,
+        # and (if none) what this article's products are and whether any reviews are saved.
+        _reviews_used = [it.get("title") or it.get("url") for it in _merged_items]
+        _draft_prod_titles = [p.get("title") for p in (brief.get("grounding_products") or [])
+                              if p.get("title")]
     except Exception as _e:
         print(f"[CD] review merge failed: {_e}", flush=True)
+        _reviews_used, _draft_prod_titles, _rev = [], [], {}
 
     # SERP competitor coverage (terms/headings/questions/length) so the draft covers
     # what the ranking pages do. Cached; graceful when Serper isn't configured.
@@ -13988,6 +13994,10 @@ def api_content_draft():
         "field_notes_items": [{"url": it.get("url"), "title": it.get("title"),
                                "notes": (it.get("notes") or "").strip()}
                               for it in _notes_items],
+        # Review-gate diagnostics: which products' saved reviews were applied, and whether
+        # any reviews are saved at all — so it's clear whether reviews made it in.
+        "reviews_used": _reviews_used,
+        "reviews_in_store": len(_rev or {}),
         # Real catalog products this draft is grounded in — shown next to the notes box
         # so the owner knows which products to gather reviews for.
         "products": [{"url": p.get("url"), "title": p.get("title")}
@@ -14021,6 +14031,25 @@ def _cd_checklist(draft: dict) -> list:
                       "text": f"Body is {wc} words of prose — under the {floor}-word floor. "
                               "Expand the thin sections (add sections / more depth, no filler) "
                               "before publishing."})
+    # Reviews: say plainly whether saved reviews were applied to THIS article.
+    ru = draft.get("reviews_used") or []
+    if ru:
+        items.append({"severity": "verify",
+                      "text": "Applied your saved reviews for: " + ", ".join(ru)
+                              + " — confirm the first-hand detail reads right."})
+    else:
+        prod_titles = [p.get("title") for p in (draft.get("products") or []) if p.get("title")]
+        extra = (" This article's products are: " + ", ".join(prod_titles[:8]) + "."
+                 if prod_titles else "")
+        if draft.get("reviews_in_store"):
+            items.append({"severity": "fix",
+                          "text": "No saved reviews matched this article's products (you have "
+                                  f"{draft.get('reviews_in_store')} saved, but for other products)."
+                                  + extra + " Paste reviews into the product boxes above and re-draft."})
+        else:
+            items.append({"severity": "elevate",
+                          "text": "No reviews added yet — paste real reviews into the product boxes "
+                                  "above and re-draft to add first-hand detail (E-E-A-T)." + extra})
     ext = draft.get("external_links") or []
     if len(ext) < 2:
         items.append({"severity": "fix",
