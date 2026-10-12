@@ -13239,7 +13239,21 @@ def _reg_domain(url: str) -> str:
     return ".".join(parts[-2:]) if len(parts) >= 2 else net
 
 
-def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict, allow_external=None):
+def _cite_sentence(url: str, name: str, claim: str) -> str:
+    """A single inline citation paragraph for a real source. Uses the model's own
+    claim when present; otherwise a neutral 'further reading' pointer (no fabricated
+    fact)."""
+    name = (name or "source").strip()
+    claim = (claim or "").strip().rstrip(".")
+    a = f'<a href="{url}" target="_blank" rel="noopener">{name}</a>'
+    if claim:
+        claim = claim[0].lower() + claim[1:]
+        return f"<p>According to the {a}, {claim}.</p>"
+    return f"<p>For more on young children's play and development, see the {a}.</p>"
+
+
+def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict, allow_external=None,
+                               authority_links=None):
     """Check every link the draft placed.
 
     EXTERNAL links: an UNSOURCED url (one not in `allow_external`, the real SERP-sourced
@@ -13321,10 +13335,43 @@ def _validate_and_repair_links(parsed: dict, keyword: str, brief: dict, allow_ex
     placed, not_placed = [], []
     for e in kept:
         (placed if (e.get("url") or "").strip() in body_hrefs else not_placed).append(e)
+
+    # ENFORCE the minimum external-citation count (target is 2–3). The model often lists
+    # more sources than it weaves in — so rather than drop the extras, place them (with
+    # the model's own claim) until we hit the minimum; if it listed too few, top up from
+    # the brief's real SOURCED authority links with a neutral pointer. Reliable 2–3 real
+    # citations without depending on the model's consistency.
+    try:
+        min_ext = int((brief.get("external_links_required") or (2, 3))[0])
+    except Exception:
+        min_ext = 2
+    placed_urls = {(e.get("url") or "").strip() for e in placed}
+    topups = []
+    for e in not_placed:                         # (a) the model's own unplaced sources
+        if len(placed) + len(topups) >= min_ext:
+            break
+        u = (e.get("url") or "").strip()
+        if u and u not in placed_urls:
+            topups.append((u, e.get("name"), e.get("claim_supported")))
+            placed_urls.add(u)
+    for a in (authority_links or []):            # (b) still short → sourced authorities
+        if len(placed) + len(topups) >= min_ext:
+            break
+        u = (a.get("url") or "").strip()
+        if u and u not in placed_urls and _url_status(u) != "dead":
+            topups.append((u, a.get("title") or a.get("domain"), None))
+            placed_urls.add(u)
+    for u, name, claim in topups:
+        body = _insert_before_faq(body, _cite_sentence(u, name, claim))
+        placed.append({"url": u, "name": name or "", "claim_supported": claim or ""})
+        notes.append(f"Added a sourced external citation to meet the 2–3 target (move/refine "
+                     f"if you like): {u}")
+
     parsed["external_links"] = placed
-    for e in not_placed:
-        notes.append("An external source was listed but not linked anywhere in the "
-                     f"body — placed it only if relevant, else ignore: {e.get('url','')}")
+    for e in not_placed:                         # anything still unplaced (rare)
+        if (e.get("url") or "").strip() not in placed_urls:
+            notes.append("An external source was listed but not linked anywhere in the "
+                         f"body — placed it only if relevant, else ignore: {e.get('url','')}")
 
     # --- internal links: flag dead/foreign ones (don't auto-rewrite product URLs) ---
     for m in re.finditer(r'<a\b[^>]*href="([^"]+)"', body):
@@ -13724,7 +13771,8 @@ def api_content_draft():
             _allow_external.add(f"https://{_d}/")
     try:
         _link_notes = _validate_and_repair_links(parsed, _serp_kw, brief,
-                                                  allow_external=_allow_external)
+                                                  allow_external=_allow_external,
+                                                  authority_links=(competitor or {}).get("authority_links"))
     except Exception as e:
         print(f"[CD] link validation failed: {e}", flush=True)
         _link_notes = []
@@ -13772,7 +13820,8 @@ def api_content_draft():
                     # any guessed external link replaced/stripped, verbatim copies removed)
                     try:
                         _ln2 = _validate_and_repair_links(parsed, _serp_kw, brief,
-                                                          allow_external=_allow_external)
+                                                          allow_external=_allow_external,
+                                                          authority_links=(competitor or {}).get("authority_links"))
                         if _ln2:
                             parsed["verify_flags"] = (parsed.get("verify_flags") or []) + _ln2
                     except Exception as _e:
@@ -13885,8 +13934,10 @@ def _cd_checklist(draft: dict) -> list:
                               "Expand the thin sections (add sections / more depth, no filler) "
                               "before publishing."})
     ext = draft.get("external_links") or []
-    if len(ext) < 1:
-        items.append({"severity": "fix", "text": "No external authority link — add 1–3 to real, relevant sources."})
+    if len(ext) < 2:
+        items.append({"severity": "fix",
+                      "text": f"Only {len(ext)} external authority link(s) — the target is 2–3. "
+                              "Add another real, relevant source."})
     for e in ext:
         items.append({"severity": "verify",
                       "text": f"Open and confirm this external link is live & relevant: "

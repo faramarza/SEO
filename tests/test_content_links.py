@@ -56,6 +56,31 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_external_links_topped_up_to_minimum(monkeypatch):
+    monkeypatch.setattr(A, "_url_status", lambda u: "live")
+    monkeypatch.setattr(A, "_find_live_authority", lambda reg, kw: None)
+    naeyc = "https://www.naeyc.org/x"
+    aap = "https://publications.aap.org/y"
+    body = f'<p>Per <a href="{naeyc}">NAEYC</a> play matters.</p><h2 id="faq">FAQ</h2>'
+    # model placed NAEYC, LISTED AAP but didn't weave it in
+    parsed = {"body_html": body,
+              "external_links": [{"url": naeyc, "name": "NAEYC", "claim_supported": "play matters"},
+                                 {"url": aap, "name": "AAP", "claim_supported": "play is powerful"}]}
+    A._validate_and_repair_links(parsed, "kw",
+                                 {"grounding_products": [], "external_links_required": (2, 3)},
+                                 allow_external={naeyc, aap})
+    urls = [e["url"] for e in parsed["external_links"]]
+    assert len(urls) >= 2 and aap in urls             # AAP placed to meet the minimum
+    assert aap in parsed["body_html"]                 # and woven into the body before the FAQ
+    # when the model lists only one, top up from a sourced authority
+    parsed2 = {"body_html": body, "external_links": [{"url": naeyc, "name": "NAEYC"}]}
+    A._validate_and_repair_links(parsed2, "kw",
+                                 {"grounding_products": [], "external_links_required": (2, 3)},
+                                 allow_external={naeyc},
+                                 authority_links=[{"url": "https://www.cdc.gov/z", "title": "CDC"}])
+    assert len([e["url"] for e in parsed2["external_links"]]) == 2
+
+
 def test_product_reviews_persist_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(A, "_PRODUCT_REVIEWS_PATH", tmp_path / "product_reviews.json")
     assert A._load_product_reviews() == {}                      # empty to start
