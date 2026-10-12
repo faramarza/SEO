@@ -697,6 +697,7 @@ def _sec_product_facts(brief, competitor, ctx):
         return []
     title_by_url = {(p.get("url") or ""): p.get("title")
                     for p in (brief.get("grounding_products") or [])}
+    notes_by_url = brief.get("product_notes") or {}
     out = ["REAL PRODUCT FACTS (from the catalog — USE THESE; do not guess specs from a "
            "product's name). For any product you feature: base its description and ANY "
            "material/feature claim on the real facts below; if a detail isn't given, do "
@@ -705,6 +706,12 @@ def _sec_product_facts(brief, competitor, ctx):
            "Stacking Ring is wood, not plastic); if no Material is listed, write "
            "'[VERIFY: confirm material]' — NEVER guess wood/plastic/metal. Products are "
            "already age-filtered for this article."]
+    if notes_by_url:
+        out.append("FEATURE FIRST + USE THE OWNER NOTES: products with 'OWNER NOTES' below "
+                   "are the ones to feature as product cards, and each such card MUST weave "
+                   "in a SPECIFIC, paraphrased detail from its notes (a real use, tip, or "
+                   "pro/con) — not just the generic description. Paraphrase; never copy "
+                   "verbatim; never mention price, other ages, or any name.")
     for url, f in facts.items():
         if not f:
             continue
@@ -717,7 +724,11 @@ def _sec_product_facts(brief, competitor, ctx):
         matlbl = f" [Material: {', '.join(mats)}]" if mats else " [Material: not stated → VERIFY]"
         d = (f.get("description") or "").strip()
         t = title_by_url.get(url) or url
-        out.append(f"   • {t} [{agelbl}]{matlbl}" + (f" — {d}" if d else ""))
+        line = f"   • {t} [{agelbl}]{matlbl}" + (f" — {d}" if d else "")
+        n = (notes_by_url.get(url) or "").strip()
+        if n:
+            line += f"\n       OWNER NOTES (paraphrase a specific detail into THIS product's card): {n[:600]}"
+        out.append(line)
     return out
 
 

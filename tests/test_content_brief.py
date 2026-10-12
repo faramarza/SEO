@@ -49,6 +49,20 @@ def test_clean_field_notes_strips_marketplace_boilerplate():
     assert "\nHelpful" not in out and "\nReport" not in out
 
 
+def test_product_facts_colocates_owner_notes():
+    from src.analysis.content_brief import _sec_product_facts
+    brief = {"grounding_products": [{"url": "u1", "title": "Spinning Drum"},
+                                    {"url": "u2", "title": "Stacking Ring"}],
+             "product_facts": {"u1": {"age_min_months": 12, "materials": ["wood"], "description": "A drum."},
+                               "u2": {"age_min_months": 12, "materials": ["wood"], "description": "Rings."}},
+             "product_notes": {"u1": "Reaches for it during tummy time; the mirror fascinates her."}}
+    out = "\n".join(_sec_product_facts(brief, None, {"grounding_products": brief["grounding_products"]}))
+    assert "FEATURE FIRST" in out
+    assert "OWNER NOTES (paraphrase a specific detail into THIS product's card): " in out
+    assert "tummy time" in out
+    assert out.count("OWNER NOTES (paraphrase") == 1   # only the reviewed product carries notes
+
+
 def test_age_filter_drops_older_products_from_young_articles():
     prods = [{"title": "Montessori Lock Box Toy"},
              {"title": "Montessori Puppet Theater For Kids"},

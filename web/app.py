@@ -13820,6 +13820,17 @@ def api_content_draft():
         field_notes = _assemble_field_notes(_merged_items, _general_notes)
         from src.analysis.content_brief import _clean_field_notes as _cfn
         brief["field_notes"] = _cfn(field_notes)
+        # Co-locate each product's review notes WITH that product (so the model weaves
+        # the detail into THAT card), and FEATURE the reviewed products first — the cards
+        # are where first-hand detail belongs, so the reviewed toys must be the cards.
+        brief["product_notes"] = {it["url"]: _cfn(it["notes"]) for it in _merged_items}
+        if _merged_items:
+            _revset = {it["url"] for it in _merged_items}
+            def _reorder(ps):
+                return ([p for p in ps if (p.get("url") or "").strip() in _revset]
+                        + [p for p in ps if (p.get("url") or "").strip() not in _revset])
+            brief["grounding_products"] = _reorder(brief.get("grounding_products") or [])
+            brief["link_products"] = brief["grounding_products"][:6]
         # Diagnostics for the review gate: which products' reviews were actually applied,
         # and (if none) what this article's products are and whether any reviews are saved.
         _reviews_used = [it.get("title") or it.get("url") for it in _merged_items]
