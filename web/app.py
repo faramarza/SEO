@@ -13476,6 +13476,8 @@ def _tidy_body_html(body: str, store_dom: str = "", link_cap: int = 3) -> str:
     def _h2(m):
         attrs, inner = m.group(1), m.group(2)
         label = re.sub(r'<[^>]+>', '', inner).strip()
+        if label and label == hero_txt:
+            return m.group(0)                 # leave the hero title untouched (no id, not in nav)
         idm = re.search(r'id="([^"]+)"', attrs)
         hid = idm.group(1) if idm else _slug(label)
         base = hid
