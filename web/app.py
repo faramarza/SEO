@@ -13519,6 +13519,62 @@ def _save_product_reviews(reviews: dict) -> None:
         pass
 
 
+def _ensure_product_showcase(body: str, brief: dict) -> str:
+    """A toys roundup must actually SHOW the toys. If the draft contains no product
+    cards at all, build a 'Top Picks' showcase from the REAL catalog facts (title, url,
+    stated age, real material, real description — nothing invented) and insert it after
+    the intro/benefits. If the model already made cards, leave them. Returns the body."""
+    if "game-card" in (body or ""):
+        return body                                   # model already showcased the toys
+    prods = (brief.get("link_products") or brief.get("grounding_products") or [])[:5]
+    if not prods:
+        return body
+    facts = brief.get("product_facts") or {}
+    cards = []
+    for i, p in enumerate(prods, 1):
+        url = (p.get("url") or "").strip()
+        title = p.get("title") or url
+        f = facts.get(url) or {}
+        age = f.get("age_min_months")
+        if age:
+            agelbl = f"Ages {age // 12}+" if age % 12 == 0 and age >= 12 else f"Ages {age}mo+"
+            agetag = f' <span class="age-tag">{agelbl}</span>'
+        else:
+            agetag = ""                               # don't invent an age
+        mats = f.get("materials") or []
+        matbox = (f'\n  <div class="materials-box"><strong>Materials:</strong> '
+                  f'{", ".join(mats)}</div>') if mats else ""
+        desc = (f.get("description") or "").strip() or f"{title}."
+        cards.append(
+            f'<div class="game-card">\n'
+            f'  <span class="game-number">{i}</span>\n'
+            f'  <h3><a href="{url}" target="_blank" rel="noopener">{title}</a>{agetag}</h3>\n'
+            f'  <p>{desc}</p>{matbox}\n'
+            f'</div>')
+    fam = (brief.get("family") or "montessori toys").strip().title()
+    showcase = (f'<h2 id="top-picks">Top {fam} to Consider</h2>\n'
+                f'<p>Here are standout picks from our catalog, each chosen for this age:</p>\n'
+                + "\n".join(cards))
+
+    # insert after the benefits-box (balanced scan), else before the first content <h2>
+    key = '<div class="benefits-box">'
+    i = body.find(key)
+    if i >= 0:
+        depth = 0
+        for m in re.finditer(r'<(/?)div\b[^>]*>', body[i:]):
+            depth += 1 if not m.group(1) else -1
+            if depth == 0:
+                pos = i + m.end()
+                return body[:pos] + "\n" + showcase + "\n" + body[pos:]
+    navend = re.search(r'<div class="quick-nav">.*?</div>', body, re.S | re.I)
+    start = navend.end() if navend else 0
+    hm = re.search(r'<h2\b', body[start:])
+    if hm:
+        pos = start + hm.start()
+        return body[:pos] + showcase + "\n" + body[pos:]
+    return body + "\n" + showcase
+
+
 def _tidy_body_html(body: str, store_dom: str = "", link_cap: int = 3) -> str:
     """Deterministic cleanup of the final body, for issues the model leaves behind:
       1. strip the non-functional 'age-filter-buttons' (styled buttons with no JS that
@@ -13816,6 +13872,14 @@ def api_content_draft():
                 f"Pasted review text was copied verbatim and removed (paraphrase it): "
                 f"“{s}”" for s in _c]
     _enforce_verbatim(parsed)
+
+    # Guarantee a product showcase: a toys roundup must SHOW the toys. If the model made
+    # no product cards, build them from the real catalog facts (runs before the length
+    # measure so it counts, and before tidy so it lands in the quick-nav).
+    try:
+        parsed["body_html"] = _ensure_product_showcase(parsed.get("body_html", ""), brief)
+    except Exception as _e:
+        print(f"[CD] product showcase build failed: {_e}", flush=True)
 
     # Measure the produced body against the length floor.
     from src.analysis.content_brief import length_floor as _length_floor, build_expand_messages

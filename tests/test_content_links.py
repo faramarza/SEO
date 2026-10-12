@@ -93,6 +93,28 @@ def test_product_reviews_persist_round_trip(tmp_path, monkeypatch):
     assert A._load_product_reviews() == {}
 
 
+def test_product_showcase_built_when_model_omits_cards():
+    brief = {"family": "montessori toys",
+             "link_products": [{"url": "https://alphabet-trains.com/ring.html", "title": "Stacking Ring"},
+                               {"url": "https://alphabet-trains.com/geo.html", "title": "Geometric Shapes"}],
+             "product_facts": {
+                 "https://alphabet-trains.com/ring.html": {"age_min_months": 12, "materials": ["wood"],
+                                                           "description": "Colorful rings."},
+                 "https://alphabet-trains.com/geo.html": {"age_min_months": None, "materials": ["plastic"],
+                                                          "description": "Ten shapes to sort."}}}
+    body = ('<div class="hero-dance"><h2>Title</h2></div><div class="quick-nav"></div>'
+            '<div class="benefits-box"><div class="benefit-item">x</div></div>'
+            '<h2 id="d">Developmental Benefits</h2>')
+    out = A._ensure_product_showcase(body, brief)
+    assert out.count('class="game-card"') == 2
+    assert '<strong>Materials:</strong> wood' in out and '<strong>Materials:</strong> plastic' in out
+    assert 'age-tag">Ages 1+' in out                       # ring's real age
+    assert out.index("Top Montessori Toys") < out.index("Developmental Benefits")
+    # a draft that already has cards is left alone
+    assert A._ensure_product_showcase(body + '<div class="game-card">x</div>', brief) \
+        == body + '<div class="game-card">x</div>'
+
+
 def test_tidy_body_strips_buttons_syncs_nav_caps_links():
     body = ('<div class="hero-dance"><h2>Montessori Toys for 1-Year-Olds</h2></div>'
             '<div class="quick-nav"><a href="#dev">Dev</a></div>'
