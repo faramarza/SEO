@@ -13423,6 +13423,31 @@ def _assemble_field_notes(items, general: str) -> str:
             + "\n\n".join(parts))
 
 
+_PRODUCT_REVIEWS_PATH = DATA_PATH / "product_reviews.json"
+
+
+def _load_product_reviews() -> dict:
+    """Persisted per-product reviews/notes, keyed by product URL. Entered once, reused
+    on every future draft that features that product. {url: {notes, title, updated_at}}."""
+    try:
+        with open(_PRODUCT_REVIEWS_PATH) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_product_reviews(reviews: dict) -> None:
+    try:
+        _PRODUCT_REVIEWS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _PRODUCT_REVIEWS_PATH.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(reviews, f, indent=2)
+        tmp.replace(_PRODUCT_REVIEWS_PATH)
+    except Exception:
+        pass
+
+
 def _tidy_body_html(body: str, store_dom: str = "", link_cap: int = 3) -> str:
     """Deterministic cleanup of the final body, for issues the model leaves behind:
       1. strip the non-functional 'age-filter-buttons' (styled buttons with no JS that
@@ -13573,7 +13598,9 @@ def api_content_draft():
     _general_notes = (body.get("field_notes") or "").strip()
     _notes_items = [it for it in (body.get("field_notes_items") or [])
                     if isinstance(it, dict) and (it.get("notes") or "").strip()]
-    field_notes = _assemble_field_notes(_notes_items, _general_notes)
+    # Assembled below, AFTER products are finalized, so stored per-product reviews can be
+    # merged in (reviews are persisted per product — entered once, reused every draft).
+    field_notes = ""
 
     try:
         with open(DATA_PATH / "latest_evaluation.json") as f:
@@ -13636,6 +13663,37 @@ def api_content_draft():
         brief["product_facts"] = {u: f for u, f in _pf.items() if u in _kept and f}
     except Exception as _e:
         print(f"[CD] product enrichment failed: {_e}", flush=True)
+
+    # PERSIST reviews per product and AUTO-LOAD stored ones. Reviews entered for a
+    # product are saved globally (keyed by URL) and reused on every future draft that
+    # features that product — so you never re-enter them, and another article with the
+    # same product gets them automatically.
+    try:
+        _incoming = {(it.get("url") or "").strip(): (it.get("notes") or "").strip()
+                     for it in _notes_items if (it.get("url") or "").strip()}
+        _titles = {(it.get("url") or "").strip(): it.get("title") for it in _notes_items}
+        if _incoming:                                   # save what the owner typed/edited
+            _rev = _load_product_reviews()
+            for _u, _n in _incoming.items():
+                if _n:
+                    _rev[_u] = {"notes": _n,
+                                "title": _titles.get(_u) or (_rev.get(_u) or {}).get("title"),
+                                "updated_at": datetime.now().isoformat(timespec="seconds")}
+            _save_product_reviews(_rev)
+        _rev = _load_product_reviews()
+        _merged_items = []
+        for _p in (brief.get("grounding_products") or []):
+            _u = (_p.get("url") or "").strip()
+            _n = _incoming.get(_u) or (_rev.get(_u) or {}).get("notes") or ""
+            if _n:
+                _merged_items.append({"url": _u, "title": _p.get("title"), "notes": _n})
+        _notes_items = _merged_items                    # what the draft actually used
+        field_notes = _assemble_field_notes(_merged_items, _general_notes)
+        from src.analysis.content_brief import _clean_field_notes as _cfn
+        brief["field_notes"] = _cfn(field_notes)
+    except Exception as _e:
+        print(f"[CD] review merge failed: {_e}", flush=True)
+
     # SERP competitor coverage (terms/headings/questions/length) so the draft covers
     # what the ranking pages do. Cached; graceful when Serper isn't configured.
     _serp_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()

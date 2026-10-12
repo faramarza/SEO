@@ -56,6 +56,18 @@ def test_emoji_converted_to_entities_but_plain_text_kept():
     assert A._emoji_to_entities(plain) == plain
 
 
+def test_product_reviews_persist_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(A, "_PRODUCT_REVIEWS_PATH", tmp_path / "product_reviews.json")
+    assert A._load_product_reviews() == {}                      # empty to start
+    A._save_product_reviews({"https://x/ring.html":
+                             {"notes": "Rounded corners; stacks six ways.", "title": "Ring"}})
+    got = A._load_product_reviews()
+    assert got["https://x/ring.html"]["notes"].startswith("Rounded")
+    # a corrupt/missing file reads back as {} (never fatal)
+    (tmp_path / "product_reviews.json").write_text("{ not json")
+    assert A._load_product_reviews() == {}
+
+
 def test_tidy_body_strips_buttons_syncs_nav_caps_links():
     body = ('<div class="hero-dance"><h2>Montessori Toys for 1-Year-Olds</h2></div>'
             '<div class="quick-nav"><a href="#dev">Dev</a></div>'
