@@ -12923,14 +12923,37 @@ _CB_TTL_DAYS = 14
 
 _PRODUCT_FACTS_PATH = DATA_PATH / "product_facts.json"
 _PF_TTL_DAYS = 30
-_PF_VERSION = "1"
+_PF_VERSION = "2"   # added real material extraction
+
+_MATERIAL_RE = re.compile(
+    r'\b(wood(?:en)?|hardwood|plastic|metal|silicone|fabric|cotton|bamboo|felt|rubber|'
+    r'cardboard|foam|acrylic)\b', re.I)
+
+
+def _extract_materials(html: str) -> list:
+    """Real material(s) of a product, read from its DESCRIPTION region only (not the
+    whole page, which carries cross-sell/nav noise). Returns a short normalized list
+    (e.g. ['wood'] or ['plastic']) — so the card states the true material instead of a
+    name-guess. Empty when the description names no material."""
+    blocks = re.findall(
+        r'(?is)<div[^>]*class="[^"]*(?:product[. ]attribute[. ]description|value)[^"]*"[^>]*>(.*?)</div>',
+        html or "")
+    desc = re.sub(r"<[^>]+>", " ", " ".join(blocks))
+    out = []
+    for w in _MATERIAL_RE.findall(desc):
+        w = w.lower()
+        w = {"wooden": "wood", "hardwood": "wood"}.get(w, w)
+        if w not in out:
+            out.append(w)
+    return out[:3]
 
 
 def _parse_product_facts(html: str) -> dict:
-    """From a product page, extract the explicit min age (months) and the real short
-    description — parsed ONLY from the curated meta/og description fields. The page body
-    is never scanned: it carries sidebar age-filter badges for every bracket, which
-    would corrupt the age. Returns {age_min_months|None, description}."""
+    """From a product page, extract the explicit min age (months), the real short
+    description, and the real material(s). Age/description come ONLY from the curated
+    meta/og fields (the page body carries sidebar age badges that would corrupt the
+    age); materials come from the description region. Returns
+    {age_min_months|None, description, materials}."""
     import html as _htmlmod
     blobs = []
     for prop in ('name="description"', 'property="og:description"'):
@@ -12947,7 +12970,8 @@ def _parse_product_facts(html: str) -> dict:
         m = re.search(r'(?:ages?\s*)?(\d{1,2})\s*(?:years?)?\s*\+', blob, re.I)  # "ages 3+" / "3 years+"
         if m:
             age = int(m.group(1)) * 12
-    return {"age_min_months": age, "description": (desc or "").strip()[:400]}
+    return {"age_min_months": age, "description": (desc or "").strip()[:400],
+            "materials": _extract_materials(html)}
 
 
 def _product_facts_for(products: list) -> dict:

@@ -699,9 +699,12 @@ def _sec_product_facts(brief, competitor, ctx):
                     for p in (brief.get("grounding_products") or [])}
     out = ["REAL PRODUCT FACTS (from the catalog — USE THESE; do not guess specs from a "
            "product's name). For any product you feature: base its description and ANY "
-           "material/feature claim on the real description below; if a detail isn't given, "
-           "do NOT state it. If an age is given, put THAT on the card's age tag — never a "
-           "blanket 'Ages 1+'. Products are already age-filtered for this article."]
+           "material/feature claim on the real facts below; if a detail isn't given, do "
+           "NOT state it. If an age is given, put THAT on the card's age tag — never a "
+           "blanket 'Ages 1+'. MATERIALS BOX: use ONLY the Material listed here (e.g. the "
+           "Stacking Ring is wood, not plastic); if no Material is listed, write "
+           "'[VERIFY: confirm material]' — NEVER guess wood/plastic/metal. Products are "
+           "already age-filtered for this article."]
     for url, f in facts.items():
         if not f:
             continue
@@ -710,9 +713,11 @@ def _sec_product_facts(brief, competitor, ctx):
             agelbl = f"Ages {age // 12}+" if age % 12 == 0 and age >= 12 else f"Ages {age}mo+"
         else:
             agelbl = "age not stated"
+        mats = f.get("materials") or []
+        matlbl = f" [Material: {', '.join(mats)}]" if mats else " [Material: not stated → VERIFY]"
         d = (f.get("description") or "").strip()
         t = title_by_url.get(url) or url
-        out.append(f"   • {t} [{agelbl}]" + (f" — {d}" if d else ""))
+        out.append(f"   • {t} [{agelbl}]{matlbl}" + (f" — {d}" if d else ""))
     return out
 
 

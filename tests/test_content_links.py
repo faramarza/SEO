@@ -122,6 +122,22 @@ def test_slug_age_months():
     assert A._slug_age_months("made-in-usa-montessori-toys.html") is None
 
 
+def test_extract_materials_from_description_region():
+    # real material read from the description block, normalized; page-wide noise ignored
+    html = ('<div class="product attribute description"><div class="value">'
+            'A lovely wooden stacking ring made from solid hardwood.</div></div>'
+            '<div class="related">plastic storage bin</div>')  # cross-sell noise
+    assert A._extract_materials(html) == ["wood"]              # wooden/hardwood -> wood, deduped
+    html2 = '<div class="product attribute description"><div class="value">BPA-free plastic board.</div></div>'
+    assert A._extract_materials(html2) == ["plastic"]
+    assert A._extract_materials('<div class="product attribute description"><div class="value">fun toy</div></div>') == []
+    # full parse carries materials through
+    f = A._parse_product_facts('<meta name="description" content="Wooden ring for ages 1+."/>'
+                               '<div class="product attribute description"><div class="value">'
+                               'solid wood ring</div></div>')
+    assert f["materials"] == ["wood"] and f["age_min_months"] == 12
+
+
 def test_parse_product_facts_age_and_description():
     # explicit "ages 3+" in the meta description → 36 months
     h = '<meta name="description" content="Child-safe wooden lock box for ages 3+."/>'
