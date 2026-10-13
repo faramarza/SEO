@@ -13494,6 +13494,62 @@ def _assemble_field_notes(items, general: str) -> str:
             + "\n\n".join(parts))
 
 
+_TARGET_TERMS_PATH = DATA_PATH / "target_terms.json"
+
+
+def _load_target_terms() -> dict:
+    """Persisted SEO target terms, keyed by keyword: {kw: {raw, terms, at}}."""
+    try:
+        d = json.load(open(_TARGET_TERMS_PATH))
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_target_terms(store: dict) -> None:
+    try:
+        _TARGET_TERMS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _TARGET_TERMS_PATH.with_suffix(".tmp")
+        json.dump(store, open(tmp, "w"), indent=2)
+        tmp.replace(_TARGET_TERMS_PATH)
+    except Exception:
+        pass
+
+
+def _parse_terms(raw: str) -> list:
+    """Parse a pasted term list (NeuronWriter etc.): handles comma lists and tab/columned
+    tables (term | uses | …). Strips trailing '(12)' counts; keeps multi-word phrases and
+    phrases containing numbers (e.g. '1 year old'); dedupes case-insensitively."""
+    if not raw:
+        return []
+    tokens = []
+    for line in str(raw).splitlines():
+        if "," in line and "\t" not in line:
+            tokens += line.split(",")
+        else:
+            tokens.append(line)
+    out, seen = [], set()
+    for tok in tokens:
+        t = re.split(r"\t|\s{2,}", tok.strip())[0].strip()   # first column of a table row
+        t = re.sub(r"\s*\(\d+\)\s*$", "", t).strip()         # drop a trailing "(12)" count
+        t = re.sub(r"\s+", " ", t)
+        tl = t.lower()
+        if 1 < len(t) <= 60 and tl not in seen and not t.isdigit():
+            seen.add(tl)
+            out.append(t)
+    return out[:120]
+
+
+def _term_coverage(body_html: str, terms: list):
+    """Which target terms appear in the body (case-insensitive substring) and which don't.
+    Returns (covered, missing)."""
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body_html or "")).lower()
+    covered, missing = [], []
+    for t in (terms or []):
+        (covered if (t or "").lower().strip() in text else missing).append(t)
+    return covered, missing
+
+
 _PRODUCT_REVIEWS_PATH = DATA_PATH / "product_reviews.json"
 
 
@@ -13840,6 +13896,26 @@ def api_content_draft():
         print(f"[CD] review merge failed: {_e}", flush=True)
         _reviews_used, _draft_prod_titles, _rev = [], [], {}
 
+    # TARGET TERMS (NeuronWriter etc.): parse owner-pasted terms, persist per keyword,
+    # auto-load stored ones, and feed them to the writer as a coverage target.
+    _terms_raw, _target_terms = "", []
+    try:
+        _kw_key = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip().lower()
+        _tt_store = _load_target_terms()
+        _terms_raw = (body.get("target_terms") or "").strip()
+        if _terms_raw:
+            _parsed = _parse_terms(_terms_raw)
+            if _parsed:
+                _tt_store[_kw_key] = {"raw": _terms_raw, "terms": _parsed,
+                                      "at": datetime.now().isoformat(timespec="seconds")}
+                _save_target_terms(_tt_store)
+        _ent = _tt_store.get(_kw_key) or {}
+        _target_terms = _ent.get("terms") or (_parse_terms(_terms_raw) if _terms_raw else [])
+        _terms_raw = _ent.get("raw") or _terms_raw
+        brief["target_terms"] = _target_terms
+    except Exception as _e:
+        print(f"[CD] target terms failed: {_e}", flush=True)
+
     # SERP competitor coverage (terms/headings/questions/length) so the draft covers
     # what the ranking pages do. Cached; graceful when Serper isn't configured.
     _serp_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
@@ -13953,6 +14029,9 @@ def api_content_draft():
     if parsed.get("h1"):
         parsed["h1"] = _emoji_to_entities(parsed["h1"])
 
+    # Target-term coverage report (NeuronWriter-style) for the review gate.
+    _terms_cov, _terms_mis = _term_coverage(parsed.get("body_html", ""), _target_terms)
+
     import uuid
     final_kw = (primary_keyword or brief["topic"].get("primary_keyword") or "").strip()
     store = _cd_load()
@@ -14009,6 +14088,12 @@ def api_content_draft():
         # any reviews are saved at all — so it's clear whether reviews made it in.
         "reviews_used": _reviews_used,
         "reviews_in_store": len(_rev or {}),
+        # SEO target terms (NeuronWriter etc.): what was targeted + coverage, for the gate
+        # and to prefill the box on re-draft.
+        "target_terms": _target_terms,
+        "target_terms_raw": _terms_raw,
+        "terms_covered": _terms_cov,
+        "terms_missing": _terms_mis,
         # Real catalog products this draft is grounded in — shown next to the notes box
         # so the owner knows which products to gather reviews for.
         "products": [{"url": p.get("url"), "title": p.get("title")}
@@ -14042,6 +14127,16 @@ def _cd_checklist(draft: dict) -> list:
                       "text": f"Body is {wc} words of prose — under the {floor}-word floor. "
                               "Expand the thin sections (add sections / more depth, no filler) "
                               "before publishing."})
+    # Target-term coverage (NeuronWriter-style score).
+    tt = draft.get("target_terms") or []
+    if tt:
+        mis = draft.get("terms_missing") or []
+        cov = len(tt) - len(mis)
+        txt = f"Target terms covered {cov}/{len(tt)}."
+        if mis:
+            txt += " Missing (add where they fit naturally — don't force): " + ", ".join(mis[:20])
+        items.append({"severity": "fix" if len(mis) > len(tt) // 3 else "verify", "text": txt})
+
     # Reviews: say plainly whether saved reviews were applied to THIS article.
     ru = draft.get("reviews_used") or []
     if ru:

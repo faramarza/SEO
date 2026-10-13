@@ -136,6 +136,27 @@ def test_tidy_body_strips_buttons_syncs_nav_caps_links():
     assert 'href="https://www.naeyc.org/p"' in out               # external untouched
 
 
+def test_parse_terms_and_coverage():
+    # comma list
+    assert A._parse_terms("stacking toy, shape sorter, fine motor skills") == \
+        ["stacking toy", "shape sorter", "fine motor skills"]
+    # tabbed table with counts, and "(8)" count stripped; number-only token dropped
+    assert A._parse_terms("montessori toys\t42\nstacking ring\t12\nfine motor (8)\n9") == \
+        ["montessori toys", "stacking ring", "fine motor"]
+    # phrases containing numbers are kept
+    assert "1 year old" in A._parse_terms("1 year old, montessori")
+    cov, mis = A._term_coverage("<p>A great stacking ring for fine motor skills.</p>",
+                                ["stacking ring", "shape sorter", "fine motor skills"])
+    assert cov == ["stacking ring", "fine motor skills"] and mis == ["shape sorter"]
+
+
+def test_target_terms_persist_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(A, "_TARGET_TERMS_PATH", tmp_path / "target_terms.json")
+    assert A._load_target_terms() == {}
+    A._save_target_terms({"montessori toys": {"raw": "a, b", "terms": ["a", "b"]}})
+    assert A._load_target_terms()["montessori toys"]["terms"] == ["a", "b"]
+
+
 def test_slug_age_months():
     assert A._slug_age_months("montessori-toys-for-1-year-olds.html") == 12
     assert A._slug_age_months("montessori-toys-2-year-olds.html") == 24

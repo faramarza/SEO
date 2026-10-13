@@ -653,6 +653,23 @@ def _sec_citations(brief, competitor, ctx):
     return out
 
 
+def _sec_target_terms(brief, competitor, ctx):
+    """SEO coverage terms the owner supplied from an optimization tool (NeuronWriter
+    etc.) — the phrases top-ranking pages use. Guide the model to cover them naturally;
+    emits nothing when none were supplied."""
+    terms = brief.get("target_terms") or []
+    if not terms:
+        return []
+    return [
+        "SEO TARGET TERMS (from the owner's optimization tool — the phrases top-ranking "
+        "pages use). Weave in AS MANY AS FIT NATURALLY, only where they match the real "
+        "content; skip any that don't fit this article. Do NOT keyword-stuff, do NOT list "
+        "them in a block, and NEVER invent a claim, product, or spec just to include a "
+        "term. Each term once, in context, is plenty:",
+        ", ".join(terms[:80]),
+    ]
+
+
 def _sec_field_notes(brief, competitor, ctx):
     """Fold owner-pasted real notes / customer reviews in as PRIVATE grounding — the
     one source of first-hand, specific, E-E-A-T detail the model can't otherwise know.
@@ -734,7 +751,7 @@ def _sec_product_facts(brief, competitor, ctx):
 
 # The prompt is composed from these, in order. Add/remove/reorder a concern here.
 _PROMPT_SECTIONS = [_sec_header, _sec_length, _sec_age, _sec_format,
-                    _sec_house, _sec_coverage, _sec_product_facts,
+                    _sec_house, _sec_coverage, _sec_target_terms, _sec_product_facts,
                     _sec_field_notes, _sec_internal, _sec_citations]
 
 

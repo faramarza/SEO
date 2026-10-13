@@ -173,20 +173,21 @@ async function csDraftAll(btn){
 // One drafting path, with VISIBLE feedback on the clicked button and in the
 // detail pane (the old code hid all feedback on the collapsed custom-box button,
 // so a Draft click looked like it did nothing during the 30–60s generation).
-async function csDoDraft(family, kw, btn, notes, items){
-  family=(family||'').trim(); kw=(kw||'').trim(); notes=(notes||'').trim();
+async function csDoDraft(family, kw, btn, notes, items, terms){
+  family=(family||'').trim(); kw=(kw||'').trim(); notes=(notes||'').trim(); terms=(terms||'').trim();
   items=(items||[]).filter(x=>x&&(x.notes||'').trim());
   if(!family){ csToast('Pick a topic above, or enter a product family',true); return; }
   const old = btn ? btn.textContent : '';
   if(btn){ btn.disabled=true; btn.textContent='✍️ Drafting…'; }
   const detail=document.getElementById('cs-detail');
   const hasNotes = notes || items.length;
-  detail.innerHTML='<p class="pb-loading">✍️ Drafting “'+escHtml(kw||family)+'” — grounded in your catalog'+(hasNotes?' + your pasted reviews':'')+', up to ~1–3 min…</p>';
+  detail.innerHTML='<p class="pb-loading">✍️ Drafting “'+escHtml(kw||family)+'” — grounded in your catalog'+(hasNotes?' + your pasted reviews':'')+(terms?' + SEO terms':'')+', up to ~1–3 min…</p>';
   detail.scrollIntoView({behavior:'smooth', block:'nearest'});
   try{
     const payload={family, primary_keyword:kw};
     if(notes){ payload.field_notes=notes; }
     if(items.length){ payload.field_notes_items=items; }
+    if(terms){ payload.target_terms=terms; }
     const r=await (await fetch('/api/content/draft',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(payload)})).json();
     if(r.error){ csToast(r.error,true); detail.innerHTML='<p class="empty-state" style="color:#dc2626;">'+escHtml(r.error)+'</p>'; }
@@ -296,6 +297,12 @@ function renderDetail(d, checklist){
         <textarea id="cs-detail-notes" rows="3" placeholder="Anything that isn't about one specific product…"
                   style="width:100%;margin-top:6px;font-size:12.5px;padding:7px 9px;border:1px solid var(--border,#ccc);border-radius:6px;resize:vertical;box-sizing:border-box;">${escHtml(d.field_notes||'')}</textarea>
       </details>
+      <details style="margin:0 0 6px;">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);">SEO target terms (paste from NeuronWriter) — optional</summary>
+        <p style="font-size:11.5px;color:var(--text-muted);margin:6px 0 4px;">Paste the term list (comma-separated or the table — counts are ignored). The writer covers as many as fit naturally; the review gate shows the coverage score. Saved per keyword, reused on re-draft.</p>
+        <textarea id="cs-detail-terms" rows="3" placeholder="e.g. stacking toy, shape sorter, fine motor skills, hand-eye coordination…"
+                  style="width:100%;font-size:12.5px;padding:7px 9px;border:1px solid var(--border,#ccc);border-radius:6px;resize:vertical;box-sizing:border-box;">${escHtml(d.target_terms_raw||'')}</textarea>
+      </details>
       <button class="cs-btn primary" style="margin-top:4px;" onclick="csRedraftWithNotes(this)">♻️ Re-draft with these notes</button>
 
       <h3 style="font-size:13px;margin:16px 0 4px;">📋 Cut-and-paste blocks for Magento</h3>
@@ -317,9 +324,10 @@ function csRedraftWithNotes(btn){
     .filter(x=>x.notes);
   const ta=document.getElementById('cs-detail-notes');
   const general=(ta ? ta.value : '').trim();
-  if(!items.length && !general){ csToast('Paste reviews into at least one product box first',true); return; }
-  // Re-run the SAME topic with the notes; the backend replaces this draft in place.
-  csDoDraft(CUR.family, CUR.primary_keyword||'', btn, general, items);
+  const terms=(document.getElementById('cs-detail-terms')?.value||'').trim();
+  if(!items.length && !general && !terms){ csToast('Paste reviews or SEO terms first',true); return; }
+  // Re-run the SAME topic with the notes/terms; the backend replaces this draft in place.
+  csDoDraft(CUR.family, CUR.primary_keyword||'', btn, general, items, terms);
 }
 
 function csCopyKey(key){
