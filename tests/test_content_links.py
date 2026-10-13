@@ -93,6 +93,24 @@ def test_product_reviews_persist_round_trip(tmp_path, monkeypatch):
     assert A._load_product_reviews() == {}
 
 
+def test_parent_insights_section_inserted_after_cards():
+    body = ('<h2 id="rec">Recommended</h2>'
+            '<div class="game-card"><h3>Spinning Drum</h3><div class="materials-box">wood</div></div>'
+            '<div class="game-card"><h3>Circle Sorter</h3><div class="materials-box">wood</div></div>'
+            '<h2 id="faq">FAQ</h2>')
+    insights = {"u1": "Reaches for it during tummy time and the mirror holds her attention.",
+                "u2": "", "u3": "She loves posting the chunky circles."}
+    tbu = {"u1": "Montessori Spinning Drum", "u2": "Empty", "u3": "Guidecraft Circle Sorter"}
+    out = A._insert_parent_insights(body, insights, tbu)
+    assert "What Parents Say About These Toys" in out
+    assert "tummy time" in out and "chunky circles" in out
+    assert "Empty" not in out                                  # empty insight skipped
+    assert out.index("What Parents Say") > out.rindex('class="game-card"')
+    assert out.index("What Parents Say") < out.index('id="faq"')
+    # no reviewed insights → body unchanged
+    assert A._insert_parent_insights(body, {"u1": ""}, tbu) == body
+
+
 def test_product_showcase_built_when_model_omits_cards():
     brief = {"family": "montessori toys",
              "link_products": [{"url": "https://alphabet-trains.com/ring.html", "title": "Stacking Ring"},

@@ -13575,6 +13575,59 @@ def _save_product_reviews(reviews: dict) -> None:
         pass
 
 
+def _paraphrase_reviews(items: list, age_ctx: str) -> dict:
+    """One focused LLM call that turns each reviewed product's pasted notes into ONE
+    sentence of genuine, paraphrased first-hand parent insight (never verbatim, no
+    names/price/other-age). Returns {url: sentence}. {} on any failure."""
+    items = [it for it in (items or []) if (it.get("notes") or "").strip()]
+    if not items:
+        return {}
+    blocks = "\n".join(f"PRODUCT id={it.get('url')}  ({it.get('title')})\nNOTES: "
+                       f"{(it.get('notes') or '')[:1200]}\n" for it in items)
+    sys = ("You turn pasted customer reviews into ONE sentence of genuine, first-hand "
+           "parent insight per product. Rules: PARAPHRASE in your own words — never copy "
+           f"a sentence verbatim; keep ONLY detail relevant to a {age_ctx or 'young child'}; "
+           "IGNORE anything about other ages, adults, therapy/rehab, quality complaints, or "
+           "price; never include a person's or brand name. If a product's notes have nothing "
+           "age-relevant, use an empty string for it. Return ONLY a JSON object mapping each "
+           "product's id to its one-sentence insight.")
+    text, err = _llm_complete(sys, "Write one insight sentence per product:\n\n" + blocks,
+                              max_tokens=1500, timeout_sec=150)
+    if err:
+        return {}
+    parsed, _ = _cd_parse_llm_json(text)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _insert_parent_insights(body: str, insights: dict, title_by_url: dict) -> str:
+    """Deterministically add a 'What Parents Say' section (one callout per reviewed
+    product) so the first-hand review detail is GUARANTEED to appear, regardless of
+    whether the model wove it into the cards. Inserted after the last product card."""
+    rows = []
+    for url, sent in (insights or {}).items():
+        s = (sent or "").strip()
+        if not s:
+            continue
+        t = title_by_url.get(url) or ""
+        rows.append(f'<div class="tip-box"><strong>{t}:</strong> {s}</div>')
+    if not rows:
+        return body
+    section = ('<h2 id="what-parents-say">What Parents Say About These Toys</h2>\n'
+               + "\n".join(rows))
+    last = None
+    for m in re.finditer(r'<div class="game-card">', body or ""):
+        last = m
+    if last:
+        i = last.start()
+        depth = 0
+        for mm in re.finditer(r'<(/?)div\b[^>]*>', body[i:]):
+            depth += 1 if not mm.group(1) else -1
+            if depth == 0:
+                pos = i + mm.end()
+                return body[:pos] + "\n" + section + "\n" + body[pos:]
+    return _insert_before_faq(body, section)
+
+
 def _ensure_product_showcase(body: str, brief: dict) -> str:
     """A toys roundup must actually SHOW the toys. If the draft contains no product
     cards at all, build a 'Top Picks' showcase from the REAL catalog facts (title, url,
@@ -13894,7 +13947,7 @@ def api_content_draft():
                               if p.get("title")]
     except Exception as _e:
         print(f"[CD] review merge failed: {_e}", flush=True)
-        _reviews_used, _draft_prod_titles, _rev = [], [], {}
+        _reviews_used, _draft_prod_titles, _rev, _merged_items = [], [], {}, []
 
     # TARGET TERMS (NeuronWriter etc.): parse owner-pasted terms, persist per keyword,
     # auto-load stored ones, and feed them to the writer as a coverage target.
@@ -14011,6 +14064,22 @@ def api_content_draft():
                     _word_count = _count_prose_words(parsed.get("body_html", ""))
         except Exception as _e:
             print(f"[CD] expansion pass failed: {_e}", flush=True)
+
+    # GUARANTEE the review voice: the model won't reliably weave pasted reviews into the
+    # cards, so deterministically add a 'What Parents Say' section — one paraphrased,
+    # first-hand insight per reviewed product (never verbatim). Runs before tidy so it
+    # joins the quick-nav, and the verbatim guard runs again afterwards as a backstop.
+    try:
+        if _merged_items:
+            from src.analysis.content_brief import _age_context as _agectx2
+            _age_ctx_str = _agectx2(brief["topic"].get("title"), brief["topic"].get("primary_keyword"))
+            _insights = _paraphrase_reviews(_merged_items, _age_ctx_str)
+            _tbu = {it.get("url"): it.get("title") for it in _merged_items}
+            parsed["body_html"] = _insert_parent_insights(parsed.get("body_html", ""),
+                                                          _insights, _tbu)
+            _enforce_verbatim(parsed)
+    except Exception as _e:
+        print(f"[CD] parent-insights build failed: {_e}", flush=True)
 
     # Deterministic tidy of the final body: strip non-functional age-filter buttons,
     # give every section an id and rebuild the quick-nav from the real sections (so
