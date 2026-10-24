@@ -7,9 +7,12 @@ missing data the engine omits leaks / dollar figures rather than inventing them.
 from datetime import date, timedelta
 
 from src.analysis.sales_engine import (
-    build_sales_leaks, build_daily_plan, sales_readiness,
+    build_sales_leaks, build_daily_plan, sales_readiness, _store_profile,
     TARGET_CLOSE, MIN_CARTS,
 )
+
+_PERSONALIZED_CFG = {"business_context": {"product_families": [
+    "name trains", "personalized name puzzles", "personalized baby books"]}}
 
 
 def _eval():
@@ -89,13 +92,54 @@ def test_checkout_abandonment_sized_correctly():
     assert co["category"] == "conversion"
 
 
+def _texts(steps):
+    return [s["text"] if isinstance(s, dict) else s for s in steps]
+
+
 def test_leaky_product_detected_and_book_gets_preview_step():
     b = build_sales_leaks(_eval(), {}, None)
     book = next(l for l in b["leaks"] if l["id"].startswith("leaky_product:")
                 and "goodnight-book" in l["id"])
     # 52 carts, 3 buys -> lost (0.30 - 3/52)*52 = ~12.6 orders * ($180/3=$60) ≈ $756
     assert book["dollars"] == 756
-    assert any("preview" in s.lower() or "proof" in s.lower() for s in book["steps"])
+    txt = " ".join(_texts(book["steps"])).lower()
+    assert "preview" in txt or "proof" in txt
+
+
+def test_steps_have_stable_ids():
+    b = build_sales_leaks(_eval(), _PERSONALIZED_CFG, None)
+    for leak in b["leaks"] + b["winners"]:
+        for i, s in enumerate(leak["steps"]):
+            assert set(s.keys()) >= {"id", "text"}
+            assert s["id"] == f"{leak['id']}#{i}"
+
+
+def test_store_profile_inference():
+    assert _store_profile(_PERSONALIZED_CFG)["personalized"] is True
+    assert _store_profile(_PERSONALIZED_CFG)["no_returns"] is True
+    assert _store_profile({})["personalized"] is False
+    # explicit override wins
+    cfg = {"business_context": {"product_families": ["widgets"], "sells_personalized": True}}
+    assert _store_profile(cfg)["personalized"] is True
+
+
+def test_personalized_checkout_drops_returns_adds_preview():
+    b = build_sales_leaks(_eval(), _PERSONALIZED_CFG, None)
+    co = next(l for l in b["leaks"] if l["id"] == "checkout_abandonment")
+    txt = " ".join(_texts(co["steps"])).lower()
+    assert "preview" in txt or "proof" in txt           # trust substitute for no-returns
+    assert "personaliz" in txt                          # the form-friction lever
+    # never tells a no-returns store to "add a returns guarantee"
+    assert "returns/guarantee" not in txt
+    assert "add a returns" not in txt
+
+
+def test_personalized_leaky_product_drops_generic_returns():
+    b = build_sales_leaks(_eval(), _PERSONALIZED_CFG, None)
+    prod = next(l for l in b["leaks"] if l["id"].startswith("leaky_product:"))
+    txt = " ".join(_texts(prod["steps"])).lower()
+    assert "preview" in txt or "proof" in txt
+    assert "returns / satisfaction guarantee" not in txt
 
 
 def test_dead_traffic_only_flags_product_pages_not_blogs():

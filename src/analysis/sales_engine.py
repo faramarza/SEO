@@ -47,6 +47,27 @@ _BOOK_RE = re.compile(
     r"\b(book|storybook|story ?book|i ?see ?me|iseeme|goodnight|bedtime|"
     r"personalized (?:book|story))\b", re.I)
 
+# A store that sells personalized / custom goods has a DIFFERENT leak profile:
+# generic "add a returns guarantee" is wrong (personalized items can't be
+# returned), and the real friction is the personalization form + the anxiety of
+# buying something you can't preview and can't send back.
+_PERSONALIZED_RE = re.compile(
+    r"personaliz|personalis|\bname train|\bcustom|monogram|engrav", re.I)
+
+
+def _store_profile(config: dict = None) -> dict:
+    """Infer the store's sales model from config so advice fits the business.
+    `business_context.product_families` drives it; explicit `sells_personalized`
+    / `no_returns` flags override. Personalized goods are treated as
+    non-returnable unless config says otherwise."""
+    bc = (config or {}).get("business_context", {}) or {}
+    fams = " ".join(str(x) for x in (bc.get("product_families") or []))
+    personalized = bool(_PERSONALIZED_RE.search(fams))
+    if "sells_personalized" in bc:
+        personalized = bool(bc["sells_personalized"])
+    no_returns = bool(bc.get("no_returns", personalized))
+    return {"personalized": personalized, "no_returns": no_returns}
+
 
 def _num(v: Any) -> float:
     try:
@@ -80,9 +101,12 @@ def _label(r: dict) -> str:
 
 # ── Leak builders ────────────────────────────────────────────────────────────
 
-def _leak_checkout(account: dict) -> Optional[dict]:
+def _leak_checkout(account: dict, profile: dict = None) -> Optional[dict]:
     """Site-wide cart→purchase abandonment. The single biggest, most universal
-    leak: people who put something in the cart and never buy."""
+    leak: people who put something in the cart and never buy. Steps adapt to the
+    store model — a personalized/non-returnable store gets preview + form-friction
+    advice instead of the generic 'add a returns guarantee'."""
+    profile = profile or {}
     carts, orders = _num(account.get("add_to_carts")), _num(account.get("purchases"))
     if carts < MIN_CARTS or orders <= 0:
         return None
@@ -92,19 +116,35 @@ def _leak_checkout(account: dict) -> Optional[dict]:
     if close < TARGET_CLOSE and aov:
         dollars = round((TARGET_CLOSE - close) * carts * aov)
     sev = "high" if (dollars or 0) >= 500 else "medium" if close < TARGET_CLOSE else "low"
-    return {
-        "id": "checkout_abandonment",
-        "category": "conversion",
-        "severity": sev,
-        "dollars": dollars,
-        "title": "People add to cart and don't buy",
-        "what": (f"{int(carts)} add-to-carts turned into only {int(orders)} orders "
-                 f"({close*100:.0f}% close rate). A healthy store closes ~{int(TARGET_CLOSE*100)}%."),
-        "why": ("This is pure lost money — these shoppers already wanted the product "
-                "enough to add it. Something between the cart and the thank-you page "
-                "is stopping them: surprise shipping cost, a forced account, too many "
-                "form fields, or no trust/returns reassurance."),
-        "steps": [
+
+    if profile.get("personalized"):
+        why = ("Pure lost money — these shoppers already wanted it enough to add it. "
+               "On a personalized, non-returnable store the usual culprit is NOT the "
+               "generic checkout basics: it's the personalization form asking for too "
+               "much, and the anxiety of paying for something they can't preview and "
+               "can't send back. Fix those two and this number moves.")
+        steps = [
+            "On your phone, buy one of your own personalized items start to finish. Count "
+            "every field you're FORCED to fill — your custom-option form is the likeliest "
+            "friction.",
+            "Cut required personalization fields to the minimum; give the rest smart "
+            "defaults; validate inline so no one hits 'go back and fix it' at the end.",
+            "If you don't already offer them, add Apple Pay / Google Pay / Shop Pay — on "
+            "mobile they skip the address/form slog. (Already have them? Tick this off.)",
+            "You can't take returns on personalized goods, so sell TRUST instead: a preview "
+            "or 'we email a proof before we print' promise, right by the Add-to-Cart and "
+            "Pay buttons.",
+            "Back it with a 'we remake any mistake of ours free' guarantee — reassurance "
+            "without being a returns policy.",
+            "Quick checks (most stores already have these): free-shipping shown up front, "
+            "guest checkout on, one-page checkout, abandoned-cart email live.",
+        ]
+    else:
+        why = ("This is pure lost money — these shoppers already wanted the product "
+               "enough to add it. Something between the cart and the thank-you page "
+               "is stopping them: surprise shipping cost, a forced account, too many "
+               "form fields, or no trust/returns reassurance.")
+        steps = [
             "Buy one of your own products on your phone, start to finish. Time it and "
             "note every moment you hesitate — that's your list.",
             "Show the shipping cost (or 'free shipping over $X') BEFORE checkout, not as "
@@ -113,7 +153,17 @@ def _leak_checkout(account: dict) -> Optional[dict]:
             "Cut the checkout to the fewest fields possible; enable address autofill.",
             "Put returns/guarantee + a security badge right next to the Pay button.",
             "Turn on an abandoned-cart email (recover ~10% of these for near-zero cost).",
-        ],
+        ]
+    return {
+        "id": "checkout_abandonment",
+        "category": "conversion",
+        "severity": sev,
+        "dollars": dollars,
+        "title": "People add to cart and don't buy",
+        "what": (f"{int(carts)} add-to-carts turned into only {int(orders)} orders "
+                 f"({close*100:.0f}% close rate). A healthy store closes ~{int(TARGET_CLOSE*100)}%."),
+        "why": why,
+        "steps": steps,
         "evidence": {"add_to_carts": int(carts), "orders": int(orders),
                      "close_rate_pct": round(close * 100, 1),
                      "target_pct": int(TARGET_CLOSE * 100), "aov": aov},
@@ -121,7 +171,7 @@ def _leak_checkout(account: dict) -> Optional[dict]:
     }
 
 
-def _leak_leaky_products(results: list, account: dict) -> list:
+def _leak_leaky_products(results: list, account: dict, profile: dict = None) -> list:
     """Product pages where lots of people add to cart but few buy — your worst
     offenders, ranked by estimated lost dollars."""
     aov = _aov(account)
@@ -139,15 +189,27 @@ def _leak_leaky_products(results: list, account: dict) -> list:
         lost_orders = (TARGET_CLOSE - close) * carts
         unit = (_num(r.get("item_revenue")) / buys) if buys and _num(r.get("item_revenue")) else aov
         dollars = round(lost_orders * unit) if unit else None
-        steps = [
-            f"Open {r.get('url','the page')} and look at it as a first-time buyer on a phone.",
-            "Make the price, shipping and 'in stock' status impossible to miss above the fold.",
-            "Add 3–5 real customer reviews near the Add-to-Cart button (social proof closes carts).",
-            "State the returns / satisfaction guarantee on the page, not buried in a footer link.",
-        ]
-        if _BOOK_RE.search(_label(r)):
-            steps.insert(1, "BOOKS: add a personalization preview or a 'free proof before we "
-                            "print' promise — the missing preview is your known book leak.")
+        if (profile or {}).get("personalized"):
+            steps = [
+                f"Open {r.get('url','the page')} on a phone and buy it yourself — watch the "
+                "personalization step for friction.",
+                "Add a preview / 'proof before we print' so the buyer can trust what they'll "
+                "get — with no returns, they need to see it before paying.",
+                "Make price, FREE shipping and 'we remake any error free' impossible to miss "
+                "above the fold.",
+                "Add 3–5 real customer reviews near the Add-to-Cart button — social proof "
+                "closes personalized carts.",
+            ]
+        else:
+            steps = [
+                f"Open {r.get('url','the page')} and look at it as a first-time buyer on a phone.",
+                "Make the price, shipping and 'in stock' status impossible to miss above the fold.",
+                "Add 3–5 real customer reviews near the Add-to-Cart button (social proof closes carts).",
+                "State the returns / satisfaction guarantee on the page, not buried in a footer link.",
+            ]
+            if _BOOK_RE.search(_label(r)):
+                steps.insert(1, "BOOKS: add a personalization preview or a 'free proof before we "
+                                "print' promise — the missing preview is your known book leak.")
         out.append({
             "id": "leaky_product:" + (r.get("url") or _label(r)),
             "category": "conversion",
@@ -302,12 +364,13 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
     eval_data = eval_data or {}
     account = eval_data.get("ga4_account") or {}
     results = eval_data.get("results") or []
+    profile = _store_profile(config)
 
     leaks = []
-    co = _leak_checkout(account)
+    co = _leak_checkout(account, profile)
     if co:
         leaks.append(co)
-    leaks += _leak_leaky_products(results, account)
+    leaks += _leak_leaky_products(results, account, profile)
     leaks += _leak_dead_traffic(results, account)
     leaks += _leak_no_reviews(results, reviews)
 
@@ -317,6 +380,15 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
                               sev_rank.get(x["severity"], 9)))
 
     winners = _winners_starved(results, account)
+
+    # Give every step a stable id so the UI can let the operator tick off what
+    # they've already done / what doesn't apply, and we can remember it. The id is
+    # the leak id + the step's position in ITS OWN list, so it's stable across
+    # re-ranking and re-runs.
+    for item in leaks + winners:
+        item["steps"] = [{"id": f"{item['id']}#{i}", "text": t}
+                         for i, t in enumerate(item.get("steps", []))]
+
     recoverable = sum(l["dollars"] for l in leaks if l.get("dollars"))
     return {
         "leaks": leaks,
@@ -490,7 +562,7 @@ def build_daily_plan(leaks_bundle: dict, state: dict = None,
             "minutes": 30,
             "why": (f"Your biggest fixable leak — about ${d:,}/month on the line. "
                     if d else "Your top money leak right now. ") + top["why"],
-            "how": top["steps"],
+            "how": [s["text"] if isinstance(s, dict) else s for s in top["steps"]],
             "dollars": d,
             "leak_id": top["id"],
             "done": f"leak:{top['id']}" in done_today,

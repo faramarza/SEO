@@ -8447,8 +8447,16 @@ def _grow_sales_payload():
     # Annotate which leaks the operator has marked fixed so the board can grey
     # them out and offer Undo (the daily plan already skips fixed leaks).
     fixed = state.get("fixed") or {}
-    for leak in bundle.get("leaks", []):
+    steps_done = state.get("steps_done") or {}
+    for leak in bundle.get("leaks", []) + bundle.get("winners", []):
         leak["_fixed"] = bool(fixed.get(leak["id"]))
+        done_n = 0
+        for s in leak.get("steps", []):
+            if isinstance(s, dict):
+                s["done"] = bool(steps_done.get(s["id"]))
+                done_n += 1 if s["done"] else 0
+        leak["_steps_total"] = sum(1 for s in leak.get("steps", []) if isinstance(s, dict))
+        leak["_steps_done"] = done_n
     plan = build_daily_plan(bundle, state, _date.today())
     readiness = sales_readiness(eval_data, reviews)
     return {
@@ -8498,6 +8506,16 @@ def api_grow_sales_done():
                 done.append(item_id)
         else:
             day["done"] = [d for d in done if d != item_id]
+
+    # A single step ticked off ("I've already done this" / "doesn't apply") so it
+    # stops being suggested. Persisted across days.
+    step_id = data.get("step_id")
+    if step_id is not None:
+        sd = store.setdefault("steps_done", {})
+        if data.get("done"):
+            sd[step_id] = True
+        else:
+            sd.pop(step_id, None)
 
     _save_sales_plan(store)
     return jsonify(_grow_sales_payload())

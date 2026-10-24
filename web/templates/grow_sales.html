@@ -56,6 +56,14 @@
 .gs-how summary{cursor:pointer;color:var(--accent,#2563eb);font-weight:600;}
 .gs-how ol{margin:8px 0 0;padding-left:20px;}
 .gs-how li{margin:4px 0;color:var(--text-secondary,#374151);}
+.gs-steps{list-style:none;margin:8px 0 0;padding:0;}
+.gs-step{display:flex;gap:10px;align-items:flex-start;margin:6px 0;color:var(--text-secondary,#374151);}
+.gs-step-check{flex:0 0 auto;width:18px;height:18px;border:2px solid var(--border,#cbd5e1);border-radius:5px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;background:#fff;
+  margin-top:1px;user-select:none;}
+.gs-step.done .gs-step-check{background:#16a34a;border-color:#16a34a;}
+.gs-step.done .gs-step-t{text-decoration:line-through;color:var(--text-muted,#9ca3af);}
+.gs-step-t{flex:1 1 auto;}
 .gs-done-all{background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:10px;
   padding:12px 14px;font-weight:700;margin:6px 0 0;}
 
@@ -197,9 +205,17 @@ function gsLeaks(b){
     h+='<div class="gs-leak-what">'+gsEsc(l.what)+'</div>';
     h+='<div class="gs-leak-why">'+gsEsc(l.why)+'</div>';
     if(l.steps&&l.steps.length){
-      h+='<details class="gs-how"><summary>Fix it — step by step</summary><ol>';
-      l.steps.forEach(s=>h+='<li>'+gsEsc(s)+'</li>');
-      h+='</ol></details>';
+      const total=l._steps_total!=null?l._steps_total:l.steps.length, done=l._steps_done||0;
+      const cleared=(total>0&&done>=total);
+      const summary=cleared?'Basics all ticked ✓':('Fix it — step by step'+(done?(' · '+done+'/'+total+' done'):''));
+      h+='<details class="gs-how"><summary>'+summary+'</summary><ul class="gs-steps">';
+      l.steps.forEach(s=>{
+        const id=(s&&s.id)||'', txt=(s&&s.text!=null)?s.text:s, dn=!!(s&&s.done);
+        h+='<li class="gs-step'+(dn?' done':'')+'">'+
+           '<span class="gs-step-check" data-step="'+gsEsc(id)+'" data-done="'+(dn?1:0)+'" title="I\'ve done this / doesn\'t apply">'+(dn?'✓':'')+'</span>'+
+           '<span class="gs-step-t">'+gsEsc(txt)+'</span></li>';
+      });
+      h+='</ul></details>';
     }
     h+='<div class="gs-leak-actions">';
     if(l._fixed) h+='<button class="gs-mini" data-fix="'+gsEsc(l.id)+'" data-on="0">↺ Undo fixed</button>';
@@ -230,6 +246,9 @@ function gsBind(){
   });
   document.querySelectorAll('[data-fix]').forEach(el=>{
     el.onclick=()=>gsPost({leak_id:el.getAttribute('data-fix'), fixed:el.getAttribute('data-on')==='1'});
+  });
+  document.querySelectorAll('.gs-step-check').forEach(el=>{
+    el.onclick=()=>gsPost({step_id:el.getAttribute('data-step'), done:el.getAttribute('data-done')!=='1'});
   });
 }
 
