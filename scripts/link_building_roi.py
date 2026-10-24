@@ -16,9 +16,42 @@ Run on the SERVER where GSC credentials exist:
 Reads config/defaults.json -> data_sources.gsc (property_url, credentials_path).
 Read-only; makes no changes.
 """
+import os
+import sys
+
+
+def _reexec_in_venv():
+    """The systemd 'seo' service runs in a virtualenv; plain system python3 usually
+    lacks pydantic/google libs. If our interpreter can't import pydantic, re-exec this
+    script with the app's venv python so the user can just run `python3 scripts/...`."""
+    try:
+        import pydantic  # noqa: F401
+        return
+    except ImportError:
+        pass
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(here)
+    cands = [os.path.join(root, v, "bin", "python") for v in ("venv", ".venv", "env")]
+    try:
+        import re
+        import subprocess
+        out = subprocess.run(["systemctl", "show", "-p", "ExecStart", "--value", "seo"],
+                             capture_output=True, text=True, timeout=5).stdout
+        m = re.search(r"(/[^\s;]+)/bin/(?:gunicorn|python[0-9.]*)", out)
+        if m:
+            cands.insert(0, m.group(1) + "/bin/python")
+    except Exception:
+        pass
+    cur = os.path.realpath(sys.executable)
+    for py in cands:
+        if os.path.exists(py) and os.path.realpath(py) != cur:
+            os.execv(py, [py] + sys.argv)   # hand off; does not return
+
+
+_reexec_in_venv()
+
 import argparse
 import json
-import sys
 from datetime import date, timedelta
 from pathlib import Path
 
