@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}Grow Sales{% endblock %}
+{% block header %}💰 Grow Sales{% endblock %}
+
+{% block content %}
+<div class="gs-page">
+  <p class="playbook-intro">
+    The sales-first view. It reads the <strong>funnel GA4 already records</strong> — who adds to
+    cart, who actually buys — finds where you're <strong>losing money</strong> (ranked by real
+    dollars), shows the products that <strong>already convert</strong>, and turns all of it into a
+    dead-simple <strong>do-these-3-things-today</strong> list. Every number here comes from your own
+    data; nothing is guessed.
+  </p>
+
+  <div id="gs-body"><p class="gs-loading">Loading your numbers…</p></div>
+</div>
+
+<style>
+.gs-page{max-width:920px;}
+.gs-loading{color:var(--text-muted,#6b7280);}
+.gs-tiles{display:flex;flex-wrap:wrap;gap:12px;margin:6px 0 24px;}
+.gs-tile{flex:1 1 150px;min-width:150px;background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);
+  border-radius:10px;padding:14px 16px;}
+.gs-tile .n{font-size:24px;font-weight:800;line-height:1.1;}
+.gs-tile .l{font-size:12px;color:var(--text-muted,#6b7280);margin-top:4px;}
+.gs-tile.money .n{color:#16a34a;}
+
+.gs-h{font-size:17px;font-weight:800;margin:30px 0 4px;}
+.gs-sub{font-size:13px;color:var(--text-secondary,#374151);margin:0 0 14px;}
+
+/* Today's plan */
+.gs-today{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;
+  padding:18px 18px 6px;margin-bottom:8px;}
+.gs-today-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;}
+.gs-streak{font-size:13px;font-weight:700;color:#d97706;white-space:nowrap;}
+.gs-progress{font-size:13px;color:var(--text-muted,#6b7280);}
+.gs-item{display:flex;gap:12px;padding:14px 0;border-top:1px solid var(--border,#eef1f4);}
+.gs-item:first-of-type{border-top:none;}
+.gs-check{flex:0 0 auto;width:22px;height:22px;border:2px solid var(--border,#cbd5e1);border-radius:6px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;
+  margin-top:1px;user-select:none;background:#fff;transition:all .12s;}
+.gs-item.done .gs-check{background:#16a34a;border-color:#16a34a;}
+.gs-item.done .gs-it-title{text-decoration:line-through;color:var(--text-muted,#9ca3af);}
+.gs-it-body{flex:1 1 auto;min-width:0;}
+.gs-it-title{font-size:15px;font-weight:700;}
+.gs-it-meta{font-size:12px;color:var(--text-muted,#6b7280);margin:2px 0 6px;}
+.gs-it-why{font-size:13px;color:var(--text-secondary,#374151);}
+.gs-chip{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-right:6px;}
+.gs-chip.money{background:#dcfce7;color:#166534;}
+.gs-chip.conversion{background:#fee2e2;color:#991b1b;}
+.gs-chip.discovery{background:#e0e7ff;color:#3730a3;}
+.gs-chip.content{background:#fef9c3;color:#854d0e;}
+.gs-chip.growth{background:#cffafe;color:#155e75;}
+.gs-chip.momentum{background:#f3f4f6;color:#374151;}
+.gs-how{margin:8px 0 0;font-size:13px;}
+.gs-how summary{cursor:pointer;color:var(--accent,#2563eb);font-weight:600;}
+.gs-how ol{margin:8px 0 0;padding-left:20px;}
+.gs-how li{margin:4px 0;color:var(--text-secondary,#374151);}
+.gs-done-all{background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:10px;
+  padding:12px 14px;font-weight:700;margin:6px 0 0;}
+
+/* Leaks */
+.gs-leak{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-left:4px solid #e5e7eb;
+  border-radius:10px;padding:14px 16px;margin-bottom:12px;}
+.gs-leak.high{border-left-color:#dc2626;}
+.gs-leak.medium{border-left-color:#d97706;}
+.gs-leak.low{border-left-color:#9ca3af;}
+.gs-leak.fixed{opacity:.5;}
+.gs-leak-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
+.gs-leak-title{font-size:15px;font-weight:700;}
+.gs-leak-$ {font-size:15px;font-weight:800;color:#16a34a;white-space:nowrap;}
+.gs-leak-$.none{color:var(--text-muted,#9ca3af);font-weight:600;font-size:12px;}
+.gs-leak-what{font-size:13px;color:var(--text-primary,#111827);margin:6px 0 2px;font-weight:600;}
+.gs-leak-why{font-size:13px;color:var(--text-secondary,#374151);}
+.gs-leak-where a{font-size:12px;}
+.gs-leak-actions{margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.gs-mini{background:#fff;border:1px solid var(--border,#cbd5e1);border-radius:6px;padding:4px 10px;
+  font-size:12px;font-weight:600;cursor:pointer;color:var(--text-secondary,#374151);}
+.gs-mini:hover{background:var(--bg-hover,#f3f4f6);}
+
+/* Winners */
+.gs-winner{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:10px;}
+.gs-winner .t{font-weight:700;font-size:14px;}
+.gs-winner .d{font-size:13px;color:#166534;margin-top:3px;}
+
+/* Readiness */
+.gs-ready{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:16px 18px;}
+.gs-ready.blocked{border-color:#fca5a5;background:#fef2f2;}
+.gs-req{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--border,#eef1f4);font-size:13px;}
+.gs-req:first-of-type{border-top:none;}
+.gs-req .dot{flex:0 0 auto;font-size:15px;}
+.gs-req .lab{font-weight:700;}
+.gs-req .fix{color:var(--text-secondary,#374151);margin-top:2px;}
+.gs-req.ok .lab{color:#166534;}
+</style>
+
+<script>
+function gsEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function gsMoney(n){return '$'+Number(n).toLocaleString();}
+
+function gsRender(d){
+  const body=document.getElementById('gs-body');
+  const r=d.readiness||{}, b=d.bundle||{}, plan=d.plan||{};
+  let h='';
+
+  // Not ready → lead with what to connect.
+  if(!r.ready){
+    h+=gsReadyBlock(r,true);
+    h+='<p class="gs-sub" style="margin-top:14px;">Once the essentials above are green, this page fills '+
+       'with your real leaks and a daily plan.</p>';
+    // Still show anything we could compute (e.g. visits with no ecommerce events).
+    if((b.leaks||[]).length) h+=gsLeaks(b);
+    body.innerHTML=h; gsBind(); return;
+  }
+
+  // Money tiles
+  const t=b.totals||{};
+  h+='<div class="gs-tiles">';
+  h+='<div class="gs-tile money"><div class="n">'+(t.recoverable_monthly?gsMoney(t.recoverable_monthly):'—')+
+     '</div><div class="l">recoverable / month (est.)</div></div>';
+  h+='<div class="gs-tile"><div class="n">'+(t.leak_count||0)+'</div><div class="l">money leaks found</div></div>';
+  h+='<div class="gs-tile"><div class="n">'+(t.site_cvr_pct!=null?t.site_cvr_pct+'%':'—')+
+     '</div><div class="l">site conversion rate</div></div>';
+  h+='<div class="gs-tile"><div class="n">'+(t.aov!=null?gsMoney(t.aov):'—')+
+     '</div><div class="l">avg order value</div></div>';
+  h+='</div>';
+
+  // Today's plan
+  h+='<div class="gs-h">✅ Do these today</div>';
+  h+='<p class="gs-sub">Top to bottom. Item 1 is always your biggest money leak until you mark it fixed.</p>';
+  h+=gsPlan(plan);
+
+  // Leaks
+  h+=gsLeaks(b);
+
+  // Winners
+  if((b.winners||[]).length){
+    h+='<div class="gs-h">🏆 Proven converters — send these more traffic</div>';
+    h+='<p class="gs-sub">These already sell when people see them. Point ad spend and homepage links here first.</p>';
+    b.winners.forEach(w=>{
+      h+='<div class="gs-winner"><div class="t">'+gsEsc(w.title)+'</div>'+
+         '<div class="d">'+gsEsc(w.what)+'</div>';
+      if(w.where&&w.where[0]) h+='<div class="gs-leak-where"><a href="'+gsEsc(w.where[0])+'" target="_blank" rel="noopener">View page ↗</a></div>';
+      h+='</div>';
+    });
+  }
+
+  // Readiness (collapsed-ish at bottom when ready)
+  h+='<div class="gs-h">🔌 What this needs to work</div>';
+  h+=gsReadyBlock(r,false);
+
+  body.innerHTML=h; gsBind();
+}
+
+function gsPlan(plan){
+  const items=plan.items||[];
+  if(!items.length) return '<p class="gs-sub">No plan yet — run an evaluation.</p>';
+  let h='<div class="gs-today"><div class="gs-today-head">';
+  h+='<div class="gs-progress">'+ (plan.done_count||0) +' of '+(plan.total||0)+' done today</div>';
+  if(plan.streak>0) h+='<div class="gs-streak">🔥 '+plan.streak+'-day streak</div>';
+  h+='</div>';
+  items.forEach(it=>{
+    h+='<div class="gs-item'+(it.done?' done':'')+'">';
+    h+='<div class="gs-check" data-item="'+gsEsc(it.id)+'" data-done="'+(it.done?1:0)+'">'+(it.done?'✓':'')+'</div>';
+    h+='<div class="gs-it-body">';
+    h+='<div class="gs-it-title">'+gsEsc(it.title)+'</div>';
+    h+='<div class="gs-it-meta">';
+    h+='<span class="gs-chip '+gsEsc(it.category)+'">'+gsEsc(it.category)+'</span>';
+    if(it.dollars) h+='<span class="gs-chip money">'+gsMoney(it.dollars)+'/mo</span>';
+    h+='~'+(it.minutes||10)+' min';
+    h+='</div>';
+    h+='<div class="gs-it-why">'+gsEsc(it.why)+'</div>';
+    if(it.how&&it.how.length){
+      h+='<details class="gs-how"><summary>How</summary><ol>';
+      it.how.forEach(s=>h+='<li>'+gsEsc(s)+'</li>');
+      h+='</ol></details>';
+    }
+    h+='</div></div>';
+  });
+  if(plan.all_done) h+='<div class="gs-done-all">🎉 All done today. Come back tomorrow — the plan refreshes.</div>';
+  h+='</div>';
+  return h;
+}
+
+function gsLeaks(b){
+  const leaks=b.leaks||[];
+  if(!leaks.length) return '';
+  let h='<div class="gs-h">🩸 Where you\'re losing money</div>';
+  h+='<p class="gs-sub">Ranked by estimated dollars. Mark one fixed and the next priority rises to the top of today\'s plan.</p>';
+  leaks.forEach(l=>{
+    const sev=['high','medium','low'].includes(l.severity)?l.severity:'low';
+    h+='<div class="gs-leak '+sev+(l._fixed?' fixed':'')+'" data-leak="'+gsEsc(l.id)+'">';
+    h+='<div class="gs-leak-top"><div class="gs-leak-title">'+gsEsc(l.title)+'</div>';
+    if(l.dollars) h+='<div class="gs-leak-$">'+gsMoney(l.dollars)+'<span style="font-size:11px;font-weight:600;color:#6b7280;">/mo</span></div>';
+    else h+='<div class="gs-leak-$ none">not $-sized yet</div>';
+    h+='</div>';
+    h+='<div class="gs-leak-what">'+gsEsc(l.what)+'</div>';
+    h+='<div class="gs-leak-why">'+gsEsc(l.why)+'</div>';
+    if(l.steps&&l.steps.length){
+      h+='<details class="gs-how"><summary>Fix it — step by step</summary><ol>';
+      l.steps.forEach(s=>h+='<li>'+gsEsc(s)+'</li>');
+      h+='</ol></details>';
+    }
+    h+='<div class="gs-leak-actions">';
+    if(l._fixed) h+='<button class="gs-mini" data-fix="'+gsEsc(l.id)+'" data-on="0">↺ Undo fixed</button>';
+    else h+='<button class="gs-mini" data-fix="'+gsEsc(l.id)+'" data-on="1">✓ Mark fixed</button>';
+    if(l.where&&l.where[0]) h+='<a class="gs-mini" href="'+gsEsc(l.where[0])+'" target="_blank" rel="noopener" style="text-decoration:none;">View page ↗</a>';
+    h+='</div></div>';
+  });
+  return h;
+}
+
+function gsReadyBlock(r,blocked){
+  let h='<div class="gs-ready'+(blocked?' blocked':'')+'">';
+  (r.checks||[]).forEach(c=>{
+    h+='<div class="gs-req'+(c.ok?' ok':'')+'"><div class="dot">'+(c.ok?'✅':'⬜')+'</div>'+
+       '<div><div class="lab">'+gsEsc(c.label)+'</div>'+
+       (c.ok?'':'<div class="fix">'+gsEsc(c.fix)+'</div>')+'</div></div>';
+  });
+  h+='</div>';
+  return h;
+}
+
+function gsBind(){
+  document.querySelectorAll('.gs-check').forEach(el=>{
+    el.onclick=()=>{
+      const on=el.getAttribute('data-done')!=='1';
+      gsPost({item_id:el.getAttribute('data-item'), done:on});
+    };
+  });
+  document.querySelectorAll('[data-fix]').forEach(el=>{
+    el.onclick=()=>gsPost({leak_id:el.getAttribute('data-fix'), fixed:el.getAttribute('data-on')==='1'});
+  });
+}
+
+function gsPost(payload){
+  fetch('/api/grow-sales/done',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)})
+    .then(r=>r.json()).then(gsRender)
+    .catch(()=>{});
+}
+
+function gsLoad(){
+  fetch('/api/grow-sales').then(r=>r.json()).then(d=>{
+    if(d.error){document.getElementById('gs-body').innerHTML='<p class="gs-sub">Error: '+gsEsc(d.error)+'</p>';return;}
+    gsRender(d);
+  }).catch(e=>{document.getElementById('gs-body').innerHTML='<p class="gs-sub">Could not load: '+gsEsc(e)+'</p>';});
+}
+gsLoad();
+</script>
+{% endblock %}

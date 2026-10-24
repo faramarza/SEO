@@ -1053,6 +1053,14 @@ def click_yield():
     return render_template("click_yield.html")
 
 
+@app.route("/grow-sales")
+def grow_sales():
+    """Grow Sales — the sales-first view: where you're losing money (ranked by $),
+    your proven winners, and a dead-simple 'do these 3 things today' plan. Built
+    only from GA4 funnel data the evaluation already has — never guessed."""
+    return render_template("grow_sales.html")
+
+
 # ============================================================
 # API ROUTES
 # ============================================================
@@ -8380,6 +8388,119 @@ def _save_action_plan_store(store):
             json.dump(store, f, indent=2)
     except OSError:
         pass
+
+
+# ── Grow Sales: sales-first leaks + idiot-proof daily plan ──────────────────
+SALES_PLAN_PATH = DATA_PATH / "sales_plan.json"
+
+
+def _load_sales_plan():
+    """Persisted daily-plan progress: {"fixed": {leak_id: true},
+    "days": {"YYYY-MM-DD": {"done": [item_id,...]}}}."""
+    if not SALES_PLAN_PATH.exists():
+        return {"fixed": {}, "days": {}}
+    try:
+        with open(SALES_PLAN_PATH) as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            return {"fixed": {}, "days": {}}
+        d.setdefault("fixed", {})
+        d.setdefault("days", {})
+        return d
+    except (json.JSONDecodeError, OSError):
+        return {"fixed": {}, "days": {}}
+
+
+def _save_sales_plan(store):
+    try:
+        SALES_PLAN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SALES_PLAN_PATH.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(store, f, indent=2)
+        tmp.replace(SALES_PLAN_PATH)
+    except OSError:
+        pass
+
+
+def _grow_sales_payload():
+    """Assemble the full Grow Sales view from persisted data. Never fabricates:
+    with no evaluation yet it returns readiness only so the page can say what to
+    run/connect."""
+    from datetime import date as _date
+    from src.analysis.sales_engine import (build_sales_leaks, build_daily_plan,
+                                           sales_readiness)
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    eval_data = {}
+    if eval_path.exists():
+        try:
+            with open(eval_path) as f:
+                eval_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            eval_data = {}
+    reviews = _load_product_reviews()
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+    bundle = build_sales_leaks(eval_data, config, reviews)
+    state = _load_sales_plan()
+    # Annotate which leaks the operator has marked fixed so the board can grey
+    # them out and offer Undo (the daily plan already skips fixed leaks).
+    fixed = state.get("fixed") or {}
+    for leak in bundle.get("leaks", []):
+        leak["_fixed"] = bool(fixed.get(leak["id"]))
+    plan = build_daily_plan(bundle, state, _date.today())
+    readiness = sales_readiness(eval_data, reviews)
+    return {
+        "timestamp": eval_data.get("timestamp", ""),
+        "has_evaluation": bool(eval_data.get("results")),
+        "bundle": bundle,
+        "plan": plan,
+        "readiness": readiness,
+    }
+
+
+@app.route("/api/grow-sales")
+def api_grow_sales():
+    """Sales leaks (ranked by $), proven winners, today's 3-step plan, and a
+    'what this needs to work' checklist."""
+    try:
+        return jsonify(_grow_sales_payload())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/grow-sales/done", methods=["POST"])
+def api_grow_sales_done():
+    """Mark a daily step done/undone, or toggle a leak as fixed.
+
+    Body: {"item_id": "...", "done": true}  — today's checklist item
+       or {"leak_id": "...", "fixed": true} — retire a leak so the next one
+                                               surfaces as tomorrow's priority."""
+    from datetime import date as _date
+    data = request.get_json(silent=True) or {}
+    store = _load_sales_plan()
+
+    leak_id = data.get("leak_id")
+    if leak_id is not None:
+        if data.get("fixed"):
+            store.setdefault("fixed", {})[leak_id] = True
+        else:
+            store.setdefault("fixed", {}).pop(leak_id, None)
+
+    item_id = data.get("item_id")
+    if item_id is not None:
+        tkey = _date.today().isoformat()
+        day = store.setdefault("days", {}).setdefault(tkey, {})
+        done = day.setdefault("done", [])
+        if data.get("done"):
+            if item_id not in done:
+                done.append(item_id)
+        else:
+            day["done"] = [d for d in done if d != item_id]
+
+    _save_sales_plan(store)
+    return jsonify(_grow_sales_payload())
 
 
 def _build_plan_inputs(results, eval_data, disallow):
