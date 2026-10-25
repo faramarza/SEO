@@ -97,6 +97,12 @@ def _site_cvr(account: dict) -> Optional[float]:
     return (orders / sess) if sess > 0 and orders > 0 else None
 
 
+def _junk_url(url: str) -> bool:
+    """GA4 sometimes reports '(not set)' / empty paths. Never build a leak on one."""
+    u = (url or "").strip()
+    return (not u) or "(not set)" in u or u.endswith("/(not%20set)")
+
+
 def _is_product(r: dict) -> bool:
     return (r.get("asset_type") or "").lower() in ("product", "category")
 
@@ -110,8 +116,8 @@ def _label(r: dict) -> str:
 # research) — they get big traffic but ~never impulse add-to-cart, so blending
 # them into the consumer funnel wrecks the numbers. Classify + set aside.
 _B2B_RE = re.compile(
-    r"carpets?\s*for\s*kids|classroom\s*rug|\barea\s*rug|\bclassroom\b|institutional",
-    re.I)
+    r"carpets?\s*for\s*kids|classroom|\brug\b|\bcarpet\b|institutional|"
+    r"\d+\s*ft[\s-]*x[\s-]*\d+\s*ft", re.I)
 
 
 def _is_b2b(label: str, config: dict = None) -> bool:
@@ -208,13 +214,20 @@ def _leak_leaky_products(results: list, account: dict, profile: dict = None,
     aov = _aov(account)
     out = []
     for r in results:
-        if not _is_product(r) or _is_b2b(_label(r), config):
+        if not _is_product(r) or _is_b2b(_label(r), config) or _junk_url(r.get("url")):
             continue
         carts = _num(r.get("item_added_to_cart")) or _num(r.get("ga4_add_to_carts"))
         buys = _num(r.get("item_purchases")) or _num(r.get("ga4_purchases"))
         if carts < MIN_CARTS:
             continue
-        close = (buys / carts) if carts else 0
+        # A product with carts but ZERO attributed purchases is almost always a
+        # GA4 item-attribution gap (the order didn't get tagged to this item), not
+        # a real 0% close — and a "0% close, $thousands" card contradicts the
+        # trustworthy by-users funnel. Require at least one attributed purchase so
+        # the close rate is measurable; otherwise we simply can't judge this page.
+        if buys < 1:
+            continue
+        close = buys / carts
         if close >= TARGET_CLOSE:
             continue
         lost_orders = (TARGET_CLOSE - close) * carts
@@ -272,7 +285,7 @@ def _leak_dead_traffic(results: list, account: dict, config: dict = None,
     exclude_urls = exclude_urls or set()
     out = []
     for r in results:
-        if not _is_product(r) or _is_b2b(_label(r), config):
+        if not _is_product(r) or _is_b2b(_label(r), config) or _junk_url(r.get("url")):
             continue
         if r.get("url") in exclude_urls:
             continue
@@ -364,7 +377,8 @@ def _leak_no_reviews(results: list, reviews: dict, config: dict = None) -> list:
         have.add(url)
     out = []
     for r in results:
-        if (r.get("asset_type") or "").lower() != "product" or _is_b2b(_label(r), config):
+        if (r.get("asset_type") or "").lower() != "product" or _is_b2b(_label(r), config) \
+                or _junk_url(r.get("url")):
             continue
         sess = _num(r.get("ga4_sessions"))
         url = r.get("url", "")
@@ -402,7 +416,8 @@ def _leak_low_add_to_cart(results: list, account: dict, profile: dict = None,
     site_close = (orders_acct / carts_acct) if carts_acct > 0 and orders_acct > 0 else None
     out = []
     for r in results:
-        if (r.get("asset_type") or "").lower() != "product" or _is_b2b(_label(r), config):
+        if (r.get("asset_type") or "").lower() != "product" or _is_b2b(_label(r), config) \
+                or _junk_url(r.get("url")):
             continue
         views = _num(r.get("item_viewed"))
         if views < MIN_VIEWS:
@@ -461,7 +476,8 @@ def _b2b_products(results: list, account: dict, config: dict = None) -> list:
     so the operator stops judging it by the consumer funnel and sells it right."""
     out = []
     for r in results:
-        if (r.get("asset_type") or "").lower() != "product" or not _is_b2b(_label(r), config):
+        if (r.get("asset_type") or "").lower() != "product" or not _is_b2b(_label(r), config) \
+                or _junk_url(r.get("url")):
             continue
         views = _num(r.get("item_viewed"))
         sess = _num(r.get("ga4_sessions"))

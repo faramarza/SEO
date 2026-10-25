@@ -220,7 +220,7 @@ function gsFunnel(F){
     h+='<div class="gs-ftxt"><b>'+Number(s.users).toLocaleString()+'</b> '+gsEsc(s.label)+
        (s.pct_of_prev!=null?' <span class="gs-fpct">'+s.pct_of_prev+'% of previous</span>':'')+'</div>';
     h+='</div>';
-    if(isLeak) h+='<div class="gs-fdrop">⬅ biggest, most fixable drop</div>';
+    if(isLeak) h+='<div class="gs-fdrop">⬅ biggest, most fixable drop — the #1 job under “Do these today” fixes exactly this</div>';
   });
   h+='</div>';
   return h;
@@ -245,7 +245,8 @@ function gsPlan(plan){
     h+='</div>';
     h+='<div class="gs-it-why">'+gsEsc(it.why)+'</div>';
     if(it.how&&it.how.length){
-      h+='<details class="gs-how"><summary>How</summary><ol>';
+      // Expand the #1 job by default so "what to do" is visible, not hidden.
+      h+='<details class="gs-how"'+(it.slot===1?' open':'')+'><summary>How</summary><ol>';
       it.how.forEach(s=>h+='<li>'+gsEsc(s)+'</li>');
       h+='</ol></details>';
     }

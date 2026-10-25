@@ -274,6 +274,35 @@ def test_b2b_excluded_from_every_leak_type():
     assert not any("world-map-rug" in l["id"] for l in b["leaks"])
 
 
+def test_zero_attributed_purchases_is_not_a_leak():
+    # 171 carts, 0 attributed purchases = GA4 attribution gap, NOT a 0% close leak.
+    ev = {"ga4_account": {"sessions": 5000, "add_to_carts": 300, "purchases": 60,
+                          "revenue": 3600, "aov": 60},
+          "results": [{"asset_type": "product", "url": "https://x/big-boy-book.html",
+                       "title": "I'm a Big Boy Book", "item_added_to_cart": 171,
+                       "item_purchases": 0, "ga4_sessions": 200}]}
+    b = build_sales_leaks(ev, _PERSONALIZED_CFG, None)
+    assert not any(l["id"].startswith("leaky_product:") for l in b["leaks"])
+
+
+def test_junk_not_set_urls_skipped():
+    ev = {"ga4_account": {"sessions": 5000, "add_to_carts": 300, "purchases": 60,
+                          "revenue": 3600, "aov": 60},
+          "results": [{"asset_type": "product", "url": "https://x/(not set)",
+                       "title": "(not set)", "ga4_sessions": 57,
+                       "item_added_to_cart": 0, "item_purchases": 0}]}
+    b = build_sales_leaks(ev, _PERSONALIZED_CFG, {})
+    assert not any("(not set)" in l["id"] for l in b["leaks"])
+
+
+def test_rugs_classified_b2b_by_size_and_keyword():
+    assert _is_b2b("Kidsoft Tranquil Trees Green 6ft x 9ft Oval") is True
+    assert _is_b2b("Carpets for Kids World Map 6ft x 9ft Rug") is True
+    assert _is_b2b("8x12 Rectangular Tan Classroom Rug") is True
+    assert _is_b2b("7 Letter Maple Landmark Name Train") is False
+    assert _is_b2b("Heirloom Name Puzzle Stool") is False  # consumer furniture stays consumer
+
+
 def test_low_atc_needs_item_viewed():
     # Without item_viewed (old evaluation), no per-product ATC leak is invented.
     ev = _funnel_eval()
