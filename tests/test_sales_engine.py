@@ -7,12 +7,37 @@ missing data the engine omits leaks / dollar figures rather than inventing them.
 from datetime import date, timedelta
 
 from src.analysis.sales_engine import (
-    build_sales_leaks, build_daily_plan, sales_readiness, _store_profile,
-    TARGET_CLOSE, MIN_CARTS,
+    build_sales_leaks, build_daily_plan, sales_readiness, _store_profile, _is_b2b,
+    TARGET_CLOSE, MIN_CARTS, TARGET_ATC, MIN_VIEWS,
 )
 
 _PERSONALIZED_CFG = {"business_context": {"product_families": [
     "name trains", "personalized name puzzles", "personalized baby books"]}}
+
+
+def _funnel_eval():
+    """Mirrors the real store: a B2B classroom rug (huge views, ~no carts) that
+    must be set aside, a consumer name train with a low add-to-cart rate (the real
+    leak), and a healthy consumer product that must NOT be flagged."""
+    return {
+        "timestamp": "2026-10-24T00:00:00",
+        "ga4_account": {"sessions": 3523, "add_to_carts": 55, "purchases": 12,
+                        "revenue": 720.0, "aov": 60.0},
+        "results": [
+            {"asset_type": "product", "url": "https://x/world-map-rug.html",
+             "title": "Carpets for Kids Rug World Map Value Rug 4X6",
+             "ga4_sessions": 400, "item_viewed": 572, "item_added_to_cart": 3,
+             "item_purchases": 1, "item_revenue": 450.0},
+            {"asset_type": "product", "url": "https://x/name-train.html",
+             "title": "7 Letter Maple Landmark Name Train",
+             "ga4_sessions": 39, "item_viewed": 300, "item_added_to_cart": 6,
+             "item_purchases": 4, "item_revenue": 240.0},
+            {"asset_type": "product", "url": "https://x/name-puzzle.html",
+             "title": "Personalized Name Puzzle",
+             "ga4_sessions": 50, "item_viewed": 200, "item_added_to_cart": 16,
+             "item_purchases": 10, "item_revenue": 600.0},
+        ],
+    }
 
 
 def _eval():
@@ -140,6 +165,64 @@ def test_personalized_leaky_product_drops_generic_returns():
     txt = " ".join(_texts(prod["steps"])).lower()
     assert "preview" in txt or "proof" in txt
     assert "returns / satisfaction guarantee" not in txt
+
+
+# ── Per-product funnel + B2B split ──────────────────────────────────────────
+
+def test_is_b2b_classifies_classroom_rugs():
+    assert _is_b2b("Carpets for Kids Rug World Map Value Rug 4X6") is True
+    assert _is_b2b("World Map Classroom Rug 8ft x 12ft") is True
+    assert _is_b2b("7 Letter Maple Landmark Name Train") is False
+    # config override
+    cfg = {"business_context": {"b2b_product_patterns": [r"wholesale"]}}
+    assert _is_b2b("Wholesale Pallet", cfg) is True
+    assert _is_b2b("Classroom Rug", cfg) is False  # default list no longer applies
+
+
+def test_low_add_to_cart_leak_flags_consumer_product():
+    b = build_sales_leaks(_funnel_eval(), _PERSONALIZED_CFG, None)
+    atc = [l for l in b["leaks"] if l["id"].startswith("low_atc:")]
+    # name train: 300 views, 6 carts = 2% ATC < 5% target -> flagged
+    assert any("name-train" in l["id"] for l in atc)
+    # healthy name puzzle: 200 views, 16 carts = 8% -> NOT flagged
+    assert not any("name-puzzle" in l["id"] for l in atc)
+
+
+def test_b2b_rug_set_aside_not_a_consumer_leak():
+    b = build_sales_leaks(_funnel_eval(), _PERSONALIZED_CFG, None)
+    assert not any("world-map-rug" in l["id"] for l in b["leaks"])   # never a leak
+    assert any("world-map-rug" in x["url"] for x in b["b2b"])        # shown separately
+    assert b["totals"]["b2b_count"] == 1
+
+
+def test_add_to_cart_rate_reported_blended():
+    b = build_sales_leaks(_funnel_eval(), _PERSONALIZED_CFG, None)
+    # 55 carts / 3523 sessions = 1.56%
+    assert b["totals"]["add_to_cart_rate_pct"] == round(55 / 3523 * 100, 2)
+    assert b["totals"]["add_to_cart_target_pct"] == int(TARGET_ATC * 100)
+
+
+def test_leak_product_not_also_a_winner():
+    b = build_sales_leaks(_funnel_eval(), _PERSONALIZED_CFG, None)
+    leak_urls = {u for l in b["leaks"] for u in l.get("where", [])}
+    winner_urls = {u for w in b["winners"] for u in w.get("where", [])}
+    assert not (leak_urls & winner_urls)   # no product is both a leak and a winner
+
+
+def test_b2b_excluded_from_every_leak_type():
+    # A classroom rug must never appear as ANY consumer leak (incl. no-reviews).
+    reviews = {}  # empty review store -> no_reviews leaks are possible
+    b = build_sales_leaks(_funnel_eval(), _PERSONALIZED_CFG, reviews)
+    assert not any("world-map-rug" in l["id"] for l in b["leaks"])
+
+
+def test_low_atc_needs_item_viewed():
+    # Without item_viewed (old evaluation), no per-product ATC leak is invented.
+    ev = _funnel_eval()
+    for r in ev["results"]:
+        r.pop("item_viewed", None)
+    b = build_sales_leaks(ev, _PERSONALIZED_CFG, None)
+    assert not any(l["id"].startswith("low_atc:") for l in b["leaks"])
 
 
 def test_dead_traffic_only_flags_product_pages_not_blogs():

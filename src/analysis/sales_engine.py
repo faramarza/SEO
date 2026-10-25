@@ -42,6 +42,12 @@ MAX_ASSUMED_CVR = 0.05
 # A product "converts well" (worth sending more traffic to) at this multiple of
 # the site's own average conversion rate.
 WINNER_CVR_MULT = 1.5
+# Per-product funnel: a product needs this many item views before a low
+# add-to-cart rate is a signal rather than noise.
+MIN_VIEWS = 50
+# A healthy view→add-to-cart rate. Below this, people see the product but don't
+# want it enough to add it — the real leak is BEFORE the cart.
+TARGET_ATC = 0.05
 
 _BOOK_RE = re.compile(
     r"\b(book|storybook|story ?book|i ?see ?me|iseeme|goodnight|bedtime|"
@@ -97,6 +103,27 @@ def _is_product(r: dict) -> bool:
 
 def _label(r: dict) -> str:
     return (r.get("title") or r.get("url") or "").strip() or r.get("url", "")
+
+
+# A store can quietly contain two businesses with different sales motions. Here,
+# classroom rugs / carpets are institutional (schools buy by quote/PO after long
+# research) — they get big traffic but ~never impulse add-to-cart, so blending
+# them into the consumer funnel wrecks the numbers. Classify + set aside.
+_B2B_RE = re.compile(
+    r"carpets?\s*for\s*kids|classroom\s*rug|\barea\s*rug|\bclassroom\b|institutional",
+    re.I)
+
+
+def _is_b2b(label: str, config: dict = None) -> bool:
+    """True if this product belongs to a B2B/institutional line (configurable via
+    business_context.b2b_product_patterns; defaults to classroom rugs/carpets)."""
+    pats = ((config or {}).get("business_context", {}) or {}).get("b2b_product_patterns")
+    if pats:
+        try:
+            return any(re.search(p, label or "", re.I) for p in pats)
+        except re.error:
+            return False
+    return bool(_B2B_RE.search(label or ""))
 
 
 # ── Leak builders ────────────────────────────────────────────────────────────
@@ -171,13 +198,15 @@ def _leak_checkout(account: dict, profile: dict = None) -> Optional[dict]:
     }
 
 
-def _leak_leaky_products(results: list, account: dict, profile: dict = None) -> list:
+def _leak_leaky_products(results: list, account: dict, profile: dict = None,
+                         config: dict = None) -> list:
     """Product pages where lots of people add to cart but few buy — your worst
-    offenders, ranked by estimated lost dollars."""
+    offenders, ranked by estimated lost dollars. B2B/institutional lines are
+    excluded (different sales motion)."""
     aov = _aov(account)
     out = []
     for r in results:
-        if not _is_product(r):
+        if not _is_product(r) or _is_b2b(_label(r), config):
             continue
         carts = _num(r.get("item_added_to_cart")) or _num(r.get("ga4_add_to_carts"))
         buys = _num(r.get("item_purchases")) or _num(r.get("ga4_purchases"))
@@ -230,15 +259,20 @@ def _leak_leaky_products(results: list, account: dict, profile: dict = None) -> 
     return out
 
 
-def _leak_dead_traffic(results: list, account: dict) -> list:
+def _leak_dead_traffic(results: list, account: dict, config: dict = None,
+                       exclude_urls: set = None) -> list:
     """Product/category pages that get real organic visitors and sell NOTHING —
-    not even an add-to-cart. Buyers landing and leaving."""
+    not even an add-to-cart. Buyers landing and leaving. B2B lines and anything
+    already covered by the per-product add-to-cart leak are excluded."""
     aov = _aov(account)
     cvr = _site_cvr(account)
     assumed = min(cvr, MAX_ASSUMED_CVR) if cvr else None
+    exclude_urls = exclude_urls or set()
     out = []
     for r in results:
-        if not _is_product(r):
+        if not _is_product(r) or _is_b2b(_label(r), config):
+            continue
+        if r.get("url") in exclude_urls:
             continue
         sess = _num(r.get("ga4_sessions"))
         buys = _num(r.get("item_purchases")) or _num(r.get("ga4_purchases"))
@@ -271,16 +305,17 @@ def _leak_dead_traffic(results: list, account: dict) -> list:
     return out
 
 
-def _winners_starved(results: list, account: dict) -> list:
+def _winners_starved(results: list, account: dict, config: dict = None) -> list:
     """The happy opposite: products that CONVERT well but barely get traffic.
-    Tells the operator where to point ad spend / internal links for fast wins."""
+    Tells the operator where to point ad spend / internal links for fast wins.
+    Consumer products only — B2B rugs aren't an ad-spend target."""
     cvr = _site_cvr(account)
     if not cvr:
         return []
     aov = _aov(account)
     out = []
     for r in results:
-        if not _is_product(r):
+        if not _is_product(r) or _is_b2b(_label(r), config):
             continue
         sess = _num(r.get("ga4_sessions"))
         buys = _num(r.get("item_purchases")) or _num(r.get("ga4_purchases"))
@@ -315,10 +350,11 @@ def _winners_starved(results: list, account: dict) -> list:
     return out
 
 
-def _leak_no_reviews(results: list, reviews: dict) -> list:
+def _leak_no_reviews(results: list, reviews: dict, config: dict = None) -> list:
     """Products with real traffic but no stored reviews — a social-proof leak we
     can actually fix with the review engine. Only emitted when we KNOW the review
-    store is wired (reviews is a dict); never fabricates a count."""
+    store is wired (reviews is a dict); never fabricates a count. B2B lines are
+    excluded — reviews aren't the lever for a quote/PO purchase."""
     if reviews is None:
         return []
     have = set()
@@ -326,7 +362,7 @@ def _leak_no_reviews(results: list, reviews: dict) -> list:
         have.add(url)
     out = []
     for r in results:
-        if (r.get("asset_type") or "").lower() != "product":
+        if (r.get("asset_type") or "").lower() != "product" or _is_b2b(_label(r), config):
             continue
         sess = _num(r.get("ga4_sessions"))
         url = r.get("url", "")
@@ -353,6 +389,95 @@ def _leak_no_reviews(results: list, reviews: dict) -> list:
     return out
 
 
+def _leak_low_add_to_cart(results: list, account: dict, profile: dict = None,
+                          config: dict = None) -> list:
+    """THE top-of-funnel leak: consumer products that get real views but few
+    add-to-carts. This is where the money usually hides — the problem is BEFORE
+    the cart, not at checkout. Needs item_viewed (re-run the evaluation to get
+    it). B2B lines are excluded; they're a different sales motion."""
+    aov = _aov(account)
+    carts_acct, orders_acct = _num(account.get("add_to_carts")), _num(account.get("purchases"))
+    site_close = (orders_acct / carts_acct) if carts_acct > 0 and orders_acct > 0 else None
+    out = []
+    for r in results:
+        if (r.get("asset_type") or "").lower() != "product" or _is_b2b(_label(r), config):
+            continue
+        views = _num(r.get("item_viewed"))
+        if views < MIN_VIEWS:
+            continue
+        carts = _num(r.get("item_added_to_cart"))
+        buys = _num(r.get("item_purchases"))
+        atc = carts / views if views else 0
+        if atc >= TARGET_ATC:
+            continue  # healthy top of funnel — not a leak
+        close = (buys / carts) if carts > 0 and buys > 0 else (site_close or TARGET_CLOSE)
+        unit = (_num(r.get("item_revenue")) / buys) if buys and _num(r.get("item_revenue")) else aov
+        lost_orders = (TARGET_ATC - atc) * views * close
+        dollars = round(lost_orders * unit) if unit else None
+        if (profile or {}).get("personalized"):
+            steps = [
+                f"Watch 5 recordings of visitors on {r.get('url','this page')} who didn't add "
+                "to cart — do they start personalizing and give up, or leave in seconds?",
+                "If they bail at personalization: don't force the full custom form before "
+                "add-to-cart. Let them add first and personalize after, or cut required fields.",
+                "Make the price, FREE shipping and the Add-to-Cart button visible without "
+                "scrolling — on mobile especially.",
+                "Add a preview/proof + 2–3 reviews so a hesitant parent trusts it enough to add.",
+            ]
+        else:
+            steps = [
+                f"Watch 5 recordings of visitors on {r.get('url','this page')} who didn't add "
+                "to cart — where do they lose interest?",
+                "Make the price, shipping and Add-to-Cart button visible without scrolling.",
+                "Lead with the benefit + a photo that matches what they searched for.",
+                "Add reviews / a guarantee so a stranger has a reason to commit.",
+            ]
+        out.append({
+            "id": "low_atc:" + (r.get("url") or _label(r)),
+            "category": "conversion",
+            "severity": "high" if (dollars or 0) >= 300 else "medium" if (dollars or 0) >= 100 else "low",
+            "dollars": dollars,
+            "title": f"Views but few add-to-carts: {_label(r)}",
+            "what": (f"{int(views)} product views, only {int(carts)} added to cart "
+                     f"({atc*100:.1f}%). Healthy is ~{int(TARGET_ATC*100)}%+."),
+            "why": ("People SEE this product but don't want it enough to add it — the leak is "
+                    "before the cart, not at checkout. Either the traffic isn't a fit, or the "
+                    "page/personalization isn't convincing them to commit."),
+            "steps": steps,
+            "evidence": {"views": int(views), "add_to_carts": int(carts),
+                         "atc_rate_pct": round(atc * 100, 2),
+                         "target_atc_pct": int(TARGET_ATC * 100), "orders": int(buys)},
+            "where": [r.get("url")] if r.get("url") else [],
+        })
+    out.sort(key=lambda x: (x["dollars"] is None, -(x["dollars"] or 0)))
+    return out
+
+
+def _b2b_products(results: list, account: dict, config: dict = None) -> list:
+    """Your institutional line (classroom rugs etc.) shown on its own — big
+    traffic, considered/quote purchase, NOT an impulse-cart failure. Informational
+    so the operator stops judging it by the consumer funnel and sells it right."""
+    out = []
+    for r in results:
+        if (r.get("asset_type") or "").lower() != "product" or not _is_b2b(_label(r), config):
+            continue
+        views = _num(r.get("item_viewed"))
+        sess = _num(r.get("ga4_sessions"))
+        carts = _num(r.get("item_added_to_cart"))
+        buys = _num(r.get("item_purchases"))
+        if views < MIN_VIEWS and sess < MIN_SESSIONS and not carts and not buys:
+            continue
+        out.append({
+            "id": "b2b:" + (r.get("url") or _label(r)),
+            "title": _label(r),
+            "views": int(views), "organic_sessions": int(sess),
+            "add_to_carts": int(carts), "orders": int(buys),
+            "url": r.get("url", ""),
+        })
+    out.sort(key=lambda x: -(x["views"] or x["organic_sessions"]))
+    return out
+
+
 def build_sales_leaks(eval_data: dict, config: dict = None,
                       reviews: dict = None) -> dict:
     """Top-level: every money leak + growth opening, from real persisted data.
@@ -366,20 +491,30 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
     results = eval_data.get("results") or []
     profile = _store_profile(config)
 
-    leaks = []
+    # The per-product add-to-cart leak is the headline — it's where the money
+    # usually hides. Build it first so dead-traffic can dedupe against it.
+    atc_leaks = _leak_low_add_to_cart(results, account, profile, config)
+    atc_urls = {u for l in atc_leaks for u in l.get("where", [])}
+
+    leaks = list(atc_leaks)
     co = _leak_checkout(account, profile)
     if co:
         leaks.append(co)
-    leaks += _leak_leaky_products(results, account, profile)
-    leaks += _leak_dead_traffic(results, account)
-    leaks += _leak_no_reviews(results, reviews)
+    leaks += _leak_leaky_products(results, account, profile, config)
+    leaks += _leak_dead_traffic(results, account, config, exclude_urls=atc_urls)
+    leaks += _leak_no_reviews(results, reviews, config)
 
     # Sized leaks first (by $), then unsized, with a stable severity tiebreak.
     sev_rank = {"high": 0, "medium": 1, "low": 2, "opportunity": 3}
     leaks.sort(key=lambda x: (x["dollars"] is None, -(x["dollars"] or 0),
                               sev_rank.get(x["severity"], 9)))
 
-    winners = _winners_starved(results, account)
+    # A product flagged as a leak shouldn't also be sold as a "winner, send more
+    # traffic" — that's a mixed message. Fix the page first.
+    leak_urls = {u for l in leaks for u in l.get("where", [])}
+    winners = [w for w in _winners_starved(results, account, config)
+               if not (set(w.get("where", [])) & leak_urls)]
+    b2b = _b2b_products(results, account, config)
 
     # Give every step a stable id so the UI can let the operator tick off what
     # they've already done / what doesn't apply, and we can remember it. The id is
@@ -390,14 +525,23 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
                          for i, t in enumerate(item.get("steps", []))]
 
     recoverable = sum(l["dollars"] for l in leaks if l.get("dollars"))
+    sessions = _num(account.get("sessions"))
+    carts = _num(account.get("add_to_carts"))
+    atc_rate = (carts / sessions) if sessions > 0 and carts > 0 else None
     return {
         "leaks": leaks,
         "winners": winners,
+        "b2b": b2b,
         "totals": {
             "recoverable_monthly": round(recoverable) if recoverable else None,
             "leak_count": len(leaks),
             "aov": _aov(account),
             "site_cvr_pct": round(_site_cvr(account) * 100, 2) if _site_cvr(account) else None,
+            # Site-wide add-to-cart rate (blended across all products/channels).
+            # The per-product leaks above un-blend it; B2B lines drag it down.
+            "add_to_cart_rate_pct": round(atc_rate * 100, 2) if atc_rate is not None else None,
+            "add_to_cart_target_pct": int(TARGET_ATC * 100),
+            "b2b_count": len(b2b),
         },
         "generated_from": eval_data.get("timestamp", ""),
     }

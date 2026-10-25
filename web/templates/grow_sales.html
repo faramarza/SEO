@@ -24,6 +24,11 @@
 .gs-tile .n{font-size:24px;font-weight:800;line-height:1.1;}
 .gs-tile .l{font-size:12px;color:var(--text-muted,#6b7280);margin-top:4px;}
 .gs-tile.money .n{color:#16a34a;}
+.gs-tile.good .n{color:#16a34a;}
+.gs-tile.bad .n{color:#dc2626;}
+.gs-b2b{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:12px 14px;margin-bottom:10px;}
+.gs-b2b .t{font-weight:700;font-size:14px;}
+.gs-b2b .d{font-size:13px;color:#3730a3;margin-top:3px;}
 
 .gs-h{font-size:17px;font-weight:800;margin:30px 0 4px;}
 .gs-sub{font-size:13px;color:var(--text-secondary,#374151);margin:0 0 14px;}
@@ -121,17 +126,24 @@ function gsRender(d){
     body.innerHTML=h; gsBind(); return;
   }
 
-  // Money tiles
+  // Money tiles — add-to-cart rate is the headline (top-of-funnel leak).
   const t=b.totals||{};
+  const atc=t.add_to_cart_rate_pct, atcTgt=t.add_to_cart_target_pct||5;
+  const atcCls=(atc!=null&&atc<atcTgt)?'bad':(atc!=null?'good':'');
   h+='<div class="gs-tiles">';
+  h+='<div class="gs-tile '+atcCls+'"><div class="n">'+(atc!=null?atc+'%':'—')+
+     '</div><div class="l">add-to-cart rate (aim '+atcTgt+'%+)</div></div>';
   h+='<div class="gs-tile money"><div class="n">'+(t.recoverable_monthly?gsMoney(t.recoverable_monthly):'—')+
      '</div><div class="l">recoverable / month (est.)</div></div>';
-  h+='<div class="gs-tile"><div class="n">'+(t.leak_count||0)+'</div><div class="l">money leaks found</div></div>';
-  h+='<div class="gs-tile"><div class="n">'+(t.site_cvr_pct!=null?t.site_cvr_pct+'%':'—')+
-     '</div><div class="l">site conversion rate</div></div>';
+  h+='<div class="gs-tile"><div class="n">'+(t.leak_count||0)+'</div><div class="l">product leaks found</div></div>';
   h+='<div class="gs-tile"><div class="n">'+(t.aov!=null?gsMoney(t.aov):'—')+
      '</div><div class="l">avg order value</div></div>';
   h+='</div>';
+  if(atc!=null&&atc<atcTgt){
+    h+='<p class="gs-sub" style="margin-top:-14px;">Only <b>'+atc+'%</b> of visitors add to cart (healthy is ~'+atcTgt+
+       '%+). That\'s your top-of-funnel leak — the money is in getting people to <b>add to cart</b>, not in fixing '+
+       'checkout. Classroom / B2B products are set aside below so they stop dragging this number down.</p>';
+  }
 
   // Today's plan
   h+='<div class="gs-h">✅ Do these today</div>';
@@ -149,6 +161,20 @@ function gsRender(d){
       h+='<div class="gs-winner"><div class="t">'+gsEsc(w.title)+'</div>'+
          '<div class="d">'+gsEsc(w.what)+'</div>';
       if(w.where&&w.where[0]) h+='<div class="gs-leak-where"><a href="'+gsEsc(w.where[0])+'" target="_blank" rel="noopener">View page ↗</a></div>';
+      h+='</div>';
+    });
+  }
+
+  // B2B / institutional products — set aside, different sales motion
+  if((b.b2b||[]).length){
+    h+='<div class="gs-h">🏫 Classroom / B2B products — a different sale</div>';
+    h+='<p class="gs-sub">Big traffic, but these are <b>considered, quote/PO purchases</b> (schools) — not impulse '+
+       'add-to-cart failures. They\'re excluded from the leaks above so they stop skewing your numbers. Sell them '+
+       'with a quote/lead form, not by chasing their cart rate.</p>';
+    b.b2b.forEach(x=>{
+      h+='<div class="gs-b2b"><div class="t">'+gsEsc(x.title)+'</div>'+
+         '<div class="d">'+x.views+' views · '+x.add_to_carts+' add-to-carts · '+x.orders+' orders</div>';
+      if(x.url) h+='<div class="gs-leak-where"><a href="'+gsEsc(x.url)+'" target="_blank" rel="noopener">View page ↗</a></div>';
       h+='</div>';
     });
   }

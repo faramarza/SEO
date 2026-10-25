@@ -983,7 +983,10 @@ class FullEvaluationWorkflow:
             "ga4_add_to_carts": asset.ga4.add_to_carts_28d,
             "ga4_bounce_rate": round(asset.ga4.bounce_rate_28d, 4),
             # Item-scoped sales (all channels) for this product, matched by name.
-            **({"item_revenue": _it.get("revenue", 0),
+            # item_viewed powers the per-product funnel (view -> cart -> buy), so
+            # the sales engine can find the real add-to-cart leak, not just checkout.
+            **({"item_viewed": _it.get("viewed", 0),
+                "item_revenue": _it.get("revenue", 0),
                 "item_purchases": _it.get("purchased", 0),
                 "item_added_to_cart": _it.get("added_to_cart", 0)}
                if (_it := (self._item_stats_for(asset.url, asset.title)
