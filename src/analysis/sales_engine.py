@@ -518,9 +518,12 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
         steps.append({"label": "Started checkout", "users": checkouts,
                       "pct_of_all": round(checkouts / tot * 100, 1),
                       "pct_of_prev": round(checkouts / carts * 100, 1) if carts else None})
+    # "% of previous" is relative to the step immediately above (checkout if we
+    # have it, else cart). The cart→order tile uses close_rate (buys/carts).
+    prev_for_buy = checkouts if checkouts else carts
     steps.append({"label": "Purchased", "users": buys,
                   "pct_of_all": round(buys / tot * 100, 1),
-                  "pct_of_prev": round(close_rate, 1) if carts else None})
+                  "pct_of_prev": round(buys / prev_for_buy * 100, 1) if prev_for_buy else None})
 
     # Which step is the leak? The FIRST rate that falls below its healthy band.
     # (Low view-rate is the common one: healthy cart/close with few people ever
