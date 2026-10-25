@@ -129,7 +129,8 @@ function gsRender(d){
   // Money tiles — add-to-cart rate is the headline (top-of-funnel leak).
   const t=b.totals||{};
   const atc=t.add_to_cart_rate_pct, atcTgt=t.add_to_cart_target_pct||5;
-  const atcCls=(atc!=null&&atc<atcTgt)?'bad':(atc!=null?'good':'');
+  const blended=(t.add_to_cart_basis==='blended');
+  const atcCls=blended?'':((atc!=null&&atc<atcTgt)?'bad':(atc!=null?'good':''));
   h+='<div class="gs-tiles">';
   h+='<div class="gs-tile '+atcCls+'"><div class="n">'+(atc!=null?atc+'%':'—')+
      '</div><div class="l">add-to-cart rate (aim '+atcTgt+'%+)</div></div>';
@@ -139,10 +140,14 @@ function gsRender(d){
   h+='<div class="gs-tile"><div class="n">'+(t.aov!=null?gsMoney(t.aov):'—')+
      '</div><div class="l">avg order value</div></div>';
   h+='</div>';
-  if(atc!=null&&atc<atcTgt){
-    h+='<p class="gs-sub" style="margin-top:-14px;">Only <b>'+atc+'%</b> of visitors add to cart (healthy is ~'+atcTgt+
-       '%+). That\'s your top-of-funnel leak — the money is in getting people to <b>add to cart</b>, not in fixing '+
-       'checkout. Classroom / B2B products are set aside below so they stop dragging this number down.</p>';
+  if(blended){
+    h+='<p class="gs-sub" style="margin-top:-14px;">⚠️ This add-to-cart number is <b>blended across all products</b> and '+
+       'counts GA4 events, so it can read high. <b>Re-run your evaluation (with crawl)</b> to get the real per-product '+
+       'rate and the per-product add-to-cart leaks — they need data this evaluation doesn\'t have yet.</p>';
+  } else if(atc!=null&&atc<atcTgt){
+    h+='<p class="gs-sub" style="margin-top:-14px;">Only <b>'+atc+'%</b> of your consumer-product views turn into add-to-carts '+
+       '(healthy is ~'+atcTgt+'%+). That\'s your top-of-funnel leak — the money is in getting people to <b>add to cart</b>, '+
+       'not in fixing checkout. Classroom / B2B products are set aside below so they stop dragging this number down.</p>';
   }
 
   // Today's plan

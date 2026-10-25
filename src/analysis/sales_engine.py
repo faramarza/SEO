@@ -525,9 +525,24 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
                          for i, t in enumerate(item.get("steps", []))]
 
     recoverable = sum(l["dollars"] for l in leaks if l.get("dollars"))
-    sessions = _num(account.get("sessions"))
-    carts = _num(account.get("add_to_carts"))
-    atc_rate = (carts / sessions) if sessions > 0 and carts > 0 else None
+
+    # Headline add-to-cart rate. PREFER the per-product (item-level) consumer rate
+    # — GA4 item views → add-to-cart is the most reliable signal and matches the
+    # leaks above. Only fall back to the blended GA4 account ratio
+    # (add_to_carts/sessions, which counts events and can overstate) when item
+    # views haven't been captured yet — i.e. the evaluation predates item_viewed.
+    def _consumer(r):
+        return (r.get("asset_type") or "").lower() == "product" and not _is_b2b(_label(r), config)
+    cons_views = sum(_num(r.get("item_viewed")) for r in results if _consumer(r))
+    cons_carts = sum(_num(r.get("item_added_to_cart")) for r in results if _consumer(r))
+    if cons_views >= MIN_VIEWS:
+        atc_rate = cons_carts / cons_views
+        atc_basis = "item"   # real per-product consumer view→cart rate
+    else:
+        sessions = _num(account.get("sessions"))
+        carts = _num(account.get("add_to_carts"))
+        atc_rate = (carts / sessions) if sessions > 0 and carts > 0 else None
+        atc_basis = "blended"  # re-run the evaluation for the real per-product rate
     return {
         "leaks": leaks,
         "winners": winners,
@@ -537,10 +552,9 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
             "leak_count": len(leaks),
             "aov": _aov(account),
             "site_cvr_pct": round(_site_cvr(account) * 100, 2) if _site_cvr(account) else None,
-            # Site-wide add-to-cart rate (blended across all products/channels).
-            # The per-product leaks above un-blend it; B2B lines drag it down.
             "add_to_cart_rate_pct": round(atc_rate * 100, 2) if atc_rate is not None else None,
             "add_to_cart_target_pct": int(TARGET_ATC * 100),
+            "add_to_cart_basis": atc_basis,
             "b2b_count": len(b2b),
         },
         "generated_from": eval_data.get("timestamp", ""),

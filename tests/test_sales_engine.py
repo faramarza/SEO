@@ -195,11 +195,22 @@ def test_b2b_rug_set_aside_not_a_consumer_leak():
     assert b["totals"]["b2b_count"] == 1
 
 
-def test_add_to_cart_rate_reported_blended():
+def test_add_to_cart_rate_prefers_item_level():
+    # With item_viewed present, use the consumer item-level rate (reliable),
+    # NOT the blended account ratio. Consumer carts 6+16=22, views 300+200=500.
     b = build_sales_leaks(_funnel_eval(), _PERSONALIZED_CFG, None)
-    # 55 carts / 3523 sessions = 1.56%
-    assert b["totals"]["add_to_cart_rate_pct"] == round(55 / 3523 * 100, 2)
+    assert b["totals"]["add_to_cart_basis"] == "item"
+    assert b["totals"]["add_to_cart_rate_pct"] == round(22 / 500 * 100, 2)  # 4.4%
     assert b["totals"]["add_to_cart_target_pct"] == int(TARGET_ATC * 100)
+
+
+def test_add_to_cart_rate_falls_back_to_blended_without_item_views():
+    ev = _funnel_eval()
+    for r in ev["results"]:
+        r.pop("item_viewed", None)
+    b = build_sales_leaks(ev, _PERSONALIZED_CFG, None)
+    assert b["totals"]["add_to_cart_basis"] == "blended"
+    assert b["totals"]["add_to_cart_rate_pct"] == round(55 / 3523 * 100, 2)  # 1.56%
 
 
 def test_leak_product_not_also_a_winner():
