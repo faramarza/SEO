@@ -128,21 +128,23 @@ def _is_b2b(label: str, config: dict = None) -> bool:
 
 # ── Leak builders ────────────────────────────────────────────────────────────
 
-def _leak_checkout(account: dict, profile: dict = None) -> Optional[dict]:
-    """Site-wide cart→purchase abandonment. The single biggest, most universal
-    leak: people who put something in the cart and never buy. Steps adapt to the
-    store model — a personalized/non-returnable store gets preview + form-friction
-    advice instead of the generic 'add a returns guarantee'."""
+def _leak_checkout(account: dict, profile: dict = None, funnel: dict = None) -> Optional[dict]:
+    """Cart→purchase abandonment. Uses the by-USERS funnel when available (the only
+    honest cart→buy rate — account add_to_carts is an EVENT count and makes the
+    close rate look fake-low). Steps adapt to the store model."""
     profile = profile or {}
-    carts, orders = _num(account.get("add_to_carts")), _num(account.get("purchases"))
+    if funnel and funnel.get("available") and funnel.get("_cart_users"):
+        carts, orders = _num(funnel["_cart_users"]), _num(funnel["_buy_users"])
+    else:
+        carts, orders = _num(account.get("add_to_carts")), _num(account.get("purchases"))
     if carts < MIN_CARTS or orders <= 0:
         return None
     close = orders / carts
+    if close >= TARGET_CLOSE:
+        return None  # cart→purchase is healthy — there's no checkout leak to show
     aov = _aov(account)
-    dollars = None
-    if close < TARGET_CLOSE and aov:
-        dollars = round((TARGET_CLOSE - close) * carts * aov)
-    sev = "high" if (dollars or 0) >= 500 else "medium" if close < TARGET_CLOSE else "low"
+    dollars = round((TARGET_CLOSE - close) * carts * aov) if aov else None
+    sev = "high" if (dollars or 0) >= 500 else "medium"
 
     if profile.get("personalized"):
         why = ("Pure lost money — these shoppers already wanted it enough to add it. "
@@ -478,6 +480,135 @@ def _b2b_products(results: list, account: dict, config: dict = None) -> list:
     return out
 
 
+# ── The real site funnel (by USERS) ─────────────────────────────────────────
+# Healthy bands per step, used only to say which step is the leak — never to
+# fabricate a dollar figure.
+_VIEW_RATE_OK = 50.0   # % of visitors who view a product (below = traffic leak)
+_ATC_OK = 5.0          # % of product-viewers who add to cart
+_CLOSE_OK = 20.0       # % of carts that purchase
+
+
+def site_funnel(eval_data: dict) -> Optional[dict]:
+    """The trustworthy funnel from GA4 event counts, by USERS: visited -> viewed a
+    product -> added to cart -> (started checkout) -> purchased. Returns None when
+    the event data isn't present (old evaluation) — never guesses. Identifies the
+    single leaking step by comparing each rate to a healthy band."""
+    f = (eval_data or {}).get("ga4_funnel") or {}
+    tot = (f.get("_totals") or {}).get("users") or 0
+
+    def u(ev):
+        return int((f.get(ev) or {}).get("users") or 0)
+
+    viewers, carts, checkouts, buys = u("view_item"), u("add_to_cart"), u("begin_checkout"), u("purchase")
+    if not tot or not viewers:
+        return None
+
+    view_rate = viewers / tot * 100
+    atc_rate = (carts / viewers * 100) if viewers else 0
+    close_rate = (buys / carts * 100) if carts else 0
+
+    steps = [
+        {"label": "Visited the site", "users": tot, "pct_of_all": 100.0, "pct_of_prev": None},
+        {"label": "Viewed a product", "users": viewers,
+         "pct_of_all": round(view_rate, 1), "pct_of_prev": round(view_rate, 1)},
+        {"label": "Added to cart", "users": carts,
+         "pct_of_all": round(carts / tot * 100, 1), "pct_of_prev": round(atc_rate, 1)},
+    ]
+    if checkouts:
+        steps.append({"label": "Started checkout", "users": checkouts,
+                      "pct_of_all": round(checkouts / tot * 100, 1),
+                      "pct_of_prev": round(checkouts / carts * 100, 1) if carts else None})
+    steps.append({"label": "Purchased", "users": buys,
+                  "pct_of_all": round(buys / tot * 100, 1),
+                  "pct_of_prev": round(close_rate, 1) if carts else None})
+
+    # Which step is the leak? The FIRST rate that falls below its healthy band.
+    # (Low view-rate is the common one: healthy cart/close with few people ever
+    # reaching a product = a traffic problem, not a conversion problem.)
+    leak = None
+    if view_rate < _VIEW_RATE_OK:
+        leak = {
+            "key": "view", "category": "traffic", "severity": "high",
+            "title": "Most visitors never view a product",
+            "what": (f"Only {view_rate:.0f}% of visitors look at a single product "
+                     f"({viewers:,} of {tot:,}). The rest land on blogs/info/other pages "
+                     f"and leave."),
+            "why": ("Your add-to-cart and checkout are healthy — the real leak is at the TOP: "
+                    "most of your traffic never reaches a product to buy. That's a traffic-"
+                    "quality + internal-linking problem, not a conversion one."),
+            "steps": [
+                "Point ad budget at product / buyer-intent keywords, not broad or "
+                "informational clicks.",
+                "Add prominent links from your blog, info pages and classroom-rug pages into "
+                "the gift products they relate to.",
+                "Make your highest-traffic landing pages lead somewhere to buy — a clear path "
+                "to products above the fold.",
+                "In GA4's landing-page report, find the pages that pull traffic which never "
+                "views a product, and fix or de-prioritise them.",
+            ],
+            "evidence": {"product_view_rate_pct": round(view_rate, 1),
+                         "viewers": viewers, "visitors": tot},
+        }
+    elif atc_rate < _ATC_OK:
+        leak = {
+            "key": "cart", "category": "conversion", "severity": "high",
+            "title": "Product viewers aren't adding to cart",
+            "what": (f"{view_rate:.0f}% view a product, but only {atc_rate:.1f}% of them add "
+                     f"to cart (healthy ~{int(_ATC_OK)}%+)."),
+            "why": ("People reach your products but the page or personalization isn't "
+                    "convincing them to commit."),
+            "steps": [
+                "Watch 5 recordings of product-page visitors who didn't add to cart.",
+                "Don't force the full personalization form before add-to-cart.",
+                "Make price, FREE shipping and the Add-to-Cart button visible without scrolling.",
+                "Add a preview/proof + reviews near the button.",
+            ],
+            "evidence": {"product_view_rate_pct": round(view_rate, 1),
+                         "add_to_cart_rate_pct": round(atc_rate, 1)},
+        }
+    elif carts and close_rate < _CLOSE_OK:
+        leak = {
+            "key": "close", "category": "conversion", "severity": "high",
+            "title": "Carts aren't closing",
+            "what": f"Only {close_rate:.0f}% of carts become orders (healthy ~{int(_CLOSE_OK)}%+).",
+            "why": "Something between the cart and the thank-you page is stopping committed buyers.",
+            "steps": [
+                "Buy one of your own products on your phone; note every point of friction.",
+                "Show shipping/total before the final step; allow guest checkout.",
+                "For personalized goods, add a preview/proof + 'we remake errors free' near Pay.",
+            ],
+            "evidence": {"close_rate_pct": round(close_rate, 1)},
+        }
+
+    return {
+        "available": True,
+        "steps": steps,
+        "product_view_rate_pct": round(view_rate, 1),
+        "add_to_cart_rate_pct": round(atc_rate, 1),
+        "close_rate_pct": round(close_rate, 1),
+        "leak_step": leak,
+        "_view_users": viewers, "_cart_users": carts, "_buy_users": buys,
+    }
+
+
+def _funnel_leak(funnel: dict) -> dict:
+    """Turn the funnel's leaking step into a first-class leak card (unsized — it's
+    a share problem, not a benchmark-dollar one) so it leads 'Do these today'."""
+    ls = funnel["leak_step"]
+    return {
+        "id": "funnel:" + ls["key"],
+        "category": ls["category"],
+        "severity": ls["severity"],
+        "dollars": None,
+        "title": ls["title"],
+        "what": ls["what"],
+        "why": ls["why"],
+        "steps": ls["steps"],
+        "evidence": ls["evidence"],
+        "where": [],
+    }
+
+
 def build_sales_leaks(eval_data: dict, config: dict = None,
                       reviews: dict = None) -> dict:
     """Top-level: every money leak + growth opening, from real persisted data.
@@ -491,13 +622,16 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
     results = eval_data.get("results") or []
     profile = _store_profile(config)
 
-    # The per-product add-to-cart leak is the headline — it's where the money
-    # usually hides. Build it first so dead-traffic can dedupe against it.
+    # The real by-users funnel — the trustworthy drop-off measure.
+    funnel = site_funnel(eval_data)
+
+    # The per-product add-to-cart leak is a headline — it's where the money
+    # often hides. Build it first so dead-traffic can dedupe against it.
     atc_leaks = _leak_low_add_to_cart(results, account, profile, config)
     atc_urls = {u for l in atc_leaks for u in l.get("where", [])}
 
     leaks = list(atc_leaks)
-    co = _leak_checkout(account, profile)
+    co = _leak_checkout(account, profile, funnel)
     if co:
         leaks.append(co)
     leaks += _leak_leaky_products(results, account, profile, config)
@@ -508,6 +642,11 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
     sev_rank = {"high": 0, "medium": 1, "low": 2, "opportunity": 3}
     leaks.sort(key=lambda x: (x["dollars"] is None, -(x["dollars"] or 0),
                               sev_rank.get(x["severity"], 9)))
+
+    # The funnel's leaking step is the most reliable, highest-level diagnosis —
+    # put it FIRST so it leads 'Do these today', ahead of the $-sized leaks.
+    if funnel and funnel.get("leak_step"):
+        leaks.insert(0, _funnel_leak(funnel))
 
     # A product flagged as a leak shouldn't also be sold as a "winner, send more
     # traffic" — that's a mixed message. Fix the page first.
@@ -535,18 +674,23 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
         return (r.get("asset_type") or "").lower() == "product" and not _is_b2b(_label(r), config)
     cons_views = sum(_num(r.get("item_viewed")) for r in results if _consumer(r))
     cons_carts = sum(_num(r.get("item_added_to_cart")) for r in results if _consumer(r))
-    if cons_views >= MIN_VIEWS:
+    if funnel and funnel.get("available"):
+        # Most reliable: by-users view→add-to-cart from GA4 event counts.
+        atc_rate = funnel["add_to_cart_rate_pct"] / 100
+        atc_basis = "funnel"
+    elif cons_views >= MIN_VIEWS:
         atc_rate = cons_carts / cons_views
-        atc_basis = "item"   # real per-product consumer view→cart rate
+        atc_basis = "item"   # per-product consumer view→cart (name-match; can be noisy)
     else:
         sessions = _num(account.get("sessions"))
         carts = _num(account.get("add_to_carts"))
         atc_rate = (carts / sessions) if sessions > 0 and carts > 0 else None
-        atc_basis = "blended"  # re-run the evaluation for the real per-product rate
+        atc_basis = "blended"  # re-run the evaluation for the real funnel
     return {
         "leaks": leaks,
         "winners": winners,
         "b2b": b2b,
+        "funnel": funnel,
         "totals": {
             "recoverable_monthly": round(recoverable) if recoverable else None,
             "leak_count": len(leaks),

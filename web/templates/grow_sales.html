@@ -57,6 +57,16 @@
 .gs-chip.content{background:#fef9c3;color:#854d0e;}
 .gs-chip.growth{background:#cffafe;color:#155e75;}
 .gs-chip.momentum{background:#f3f4f6;color:#374151;}
+.gs-chip.traffic{background:#ffe4e6;color:#9f1239;}
+
+/* Funnel */
+.gs-funnel{margin:4px 0 8px;}
+.gs-fstep{position:relative;margin:7px 0;border-radius:8px;overflow:hidden;background:var(--bg-hover,#f3f4f6);min-height:40px;display:flex;align-items:center;}
+.gs-fbar{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#c7d2fe,#a5b4fc);}
+.gs-fstep.leak .gs-fbar{background:linear-gradient(90deg,#fecaca,#fca5a5);}
+.gs-ftxt{position:relative;padding:8px 12px;font-size:13px;color:#1f2937;}
+.gs-fpct{color:var(--text-muted,#6b7280);font-size:12px;margin-left:4px;}
+.gs-fdrop{font-size:12px;font-weight:700;color:#dc2626;margin:-2px 0 6px 4px;}
 .gs-how{margin:8px 0 0;font-size:13px;}
 .gs-how summary{cursor:pointer;color:var(--accent,#2563eb);font-weight:600;}
 .gs-how ol{margin:8px 0 0;padding-left:20px;}
@@ -126,29 +136,31 @@ function gsRender(d){
     body.innerHTML=h; gsBind(); return;
   }
 
-  // Money tiles — add-to-cart rate is the headline (top-of-funnel leak).
+  // Tiles + funnel. When the GA4 by-users funnel is available it's the headline —
+  // the reliable view of where people actually drop off.
   const t=b.totals||{};
-  const atc=t.add_to_cart_rate_pct, atcTgt=t.add_to_cart_target_pct||5;
-  const blended=(t.add_to_cart_basis==='blended');
-  const atcCls=blended?'':((atc!=null&&atc<atcTgt)?'bad':(atc!=null?'good':''));
+  const F=b.funnel;
+  const tile=(n,l,cls)=>'<div class="gs-tile '+(cls||'')+'"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';
   h+='<div class="gs-tiles">';
-  h+='<div class="gs-tile '+atcCls+'"><div class="n">'+(atc!=null?atc+'%':'—')+
-     '</div><div class="l">add-to-cart rate (aim '+atcTgt+'%+)</div></div>';
-  h+='<div class="gs-tile money"><div class="n">'+(t.recoverable_monthly?gsMoney(t.recoverable_monthly):'—')+
-     '</div><div class="l">recoverable / month (est.)</div></div>';
-  h+='<div class="gs-tile"><div class="n">'+(t.leak_count||0)+'</div><div class="l">product leaks found</div></div>';
-  h+='<div class="gs-tile"><div class="n">'+(t.aov!=null?gsMoney(t.aov):'—')+
-     '</div><div class="l">avg order value</div></div>';
-  h+='</div>';
-  if(blended){
-    h+='<p class="gs-sub" style="margin-top:-14px;">⚠️ This add-to-cart number is <b>blended across all products</b> and '+
-       'counts GA4 events, so it can read high. <b>Re-run your evaluation (with crawl)</b> to get the real per-product '+
-       'rate and the per-product add-to-cart leaks — they need data this evaluation doesn\'t have yet.</p>';
-  } else if(atc!=null&&atc<atcTgt){
-    h+='<p class="gs-sub" style="margin-top:-14px;">Only <b>'+atc+'%</b> of your consumer-product views turn into add-to-carts '+
-       '(healthy is ~'+atcTgt+'%+). That\'s your top-of-funnel leak — the money is in getting people to <b>add to cart</b>, '+
-       'not in fixing checkout. Classroom / B2B products are set aside below so they stop dragging this number down.</p>';
+  if(F&&F.available){
+    const vr=F.product_view_rate_pct, ar=F.add_to_cart_rate_pct, cr=F.close_rate_pct;
+    h+=tile(vr+'%','visitors who view a product', vr<50?'bad':'good');
+    h+=tile(ar+'%','add-to-cart (of viewers)', ar<5?'bad':'good');
+    h+=tile(cr+'%','cart → order', cr<20?'bad':'good');
+    h+=tile(t.aov!=null?gsMoney(t.aov):'—','avg order value','');
+  } else {
+    const atc=t.add_to_cart_rate_pct, blended=(t.add_to_cart_basis==='blended');
+    h+=tile((atc!=null?atc+'%':'—'),'add-to-cart rate', blended?'':(atc!=null&&atc<5?'bad':'good'));
+    h+=tile((t.recoverable_monthly?gsMoney(t.recoverable_monthly):'—'),'recoverable / month (est.)','money');
+    h+=tile((t.leak_count||0),'product leaks found','');
+    h+=tile((t.aov!=null?gsMoney(t.aov):'—'),'avg order value','');
   }
+  h+='</div>';
+  if((!F||!F.available) && t.add_to_cart_basis==='blended'){
+    h+='<p class="gs-sub" style="margin-top:-14px;">⚠️ These numbers are from an older evaluation. '+
+       '<b>Re-run your evaluation (with crawl)</b> to pull the real GA4 funnel (who views a product, who adds to cart, who buys).</p>';
+  }
+  if(F&&F.available) h+=gsFunnel(F);
 
   // Today's plan
   h+='<div class="gs-h">✅ Do these today</div>';
@@ -189,6 +201,29 @@ function gsRender(d){
   h+=gsReadyBlock(r,false);
 
   body.innerHTML=h; gsBind();
+}
+
+function gsFunnel(F){
+  const steps=F.steps||[];
+  let h='<div class="gs-h">🔻 Your real funnel (last 28 days, by people)</div>';
+  h+='<p class="gs-sub">Straight from GA4 — how many visitors reach each step. This is the trustworthy view of where you actually lose people.</p>';
+  h+='<div class="gs-funnel">';
+  const max=steps.length?steps[0].users:1;
+  const leakKey=(F.leak_step||{}).key;
+  // map leak key to the step it concerns
+  const leakIdx = leakKey==='view'?1 : leakKey==='cart'?2 : leakKey==='close'?(steps.length-1) : -1;
+  steps.forEach((s,i)=>{
+    const w=Math.max(4, Math.round((s.users/max)*100));
+    const isLeak=(i===leakIdx);
+    h+='<div class="gs-fstep'+(isLeak?' leak':'')+'">';
+    h+='<div class="gs-fbar" style="width:'+w+'%"></div>';
+    h+='<div class="gs-ftxt"><b>'+Number(s.users).toLocaleString()+'</b> '+gsEsc(s.label)+
+       (s.pct_of_prev!=null?' <span class="gs-fpct">'+s.pct_of_prev+'% of previous</span>':'')+'</div>';
+    h+='</div>';
+    if(isLeak) h+='<div class="gs-fdrop">⬅ biggest, most fixable drop</div>';
+  });
+  h+='</div>';
+  return h;
 }
 
 function gsPlan(plan){

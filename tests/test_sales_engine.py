@@ -8,8 +8,16 @@ from datetime import date, timedelta
 
 from src.analysis.sales_engine import (
     build_sales_leaks, build_daily_plan, sales_readiness, _store_profile, _is_b2b,
-    TARGET_CLOSE, MIN_CARTS, TARGET_ATC, MIN_VIEWS,
+    site_funnel, TARGET_CLOSE, MIN_CARTS, TARGET_ATC, MIN_VIEWS,
 )
+
+
+def _ga4_funnel(total=5652, viewers=1965, carts=116, checkouts=60, buys=38):
+    return {"_totals": {"users": total, "sessions": total * 2},
+            "view_item": {"events": viewers + 800, "users": viewers},
+            "add_to_cart": {"events": carts + 600, "users": carts},
+            "begin_checkout": {"events": checkouts, "users": checkouts},
+            "purchase": {"events": buys + 7, "users": buys}}
 
 _PERSONALIZED_CFG = {"business_context": {"product_families": [
     "name trains", "personalized name puzzles", "personalized baby books"]}}
@@ -218,6 +226,45 @@ def test_leak_product_not_also_a_winner():
     leak_urls = {u for l in b["leaks"] for u in l.get("where", [])}
     winner_urls = {u for w in b["winners"] for u in w.get("where", [])}
     assert not (leak_urls & winner_urls)   # no product is both a leak and a winner
+
+
+def test_site_funnel_by_users_and_leak_step():
+    ev = _funnel_eval()
+    ev["ga4_funnel"] = _ga4_funnel()
+    f = site_funnel(ev)
+    assert f["available"] is True
+    assert f["product_view_rate_pct"] == round(1965 / 5652 * 100, 1)   # ~34.8
+    assert f["add_to_cart_rate_pct"] == round(116 / 1965 * 100, 1)     # ~5.9 (of viewers)
+    assert f["close_rate_pct"] == round(38 / 116 * 100, 1)             # ~32.8
+    assert f["leak_step"]["key"] == "view"   # low view rate is the leak, not cart/close
+
+
+def test_funnel_leak_leads_do_these_today():
+    ev = _funnel_eval()
+    ev["ga4_funnel"] = _ga4_funnel()
+    b = build_sales_leaks(ev, _PERSONALIZED_CFG, None)
+    assert b["leaks"][0]["id"] == "funnel:view"
+    assert b["totals"]["add_to_cart_basis"] == "funnel"
+    assert b["totals"]["add_to_cart_rate_pct"] == round(116 / 1965 * 100, 1)
+
+
+def test_healthy_close_suppresses_checkout_leak():
+    ev = _funnel_eval()
+    ev["ga4_funnel"] = _ga4_funnel()   # close 38/116 = 33% -> healthy
+    b = build_sales_leaks(ev, _PERSONALIZED_CFG, None)
+    assert not any(l["id"] == "checkout_abandonment" for l in b["leaks"])
+
+
+def test_unhealthy_close_surfaces_checkout_leak():
+    ev = _funnel_eval()
+    ev["ga4_funnel"] = _ga4_funnel(carts=200, buys=20)  # 10% close -> leak
+    b = build_sales_leaks(ev, _PERSONALIZED_CFG, None)
+    assert any(l["id"] == "checkout_abandonment" for l in b["leaks"])
+
+
+def test_no_funnel_data_returns_none():
+    assert site_funnel({}) is None
+    assert site_funnel({"ga4_funnel": {"_totals": {"users": 100}}}) is None  # no view_item
 
 
 def test_b2b_excluded_from_every_leak_type():

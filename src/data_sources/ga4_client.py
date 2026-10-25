@@ -364,6 +364,63 @@ class GA4Client:
             print(f"GA4 account-totals error: {e}")
             return {}
 
+    def get_funnel_counts(self, days: int = 28) -> dict:
+        """The real site funnel, by USERS (not events) — the only reliable way to
+        measure a drop-off. Pulls distinct users (and raw event counts) for the key
+        ecommerce events, plus account-wide totals. This is what tells you where
+        the funnel actually leaks: land -> view a product -> add to cart -> buy.
+
+        Returns {event: {users, events}, "_totals": {users, sessions}}. Empty on
+        any failure or when GA4 isn't configured — callers must treat empty as
+        'unknown' and never fabricate a funnel."""
+        client = self._get_client()
+        if client is None:
+            return {}
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest, DateRange, Dimension, Metric, Filter, FilterExpression,
+            )
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+            events = ["view_item", "view_item_list", "add_to_cart",
+                      "begin_checkout", "purchase"]
+            req = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                       end_date=end_date.isoformat())],
+                dimensions=[Dimension(name="eventName")],
+                metrics=[Metric(name="eventCount"), Metric(name="totalUsers")],
+                dimension_filter=FilterExpression(
+                    filter=Filter(field_name="eventName",
+                                  in_list_filter=Filter.InListFilter(values=events))),
+                limit=50,
+            )
+            resp = client.run_report(req)
+            out = {}
+            for row in resp.rows:
+                name = row.dimension_values[0].value
+                m = {h.name: row.metric_values[i].value
+                     for i, h in enumerate(resp.metric_headers)}
+                out[name] = {"events": int(float(m.get("eventCount", 0))),
+                             "users": int(float(m.get("totalUsers", 0)))}
+            # Account-wide totals (all users/sessions) for the top of the funnel.
+            treq = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                       end_date=end_date.isoformat())],
+                metrics=[Metric(name="totalUsers"), Metric(name="sessions")],
+            )
+            tr = client.run_report(treq)
+            if tr.rows:
+                tm = {h.name: tr.rows[0].metric_values[i].value
+                      for i, h in enumerate(tr.metric_headers)}
+                out["_totals"] = {"users": int(float(tm.get("totalUsers", 0))),
+                                  "sessions": int(float(tm.get("sessions", 0)))}
+            return out
+        except Exception as e:
+            print(f"GA4 funnel-counts error: {e}")
+            return {}
+
     def get_page_data(self, days: int = 28, organic_only: bool = True) -> dict[str, dict]:
         """
         Get page-level data for all landing pages.
