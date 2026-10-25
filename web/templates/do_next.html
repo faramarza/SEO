@@ -4,6 +4,7 @@
 
 {% block content %}
 <div class="dn-page">
+    <div id="dn-priority"></div>
     <div id="dn-reviewed" class="dn-reviewed" style="display:none;"></div>
     <div id="dn-datastatus" class="dn-datastatus" style="display:none;"></div>
     <div id="dn-body"><p class="pb-loading">Loading your plan…</p></div>
@@ -47,6 +48,16 @@
 .dn-mini.lock{opacity:.55;}
 .dn-mini .r{color:var(--text-muted);font-size:12px;white-space:nowrap;}
 .dn-qsection{font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 8px;cursor:pointer;}
+/* Sales priority banner — the verified top-of-funnel priority, above the SEO task list */
+.dn-prio{border:2px solid #16a34a;border-radius:14px;padding:16px 18px;margin:0 0 18px;background:linear-gradient(0deg,#f0fdf4,#f0fdf4);}
+.dn-prio-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+.dn-prio-badge{background:#16a34a;color:#fff;font-size:12px;font-weight:800;letter-spacing:.04em;padding:2px 10px;border-radius:20px;}
+.dn-prio-sub{font-size:12px;color:#166534;font-weight:600;}
+.dn-prio-title{font-size:18px;font-weight:800;margin:2px 0 6px;color:#14532d;}
+.dn-prio-what{font-size:14px;color:#166534;margin-bottom:4px;}
+.dn-prio-why{font-size:13px;color:#15803d;margin-bottom:12px;}
+.dn-prio-btn{display:inline-block;background:#16a34a;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:8px 16px;border-radius:8px;}
+.dn-prio-note{font-size:12px;color:#166534;margin-top:8px;}
 </style>
 {% endblock %}
 
@@ -116,6 +127,32 @@ async function loadStrategy(refresh){
             ${d.expected_impact?`<div class="dn-strat-impact">📈 <strong>Expected impact:</strong> ${esc(d.expected_impact)}</div>`:''}
             ${d.skip?`<div class="dn-strat-skip">🚫 <strong>Skip for now:</strong> ${esc(d.skip)}</div>`:''}`;
     }catch(e){ box.style.display='none'; }
+}
+
+// The verified sales priority, pulled from Grow Sales (GA4 funnel) — shown ABOVE
+// the SEO task list so Start Here leads with what actually grows sales, not the
+// next title tweak. Sourced from measured data, never an LLM guess.
+async function loadPriority(){
+    const box=document.getElementById('dn-priority');
+    if(!box) return;
+    try{
+        const d=await (await fetch('/api/grow-sales')).json();
+        const b=d.bundle||{}, F=b.funnel;
+        const leak=(b.leaks||[])[0];
+        if(!leak){ box.innerHTML=''; return; }
+        const funnelLine=(F&&F.available)
+            ? `Only <b>${F.product_view_rate_pct}%</b> of visitors reach a product; of those who do, add-to-cart (${F.add_to_cart_rate_pct}%) and checkout (${F.close_rate_pct}%) are healthy. Your leak is getting buyers to products — not conversion.`
+            : '';
+        box.innerHTML=`<div class="dn-prio">
+            <div class="dn-prio-top"><span class="dn-prio-badge">🎯 YOUR #1 PRIORITY</span>
+              <span class="dn-prio-sub">from your GA4 funnel · the SEO list below serves this</span></div>
+            <div class="dn-prio-title">${esc(leak.title)}</div>
+            <div class="dn-prio-what">${esc(leak.what||'')}</div>
+            ${funnelLine?`<div class="dn-prio-why">${funnelLine}</div>`:''}
+            <a class="dn-prio-btn" href="/grow-sales">Open Grow Sales →</a>
+            <div class="dn-prio-note">The tasks below are how you deliver this — the ranking/CTR fixes aimed at <b>product &amp; category</b> pages are the work; informational content and paid links are not the lever right now.</div>
+        </div>`;
+    }catch(e){ box.innerHTML=''; }
 }
 
 async function loadPlan(){
@@ -990,6 +1027,7 @@ function lpAnnotate(){
     });
 }
 
+loadPriority();
 loadPlan();
 lpLoadSummary();
 </script>
