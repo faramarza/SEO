@@ -58,6 +58,10 @@
 .dn-prio-why{font-size:13px;color:#15803d;margin-bottom:12px;}
 .dn-prio-btn{display:inline-block;background:#16a34a;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:8px 16px;border-radius:8px;}
 .dn-prio-note{font-size:12px;color:#166534;margin-top:8px;}
+.dn-deprio{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:9px;padding:9px 12px;font-size:12.5px;margin-bottom:12px;line-height:1.5;}
+.dn-deprio a{color:#c2410c;font-weight:700;}
+.dn-mini.deprio{opacity:.72;}
+.dn-mini-tag{background:#ffedd5;color:#9a3412;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:6px;}
 </style>
 {% endblock %}
 
@@ -344,7 +348,10 @@ function renderPlan(plan, extra){
 
     // Focus = the one task you're on: your chosen jump, else the top by sales.
     let focus = FOCUS_OVERRIDE ? open.find(t=>t.dedup_key===FOCUS_OVERRIDE) : null;
-    if(!focus) focus = open[0];
+    // Default focus skips "not your lever" tasks (link-building, informational
+    // content) so the headline job is always a real lever. They stay reachable
+    // in Up next; the operator can still jump to one.
+    if(!focus) focus = open.find(t=>!t.deprioritized) || open[0];
     const pos = focus ? open.indexOf(focus)+1 : 0;
     const upNext = open.filter(t=>t!==focus);
 
@@ -367,8 +374,8 @@ function renderPlan(plan, extra){
     // Up next — muted, reachable (soft focus, not a lock)
     if(upNext.length){
         html += `<div class="dn-qsection" onclick="dnTgl(this)">▸ ⏭ Up next (${upNext.length}) — click any to jump</div><div style="display:none;">`;
-        html += upNext.slice(0,25).map(t=>`<div class="dn-mini" style="cursor:pointer;" onclick="dnFocus('${esc(t.dedup_key)}')">
-            <span>${(CAT_META[t.category]||{icon:'•'}).icon} ${esc(t.title)}</span>
+        html += upNext.slice(0,25).map(t=>`<div class="dn-mini${t.deprioritized?' deprio':''}" style="cursor:pointer;" onclick="dnFocus('${esc(t.dedup_key)}')">
+            <span>${(CAT_META[t.category]||{icon:'•'}).icon} ${esc(t.title)}${t.deprioritized?' <span class="dn-mini-tag">not your lever</span>':''}</span>
             <span class="r">${t.expected_value>0?'$'+Math.round(t.expected_value)+'/mo':(t.reach?(t.reach).toLocaleString()+' impr':'')}</span></div>`).join('');
         if(upNext.length>25) html += `<p style="font-size:12px;color:var(--text-muted);">…and ${upNext.length-25} more.</p>`;
         html += `</div>`;
@@ -522,6 +529,7 @@ function activeCard(t, pos, total){
     }
 
     return `<div class="dn-guide">
+        ${t.deprioritized?`<div class="dn-deprio">⚠ Not your lever right now — ${esc(t.deprioritized_reason||'')} <a href="/grow-sales">See what is →</a></div>`:''}
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Your #1 job right now${val?' · '+val:''}${t.low_hanging?' · 🍒 quick &amp; easy':''}</div>
         <div style="font-size:19px;font-weight:700;line-height:1.4;margin-bottom:14px;">${plainWhat(t)}</div>
         <div id="aitake-${domId}" class="dn-aitake"></div>

@@ -9117,6 +9117,19 @@ def api_action_plan():
             t["reviews"] = a.get("reviews", [])
         else:
             t["adopted"] = False
+        # Tag the two things this store's data says are NOT the lever, so they
+        # stop presenting as equals to the ranking/CRO work that is. They stay on
+        # the list (the operator may still want them) — just honestly labelled.
+        cat = (t.get("category") or "").lower()
+        at = (t.get("asset_type") or "").lower()
+        if cat == "links":
+            t["deprioritized"] = True
+            t["deprioritized_reason"] = ("Generic link-building — a year of it didn't move your "
+                "sales. Earn links as a side effect of great product pages; don't pay a vendor for them.")
+        elif cat == "content" and at not in ("product", "category"):
+            t["deprioritized"] = True
+            t["deprioritized_reason"] = ("Informational content brings browsers, not buyers. Rank your "
+                "product & category pages for buyer keywords instead.")
 
     # Adopted tasks that dropped off the fresh plan (e.g. the leak is now fixed) —
     # keep showing them with their review history so the loop is visible.
