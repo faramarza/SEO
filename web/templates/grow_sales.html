@@ -58,6 +58,7 @@
 .gs-chip.growth{background:#cffafe;color:#155e75;}
 .gs-chip.momentum{background:#f3f4f6;color:#374151;}
 .gs-chip.traffic{background:#ffe4e6;color:#9f1239;}
+.gs-chip.traffic{background:#ffe4e6;color:#9f1239;}
 
 /* Funnel */
 .gs-funnel{margin:4px 0 8px;}
@@ -122,6 +123,7 @@ function gsEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;'
 function gsMoney(n){return '$'+Number(n).toLocaleString();}
 
 function gsRender(d){
+  GS_DATA=d;
   const body=document.getElementById('gs-body');
   const r=d.readiness||{}, b=d.bundle||{}, plan=d.plan||{};
   let h='';
@@ -161,6 +163,7 @@ function gsRender(d){
        '<b>Re-run your evaluation (with crawl)</b> to pull the real GA4 funnel (who views a product, who adds to cart, who buys).</p>';
   }
   if(F&&F.available) h+=gsFunnel(F);
+  h+=gsLanding();
 
   // Today's plan
   h+='<div class="gs-h">✅ Do these today</div>';
@@ -201,6 +204,39 @@ function gsRender(d){
   h+=gsReadyBlock(r,false);
 
   body.innerHTML=h; gsBind();
+}
+
+let GS_DATA=null, GS_LANDING=null, GS_LANDING_LOADING=false;
+
+// The pages leaking your traffic — visitors who land and never reach a product.
+// Loaded on demand (live GA4 call), then persists across re-renders.
+function gsLanding(){
+  let h='<div class="gs-h">🚰 Pages leaking your traffic</div>';
+  h+='<p class="gs-sub">The pages that pull visitors who never reach a product — your top-of-funnel leak, page by page. Fixing these is how you lift the red step above.</p>';
+  if(GS_LANDING_LOADING) return h+'<p class="gs-loading">Reading your landing pages from GA4…</p>';
+  if(!GS_LANDING) return h+'<button class="gs-mini" style="font-size:13px;padding:8px 14px;" onclick="gsLoadLanding(false)">Find the pages leaking your traffic →</button>';
+  if(!GS_LANDING.available || !(GS_LANDING.leaks||[]).length)
+    return h+'<p class="gs-sub">'+gsEsc(GS_LANDING.note||'No leaking pages found — your traffic reaches products well. 🎉')+'</p>';
+  h+='<p class="gs-sub"><b>'+Number(GS_LANDING.total_wasted||0).toLocaleString()+'</b> visits land somewhere and never reach a product. Biggest offenders first:</p>';
+  const chipCls=k=>k==='blog/info'?'content':k==='rug/B2B'?'growth':'traffic';
+  (GS_LANDING.leaks||[]).forEach(l=>{
+    const url=(GS_LANDING.base_url||'')+l.landing_page;
+    h+='<div class="gs-leak low"><div class="gs-leak-top">'+
+       '<div class="gs-leak-title">'+gsEsc(l.landing_page)+' <span class="gs-chip '+chipCls(l.kind)+'">'+gsEsc(l.kind)+'</span></div>'+
+       '<div class="gs-leak-$">'+Number(l.wasted_sessions).toLocaleString()+'<span style="font-size:11px;font-weight:600;color:#6b7280;"> wasted</span></div></div>'+
+       '<div class="gs-leak-what">'+Number(l.sessions).toLocaleString()+' visits, only '+l.view_rate_pct+'% reach a product.</div>'+
+       '<div class="gs-leak-why">'+gsEsc(l.recommendation)+'</div>'+
+       (GS_LANDING.base_url?'<div class="gs-leak-where"><a href="'+gsEsc(url)+'" target="_blank" rel="noopener">View page ↗</a></div>':'')+
+       '</div>';
+  });
+  h+='<p class="gs-sub"><a href="#" onclick="gsLoadLanding(true);return false;">↻ Refresh from GA4</a></p>';
+  return h;
+}
+function gsLoadLanding(refresh){
+  GS_LANDING_LOADING=true; if(GS_DATA) gsRender(GS_DATA);
+  fetch('/api/grow-sales/landing-leaks'+(refresh?'?refresh=1':''))
+    .then(r=>r.json()).then(d=>{ GS_LANDING=d; GS_LANDING_LOADING=false; if(GS_DATA) gsRender(GS_DATA); })
+    .catch(()=>{ GS_LANDING_LOADING=false; GS_LANDING={available:false,note:'Could not load — try Refresh.',leaks:[]}; if(GS_DATA) gsRender(GS_DATA); });
 }
 
 function gsFunnel(F){

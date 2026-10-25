@@ -8521,6 +8521,69 @@ def api_grow_sales_done():
     return jsonify(_grow_sales_payload())
 
 
+LANDING_LEAKS_PATH = DATA_PATH / "landing_leaks_cache.json"
+
+
+def _site_base_url(config):
+    """Best https://domain for turning GA4 landing paths into clickable URLs."""
+    gsc = (config.get("data_sources", {}) or {}).get("gsc", {}) or {}
+    prop = gsc.get("property_url", "") or ""
+    if prop.startswith("sc-domain:"):
+        return "https://" + prop.replace("sc-domain:", "").strip("/")
+    if prop.startswith("http"):
+        return prop.rstrip("/")
+    return ""
+
+
+@app.route("/api/grow-sales/landing-leaks")
+def api_grow_sales_landing_leaks():
+    """The pages leaking your traffic: visitors who land and never reach a product,
+    ranked by wasted sessions, each with a fix matched to the page type. Live GA4
+    pull, cached per day (pass ?refresh=1 to force a fresh pull)."""
+    from datetime import date as _date
+    from src.analysis.sales_engine import landing_leaks
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+    today = _date.today().isoformat()
+    refresh = request.args.get("refresh") == "1"
+
+    cached = None
+    if LANDING_LEAKS_PATH.exists():
+        try:
+            with open(LANDING_LEAKS_PATH) as f:
+                cached = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            cached = None
+    if cached and cached.get("date") == today and not refresh:
+        return jsonify(cached)
+
+    ga4_cfg = (config.get("data_sources", {}) or {}).get("ga4", {}) or {}
+    try:
+        ga4 = GA4Client(property_id=ga4_cfg.get("property_id", ""),
+                        credentials_path=ga4_cfg.get("credentials_path") or None)
+        funnel = ga4.get_landing_page_funnel(days=28)
+    except Exception as e:
+        return jsonify({"error": str(e), "leaks": []}), 200
+    if not funnel:
+        return jsonify({"available": False,
+                        "note": "Couldn't read landing-page data from GA4 (view_item events "
+                                "may be needed, or GA4 isn't connected).",
+                        "leaks": []})
+
+    leaks = landing_leaks(funnel, config)
+    payload = {"available": True, "date": today, "base_url": _site_base_url(config),
+               "leaks": leaks,
+               "total_wasted": sum(l["wasted_sessions"] for l in leaks)}
+    try:
+        with open(LANDING_LEAKS_PATH, "w") as f:
+            json.dump(payload, f, indent=2)
+    except OSError:
+        pass
+    return jsonify(payload)
+
+
 def _build_plan_inputs(results, eval_data, disallow):
     """Compute every subsystem's output for the unified Action Plan."""
     from src.analysis.ctr_recovery import find_ctr_recovery

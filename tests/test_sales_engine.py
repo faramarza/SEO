@@ -8,8 +8,35 @@ from datetime import date, timedelta
 
 from src.analysis.sales_engine import (
     build_sales_leaks, build_daily_plan, sales_readiness, _store_profile, _is_b2b,
-    site_funnel, TARGET_CLOSE, MIN_CARTS, TARGET_ATC, MIN_VIEWS,
+    site_funnel, landing_leaks, TARGET_CLOSE, MIN_CARTS, TARGET_ATC, MIN_VIEWS,
 )
+
+
+def test_landing_leaks_ranks_wasted_traffic_and_classifies():
+    funnel = {
+        "/blog/montessori-tips.html": {"sessions": 500, "product_view_sessions": 20},
+        "/name-trains.html": {"sessions": 300, "product_view_sessions": 280},  # healthy
+        "/carpets-for-kids-classroom-rug.html": {"sessions": 200, "product_view_sessions": 10},
+        "/(not set)": {"sessions": 400, "product_view_sessions": 0},            # junk
+        "/tiny.html": {"sessions": 5, "product_view_sessions": 0},              # below min
+    }
+    out = landing_leaks(funnel, {}, min_sessions=30)
+    ids = [l["landing_page"] for l in out]
+    assert "/blog/montessori-tips.html" in ids          # pulls traffic, ~nobody reaches a product
+    assert "/name-trains.html" not in ids               # healthy view rate -> not a leak
+    assert "/(not set)" not in ids                       # junk skipped
+    assert "/tiny.html" not in ids                       # below min_sessions
+    # ranked by wasted sessions, biggest first
+    assert out[0]["wasted_sessions"] >= out[-1]["wasted_sessions"]
+    blog = next(l for l in out if l["landing_page"].startswith("/blog"))
+    rug = next(l for l in out if "carpets" in l["landing_page"])
+    assert blog["kind"] == "blog/info" and "product" in blog["recommendation"].lower()
+    assert rug["kind"] == "rug/B2B" and "quote" in rug["recommendation"].lower()
+
+
+def test_landing_leaks_empty_without_data():
+    assert landing_leaks({}, {}) == []
+    assert landing_leaks(None, {}) == []
 
 
 def _ga4_funnel(total=5652, viewers=1965, carts=116, checkouts=60, buys=38):

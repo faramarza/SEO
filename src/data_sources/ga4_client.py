@@ -421,6 +421,51 @@ class GA4Client:
             print(f"GA4 funnel-counts error: {e}")
             return {}
 
+    def get_landing_page_funnel(self, days: int = 28, limit: int = 1000) -> dict:
+        """Per landing page: total sessions, and sessions that went on to view a
+        product. The gap finds the pages that pull traffic which never reaches a
+        product to buy — the top-of-funnel leak, page by page. Returns
+        {landing_page: {sessions, product_view_sessions}}; empty on failure."""
+        client = self._get_client()
+        if client is None:
+            return {}
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest, DateRange, Dimension, Metric, Filter,
+                FilterExpression, OrderBy,
+            )
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+
+            def _query(view_only: bool) -> dict:
+                req = RunReportRequest(
+                    property=f"properties/{self.property_id}",
+                    date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                           end_date=end_date.isoformat())],
+                    dimensions=[Dimension(name="landingPage")],
+                    metrics=[Metric(name="sessions")],
+                    dimension_filter=(FilterExpression(filter=Filter(
+                        field_name="eventName",
+                        string_filter=Filter.StringFilter(
+                            value="view_item",
+                            match_type=Filter.StringFilter.MatchType.EXACT)))
+                        if view_only else None),
+                    order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"),
+                                       desc=True)],
+                    limit=limit,
+                )
+                resp = client.run_report(req)
+                return {row.dimension_values[0].value: int(float(row.metric_values[0].value))
+                        for row in resp.rows}
+
+            totals = _query(False)
+            viewed = _query(True)
+            return {lp: {"sessions": s, "product_view_sessions": viewed.get(lp, 0)}
+                    for lp, s in totals.items()}
+        except Exception as e:
+            print(f"GA4 landing-funnel error: {e}")
+            return {}
+
     def get_page_data(self, days: int = 28, organic_only: bool = True) -> dict[str, dict]:
         """
         Get page-level data for all landing pages.

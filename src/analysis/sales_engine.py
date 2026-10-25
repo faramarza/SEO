@@ -610,6 +610,67 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
     }
 
 
+_INFO_RE = re.compile(
+    r"/blog|/article|/news|/guide|/ideas?|/tips|/how-to|/learn|/resources?|/faq", re.I)
+
+
+def _page_kind(path: str, config: dict = None) -> str:
+    if _is_b2b(path, config):
+        return "rug/B2B"
+    if _INFO_RE.search(path or ""):
+        return "blog/info"
+    if (path or "").rstrip("/") in ("", "/"):
+        return "home"
+    return "page"
+
+
+def landing_leaks(landing_funnel: dict, config: dict = None,
+                  min_sessions: int = 30, target_view_rate: float = 0.25,
+                  limit: int = 25) -> list:
+    """Rank landing pages by the TRAFFIC THEY WASTE — visitors who land and never
+    reach a product. Each gets a plain fix matched to the page type. This turns
+    'get people to products' into a specific page list. Needs the GA4 landing
+    funnel; returns [] without it (never guesses)."""
+    out = []
+    for lp, d in (landing_funnel or {}).items():
+        if _junk_url(lp):
+            continue
+        sess = int(d.get("sessions") or 0)
+        pv = int(d.get("product_view_sessions") or 0)
+        if sess < min_sessions:
+            continue
+        vr = pv / sess if sess else 0.0
+        if vr >= target_view_rate:
+            continue  # enough of this page's visitors already reach a product
+        wasted = round(sess * (1 - vr))
+        kind = _page_kind(lp, config)
+        if kind == "blog/info":
+            rec = ("This content pulls visitors but almost none reach a product. Add inline "
+                   "links to the matching product pages and a 'Shop related products' block "
+                   "near the top — turn the reader into a shopper.")
+        elif kind == "rug/B2B":
+            rec = ("Classroom-rug / B2B traffic — it won't behave like gift shoppers. Give it a "
+                   "'Request a quote / bulk pricing' path instead of chasing add-to-cart.")
+        elif kind == "home":
+            rec = ("Visitors land on the homepage and leave without reaching a product. Put your "
+                   "best-selling gift products above the fold with a clear 'Shop' path.")
+        else:
+            rec = ("Make this page lead to products — a clear 'Shop' call-to-action above the "
+                   "fold. If it's low buyer-intent (e.g. you're buying this traffic via ads), "
+                   "trim the spend here.")
+        out.append({
+            "landing_page": lp,
+            "sessions": sess,
+            "product_view_sessions": pv,
+            "view_rate_pct": round(vr * 100, 1),
+            "wasted_sessions": wasted,
+            "kind": kind,
+            "recommendation": rec,
+        })
+    out.sort(key=lambda x: -x["wasted_sessions"])
+    return out[:limit]
+
+
 def _funnel_leak(funnel: dict) -> dict:
     """Turn the funnel's leaking step into a first-class leak card (unsized — it's
     a share problem, not a benchmark-dollar one) so it leads 'Do these today'."""
