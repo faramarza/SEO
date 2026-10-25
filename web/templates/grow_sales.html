@@ -29,6 +29,12 @@
 .gs-b2b{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:12px 14px;margin-bottom:10px;}
 .gs-b2b .t{font-weight:700;font-size:14px;}
 .gs-b2b .d{font-size:13px;color:#3730a3;margin-top:3px;}
+.gs-plink{margin-top:10px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;}
+.gs-plink-head{font-size:12px;color:#166534;font-weight:600;margin-bottom:6px;}
+.gs-plink-code{margin:0 0 8px;padding:8px 10px;background:#fff;border:1px solid #d1fae5;border-radius:6px;
+  font-size:11px;line-height:1.4;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto;color:#334155;}
+.gs-plink-list{font-size:12px;color:#6b7280;}
+.gs-plink-note{margin-top:10px;font-size:12px;color:#9a3412;}
 
 .gs-h{font-size:17px;font-weight:800;margin:30px 0 4px;}
 .gs-sub{font-size:13px;color:var(--text-secondary,#374151);margin:0 0 14px;}
@@ -206,7 +212,31 @@ function gsRender(d){
   body.innerHTML=h; gsBind();
 }
 
-let GS_DATA=null, GS_LANDING=null, GS_LANDING_LOADING=false;
+let GS_DATA=null, GS_LANDING=null, GS_LANDING_LOADING=false, GS_PLINKS={};
+
+// Per leaking page: a paste-ready "Shop these products" block that gives its
+// readers a path to buy — matched to the real catalog, Copy-and-paste into Magento.
+function gsProductLinks(l){
+  const page=l.landing_page, pl=GS_PLINKS[page];
+  if(!pl) return '<button class="gs-mini gs-plink-btn" data-page="'+gsEsc(page)+'" style="margin-top:10px;">🛒 Get product links for this page</button>';
+  if(pl.loading) return '<p class="gs-loading" style="margin:10px 0;">Matching products…</p>';
+  if(!pl.matches||!pl.matches.length)
+    return '<div class="gs-plink-note">'+gsEsc(pl.note||'No confident product match — add a link by hand to the products this page should point to.')+'</div>';
+  let h='<div class="gs-plink">';
+  h+='<div class="gs-plink-head">Paste this block near the top of the page body in Magento, then Save &amp; flush cache:</div>';
+  h+='<pre class="gs-plink-code">'+gsEsc(pl.html)+'</pre>';
+  h+='<button class="gs-mini gs-plink-copy" data-page="'+gsEsc(page)+'">Copy block</button>';
+  h+=' <span class="gs-plink-list">links: '+(pl.matches.map(m=>gsEsc(m.title)).join(', '))+'</span>';
+  h+='</div>';
+  return h;
+}
+function gsGetProductLinks(page){
+  GS_PLINKS[page]={loading:true}; if(GS_DATA) gsRender(GS_DATA);
+  fetch('/api/grow-sales/product-links',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({landing_page:page})})
+    .then(r=>r.json()).then(d=>{ GS_PLINKS[page]=d; if(GS_DATA) gsRender(GS_DATA); })
+    .catch(()=>{ GS_PLINKS[page]={matches:[],note:'Could not load — try again.'}; if(GS_DATA) gsRender(GS_DATA); });
+}
 
 // The pages leaking your traffic — visitors who land and never reach a product.
 // Loaded on demand (live GA4 call), then persists across re-renders.
@@ -227,6 +257,7 @@ function gsLanding(){
        '<div class="gs-leak-what">'+Number(l.sessions).toLocaleString()+' visits, only '+l.view_rate_pct+'% reach a product.</div>'+
        '<div class="gs-leak-why">'+gsEsc(l.recommendation)+'</div>'+
        (GS_LANDING.base_url?'<div class="gs-leak-where"><a href="'+gsEsc(url)+'" target="_blank" rel="noopener">View page ↗</a></div>':'')+
+       gsProductLinks(l)+
        '</div>';
   });
   h+='<p class="gs-sub"><a href="#" onclick="gsLoadLanding(true);return false;">↻ Refresh from GA4</a></p>';
@@ -353,6 +384,13 @@ function gsBind(){
   document.querySelectorAll('.gs-step-check').forEach(el=>{
     el.onclick=()=>gsPost({step_id:el.getAttribute('data-step'), done:el.getAttribute('data-done')!=='1'});
   });
+  document.querySelectorAll('.gs-plink-btn').forEach(el=>{
+    el.onclick=()=>gsGetProductLinks(el.getAttribute('data-page'));
+  });
+  document.querySelectorAll('.gs-plink-copy').forEach(el=>{
+    el.onclick=()=>{ const p=el.getAttribute('data-page'); const t=(GS_PLINKS[p]||{}).html||'';
+      gsCopy(t,()=>{ el.textContent='Copied ✓'; setTimeout(()=>{el.textContent='Copy block';},1500); }); };
+  });
 }
 
 function gsPost(payload){
@@ -360,6 +398,15 @@ function gsPost(payload){
     body:JSON.stringify(payload)})
     .then(r=>r.json()).then(gsRender)
     .catch(()=>{});
+}
+
+function gsCopy(text, cb){
+  try{ if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(text).then(cb,()=>gsCopyExec(text,cb)); return; } }catch(e){}
+  gsCopyExec(text,cb);
+}
+function gsCopyExec(text, cb){
+  try{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); cb&&cb(); }catch(e){}
 }
 
 function gsLoad(){

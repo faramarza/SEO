@@ -8,8 +8,43 @@ from datetime import date, timedelta
 
 from src.analysis.sales_engine import (
     build_sales_leaks, build_daily_plan, sales_readiness, _store_profile, _is_b2b,
-    site_funnel, landing_leaks, TARGET_CLOSE, MIN_CARTS, TARGET_ATC, MIN_VIEWS,
+    site_funnel, landing_leaks, product_links_for, product_shop_block,
+    TARGET_CLOSE, MIN_CARTS, TARGET_ATC, MIN_VIEWS,
 )
+
+
+_CATALOG = [
+    {"asset_type": "product", "url": "https://x/montessori-stacking-ring.html",
+     "title": "Montessori Stacking Ring"},
+    {"asset_type": "product", "url": "https://x/5-letter-name-train.html",
+     "title": "5 Letter Name Train"},
+    {"asset_type": "product", "url": "https://x/classroom-rug-8x12.html",
+     "title": "Carpets for Kids Classroom Rug 8ft x 12ft"},   # B2B — must be excluded
+    {"asset_type": "blog", "url": "https://x/blog/tips.html", "title": "Montessori Tips"},
+]
+
+
+def test_product_links_match_by_topic_exclude_b2b():
+    page = {"landing_page": "/blog/best-montessori-toys.html"}
+    out = product_links_for(page, _CATALOG, {})
+    urls = [m["url"] for m in out]
+    assert "https://x/montessori-stacking-ring.html" in urls   # topic match
+    assert "https://x/classroom-rug-8x12.html" not in urls     # B2B excluded
+    assert "https://x/blog/tips.html" not in urls              # not a product
+
+
+def test_product_links_empty_when_no_match():
+    page = {"landing_page": "/blog/holiday-recipes.html"}
+    assert product_links_for(page, _CATALOG, {}) == []
+
+
+def test_product_shop_block_is_safe_html():
+    matches = [{"title": "5 Letter Name Train", "url": "https://x/5-letter-name-train.html"}]
+    block = product_shop_block(matches, "Shop our name trains")
+    assert "https://x/5-letter-name-train.html" in block
+    assert "5 Letter Name Train" in block
+    assert block.startswith("<div") and "Shop our name trains" in block
+    assert product_shop_block([]) == ""   # nothing to link -> empty, never a bare box
 
 
 def test_landing_leaks_ranks_wasted_traffic_and_classifies():

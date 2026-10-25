@@ -24,6 +24,7 @@ No third-party imports — pure stdlib so it is trivially testable.
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import date, timedelta
 from typing import Any, Optional
@@ -669,6 +670,69 @@ def landing_leaks(landing_funnel: dict, config: dict = None,
         })
     out.sort(key=lambda x: -x["wasted_sessions"])
     return out[:limit]
+
+
+# ── Product-link block: turn a leaking page into a path-to-buy ──────────────
+_LINK_STOP = {"the", "a", "an", "and", "for", "with", "of", "to", "in", "on", "your",
+              "our", "kids", "kid", "best", "how", "what", "why", "guide", "guides",
+              "tips", "ideas", "idea", "blog", "html", "set", "new", "top", "vs",
+              "review", "reviews", "buy", "shop", "gift", "gifts"}
+
+
+def _link_tokens(text: str) -> set:
+    toks = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return {t for t in toks if len(t) > 2 and t not in _LINK_STOP}
+
+
+def product_links_for(page: dict, products: list, config: dict = None,
+                      limit: int = 4) -> list:
+    """Rank a store's products by relevance to a (leaking) page — token overlap of
+    the page path/title against product titles. Excludes B2B and junk. Returns up
+    to `limit` {title, url} dicts, best match first. Empty when nothing matches —
+    never links a random product."""
+    page_tokens = _link_tokens((page or {}).get("landing_page", "")) | \
+        _link_tokens((page or {}).get("title", ""))
+    if not page_tokens:
+        return []
+    scored = []
+    for p in products or []:
+        if (p.get("asset_type") or "").lower() != "product":
+            continue
+        if _is_b2b(_label(p), config) or _junk_url(p.get("url")):
+            continue
+        url = p.get("url")
+        if not url:
+            continue
+        overlap = len(page_tokens & _link_tokens(_label(p)))
+        if overlap >= 1:
+            scored.append((overlap, {"title": _label(p), "url": url}))
+    scored.sort(key=lambda x: -x[0])
+    seen, out = set(), []
+    for _, d in scored:
+        if d["url"] in seen:
+            continue
+        seen.add(d["url"])
+        out.append(d)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def product_shop_block(matches: list, heading: str = "Shop these products") -> str:
+    """A Magento-safe 'Shop these products' HTML block linking to the matched
+    products — paste near the top of a leaking page to give readers a path to buy.
+    Inline styles only (no external CSS); empty string when there's nothing to link."""
+    if not matches:
+        return ""
+    items = "".join(
+        f'<li style="margin:4px 0;"><a href="{html.escape(m["url"], quote=True)}">'
+        f'{html.escape(m["title"])}</a></li>'
+        for m in matches)
+    return (
+        '<div style="margin:24px 0;padding:16px 18px;border:1px solid #e5e7eb;'
+        'border-radius:10px;background:#f9fafb;">'
+        f'<p style="font-weight:700;margin:0 0 8px;font-size:16px;">🛒 {html.escape(heading)}</p>'
+        f'<ul style="margin:0;padding-left:20px;">{items}</ul></div>')
 
 
 def _funnel_leak(funnel: dict) -> dict:

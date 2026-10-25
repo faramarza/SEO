@@ -8584,6 +8584,39 @@ def api_grow_sales_landing_leaks():
     return jsonify(payload)
 
 
+@app.route("/api/grow-sales/product-links", methods=["POST"])
+def api_grow_sales_product_links():
+    """For one leaking page, match the store's catalog and return a paste-ready
+    'Shop these products' block to give its readers a path to buy. Products come
+    from the evaluation; matched by topic, B2B/junk excluded. Empty matches ->
+    honest 'no confident product match' (never links a random product)."""
+    from src.analysis.sales_engine import product_links_for, product_shop_block
+    data = request.get_json(silent=True) or {}
+    page = {"landing_page": (data.get("landing_page") or "").strip(),
+            "title": (data.get("title") or "").strip()}
+    heading = (data.get("heading") or "Shop these products").strip()
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    results = []
+    if eval_path.exists():
+        try:
+            with open(eval_path) as f:
+                results = (json.load(f) or {}).get("results", []) or []
+        except (json.JSONDecodeError, OSError):
+            results = []
+    matches = product_links_for(page, results, config)
+    return jsonify({
+        "landing_page": page["landing_page"],
+        "matches": matches,
+        "html": product_shop_block(matches, heading) if matches else "",
+        "note": "" if matches else ("No confident product match for this page's topic — "
+                                    "add a link by hand to the products it should point to."),
+    })
+
+
 def _build_plan_inputs(results, eval_data, disallow):
     """Compute every subsystem's output for the unified Action Plan."""
     from src.analysis.ctr_recovery import find_ctr_recovery
