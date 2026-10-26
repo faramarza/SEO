@@ -112,6 +112,24 @@ def test_landing_leaks_ranks_wasted_traffic_and_classifies():
     assert rug["kind"] == "rug/B2B" and "quote" in rug["recommendation"].lower()
 
 
+def test_landing_leaks_skips_system_pages():
+    funnel = {"/checkout/cart": {"sessions": 200, "product_view_sessions": 5},
+              "/customer/account/login": {"sessions": 100, "product_view_sessions": 0},
+              "/blog/real-post.html": {"sessions": 100, "product_view_sessions": 2}}
+    out = landing_leaks(funnel, {}, min_sessions=30)
+    ids = [l["landing_page"] for l in out]
+    assert "/checkout/cart" not in ids and "/customer/account/login" not in ids
+    assert "/blog/real-post.html" in ids
+
+
+def test_recommend_for_storefront_pages_is_merchandising_not_links():
+    from src.analysis.sales_engine import recommend_for_links
+    for kind in ("home", "category"):
+        r = recommend_for_links(kind, {"product_links": 0, "category_links": 0})
+        assert "merchandising" in r.lower() or "storefront" in r.lower()
+        assert "not missing links" in r.lower()
+
+
 def test_landing_leaks_empty_without_data():
     assert landing_leaks({}, {}) == []
     assert landing_leaks(None, {}) == []

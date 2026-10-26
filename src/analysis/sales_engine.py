@@ -613,6 +613,11 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
 
 _INFO_RE = re.compile(
     r"/blog|/article|/news|/guide|/ideas?|/tips|/how-to|/learn|/resources?|/faq", re.I)
+# Functional pages that aren't landing pages to optimise — a leak here is
+# meaningless ("add product links to the cart page" is nonsense).
+_SYSTEM_RE = re.compile(
+    r"/(checkout|cart|customer|account|login|logout|wishlist|catalogsearch|onestepcheckout|"
+    r"sales|paypal|newsletter)(/|$|\.)", re.I)
 
 
 def _page_kind(path: str, config: dict = None) -> str:
@@ -634,7 +639,7 @@ def landing_leaks(landing_funnel: dict, config: dict = None,
     funnel; returns [] without it (never guesses)."""
     out = []
     for lp, d in (landing_funnel or {}).items():
-        if _junk_url(lp):
+        if _junk_url(lp) or _SYSTEM_RE.search(lp or ""):
             continue
         sess = int(d.get("sessions") or 0)
         pv = int(d.get("product_view_sessions") or 0)
@@ -784,6 +789,12 @@ def recommend_for_links(kind: str, link_info: dict) -> str:
     contradictions."""
     p = int((link_info or {}).get("product_links", 0))
     c = int((link_info or {}).get("category_links", 0))
+    if kind in ("home", "category"):
+        return ("This is a storefront/listing page — its whole job is to push visitors into "
+                "products, and most aren't clicking through. That's a merchandising/layout "
+                "problem, NOT missing links (the links are already its content). Put best-sellers "
+                "above the fold, cut the number of competing choices, make the path to a product "
+                "obvious, and check the page isn't slow to load.")
     if kind == "blog/info":
         if p >= 2:
             return (f"This page already links to {p} of your products in its content, yet "

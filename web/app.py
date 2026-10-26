@@ -8579,7 +8579,7 @@ def api_grow_sales_landing_leaks():
     # page ALREADY link to products? only to categories? no path to buy? — then
     # refine the recommendation per page instead of a generic "add links".
     from src.analysis.sales_engine import (classify_page_links, recommend_for_links,
-                                           _page_link_paths)
+                                           _page_link_paths, _url_path)
     eval_path = DATA_PATH / "latest_evaluation.json"
     results = []
     if eval_path.exists():
@@ -8609,12 +8609,23 @@ def api_grow_sales_landing_leaks():
                 freq[path] = freq.get(path, 0) + 1
         thresh = max(2, int(0.6 * len(fetched))) if fetched else 999
         boilerplate = {path for path, n in freq.items() if n >= thresh}
+        cat_path_set = {_url_path(u) for u in category_urls}
         for lk in top:
             html = htmls.get(lk["landing_page"])
             if not html:
                 continue
             info = classify_page_links(html, product_urls, category_urls,
                                        exclude_paths=boilerplate)
+            lp = lk["landing_page"]
+            # Storefront pages (home, category) are nothing BUT product links — the
+            # link count is meaningless for them, and the fix is merchandising, not
+            # "add links". Give them the right advice and hide the count.
+            if lp in ("/", "") or _url_path(lp) in cat_path_set:
+                kind_eff = "home" if lp in ("/", "") else "category"
+                lk["recommendation"] = recommend_for_links(kind_eff, info)
+                lk.pop("links", None)
+                lk["actionable"] = True
+                continue
             lk["links"] = info
             lk["recommendation"] = recommend_for_links(lk["kind"], info)
             # Actionable = there's a linking fix to make. A page that already links
