@@ -710,6 +710,26 @@ def _link_tokens(text: str) -> set:
     return {t for t in toks if len(t) > 2 and t not in _LINK_STOP}
 
 
+def _slug_name(url: str) -> str:
+    """A human product name from a URL slug, for link text when the product has no
+    title: '/motor-shapes.html' -> 'Motor Shapes'. Returns '' if nothing usable."""
+    slug = (url or "").split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    slug = slug.rsplit("/", 1)[-1]                       # last path segment
+    slug = re.sub(r"\.(html?|php|aspx?)$", "", slug, flags=re.I)
+    slug = re.sub(r"[-_]+", " ", slug).strip()
+    return slug.title() if slug else ""
+
+
+def _display_name(item: dict) -> str:
+    """Readable product name: the real title, unless it's missing or is just the
+    URL (common when the catalog pull had no titles) — then derive from the slug."""
+    title = (item.get("title") or "").strip()
+    url = (item.get("url") or "").strip()
+    if title and title != url:
+        return title
+    return _slug_name(url) or title or url
+
+
 def product_links_for(page: dict, products: list, config: dict = None,
                       limit: int = 4) -> list:
     """Rank a store's products by relevance to a (leaking) page — token overlap of
@@ -731,7 +751,10 @@ def product_links_for(page: dict, products: list, config: dict = None,
             continue
         overlap = len(page_tokens & _link_tokens(_label(p)))
         if overlap >= 1:
-            scored.append((overlap, {"title": _label(p), "url": url}))
+            # Match on the raw label (slug tokens still work), but carry a clean
+            # human name for the link text.
+            scored.append((overlap, {"title": _display_name({"title": p.get("title"),
+                                                              "url": url}), "url": url}))
     scored.sort(key=lambda x: -x[0])
     seen, out = set(), []
     for _, d in scored:
@@ -750,17 +773,28 @@ def product_shop_block(matches: list, heading: str = "Shop these products") -> s
     Inline styles only (no external CSS); empty string when there's nothing to link."""
     if not matches:
         return ""
-    items = "".join(
-        f'<li style="margin:4px 0;"><a href="{html.escape(m["url"], quote=True)}">'
-        f'{html.escape(m["title"])}</a></li>'
+    # Responsive card grid, inline styles only (no <script>/<style>/external CSS),
+    # so it survives Magento's content filters and reflows on mobile: flex-wrap
+    # makes the cards sit side by side on desktop and stack on a phone. Each card
+    # is a tappable block with the product name and a clear call-to-action.
+    cards = "".join(
+        '<a href="{url}" style="display:block;flex:1 1 200px;min-width:150px;'
+        'max-width:260px;box-sizing:border-box;border:1px solid #e5e7eb;'
+        'border-radius:10px;padding:12px 14px;text-decoration:none;color:#111827;'
+        'background:#ffffff;">'
+        '<span style="display:block;font-weight:600;font-size:14px;line-height:1.35;">'
+        '{name}</span>'
+        '<span style="display:block;margin-top:8px;font-size:13px;font-weight:600;'
+        'color:#4f46e5;">View product &#8594;</span></a>'.format(
+            url=html.escape(m["url"], quote=True), name=html.escape(_display_name(m)))
         for m in matches)
     return (
         '<div style="margin:24px 0;padding:16px 18px;border:1px solid #e5e7eb;'
         'border-radius:10px;background:#f9fafb;">'
         # Emoji as a numeric HTML entity (&#128722; = 🛒), not a raw 4-byte char:
         # Magento's editor/filters mangle inline emoji but render entities fine.
-        f'<p style="font-weight:700;margin:0 0 8px;font-size:16px;">&#128722; {html.escape(heading)}</p>'
-        f'<ul style="margin:0;padding-left:20px;">{items}</ul></div>')
+        f'<p style="font-weight:700;margin:0 0 12px;font-size:16px;">&#128722; {html.escape(heading)}</p>'
+        f'<div style="display:flex;flex-wrap:wrap;gap:10px;">{cards}</div></div>')
 
 
 # ── Reading the page itself: does it ALREADY link to products? ───────────────

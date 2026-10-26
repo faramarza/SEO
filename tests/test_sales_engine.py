@@ -106,6 +106,20 @@ def test_product_shop_block_is_safe_html():
     assert product_shop_block([]) == ""   # nothing to link -> empty, never a bare box
 
 
+def test_shop_block_uses_readable_name_not_raw_url():
+    from src.analysis.sales_engine import _slug_name, _display_name
+    # A titleless product (catalog pull had no titles) must link with a readable
+    # name derived from the slug, NOT the raw URL as link text.
+    block = product_shop_block([{"url": "https://alphabet-trains.com/motor-shapes.html"}])
+    assert "Motor Shapes" in block             # readable name is shown
+    assert ">https://" not in block            # raw URL never shown as visible text
+    assert _slug_name("/motor-letters-lowercase.html") == "Motor Letters Lowercase"
+    # A real title still wins; a title that's just the URL falls back to the slug.
+    assert _display_name({"title": "Name Train", "url": "https://x/foo.html"}) == "Name Train"
+    assert _display_name({"title": "https://x/foo.html",
+                          "url": "https://x/foo.html"}) == "Foo"
+
+
 def test_landing_leaks_ranks_wasted_traffic_and_classifies():
     funnel = {
         "/blog/montessori-tips.html": {"sessions": 500, "product_view_sessions": 20},
