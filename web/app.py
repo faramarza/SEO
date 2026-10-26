@@ -8656,6 +8656,25 @@ def api_grow_sales_product_links():
         except (json.JSONDecodeError, OSError):
             results = []
     matches = product_links_for(page, results, config)
+    # Attach real product thumbnails from the sitemap's image entries (written to
+    # sitemap_images.json by the sitemap import). Never fabricated — a product
+    # with no sitemap image just renders as a name-only card.
+    if matches:
+        img_map_path = DATA_PATH / "sitemap_images.json"
+        img_map = {}
+        if img_map_path.exists():
+            try:
+                with open(img_map_path) as f:
+                    img_map = json.load(f) or {}
+            except (json.JSONDecodeError, OSError):
+                img_map = {}
+        if img_map:
+            from src.analysis.sales_engine import _url_path
+            by_path = {_url_path(k): v for k, v in img_map.items() if v}
+            for m in matches:
+                img = img_map.get(m["url"]) or by_path.get(_url_path(m["url"]))
+                if img:
+                    m["image"] = img
     return jsonify({
         "landing_page": page["landing_page"],
         "matches": matches,

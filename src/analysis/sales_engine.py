@@ -776,25 +776,43 @@ def product_shop_block(matches: list, heading: str = "Shop these products") -> s
     # Responsive card grid, inline styles only (no <script>/<style>/external CSS),
     # so it survives Magento's content filters and reflows on mobile: flex-wrap
     # makes the cards sit side by side on desktop and stack on a phone. Each card
-    # is a tappable block with the product name and a clear call-to-action.
-    cards = "".join(
-        '<a href="{url}" style="display:block;flex:1 1 200px;min-width:150px;'
-        'max-width:260px;box-sizing:border-box;border:1px solid #e5e7eb;'
-        'border-radius:10px;padding:12px 14px;text-decoration:none;color:#111827;'
-        'background:#ffffff;">'
-        '<span style="display:block;font-weight:600;font-size:14px;line-height:1.35;">'
-        '{name}</span>'
-        '<span style="display:block;margin-top:8px;font-size:13px;font-weight:600;'
-        'color:#4f46e5;">View product &#8594;</span></a>'.format(
-            url=html.escape(m["url"], quote=True), name=html.escape(_display_name(m)))
-        for m in matches)
+    # is a tappable block with the product name and a clear call-to-action, and a
+    # real product thumbnail when one is available (m["image"], from the sitemap's
+    # image entries — never guessed). Cards without an image stay name-only.
+    cards = "".join(_shop_card(m) for m in matches)
     return (
         '<div style="margin:24px 0;padding:16px 18px;border:1px solid #e5e7eb;'
         'border-radius:10px;background:#f9fafb;">'
         # Emoji as a numeric HTML entity (&#128722; = 🛒), not a raw 4-byte char:
         # Magento's editor/filters mangle inline emoji but render entities fine.
         f'<p style="font-weight:700;margin:0 0 12px;font-size:16px;">&#128722; {html.escape(heading)}</p>'
-        f'<div style="display:flex;flex-wrap:wrap;gap:10px;">{cards}</div></div>')
+        f'<div style="display:flex;flex-wrap:wrap;gap:12px;">{cards}</div></div>')
+
+
+def _shop_card(m: dict) -> str:
+    """One product card for product_shop_block. Inline-styled, Magento-safe.
+    Renders a thumbnail only when m carries a real image URL."""
+    url = html.escape(m["url"], quote=True)
+    name = html.escape(_display_name(m))
+    img = (m.get("image") or "").strip()
+    thumb = (
+        f'<img src="{html.escape(img, quote=True)}" alt="{name}" '
+        'style="display:block;width:100%;height:150px;object-fit:cover;'
+        'background:#f3f4f6;border:0;">'
+        if img else "")
+    # With a thumbnail the text sits in its own padded block; without one the
+    # anchor itself carries the padding (no empty image area).
+    pad = "10px 12px 12px" if img else "12px 14px"
+    text = (
+        f'<span style="display:block;padding:{pad};">'
+        f'<span style="display:block;font-weight:600;font-size:14px;line-height:1.35;">{name}</span>'
+        '<span style="display:block;margin-top:6px;font-size:13px;font-weight:600;'
+        'color:#4f46e5;">View product &#8594;</span></span>')
+    return (
+        f'<a href="{url}" style="display:block;flex:1 1 180px;min-width:150px;'
+        'max-width:230px;box-sizing:border-box;border:1px solid #e5e7eb;'
+        'border-radius:10px;overflow:hidden;text-decoration:none;color:#111827;'
+        f'background:#ffffff;">{thumb}{text}</a>')
 
 
 # ── Reading the page itself: does it ALREADY link to products? ───────────────

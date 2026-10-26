@@ -120,6 +120,19 @@ def test_shop_block_uses_readable_name_not_raw_url():
                           "url": "https://x/foo.html"}) == "Foo"
 
 
+def test_shop_block_renders_thumbnail_only_when_image_present():
+    # A real image URL (e.g. from the sitemap) renders a thumbnail; a product
+    # without one stays a clean name-only card — never a broken/empty <img>.
+    block = product_shop_block([
+        {"url": "https://x/motor-shapes.html",
+         "image": "https://x/media/catalog/motor-shapes.jpg"},
+        {"url": "https://x/motor-numbers.html"},
+    ])
+    assert '<img src="https://x/media/catalog/motor-shapes.jpg"' in block
+    assert block.count("<img") == 1          # the second card has no image
+    assert "Motor Shapes" in block and "Motor Numbers" in block
+
+
 def test_landing_leaks_ranks_wasted_traffic_and_classifies():
     funnel = {
         "/blog/montessori-tips.html": {"sessions": 500, "product_view_sessions": 20},
