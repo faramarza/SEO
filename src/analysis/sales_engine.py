@@ -646,9 +646,13 @@ def landing_leaks(landing_funnel: dict, config: dict = None,
         wasted = round(sess * (1 - vr))
         kind = _page_kind(lp, config)
         if kind == "blog/info":
-            rec = ("This content pulls visitors but almost none reach a product. Add inline "
-                   "links to the matching product pages and a 'Shop related products' block "
-                   "near the top — turn the reader into a shopper.")
+            rec = ("Visitors read this and almost none reach a product. First look at the page: "
+                   "(1) If it has NO product links, add a 'Shop related products' block. "
+                   "(2) If it ALREADY links out (many posts do), the links probably point to "
+                   "CATEGORY pages — which don't count as reaching a product — so swap them for "
+                   "links to specific PRODUCT pages. "
+                   "(3) If it's a long how-to pulling activity-seekers, accept it may just be "
+                   "low-intent traffic that won't convert no matter how many links you add.")
         elif kind == "rug/B2B":
             rec = ("Classroom-rug / B2B traffic — it won't behave like gift shoppers. Give it a "
                    "'Request a quote / bulk pricing' path instead of chasing add-to-cart.")
