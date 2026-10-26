@@ -257,6 +257,9 @@ function gsLanding(){
   const act=all.filter(l=>l.actionable!==false);
   const done=all.filter(l=>l.actionable===false);
   h+='<p class="gs-sub"><b>'+Number(GS_LANDING.total_wasted||0).toLocaleString()+'</b> visits land somewhere and never reach a product. Pages you can actually fix (missing in-content product links) first:</p>';
+  h+='<p class="gs-sub" style="margin-bottom:10px;">'+
+     '<button class="gs-mini" style="font-size:13px;padding:7px 14px;" onclick="gsLoadLanding(true)">↻ Re-check pages now</button>'+
+     ' <span class="gs-foot" style="display:inline;">Fixed a page? Click this — Governor re-reads each page and sees the links you added. (It auto-refreshes once a day anyway.)</span></p>';
   const chipCls=k=>k==='blog/info'?'content':k==='rug/B2B'?'growth':'traffic';
   act.forEach(l=>{
     const url=(GS_LANDING.base_url||'')+l.landing_page;
@@ -276,7 +279,6 @@ function gsLanding(){
     done.forEach(l=>{ h+='<div class="gs-plink-note" style="color:#6b7280;margin:4px 0;">'+gsEsc(l.landing_page)+' — '+Number(l.wasted_sessions).toLocaleString()+' wasted · already links to '+((l.links||{}).product_links||0)+' product(s)</div>'; });
     h+='</details>';
   }
-  h+='<p class="gs-sub"><a href="#" onclick="gsLoadLanding(true);return false;">↻ Refresh from GA4</a></p>';
   return h;
 }
 function gsLoadLanding(refresh){
