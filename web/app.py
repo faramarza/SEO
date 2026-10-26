@@ -8593,29 +8593,17 @@ def api_grow_sales_landing_leaks():
     category_urls = [r.get("url") for r in results
                      if (r.get("asset_type") or "").lower() == "category" and r.get("url")]
     if base:
-        top = leaks[:12]
-        htmls = {}
-        for lk in top:
-            try:
-                htmls[lk["landing_page"]] = _cb_fetch_page(base + lk["landing_page"])
-            except Exception:
-                htmls[lk["landing_page"]] = None
-        # Links that appear on MOST fetched pages are the global nav/footer — strip
-        # them so counts reflect in-content links, not the menu that's on every page.
-        fetched = [h for h in htmls.values() if h]
-        freq = {}
-        for h in fetched:
-            for path in _page_link_paths(h):
-                freq[path] = freq.get(path, 0) + 1
-        thresh = max(2, int(0.6 * len(fetched))) if fetched else 999
-        boilerplate = {path for path, n in freq.items() if n >= thresh}
         cat_path_set = {_url_path(u) for u in category_urls}
-        for lk in top:
-            html = htmls.get(lk["landing_page"])
+        for lk in leaks[:12]:   # cap page fetches; cached for the day
+            try:
+                html = _cb_fetch_page(base + lk["landing_page"])
+            except Exception:
+                html = None
             if not html:
                 continue
-            info = classify_page_links(html, product_urls, category_urls,
-                                       exclude_paths=boilerplate)
+            # classify_page_links strips header/nav/footer itself, so in-content
+            # links to categories that are also in the menu are counted correctly.
+            info = classify_page_links(html, product_urls, category_urls)
             lp = lk["landing_page"]
             # Storefront pages (home, category) are nothing BUT product links — the
             # link count is meaningless for them, and the fix is merchandising, not

@@ -63,6 +63,22 @@ def test_classify_page_links_excludes_nav_boilerplate():
     assert info["product_links"] == 1 and info["category_links"] == 0
 
 
+def test_chrome_strip_counts_in_content_links_also_in_nav():
+    # THE bug: the store's nav links to the same categories its articles do, so
+    # name-based stripping wrongly zeroed real in-content links. After stripping
+    # the header/nav/footer STRUCTURE, the 2 in-content category links are counted.
+    from src.analysis.sales_engine import classify_page_links
+    html = ('<nav><a href="/montessori-toys.html">menu</a>'
+            '<a href="/name-trains.html">menu</a></nav>'
+            '<div class="post-content"><a href="/montessori-toys.html">Shop Montessori Toys</a>'
+            '<a href="/name-trains.html">Explore Name Trains</a></div>'
+            '<footer><a href="/name-trains.html">footer link</a></footer>')
+    info = classify_page_links(html, product_urls=[],
+                               category_urls=["https://x/montessori-toys.html",
+                                              "https://x/name-trains.html"])
+    assert info["category_links"] == 2 and info["product_links"] == 0
+
+
 def test_recommend_for_links_is_page_specific_no_contradiction():
     from src.analysis.sales_engine import recommend_for_links
     # >=2 products -> "it's the audience"

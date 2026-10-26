@@ -755,22 +755,57 @@ def _url_path(url: str) -> str:
 
 
 def _page_link_paths(html: str) -> set:
-    """All distinct link paths on a page — used to detect the global nav/footer
-    (links that appear on almost every page) so they don't pollute the counts."""
+    """All distinct link paths on a page."""
     return {_url_path(h) for h in _HREF_RE.findall(html or "") if _url_path(h)}
+
+
+# Remove the page's structural CHROME (header / nav / footer / sidebar) so we count
+# links in the actual article body — NOT by name (the store's nav links to the same
+# categories its articles do, so name-based stripping wrongly zeroes real content
+# links). Prefers bs4 (on the server); regex fallback handles semantic tags.
+_CHROME_BLOCK_RE = re.compile(r"<(header|footer|nav|aside)\b[^>]*>.*?</\1\s*>", re.I | re.S)
+_CHROME_CLASS_RE = re.compile(
+    r"(^|[\s_-])(header|footer|nav|navbar|menu|sidebar|breadcrumb|cookie|subfooter)", re.I)
+
+
+def _strip_chrome(html: str) -> str:
+    if not html:
+        return ""
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        for t in soup.find_all(["header", "footer", "nav", "aside"]):
+            t.decompose()
+        for t in list(soup.find_all(True)):
+            try:
+                ident = " ".join((t.get("class") or []) + [t.get("id") or ""])
+            except Exception:
+                continue
+            if ident.strip() and _CHROME_CLASS_RE.search(ident):
+                t.decompose()
+        return str(soup)
+    except Exception:
+        cur = html
+        for _ in range(3):
+            new = _CHROME_BLOCK_RE.sub(" ", cur)
+            if new == cur:
+                break
+            cur = new
+        return cur
 
 
 def classify_page_links(html: str, product_urls: list, category_urls: list,
                         exclude_paths: set = None) -> dict:
-    """Read a page's HTML and count DISTINCT links to the store's product vs
-    category pages (matched by path). `exclude_paths` drops boilerplate nav/footer
-    links (the global menu) so the count reflects IN-CONTENT links, not the
-    navigation bar that's on every page."""
+    """Count DISTINCT links to the store's product vs category pages that appear in
+    the page's ARTICLE BODY (header/nav/footer stripped first). This is what makes
+    'already links to products' vs 'no path to buy' actually correct — the menu no
+    longer counts as content."""
     prod = {_url_path(u) for u in (product_urls or []) if u}
     cat = {_url_path(u) for u in (category_urls or []) if u}
     excl = exclude_paths or set()
+    body = _strip_chrome(html)
     p, c, seen = 0, 0, set()
-    for href in _HREF_RE.findall(html or ""):
+    for href in _HREF_RE.findall(body):
         path = _url_path(href)
         if not path or path in seen or path in excl:
             continue
