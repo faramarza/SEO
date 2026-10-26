@@ -749,17 +749,25 @@ def _url_path(url: str) -> str:
     return (u.rstrip("/").lower() or "/")
 
 
-def classify_page_links(html: str, product_urls: list, category_urls: list) -> dict:
-    """Read a page's actual HTML and count how many DISTINCT links point to the
-    store's product pages vs category pages (matched by path against the catalog).
-    This is what lets the tool judge a page the way a human would — 'it already
-    links to products' vs 'it links only to categories' vs 'no path to buy'."""
+def _page_link_paths(html: str) -> set:
+    """All distinct link paths on a page — used to detect the global nav/footer
+    (links that appear on almost every page) so they don't pollute the counts."""
+    return {_url_path(h) for h in _HREF_RE.findall(html or "") if _url_path(h)}
+
+
+def classify_page_links(html: str, product_urls: list, category_urls: list,
+                        exclude_paths: set = None) -> dict:
+    """Read a page's HTML and count DISTINCT links to the store's product vs
+    category pages (matched by path). `exclude_paths` drops boilerplate nav/footer
+    links (the global menu) so the count reflects IN-CONTENT links, not the
+    navigation bar that's on every page."""
     prod = {_url_path(u) for u in (product_urls or []) if u}
     cat = {_url_path(u) for u in (category_urls or []) if u}
+    excl = exclude_paths or set()
     p, c, seen = 0, 0, set()
     for href in _HREF_RE.findall(html or ""):
         path = _url_path(href)
-        if not path or path in seen:
+        if not path or path in seen or path in excl:
             continue
         seen.add(path)
         if path in prod:
@@ -771,30 +779,37 @@ def classify_page_links(html: str, product_urls: list, category_urls: list) -> d
 
 
 def recommend_for_links(kind: str, link_info: dict) -> str:
-    """The honest, page-specific recommendation once we've actually READ the page —
-    no more 'add links' to a page that already has fifteen."""
+    """The honest, page-specific recommendation once we've actually READ the page
+    (in-content links, nav excluded) — no 'add links' to a page that has them, no
+    contradictions."""
     p = int((link_info or {}).get("product_links", 0))
     c = int((link_info or {}).get("category_links", 0))
     if kind == "blog/info":
         if p >= 2:
-            return (f"This page already links to {p} of your products, yet almost no one "
-                    "reaches one — so the problem is NOT missing links, it's the audience "
-                    "(readers here for the content, not to shop). Don't over-invest: make sure "
-                    "one link points at a best-seller, then move on.")
-        if c >= 1 and p == 0:
-            return (f"This page links to {c} CATEGORY page(s) but no individual products. "
-                    "Category views don't count as reaching a product and add an extra step — "
-                    "swap them for links to specific PRODUCT pages.")
-        return ("This page has no links to your products — add a 'Shop related products' "
-                "block (use the button below) pointing at the products its topic matches.")
+            return (f"This page already links to {p} of your products in its content, yet "
+                    "almost no one reaches one — so the problem is NOT missing links, it's the "
+                    "audience (readers here for the content, not to shop). Don't over-invest: "
+                    "make sure a link points at a best-seller, then move on.")
+        if p == 1:
+            return ("This page links to just 1 product in its content and almost no one reaches "
+                    "it. Add 2–3 more links to the specific products its topic matches (use the "
+                    "button) and make them prominent — but if it stays near 0, it's low-intent "
+                    "traffic that won't convert much.")
+        if c >= 1:
+            return (f"This page links to {c} CATEGORY page(s) in its content but no individual "
+                    "products. Category views don't count as reaching a product and add a step — "
+                    "swap them for links to specific PRODUCT pages (use the button).")
+        return ("This page has no in-content links to your products — add a 'Shop related "
+                "products' block (use the button below) pointing at the products its topic matches.")
+    # product / category / home / other pages
     if p == 0 and c == 0:
-        return ("No links to your products or categories here — give it a clear path to buy "
-                "(a 'Shop' block or inline product links).")
+        return ("No in-content links to your products here — give it a clear path to buy "
+                "(a 'Shop' block or inline product links above the fold).")
     if p == 0 and c >= 1:
-        return (f"Links to {c} category page(s) but no individual products — point at least "
-                "one link at a specific PRODUCT page so a click lands on something buyable.")
-    return (f"Already links to {p} product(s) and {c} category(s). If it still sends no one to "
-            "buy, the traffic is likely low-intent — this page may just not convert.")
+        return (f"Links to {c} category page(s) but no individual products — point at least one "
+                "link at a specific PRODUCT page so a click lands on something buyable.")
+    return (f"Already links to {p} product(s) in its content. If it still sends almost no one to "
+            "buy, the traffic is likely low-intent — this page may just not convert well.")
 
 
 def _funnel_leak(funnel: dict) -> dict:

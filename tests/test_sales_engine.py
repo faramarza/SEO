@@ -51,17 +51,34 @@ def test_classify_page_links_counts_products_vs_categories():
     assert info["has_product_links"] and info["has_category_links"]
 
 
-def test_recommend_for_links_is_page_specific():
+def test_classify_page_links_excludes_nav_boilerplate():
+    from src.analysis.sales_engine import classify_page_links
+    html = ('<a href="/name-train.html">in-content</a>'
+            '<a href="/montessori-toys">nav category</a>')
+    # the nav category link is boilerplate (on every page) -> excluded
+    info = classify_page_links(html,
+                               product_urls=["https://x/name-train.html"],
+                               category_urls=["https://x/montessori-toys"],
+                               exclude_paths={"/montessori-toys"})
+    assert info["product_links"] == 1 and info["category_links"] == 0
+
+
+def test_recommend_for_links_is_page_specific_no_contradiction():
     from src.analysis.sales_engine import recommend_for_links
-    # already has product links -> "not missing links, it's the audience"
+    # >=2 products -> "it's the audience"
     r = recommend_for_links("blog/info", {"product_links": 5, "category_links": 3})
     assert "already links" in r.lower() and "audience" in r.lower()
-    # category-only -> "swap for product pages"
+    # exactly 1 product -> must NOT claim "no links" (the old contradiction)
+    r = recommend_for_links("blog/info", {"product_links": 1, "category_links": 43})
+    assert "no in-content links" not in r.lower()
+    assert "no links to your products" not in r.lower()
+    assert "1 product" in r.lower()
+    # category-only -> swap for product pages
     r = recommend_for_links("blog/info", {"product_links": 0, "category_links": 4})
     assert "category" in r.lower() and "product" in r.lower()
-    # none -> "add a shop block"
+    # truly none -> add a shop block
     r = recommend_for_links("blog/info", {"product_links": 0, "category_links": 0})
-    assert "no links" in r.lower() or "shop" in r.lower()
+    assert "no in-content links" in r.lower() or "shop" in r.lower()
 
 
 def test_product_shop_block_is_safe_html():

@@ -8578,7 +8578,8 @@ def api_grow_sales_landing_leaks():
     # Read the top leaking pages and judge them the way a human would — does the
     # page ALREADY link to products? only to categories? no path to buy? — then
     # refine the recommendation per page instead of a generic "add links".
-    from src.analysis.sales_engine import classify_page_links, recommend_for_links
+    from src.analysis.sales_engine import (classify_page_links, recommend_for_links,
+                                           _page_link_paths)
     eval_path = DATA_PATH / "latest_evaluation.json"
     results = []
     if eval_path.exists():
@@ -8592,16 +8593,34 @@ def api_grow_sales_landing_leaks():
     category_urls = [r.get("url") for r in results
                      if (r.get("asset_type") or "").lower() == "category" and r.get("url")]
     if base:
-        for lk in leaks[:12]:   # cap page fetches; cached for the day
+        top = leaks[:12]
+        htmls = {}
+        for lk in top:
             try:
-                html = _cb_fetch_page(base + lk["landing_page"])
+                htmls[lk["landing_page"]] = _cb_fetch_page(base + lk["landing_page"])
             except Exception:
-                html = None
+                htmls[lk["landing_page"]] = None
+        # Links that appear on MOST fetched pages are the global nav/footer — strip
+        # them so counts reflect in-content links, not the menu that's on every page.
+        fetched = [h for h in htmls.values() if h]
+        freq = {}
+        for h in fetched:
+            for path in _page_link_paths(h):
+                freq[path] = freq.get(path, 0) + 1
+        thresh = max(2, int(0.6 * len(fetched))) if fetched else 999
+        boilerplate = {path for path, n in freq.items() if n >= thresh}
+        for lk in top:
+            html = htmls.get(lk["landing_page"])
             if not html:
                 continue
-            info = classify_page_links(html, product_urls, category_urls)
+            info = classify_page_links(html, product_urls, category_urls,
+                                       exclude_paths=boilerplate)
             lk["links"] = info
             lk["recommendation"] = recommend_for_links(lk["kind"], info)
+            # Actionable = there's a linking fix to make. A page that already links
+            # to products in its content has no linking fix — it's just low-intent
+            # traffic, so it drops out of the "fix these" list (into a footnote).
+            lk["actionable"] = (info.get("product_links", 0) == 0)
 
     payload = {"available": True, "date": today, "base_url": base,
                "leaks": leaks,

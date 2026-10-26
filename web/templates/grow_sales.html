@@ -247,9 +247,12 @@ function gsLanding(){
   if(!GS_LANDING) return h+'<button class="gs-mini" style="font-size:13px;padding:8px 14px;" onclick="gsLoadLanding(false)">Find the pages leaking your traffic →</button>';
   if(!GS_LANDING.available || !(GS_LANDING.leaks||[]).length)
     return h+'<p class="gs-sub">'+gsEsc(GS_LANDING.note||'No leaking pages found — your traffic reaches products well. 🎉')+'</p>';
-  h+='<p class="gs-sub"><b>'+Number(GS_LANDING.total_wasted||0).toLocaleString()+'</b> visits land somewhere and never reach a product. Biggest offenders first:</p>';
+  const all=GS_LANDING.leaks||[];
+  const act=all.filter(l=>l.actionable!==false);
+  const done=all.filter(l=>l.actionable===false);
+  h+='<p class="gs-sub"><b>'+Number(GS_LANDING.total_wasted||0).toLocaleString()+'</b> visits land somewhere and never reach a product. Pages you can actually fix (missing in-content product links) first:</p>';
   const chipCls=k=>k==='blog/info'?'content':k==='rug/B2B'?'growth':'traffic';
-  (GS_LANDING.leaks||[]).forEach(l=>{
+  act.forEach(l=>{
     const url=(GS_LANDING.base_url||'')+l.landing_page;
     h+='<div class="gs-leak low"><div class="gs-leak-top">'+
        '<div class="gs-leak-title">'+gsEsc(l.landing_page)+' <span class="gs-chip '+chipCls(l.kind)+'">'+gsEsc(l.kind)+'</span></div>'+
@@ -261,6 +264,12 @@ function gsLanding(){
        gsProductLinks(l)+
        '</div>';
   });
+  if(done.length){
+    const dw=done.reduce((s,l)=>s+(Number(l.wasted_sessions)||0),0);
+    h+='<details class="gs-how" style="margin-top:12px;"><summary>'+done.length+' more pages already link to products but still convert low (~'+dw.toLocaleString()+' visits) — low-intent traffic, nothing to fix here</summary>';
+    done.forEach(l=>{ h+='<div class="gs-plink-note" style="color:#6b7280;margin:4px 0;">'+gsEsc(l.landing_page)+' — '+Number(l.wasted_sessions).toLocaleString()+' wasted · already links to '+((l.links||{}).product_links||0)+' product(s)</div>'; });
+    h+='</details>';
+  }
   h+='<p class="gs-sub"><a href="#" onclick="gsLoadLanding(true);return false;">↻ Refresh from GA4</a></p>';
   return h;
 }
