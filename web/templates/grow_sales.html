@@ -56,7 +56,8 @@
 .gs-it-title{font-size:15px;font-weight:700;}
 .gs-it-meta{font-size:12px;color:var(--text-muted,#6b7280);margin:2px 0 6px;}
 .gs-it-why{font-size:13px;color:var(--text-secondary,#374151);}
-.gs-chip{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-right:6px;}
+.gs-chip{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-right:6px;
+  line-height:1.5;vertical-align:middle;align-self:center;flex:0 0 auto;white-space:nowrap;}
 .gs-chip.money{background:#dcfce7;color:#166534;}
 .gs-chip.conversion{background:#fee2e2;color:#991b1b;}
 .gs-chip.discovery{background:#e0e7ff;color:#3730a3;}
@@ -68,10 +69,12 @@
 
 /* Funnel */
 .gs-funnel{margin:4px 0 8px;}
-.gs-fstep{position:relative;margin:7px 0;border-radius:8px;overflow:hidden;background:var(--bg-hover,#f3f4f6);min-height:40px;display:flex;align-items:center;}
-.gs-fbar{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#c7d2fe,#a5b4fc);}
-.gs-fstep.leak .gs-fbar{background:linear-gradient(90deg,#fecaca,#fca5a5);}
-.gs-ftxt{position:relative;padding:8px 12px;font-size:13px;color:#1f2937;}
+/* The bar is a background gradient on the step itself (hard colour stop at --w) —
+   NOT an absolutely-positioned child, so nothing can ever escape and stretch. */
+.gs-fstep{--w:0%;margin:7px 0;border-radius:8px;overflow:hidden;min-height:40px;display:flex;align-items:center;
+  background:linear-gradient(90deg,#a5b4fc 0 var(--w),var(--bg-hover,#f3f4f6) var(--w));}
+.gs-fstep.leak{background:linear-gradient(90deg,#fca5a5 0 var(--w),var(--bg-hover,#f3f4f6) var(--w));}
+.gs-ftxt{padding:8px 12px;font-size:13px;color:#1f2937;}
 .gs-fpct{color:var(--text-muted,#6b7280);font-size:12px;margin-left:4px;}
 .gs-fdrop{font-size:12px;font-weight:700;color:#dc2626;margin:-2px 0 6px 4px;}
 .gs-how{margin:8px 0 0;font-size:13px;}
@@ -96,8 +99,8 @@
 .gs-leak.medium{border-left-color:#d97706;}
 .gs-leak.low{border-left-color:#9ca3af;}
 .gs-leak.fixed{opacity:.5;}
-.gs-leak-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
-.gs-leak-title{font-size:15px;font-weight:700;}
+.gs-leak-top{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.gs-leak-title{font-size:15px;font-weight:700;min-width:0;overflow-wrap:anywhere;}
 .gs-leak-$ {font-size:15px;font-weight:800;color:#16a34a;white-space:nowrap;}
 .gs-leak-$.none{color:var(--text-muted,#9ca3af);font-weight:600;font-size:12px;}
 .gs-leak-what{font-size:13px;color:var(--text-primary,#111827);margin:6px 0 2px;font-weight:600;}
@@ -292,8 +295,7 @@ function gsFunnel(F){
   steps.forEach((s,i)=>{
     const w=Math.max(4, Math.round((s.users/max)*100));
     const isLeak=(i===leakIdx);
-    h+='<div class="gs-fstep'+(isLeak?' leak':'')+'">';
-    h+='<div class="gs-fbar" style="width:'+w+'%"></div>';
+    h+='<div class="gs-fstep'+(isLeak?' leak':'')+'" style="--w:'+w+'%">';
     h+='<div class="gs-ftxt"><b>'+Number(s.users).toLocaleString()+'</b> '+gsEsc(s.label)+
        (s.pct_of_prev!=null?' <span class="gs-fpct">'+s.pct_of_prev+'% of previous</span>':'')+'</div>';
     h+='</div>';
