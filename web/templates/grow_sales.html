@@ -101,6 +101,8 @@
 .gs-leak.fixed{opacity:.5;}
 .gs-leak-top{display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .gs-leak-title{font-size:15px;font-weight:700;min-width:0;overflow-wrap:anywhere;}
+/* Plain-text kind label — no background element that can stretch into a bar. */
+.gs-leak-kind{font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-left:6px;white-space:nowrap;}
 .gs-leak-$ {font-size:15px;font-weight:800;color:#16a34a;white-space:nowrap;}
 .gs-leak-$.none{color:var(--text-muted,#9ca3af);font-weight:600;font-size:12px;}
 .gs-leak-what{font-size:13px;color:var(--text-primary,#111827);margin:6px 0 2px;font-weight:600;}
@@ -258,7 +260,7 @@ function gsLanding(){
   act.forEach(l=>{
     const url=(GS_LANDING.base_url||'')+l.landing_page;
     h+='<div class="gs-leak low"><div class="gs-leak-top">'+
-       '<div class="gs-leak-title">'+gsEsc(l.landing_page)+' <span class="gs-chip '+chipCls(l.kind)+'">'+gsEsc(l.kind)+'</span></div>'+
+       '<div class="gs-leak-title">'+gsEsc(l.landing_page)+' <span class="gs-leak-kind">'+gsEsc(l.kind)+'</span></div>'+
        '<div class="gs-leak-$">'+Number(l.wasted_sessions).toLocaleString()+'<span style="font-size:11px;font-weight:600;color:#6b7280;"> wasted</span></div></div>'+
        '<div class="gs-leak-what">'+Number(l.sessions).toLocaleString()+' visits, only '+l.view_rate_pct+'% reach a product.</div>'+
        '<div class="gs-leak-why">'+gsEsc(l.recommendation)+'</div>'+
