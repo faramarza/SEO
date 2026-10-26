@@ -757,7 +757,9 @@ def product_shop_block(matches: list, heading: str = "Shop these products") -> s
     return (
         '<div style="margin:24px 0;padding:16px 18px;border:1px solid #e5e7eb;'
         'border-radius:10px;background:#f9fafb;">'
-        f'<p style="font-weight:700;margin:0 0 8px;font-size:16px;">🛒 {html.escape(heading)}</p>'
+        # Emoji as a numeric HTML entity (&#128722; = 🛒), not a raw 4-byte char:
+        # Magento's editor/filters mangle inline emoji but render entities fine.
+        f'<p style="font-weight:700;margin:0 0 8px;font-size:16px;">&#128722; {html.escape(heading)}</p>'
         f'<ul style="margin:0;padding-left:20px;">{items}</ul></div>')
 
 
