@@ -500,23 +500,40 @@ def _b2b_products(results: list, account: dict, config: dict = None) -> list:
 # ── The real site funnel (by USERS) ─────────────────────────────────────────
 # Healthy bands per step, used only to say which step is the leak — never to
 # fabricate a dollar figure.
-_VIEW_RATE_OK = 50.0   # % of visitors who view a product (below = traffic leak)
-_ATC_OK = 5.0          # % of product-viewers who add to cart
+_VIEW_RATE_OK = 50.0   # % of visitors who reach a product (below = traffic leak)
+_ATC_OK = 5.0          # % of product-reachers who add to cart
 _CLOSE_OK = 20.0       # % of carts that purchase
 
 
 def site_funnel(eval_data: dict) -> Optional[dict]:
-    """The trustworthy funnel from GA4 event counts, by USERS: visited -> viewed a
+    """The trustworthy funnel from GA4 event counts, by USERS: visited -> reached a
     product -> added to cart -> (started checkout) -> purchased. Returns None when
     the event data isn't present (old evaluation) — never guesses. Identifies the
-    single leaking step by comparing each rate to a healthy band."""
+    single leaking step by comparing each rate to a healthy band.
+
+    "Reached a product" counts distinct users who viewed a product page, clicked a
+    product in a list/carousel (select_item), OR added to cart — because a storefront
+    whose homepage uses JS product carousels lets people engage with and buy products
+    without ever opening a product-detail page. Counting view_item alone would
+    badly undercount how many people actually reach a product."""
     f = (eval_data or {}).get("ga4_funnel") or {}
     tot = (f.get("_totals") or {}).get("users") or 0
 
     def u(ev):
         return int((f.get(ev) or {}).get("users") or 0)
 
-    viewers, carts, checkouts, buys = u("view_item"), u("add_to_cart"), u("begin_checkout"), u("purchase")
+    carts, checkouts, buys = u("add_to_cart"), u("begin_checkout"), u("purchase")
+    # Distinct users who reached a product in any way. Prefer the combined
+    # _engaged count (a single GA4 query — the only correct way, since per-event
+    # user counts overlap and can't be summed); fall back to view_item for old
+    # evaluations that predate _engaged.
+    engaged = int((f.get("_engaged") or {}).get("users") or 0)
+    if not engaged:
+        engaged = u("view_item")
+    # add_to_cart users are part of the engaged set by definition, so engaged is
+    # never below carts; guard anyway so a stale/partial pull can't invert the funnel.
+    engaged = max(engaged, carts)
+    viewers = engaged
     if not tot or not viewers:
         return None
 
@@ -526,7 +543,7 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
 
     steps = [
         {"label": "Visited the site", "users": tot, "pct_of_all": 100.0, "pct_of_prev": None},
-        {"label": "Viewed a product", "users": viewers,
+        {"label": "Reached a product", "users": viewers,
          "pct_of_all": round(view_rate, 1), "pct_of_prev": round(view_rate, 1)},
         {"label": "Added to cart", "users": carts,
          "pct_of_all": round(carts / tot * 100, 1), "pct_of_prev": round(atc_rate, 1)},
@@ -549,10 +566,10 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
     if view_rate < _VIEW_RATE_OK:
         leak = {
             "key": "view", "category": "traffic", "severity": "high",
-            "title": "Most visitors never view a product",
-            "what": (f"Only {view_rate:.0f}% of visitors look at a single product "
-                     f"({viewers:,} of {tot:,}). The rest land on blogs/info/other pages "
-                     f"and leave."),
+            "title": "Most visitors never reach a product",
+            "what": (f"Only {view_rate:.0f}% of visitors engage with a single product "
+                     f"({viewers:,} of {tot:,}) — viewing it, clicking it in a carousel, "
+                     f"or adding to cart. The rest land on blogs/info/other pages and leave."),
             "why": ("Your add-to-cart and checkout are healthy — the real leak is at the TOP: "
                     "most of your traffic never reaches a product to buy. That's a traffic-"
                     "quality + internal-linking problem, not a conversion one."),
@@ -564,7 +581,7 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
                 "Make your highest-traffic landing pages lead somewhere to buy — a clear path "
                 "to products above the fold.",
                 "In GA4's landing-page report, find the pages that pull traffic which never "
-                "views a product, and fix or de-prioritise them.",
+                "reaches a product, and fix or de-prioritise them.",
             ],
             "evidence": {"product_view_rate_pct": round(view_rate, 1),
                          "viewers": viewers, "visitors": tot},
@@ -573,7 +590,7 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
         leak = {
             "key": "cart", "category": "conversion", "severity": "high",
             "title": "Product viewers aren't adding to cart",
-            "what": (f"{view_rate:.0f}% view a product, but only {atc_rate:.1f}% of them add "
+            "what": (f"{view_rate:.0f}% reach a product, but only {atc_rate:.1f}% of them add "
                      f"to cart (healthy ~{int(_ATC_OK)}%+)."),
             "why": ("People reach your products but the page or personalization isn't "
                     "convincing them to commit."),

@@ -382,8 +382,8 @@ class GA4Client:
             )
             end_date = date.today() - timedelta(days=1)
             start_date = end_date - timedelta(days=days)
-            events = ["view_item", "view_item_list", "add_to_cart",
-                      "begin_checkout", "purchase"]
+            events = ["view_item", "view_item_list", "select_item",
+                      "add_to_cart", "begin_checkout", "purchase"]
             req = RunReportRequest(
                 property=f"properties/{self.property_id}",
                 date_ranges=[DateRange(start_date=start_date.isoformat(),
@@ -403,6 +403,25 @@ class GA4Client:
                      for i, h in enumerate(resp.metric_headers)}
                 out[name] = {"events": int(float(m.get("eventCount", 0))),
                              "users": int(float(m.get("totalUsers", 0)))}
+            # Distinct users who reached a product in ANY way: viewed a product
+            # detail page, clicked a product in a list/carousel, or added to cart.
+            # Per-event user counts overlap and can't be summed, so this needs its
+            # own single query with an in_list filter and totalUsers. This is the
+            # real "reached a product" number for a storefront whose homepage uses
+            # JS product carousels (where people add to cart without a detail view).
+            engaged_events = ["view_item", "select_item", "add_to_cart"]
+            ereq = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                       end_date=end_date.isoformat())],
+                metrics=[Metric(name="totalUsers")],
+                dimension_filter=FilterExpression(
+                    filter=Filter(field_name="eventName",
+                                  in_list_filter=Filter.InListFilter(values=engaged_events))),
+            )
+            er = client.run_report(ereq)
+            if er.rows:
+                out["_engaged"] = {"users": int(float(er.rows[0].metric_values[0].value))}
             # Account-wide totals (all users/sessions) for the top of the funnel.
             treq = RunReportRequest(
                 property=f"properties/{self.property_id}",
@@ -436,6 +455,10 @@ class GA4Client:
             )
             end_date = date.today() - timedelta(days=1)
             start_date = end_date - timedelta(days=days)
+            # "Reached a product" = viewed a detail page, clicked a product in a
+            # list/carousel, or added to cart — the same engagement set as the
+            # headline funnel, so carousel-driven stores aren't undercounted.
+            engaged_events = ["view_item", "select_item", "add_to_cart"]
 
             def _query(view_only: bool) -> dict:
                 req = RunReportRequest(
@@ -446,9 +469,7 @@ class GA4Client:
                     metrics=[Metric(name="sessions")],
                     dimension_filter=(FilterExpression(filter=Filter(
                         field_name="eventName",
-                        string_filter=Filter.StringFilter(
-                            value="view_item",
-                            match_type=Filter.StringFilter.MatchType.EXACT)))
+                        in_list_filter=Filter.InListFilter(values=engaged_events)))
                         if view_only else None),
                     order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"),
                                        desc=True)],

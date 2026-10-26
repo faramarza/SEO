@@ -392,10 +392,11 @@ class FullEvaluationWorkflow:
         # item-matched rates, it can't be inflated by multi-event firing.
         try:
             self._ga4_funnel = self.ga4_client.get_funnel_counts(days=days) or {}
-            if self._ga4_funnel.get("view_item"):
-                _vi = self._ga4_funnel["view_item"].get("users", 0)
+            if self._ga4_funnel.get("view_item") or self._ga4_funnel.get("_engaged"):
+                _eng = (self._ga4_funnel.get("_engaged") or {}).get("users", 0) \
+                    or self._ga4_funnel.get("view_item", {}).get("users", 0)
                 _tot = (self._ga4_funnel.get("_totals") or {}).get("users", 0)
-                print(f"  GA4 funnel: {_vi} product-viewers of {_tot} users")
+                print(f"  GA4 funnel: {_eng} reached a product of {_tot} users")
         except Exception as _e:
             self._ga4_funnel = {}
             print(f"  GA4 funnel skipped: {_e}")

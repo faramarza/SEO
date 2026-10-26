@@ -151,12 +151,19 @@ def test_landing_leaks_empty_without_data():
     assert landing_leaks(None, {}) == []
 
 
-def _ga4_funnel(total=5652, viewers=1965, carts=116, checkouts=60, buys=38):
-    return {"_totals": {"users": total, "sessions": total * 2},
-            "view_item": {"events": viewers + 800, "users": viewers},
-            "add_to_cart": {"events": carts + 600, "users": carts},
-            "begin_checkout": {"events": checkouts, "users": checkouts},
-            "purchase": {"events": buys + 7, "users": buys}}
+def _ga4_funnel(total=5652, viewers=1965, carts=116, checkouts=60, buys=38,
+                engaged=None):
+    # engaged = distinct users who reached a product any way (view/select/cart).
+    # Defaults to the view_item count so the headline "reached a product" number
+    # equals viewers unless a test sets a higher carousel-inclusive figure.
+    f = {"_totals": {"users": total, "sessions": total * 2},
+         "view_item": {"events": viewers + 800, "users": viewers},
+         "select_item": {"events": viewers, "users": max(viewers // 2, 1)},
+         "add_to_cart": {"events": carts + 600, "users": carts},
+         "begin_checkout": {"events": checkouts, "users": checkouts},
+         "purchase": {"events": buys + 7, "users": buys}}
+    f["_engaged"] = {"users": engaged if engaged is not None else viewers}
+    return f
 
 _PERSONALIZED_CFG = {"business_context": {"product_families": [
     "name trains", "personalized name puzzles", "personalized baby books"]}}
@@ -403,7 +410,42 @@ def test_unhealthy_close_surfaces_checkout_leak():
 
 def test_no_funnel_data_returns_none():
     assert site_funnel({}) is None
-    assert site_funnel({"ga4_funnel": {"_totals": {"users": 100}}}) is None  # no view_item
+    # no product engagement at all (no view_item, no _engaged) -> None
+    assert site_funnel({"ga4_funnel": {"_totals": {"users": 100}}}) is None
+
+
+def test_reached_a_product_uses_engaged_not_just_view_item():
+    # Carousel store: 1965 opened a product page, but 3200 reached a product some
+    # way (view / carousel click / add-to-cart). The headline must use the higher
+    # engaged count, not undercount by only using view_item.
+    ev = _funnel_eval()
+    ev["ga4_funnel"] = _ga4_funnel(engaged=3200)
+    f = site_funnel(ev)
+    assert f["_view_users"] == 3200
+    assert f["product_view_rate_pct"] == round(3200 / 5652 * 100, 1)
+    # add-to-cart is now measured against everyone who reached a product
+    assert f["add_to_cart_rate_pct"] == round(116 / 3200 * 100, 1)
+    assert f["steps"][1]["label"] == "Reached a product"
+
+
+def test_reached_a_product_falls_back_to_view_item_for_old_evals():
+    # Old evaluation persisted before _engaged existed -> fall back to view_item.
+    f_old = _ga4_funnel()
+    f_old.pop("_engaged")
+    ev = _funnel_eval()
+    ev["ga4_funnel"] = f_old
+    f = site_funnel(ev)
+    assert f["_view_users"] == 1965
+    assert f["product_view_rate_pct"] == round(1965 / 5652 * 100, 1)
+
+
+def test_engaged_never_below_carts():
+    # A stale/partial pull where _engaged somehow came back below the cart count
+    # must not invert the funnel; engaged is floored at carts.
+    ev = _funnel_eval()
+    ev["ga4_funnel"] = _ga4_funnel(carts=400, engaged=100)
+    f = site_funnel(ev)
+    assert f["_view_users"] >= 400
 
 
 def test_b2b_excluded_from_every_leak_type():
