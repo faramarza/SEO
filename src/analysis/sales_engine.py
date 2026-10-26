@@ -739,6 +739,64 @@ def product_shop_block(matches: list, heading: str = "Shop these products") -> s
         f'<ul style="margin:0;padding-left:20px;">{items}</ul></div>')
 
 
+# ── Reading the page itself: does it ALREADY link to products? ───────────────
+_HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.I)
+
+
+def _url_path(url: str) -> str:
+    u = (url or "").split("#", 1)[0].split("?", 1)[0]
+    u = re.sub(r"^https?://[^/]+", "", u, flags=re.I)
+    return (u.rstrip("/").lower() or "/")
+
+
+def classify_page_links(html: str, product_urls: list, category_urls: list) -> dict:
+    """Read a page's actual HTML and count how many DISTINCT links point to the
+    store's product pages vs category pages (matched by path against the catalog).
+    This is what lets the tool judge a page the way a human would — 'it already
+    links to products' vs 'it links only to categories' vs 'no path to buy'."""
+    prod = {_url_path(u) for u in (product_urls or []) if u}
+    cat = {_url_path(u) for u in (category_urls or []) if u}
+    p, c, seen = 0, 0, set()
+    for href in _HREF_RE.findall(html or ""):
+        path = _url_path(href)
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        if path in prod:
+            p += 1
+        elif path in cat:
+            c += 1
+    return {"product_links": p, "category_links": c,
+            "has_product_links": p > 0, "has_category_links": c > 0}
+
+
+def recommend_for_links(kind: str, link_info: dict) -> str:
+    """The honest, page-specific recommendation once we've actually READ the page —
+    no more 'add links' to a page that already has fifteen."""
+    p = int((link_info or {}).get("product_links", 0))
+    c = int((link_info or {}).get("category_links", 0))
+    if kind == "blog/info":
+        if p >= 2:
+            return (f"This page already links to {p} of your products, yet almost no one "
+                    "reaches one — so the problem is NOT missing links, it's the audience "
+                    "(readers here for the content, not to shop). Don't over-invest: make sure "
+                    "one link points at a best-seller, then move on.")
+        if c >= 1 and p == 0:
+            return (f"This page links to {c} CATEGORY page(s) but no individual products. "
+                    "Category views don't count as reaching a product and add an extra step — "
+                    "swap them for links to specific PRODUCT pages.")
+        return ("This page has no links to your products — add a 'Shop related products' "
+                "block (use the button below) pointing at the products its topic matches.")
+    if p == 0 and c == 0:
+        return ("No links to your products or categories here — give it a clear path to buy "
+                "(a 'Shop' block or inline product links).")
+    if p == 0 and c >= 1:
+        return (f"Links to {c} category page(s) but no individual products — point at least "
+                "one link at a specific PRODUCT page so a click lands on something buyable.")
+    return (f"Already links to {p} product(s) and {c} category(s). If it still sends no one to "
+            "buy, the traffic is likely low-intent — this page may just not convert.")
+
+
 def _funnel_leak(funnel: dict) -> dict:
     """Turn the funnel's leaking step into a first-class leak card (unsized — it's
     a share problem, not a benchmark-dollar one) so it leads 'Do these today'."""

@@ -256,6 +256,7 @@ function gsLanding(){
        '<div class="gs-leak-$">'+Number(l.wasted_sessions).toLocaleString()+'<span style="font-size:11px;font-weight:600;color:#6b7280;"> wasted</span></div></div>'+
        '<div class="gs-leak-what">'+Number(l.sessions).toLocaleString()+' visits, only '+l.view_rate_pct+'% reach a product.</div>'+
        '<div class="gs-leak-why">'+gsEsc(l.recommendation)+'</div>'+
+       (l.links?'<div class="gs-plink-list" style="margin-top:4px;">On the page now: <b>'+(l.links.product_links||0)+'</b> product link(s), <b>'+(l.links.category_links||0)+'</b> category link(s)</div>':'')+
        (GS_LANDING.base_url?'<div class="gs-leak-where"><a href="'+gsEsc(url)+'" target="_blank" rel="noopener">View page ↗</a></div>':'')+
        gsProductLinks(l)+
        '</div>';

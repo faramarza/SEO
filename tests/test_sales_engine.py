@@ -38,6 +38,32 @@ def test_product_links_empty_when_no_match():
     assert product_links_for(page, _CATALOG, {}) == []
 
 
+def test_classify_page_links_counts_products_vs_categories():
+    from src.analysis.sales_engine import classify_page_links
+    html = ('<a href="https://x/name-train.html">Shop</a>'
+            '<a href="/montessori-toys">Montessori Toys</a>'   # category (relative)
+            '<a href="/name-train.html">dup</a>'               # dup of product -> not double-counted
+            '<a href="/blog/other.html">other</a>')            # neither
+    info = classify_page_links(html,
+                               product_urls=["https://x/name-train.html"],
+                               category_urls=["https://x/montessori-toys"])
+    assert info["product_links"] == 1 and info["category_links"] == 1
+    assert info["has_product_links"] and info["has_category_links"]
+
+
+def test_recommend_for_links_is_page_specific():
+    from src.analysis.sales_engine import recommend_for_links
+    # already has product links -> "not missing links, it's the audience"
+    r = recommend_for_links("blog/info", {"product_links": 5, "category_links": 3})
+    assert "already links" in r.lower() and "audience" in r.lower()
+    # category-only -> "swap for product pages"
+    r = recommend_for_links("blog/info", {"product_links": 0, "category_links": 4})
+    assert "category" in r.lower() and "product" in r.lower()
+    # none -> "add a shop block"
+    r = recommend_for_links("blog/info", {"product_links": 0, "category_links": 0})
+    assert "no links" in r.lower() or "shop" in r.lower()
+
+
 def test_product_shop_block_is_safe_html():
     matches = [{"title": "5 Letter Name Train", "url": "https://x/5-letter-name-train.html"}]
     block = product_shop_block(matches, "Shop our name trains")

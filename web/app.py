@@ -8573,7 +8573,37 @@ def api_grow_sales_landing_leaks():
                         "leaks": []})
 
     leaks = landing_leaks(funnel, config)
-    payload = {"available": True, "date": today, "base_url": _site_base_url(config),
+    base = _site_base_url(config)
+
+    # Read the top leaking pages and judge them the way a human would — does the
+    # page ALREADY link to products? only to categories? no path to buy? — then
+    # refine the recommendation per page instead of a generic "add links".
+    from src.analysis.sales_engine import classify_page_links, recommend_for_links
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    results = []
+    if eval_path.exists():
+        try:
+            with open(eval_path) as f:
+                results = (json.load(f) or {}).get("results", []) or []
+        except (json.JSONDecodeError, OSError):
+            results = []
+    product_urls = [r.get("url") for r in results
+                    if (r.get("asset_type") or "").lower() == "product" and r.get("url")]
+    category_urls = [r.get("url") for r in results
+                     if (r.get("asset_type") or "").lower() == "category" and r.get("url")]
+    if base:
+        for lk in leaks[:12]:   # cap page fetches; cached for the day
+            try:
+                html = _cb_fetch_page(base + lk["landing_page"])
+            except Exception:
+                html = None
+            if not html:
+                continue
+            info = classify_page_links(html, product_urls, category_urls)
+            lk["links"] = info
+            lk["recommendation"] = recommend_for_links(lk["kind"], info)
+
+    payload = {"available": True, "date": today, "base_url": base,
                "leaks": leaks,
                "total_wasted": sum(l["wasted_sessions"] for l in leaks)}
     try:
