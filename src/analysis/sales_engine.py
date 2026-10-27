@@ -780,42 +780,62 @@ def product_shop_block(matches: list, heading: str = "Shop these products") -> s
     # real product thumbnail when one is available (m["image"], from the sitemap's
     # image entries — never guessed). Cards without an image stay name-only.
     cards = "".join(_shop_card(m) for m in matches)
+    # Every visual property is marked !important because a store theme's own CSS
+    # (which CAN carry !important) otherwise hijacks these plain <a>/<img>/<span>
+    # tags inside blog content — turning the cards into circles, repainting the
+    # text area, and clipping the label. !important on the inline style is the only
+    # thing a pasted block can use to win, the way marketing-email HTML does.
     return (
-        '<div style="margin:24px 0;padding:16px 18px;border:1px solid #e5e7eb;'
-        'border-radius:10px;background:#f9fafb;">'
+        '<div style="margin:24px 0 !important;padding:16px 18px !important;'
+        'border:1px solid #e5e7eb !important;border-radius:10px !important;'
+        'background:#f9fafb !important;box-sizing:border-box !important;">'
         # Emoji as a numeric HTML entity (&#128722; = 🛒), not a raw 4-byte char:
         # Magento's editor/filters mangle inline emoji but render entities fine.
-        f'<p style="font-weight:700;margin:0 0 12px;font-size:16px;">&#128722; {html.escape(heading)}</p>'
-        f'<div style="display:flex;flex-wrap:wrap;gap:12px;">{cards}</div></div>')
+        '<p style="font-weight:700 !important;margin:0 0 12px !important;'
+        'font-size:16px !important;color:#111827 !important;'
+        f'background:transparent !important;padding:0 !important;">&#128722; {html.escape(heading)}</p>'
+        '<div style="display:flex !important;flex-wrap:wrap !important;gap:12px !important;'
+        f'align-items:stretch !important;list-style:none !important;">{cards}</div></div>')
 
 
 def _shop_card(m: dict) -> str:
-    """One product card for product_shop_block. Inline-styled, Magento-safe.
+    """One product card for product_shop_block. Inline-styled, Magento-safe, with
+    every visual property !important so a hostile store theme can't restyle it.
     Renders a thumbnail only when m carries a real image URL."""
     url = html.escape(m["url"], quote=True)
     name = html.escape(_display_name(m))
     img = (m.get("image") or "").strip()
+    # object-fit:contain shows the WHOLE product (never crops); white fills any
+    # letterbox gap so it blends into the card. loading="lazy" keeps the block from
+    # slowing the page when it sits below the fold. padding insets the image a little.
     thumb = (
         f'<img src="{html.escape(img, quote=True)}" alt="{name}" loading="lazy" '
-        # object-fit:contain shows the WHOLE product (never crops); white fills any
-        # letterbox gap so it blends into the card. loading="lazy" keeps the block
-        # from slowing the page when it sits below the fold.
-        'style="display:block;width:100%;height:150px;object-fit:contain;'
-        'background:#ffffff;border:0;">'
+        'style="display:block !important;width:100% !important;height:150px !important;'
+        'object-fit:contain !important;background:#ffffff !important;border:0 !important;'
+        'border-radius:0 !important;margin:0 !important;padding:10px !important;'
+        'box-sizing:border-box !important;max-width:100% !important;">'
         if img else "")
     # With a thumbnail the text sits in its own padded block; without one the
     # anchor itself carries the padding (no empty image area).
     pad = "10px 12px 12px" if img else "12px 14px"
     text = (
-        f'<span style="display:block;padding:{pad};">'
-        f'<span style="display:block;font-weight:600;font-size:14px;line-height:1.35;">{name}</span>'
-        '<span style="display:block;margin-top:6px;font-size:13px;font-weight:600;'
-        'color:#4f46e5;">View product &#8594;</span></span>')
+        f'<span style="display:block !important;padding:{pad} !important;'
+        'background:#ffffff !important;margin:0 !important;">'
+        f'<span style="display:block !important;font-weight:600 !important;'
+        'font-size:14px !important;line-height:1.35 !important;color:#111827 !important;'
+        'background:transparent !important;text-decoration:none !important;'
+        f'margin:0 !important;padding:0 !important;">{name}</span>'
+        '<span style="display:block !important;margin:6px 0 0 !important;'
+        'font-size:13px !important;font-weight:600 !important;color:#4f46e5 !important;'
+        'background:transparent !important;text-decoration:none !important;'
+        'padding:0 !important;">View product &#8594;</span></span>')
     return (
-        f'<a href="{url}" style="display:block;flex:1 1 180px;min-width:150px;'
-        'max-width:230px;box-sizing:border-box;border:1px solid #e5e7eb;'
-        'border-radius:10px;overflow:hidden;text-decoration:none;color:#111827;'
-        f'background:#ffffff;">{thumb}{text}</a>')
+        f'<a href="{url}" style="display:block !important;flex:1 1 180px !important;'
+        'min-width:150px !important;max-width:230px !important;box-sizing:border-box !important;'
+        'border:1px solid #e5e7eb !important;border-radius:10px !important;'
+        'overflow:hidden !important;text-decoration:none !important;color:#111827 !important;'
+        'background:#ffffff !important;margin:0 !important;padding:0 !important;'
+        f'box-shadow:none !important;">{thumb}{text}</a>')
 
 
 # ── Reading the page itself: does it ALREADY link to products? ───────────────
