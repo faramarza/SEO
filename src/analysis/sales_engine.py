@@ -919,6 +919,18 @@ def recommend_for_links(kind: str, link_info: dict) -> str:
     p = int((link_info or {}).get("product_links", 0))
     c = int((link_info or {}).get("category_links", 0))
     if kind in ("home", "category"):
+        # A category HUB (super-category) links to OTHER categories, not products —
+        # its job is to funnel visitors to its sub-categories (e.g. by age), so
+        # "add a product list" is the wrong fix. Detect it from the in-content
+        # links (links to ≥2 categories, no individual products) and advise about
+        # the sub-category tiles instead of pasting products onto it.
+        if kind == "category" and c >= 2 and p == 0:
+            return (f"This is a category hub — it funnels visitors to its {c} sub-categories "
+                    "(e.g. by age), which is the right structure, so DON'T paste a flat product "
+                    "list here. Most visitors still don't go deeper, so the fix is to make those "
+                    "sub-category tiles prominent above the fold (clear image + label each, not "
+                    "buried under a long intro), and optionally feature 2–3 best-sellers. Also "
+                    "check the page isn't slow to load.")
         return ("This is a storefront/listing page — its whole job is to push visitors into "
                 "products, and most aren't clicking through. That's a merchandising/layout "
                 "problem, NOT missing links (the links are already its content). Put best-sellers "

@@ -173,6 +173,18 @@ def test_recommend_for_storefront_pages_is_merchandising_not_links():
         assert "not missing links" in r.lower()
 
 
+def test_category_hub_advises_subcategories_not_products():
+    # A super-category hub (links to several sub-categories, no products) must get
+    # funnel-to-sub-category advice, NOT "paste a product list".
+    from src.analysis.sales_engine import recommend_for_links
+    r = recommend_for_links("category", {"product_links": 0, "category_links": 4})
+    assert "hub" in r.lower() and "sub-categor" in r.lower()
+    assert "don't paste a flat product list" in r.lower()
+    # A leaf category (no sub-category links) still gets the merchandising advice.
+    leaf = recommend_for_links("category", {"product_links": 0, "category_links": 0})
+    assert "hub" not in leaf.lower()
+
+
 def test_landing_leaks_empty_without_data():
     assert landing_leaks({}, {}) == []
     assert landing_leaks(None, {}) == []
