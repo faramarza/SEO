@@ -796,9 +796,12 @@ def _shop_card(m: dict) -> str:
     name = html.escape(_display_name(m))
     img = (m.get("image") or "").strip()
     thumb = (
-        f'<img src="{html.escape(img, quote=True)}" alt="{name}" '
-        'style="display:block;width:100%;height:150px;object-fit:cover;'
-        'background:#f3f4f6;border:0;">'
+        f'<img src="{html.escape(img, quote=True)}" alt="{name}" loading="lazy" '
+        # object-fit:contain shows the WHOLE product (never crops); white fills any
+        # letterbox gap so it blends into the card. loading="lazy" keeps the block
+        # from slowing the page when it sits below the fold.
+        'style="display:block;width:100%;height:150px;object-fit:contain;'
+        'background:#ffffff;border:0;">'
         if img else "")
     # With a thumbnail the text sits in its own padded block; without one the
     # anchor itself carries the padding (no empty image area).
