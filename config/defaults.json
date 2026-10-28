@@ -55,5 +55,32 @@
   "available_target_pages": {
     "category_urls": [],
     "top_product_urls": []
+  },
+  "paid_search": {
+    "card_fee": 0.03,
+    "product_lines": {
+      "name_trains": {"margin": 0.30, "url_patterns": ["name-train", "letter-train", "name-letter"]},
+      "books":       {"margin": 0.30, "url_patterns": ["book"]},
+      "stools":      {"margin": 0.30, "url_patterns": ["stool", "step-stool"]},
+      "montessori":  {"margin": 0.15, "url_patterns": ["montessori"]},
+      "carpets":     {"margin": 0.10, "url_patterns": ["rug", "carpet"]}
+    },
+    "default_margin": 0.15,
+    "campaign_line_overrides": {
+      "Name Trains Search-2026": "name_trains"
+    },
+    "ads_sheet": {
+      "sheet_id": "",
+      "search_terms_tab": "SearchTerms",
+      "keywords_tab": "Keywords"
+    },
+    "thresholds": {
+      "negative_kw_min_spend": 5.0,
+      "attribution_gap_pct": 25,
+      "free_traffic_max_position": 2.0,
+      "headline_max_chars": 30,
+      "tax_match_tolerance_pct": 2.0
+    },
+    "lookback_days": 30
   }
 }
