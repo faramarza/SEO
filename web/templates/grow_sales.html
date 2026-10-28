@@ -179,14 +179,16 @@ function gsRender(d){
        '<b>Re-run your evaluation (with crawl)</b> to pull the real GA4 funnel (who views a product, who adds to cart, who buys).</p>';
   }
   if(F&&F.available) h+=gsFunnel(F);
-  h+=gsLanding();
 
-  // Today's plan
+  // Today's plan — the 3 things to do, right under the funnel.
   h+='<div class="gs-h">✅ Do these today</div>';
   h+='<p class="gs-sub">Top to bottom. Item 1 is always your biggest money leak until you mark it fixed.</p>';
   h+=gsPlan(plan);
 
-  // Leaks
+  // B2B opportunity — a first-class finding (schools adding rugs, no quote path).
+  h+=gsB2BOpp(b.b2b_opportunity);
+
+  // Money leaks — the dollar-sized product leaks, ranked by $.
   h+=gsLeaks(b);
 
   // Winners
@@ -201,7 +203,11 @@ function gsRender(d){
     });
   }
 
-  // B2B / institutional products — set aside, different sales motion
+  // Pages leaking traffic — DEMOTED below the money leaks (lower, floored lever).
+  h+=gsLanding();
+
+  // B2B / institutional products — the full supporting list (detail under the
+  // opportunity card above).
   if((b.b2b||[]).length){
     h+='<div class="gs-h">🏫 Classroom / B2B products — a different sale</div>';
     h+='<p class="gs-sub">Big traffic, but these are <b>considered, quote/PO purchases</b> (schools) — not impulse '+
@@ -361,11 +367,37 @@ function gsPlan(plan){
   return h;
 }
 
+// A first-class card for the B2B/rug opportunity (schools adding to cart, no quote path).
+function gsB2BOpp(o){
+  if(!o) return '';
+  let h='<div class="gs-h">🏫 Your biggest untapped sale: classroom rugs</div>';
+  h+='<div class="gs-leak high" style="margin-top:4px;">';
+  h+='<div class="gs-leak-top"><div class="gs-leak-title">'+gsEsc(o.title)+'</div>'+
+     '<div class="gs-leak-$ none">high-ticket</div></div>';
+  h+='<div class="gs-leak-what">'+gsEsc(o.what)+'</div>';
+  h+='<div class="gs-leak-why">'+gsEsc(o.why)+'</div>';
+  if((o.steps||[]).length){
+    h+='<details class="gs-how" open><summary>Fix it — step by step</summary><ol>';
+    o.steps.forEach(s=>h+='<li>'+gsEsc(s)+'</li>');
+    h+='</ol></details>';
+  }
+  if((o.top||[]).length){
+    h+='<div class="gs-plink-list" style="margin-top:6px;">Added to cart, never ordered: ';
+    h+=o.top.map(p=>gsEsc((p.title||p.url||'rug'))+' ('+p.add_to_carts+')').join(', ');
+    h+='</div>';
+  }
+  h+='</div>';
+  return h;
+}
+
 function gsLeaks(b){
-  const leaks=b.leaks||[];
+  // Display the money leaks ranked by actual dollars — $-sized first, unsized
+  // (the funnel/traffic leak) last — so this section leads with real money, not a
+  // "not $-sized yet" banner. (The daily plan still leads with the funnel leak.)
+  const leaks=(b.leaks||[]).slice().sort((a,c)=>((a.dollars==null)-(c.dollars==null))||((c.dollars||0)-(a.dollars||0)));
   if(!leaks.length) return '';
   let h='<div class="gs-h">🩸 Where you\'re losing money</div>';
-  h+='<p class="gs-sub">Ranked by estimated dollars. Mark one fixed and the next priority rises to the top of today\'s plan.</p>';
+  h+='<p class="gs-sub">Ranked by estimated dollars — biggest first. Mark one fixed and the next priority rises to the top of today\'s plan.</p>';
   leaks.forEach(l=>{
     const sev=['high','medium','low'].includes(l.severity)?l.severity:'low';
     h+='<div class="gs-leak '+sev+(l._fixed?' fixed':'')+'" data-leak="'+gsEsc(l.id)+'">';

@@ -192,6 +192,27 @@ def test_landing_leaks_money_ranking_and_materiality_floor():
     assert by["/blog/tiny-post"]["ceiling_profit_mo"] < 50
 
 
+def test_b2b_opportunity_surfaces_stuck_rug_carts():
+    from src.analysis.sales_engine import b2b_opportunity
+    prods = [
+        {"title": "KidSoft Tranquil Trees Rug", "url": "https://x/kidsoft.html",
+         "add_to_carts": 8, "orders": 0},
+        {"title": "8x12 Tan Classroom Rug", "url": "https://x/tan.html",
+         "add_to_carts": 4, "orders": 0},
+        {"title": "World Map Rug", "url": "https://x/worldmap.html",
+         "add_to_carts": 2, "orders": 1},     # converted — not stuck
+    ]
+    opp = b2b_opportunity(prods)
+    assert opp["add_to_carts"] == 14 and opp["orders"] == 1
+    assert opp["stuck_count"] == 2                      # the two 0-order rugs
+    assert opp["top"][0]["add_to_carts"] == 8          # ranked by interest
+    assert "quote" in opp["why"].lower() and opp["steps"]
+    assert "dollars" not in opp                          # no fabricated $ figure
+    # No carts anywhere -> no opportunity (never invents one).
+    assert b2b_opportunity([{"title": "x", "add_to_carts": 0, "orders": 0}]) is None
+    assert b2b_opportunity([]) is None
+
+
 def test_recommend_for_storefront_pages_is_merchandising_not_links():
     from src.analysis.sales_engine import recommend_for_links
     for kind in ("home", "category"):

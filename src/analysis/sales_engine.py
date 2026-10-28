@@ -511,6 +511,50 @@ def _b2b_products(results: list, account: dict, config: dict = None) -> list:
     return out
 
 
+def b2b_opportunity(b2b_products: list) -> Optional[dict]:
+    """Turn the B2B/rug list into a FIRST-CLASS finding instead of a footnote:
+    schools are adding high-ticket classroom rugs to the cart but not ordering,
+    because there's no quote/PO path. One rug can outweigh dozens of name trains,
+    so this may be the biggest untapped sale on the site. Returns None when there's
+    no real interest signal (no add-to-carts) — never invents an opportunity.
+
+    No dollar figure: rug prices aren't reliably in the data, and a fabricated
+    number here is exactly the kind of guess we don't make. The honest signal is
+    the demand (carts) with no conversion path."""
+    prods = b2b_products or []
+    total_carts = sum(int(p.get("add_to_carts") or 0) for p in prods)
+    total_orders = sum(int(p.get("orders") or 0) for p in prods)
+    if total_carts < 1:
+        return None
+    stuck = [p for p in prods if int(p.get("add_to_carts") or 0) >= 1
+             and int(p.get("orders") or 0) == 0]
+    stuck.sort(key=lambda p: -int(p.get("add_to_carts") or 0))
+    return {
+        "id": "b2b_opportunity",
+        "add_to_carts": total_carts,
+        "orders": total_orders,
+        "stuck_count": len(stuck),
+        "title": "Schools are trying to buy rugs — give them a quote path",
+        "what": (f"{total_carts} add-to-cart(s) across your classroom rugs but only "
+                 f"{total_orders} order(s). {len(stuck)} rug(s) were added to a cart and "
+                 "never ordered."),
+        "why": ("These are institutions (schools/daycares), not impulse shoppers: they "
+                "add a high-ticket rug to price it, then need a quote or purchase order — "
+                "not a self-serve checkout. One classroom-rug order can be worth more than "
+                "dozens of name trains, so a simple quote path here may be the biggest "
+                "untapped sale on your site."),
+        "steps": [
+            "Add a 'Request a quote / bulk pricing' button on every classroom-rug page "
+            "and on the rug category — next to (or instead of) Add-to-Cart.",
+            "Capture school name, email, quantity and the rug + size; send it to your inbox.",
+            "Offer purchase-order / net-30 terms and bulk pricing — schools buy on POs.",
+            "List the rugs people added but didn't order, and chase those first.",
+        ],
+        "top": [{"title": p.get("title"), "url": p.get("url"),
+                 "add_to_carts": int(p.get("add_to_carts") or 0)} for p in stuck[:6]],
+    }
+
+
 # ── The real site funnel (by USERS) ─────────────────────────────────────────
 # Healthy bands per step, used only to say which step is the leak — never to
 # fabricate a dollar figure.
@@ -1101,6 +1145,7 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
         "leaks": leaks,
         "winners": winners,
         "b2b": b2b,
+        "b2b_opportunity": b2b_opportunity(b2b),
         "funnel": funnel,
         "totals": {
             "recoverable_monthly": round(recoverable) if recoverable else None,
@@ -1263,8 +1308,13 @@ def build_daily_plan(leaks_bundle: dict, state: dict = None,
     leaks = (leaks_bundle or {}).get("leaks") or []
     items = []
 
-    # Slot 1 — the biggest money leak that isn't marked fixed.
-    top = next((l for l in leaks if not fixed.get(l["id"])), None)
+    # Slot 1 — the biggest DOLLAR-SIZED leak that isn't marked fixed, so "do today"
+    # leads with a concrete money action, not the unsized funnel banner. Only when
+    # nothing is $-sized does it fall back to the top (funnel) leak.
+    unfixed = [l for l in leaks if not fixed.get(l["id"])]
+    sized = [l for l in unfixed if l.get("dollars")]
+    top = (max(sized, key=lambda x: x["dollars"]) if sized
+           else (unfixed[0] if unfixed else None))
     if top:
         d = top.get("dollars")
         items.append({
