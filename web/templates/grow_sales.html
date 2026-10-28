@@ -57,7 +57,11 @@
 .gs-it-title{font-size:15px;font-weight:700;}
 .gs-it-meta{font-size:12px;color:var(--text-muted,#6b7280);margin:2px 0 6px;}
 .gs-it-why{font-size:13px;color:var(--text-secondary,#374151);}
-.gs-chip{display:inline-flex;align-items:center;height:18px;line-height:1;font-size:11px;font-weight:700;
+/* height AND max-height, align-self:flex-start, and inline-block: a chip can never
+   be stretched tall by whatever flex context it lands in (the recurring yellow-bar
+   glitch). max-height+overflow caps it no matter how the height is computed. */
+.gs-chip{display:inline-block;height:18px;max-height:18px;overflow:hidden;line-height:18px;
+  font-size:11px;font-weight:700;box-sizing:border-box;align-self:flex-start;
   padding:0 8px;border-radius:999px;margin-right:6px;vertical-align:middle;white-space:nowrap;flex:0 0 auto;}
 .gs-chip.money{background:#dcfce7;color:#166534;}
 .gs-chip.conversion{background:#fee2e2;color:#991b1b;}
@@ -330,10 +334,12 @@ function gsPlan(plan){
     h+='~'+(it.minutes||10)+' min';
     h+='</div>';
     h+='<div class="gs-it-why">'+gsEsc(it.why)+'</div>';
-    if(it.how&&it.how.length){
+    // Only render "How" when there are REAL steps — never empty bullets.
+    const howSteps=(it.how||[]).filter(s=>s&&String(s).trim());
+    if(howSteps.length){
       // Expand the #1 job by default so "what to do" is visible, not hidden.
       h+='<details class="gs-how"'+(it.slot===1?' open':'')+'><summary>How</summary><ol>';
-      it.how.forEach(s=>h+='<li>'+gsEsc(s)+'</li>');
+      howSteps.forEach(s=>h+='<li>'+gsEsc(s)+'</li>');
       h+='</ol></details>';
     }
     h+='</div></div>';
@@ -357,12 +363,15 @@ function gsLeaks(b){
     h+='</div>';
     h+='<div class="gs-leak-what">'+gsEsc(l.what)+'</div>';
     h+='<div class="gs-leak-why">'+gsEsc(l.why)+'</div>';
-    if(l.steps&&l.steps.length){
-      const total=l._steps_total!=null?l._steps_total:l.steps.length, done=l._steps_done||0;
+    // Keep only steps that actually have text — empty bullets made the cards look
+    // broken (and hollow). If nothing real is left, show no step section at all.
+    const realSteps=(l.steps||[]).filter(s=>{const t=(s&&s.text!=null)?s.text:s;return t&&String(t).trim();});
+    if(realSteps.length){
+      const total=l._steps_total!=null?l._steps_total:realSteps.length, done=l._steps_done||0;
       const cleared=(total>0&&done>=total);
       const summary=cleared?'Basics all ticked ✓':('Fix it — step by step'+(done?(' · '+done+'/'+total+' done'):''));
       h+='<details class="gs-how"><summary>'+summary+'</summary><ul class="gs-steps">';
-      l.steps.forEach(s=>{
+      realSteps.forEach(s=>{
         const id=(s&&s.id)||'', txt=(s&&s.text!=null)?s.text:s, dn=!!(s&&s.done);
         h+='<li class="gs-step'+(dn?' done':'')+'">'+
            '<span class="gs-step-check" data-step="'+gsEsc(id)+'" data-done="'+(dn?1:0)+'" title="I\'ve done this / doesn\'t apply">'+(dn?'✓':'')+'</span>'+
