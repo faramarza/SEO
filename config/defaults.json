@@ -56,6 +56,9 @@
     "category_urls": [],
     "top_product_urls": []
   },
+  "grow_sales": {
+    "materiality_floor_monthly": 50
+  },
   "paid_search": {
     "card_fee": 0.03,
     "product_lines": {

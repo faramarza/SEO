@@ -165,6 +165,33 @@ def test_landing_leaks_skips_system_pages():
     assert "/blog/real-post.html" in ids
 
 
+def test_landing_leaks_skips_phantom_base64_slugs():
+    funnel = {"/blog/c2NyZWVuLW": {"sessions": 80, "product_view_sessions": 0},
+              "/blog/ZnVuLXdheX": {"sessions": 60, "product_view_sessions": 0},
+              "/blog/montessori-activities-1-month-olds": {"sessions": 90, "product_view_sessions": 2}}
+    out = landing_leaks(funnel, {}, min_sessions=30)
+    ids = [l["landing_page"] for l in out]
+    assert "/blog/c2NyZWVuLW" not in ids and "/blog/ZnVuLXdheX" not in ids
+    assert "/blog/montessori-activities-1-month-olds" in ids   # real slug kept
+
+
+def test_landing_leaks_money_ranking_and_materiality_floor():
+    # Site converts ~0.73% of sessions (41 purchases / 5625 sessions), AOV 60, margin 0.30.
+    funnel = {
+        "/": {"sessions": 673, "product_view_sessions": 45},            # big page
+        "/blog/tiny-post": {"sessions": 45, "product_view_sessions": 2},  # 40-ish wasted
+    }
+    out = landing_leaks(funnel, {}, min_sessions=30, site_purchase_rate=41/5625,
+                        aov=60.0, margin=0.30, window_days=28, min_monthly_value=50.0)
+    by = {l["landing_page"]: l for l in out}
+    # Homepage: ~628 wasted -> ceiling well above $50/mo -> not below floor, ranked first
+    assert by["/"]["ceiling_profit_mo"] > 50 and by["/"]["below_floor"] is False
+    assert out[0]["landing_page"] == "/"          # ranked by money, biggest first
+    # Tiny blog post: ~43 wasted -> ceiling a few dollars/mo -> below floor
+    assert by["/blog/tiny-post"]["below_floor"] is True
+    assert by["/blog/tiny-post"]["ceiling_profit_mo"] < 50
+
+
 def test_recommend_for_storefront_pages_is_merchandising_not_links():
     from src.analysis.sales_engine import recommend_for_links
     for kind in ("home", "category"):

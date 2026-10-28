@@ -258,19 +258,26 @@ function gsLanding(){
   if(!GS_LANDING.available || !(GS_LANDING.leaks||[]).length)
     return h+'<p class="gs-sub">'+gsEsc(GS_LANDING.note||'No leaking pages found — your traffic reaches products well. 🎉')+'</p>';
   const all=GS_LANDING.leaks||[];
-  const act=all.filter(l=>l.actionable!==false);
-  const done=all.filter(l=>l.actionable===false);
-  h+='<p class="gs-sub"><b>'+Number(GS_LANDING.total_wasted||0).toLocaleString()+'</b> visits land somewhere and never reach a product. Pages you can actually fix (missing in-content product links) first:</p>';
+  // Only pages whose BEST-CASE recovery clears the materiality floor are worth
+  // showing; everything else (the 40-click tail) collapses into one line.
+  const worth=all.filter(l=>!l.below_floor);
+  const tooSmall=all.filter(l=>l.below_floor);
+  const act=worth.filter(l=>l.actionable!==false);
+  const done=worth.filter(l=>l.actionable===false);
+  const ceil=l=>(l.ceiling_profit_mo!=null?('≈ '+psCeil(l)+'/mo ceiling'):(Number(l.wasted_sessions).toLocaleString()+' wasted'));
+  h+='<p class="gs-sub">Ranked by the most money each page could win back (best case if its wasted visitors converted at your site average — real recovery is a slice of this). Pages below ~'+gsMoney((GS_LANDING.floor||50))+'/mo are hidden as not worth the work.</p>';
   h+='<p class="gs-sub" style="margin-bottom:10px;">'+
      '<button class="gs-mini" style="font-size:13px;padding:7px 14px;" onclick="gsLoadLanding(true)">↻ Re-check pages now</button>'+
      ' <span class="gs-foot" style="display:inline;">Fixed a page? Click this — Governor re-reads each page and sees the links you added. (It auto-refreshes once a day anyway.)</span></p>';
-  const chipCls=k=>k==='blog/info'?'content':k==='rug/B2B'?'growth':'traffic';
+  if(!act.length && !done.length){
+    h+='<p class="gs-sub">No page clears the ~'+gsMoney((GS_LANDING.floor||50))+'/mo bar right now — your traffic-to-product problem is spread thin across many tiny pages, not concentrated anywhere worth a single fix. The bigger lever is the funnel above and the product leaks below.</p>';
+  }
   act.forEach(l=>{
     const url=(GS_LANDING.base_url||'')+l.landing_page;
     h+='<div class="gs-leak low"><div class="gs-leak-top">'+
        '<div class="gs-leak-title">'+gsEsc(l.landing_page)+' <span class="gs-leak-kind">'+gsEsc(l.kind)+'</span></div>'+
-       '<div class="gs-leak-$">'+Number(l.wasted_sessions).toLocaleString()+'<span style="font-size:11px;font-weight:600;color:#6b7280;"> wasted</span></div></div>'+
-       '<div class="gs-leak-what">'+Number(l.sessions).toLocaleString()+' visits, only '+l.view_rate_pct+'% reach a product.</div>'+
+       '<div class="gs-leak-$">'+gsEsc(ceil(l))+'</div></div>'+
+       '<div class="gs-leak-what">'+Number(l.sessions).toLocaleString()+' visits, only '+l.view_rate_pct+'% reach a product'+(l.ceiling_orders_mo!=null?(' (~'+l.ceiling_orders_mo.toFixed(1)+' orders/mo at best)'):'')+'.</div>'+
        '<div class="gs-leak-why">'+gsEsc(l.recommendation)+'</div>'+
        (l.links?'<div class="gs-plink-list" style="margin-top:4px;">On the page now: <b>'+(l.links.product_links||0)+'</b> product link(s), <b>'+(l.links.category_links||0)+'</b> category link(s)</div>':'')+
        (GS_LANDING.base_url?'<div class="gs-leak-where"><a href="'+gsEsc(url)+'" target="_blank" rel="noopener">View page ↗</a></div>':'')+
@@ -278,13 +285,18 @@ function gsLanding(){
        '</div>';
   });
   if(done.length){
-    const dw=done.reduce((s,l)=>s+(Number(l.wasted_sessions)||0),0);
-    h+='<details class="gs-how" style="margin-top:12px;"><summary>'+done.length+' more pages already link to products but still convert low (~'+dw.toLocaleString()+' visits) — low-intent traffic, nothing to fix here</summary>';
-    done.forEach(l=>{ h+='<div class="gs-plink-note" style="color:#6b7280;margin:4px 0;">'+gsEsc(l.landing_page)+' — '+Number(l.wasted_sessions).toLocaleString()+' wasted · already links to '+((l.links||{}).product_links||0)+' product(s)</div>'; });
+    h+='<details class="gs-how" style="margin-top:12px;"><summary>'+done.length+' more pages already link to products but still convert low — low-intent traffic, nothing to fix here</summary>';
+    done.forEach(l=>{ h+='<div class="gs-plink-note" style="color:#6b7280;margin:4px 0;">'+gsEsc(l.landing_page)+' — '+gsEsc(ceil(l))+' · already links to '+((l.links||{}).product_links||0)+' product(s)</div>'; });
     h+='</details>';
+  }
+  if(tooSmall.length){
+    const tc=tooSmall.reduce((s,l)=>s+(Number(l.ceiling_profit_mo)||0),0);
+    h+='<details class="gs-how" style="margin-top:8px;"><summary>'+tooSmall.length+' more pages too small to be worth individual work (≈ '+gsMoney(tc)+'/mo combined ceiling)</summary>'+
+       '<div class="gs-plink-note" style="color:#6b7280;margin:4px 0;">These are low-traffic pages where even the best-case recovery is under ~'+gsMoney((GS_LANDING.floor||50))+'/mo each. Don\'t spend time here — the money is in the funnel and product leaks.</div></details>';
   }
   return h;
 }
+function psCeil(l){return gsMoney(l.ceiling_profit_mo);}
 function gsLoadLanding(refresh){
   GS_LANDING_LOADING=true; if(GS_DATA) gsRender(GS_DATA);
   fetch('/api/grow-sales/landing-leaks'+(refresh?'?refresh=1':''))

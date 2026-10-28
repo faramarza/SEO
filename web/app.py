@@ -8672,7 +8672,29 @@ def api_grow_sales_landing_leaks():
                                 "may be needed, or GA4 isn't connected).",
                         "leaks": []})
 
-    leaks = landing_leaks(funnel, config)
+    # Site-average economics, so each leaking page's wasted traffic can be shown as
+    # an honest ceiling in orders + dollars/month and filtered by a materiality floor
+    # (stop surfacing 40-click blog pages worth cents). Pulled from the last
+    # evaluation's account totals; fall back to business_context.
+    _eval = {}
+    _eval_path0 = DATA_PATH / "latest_evaluation.json"
+    if _eval_path0.exists():
+        try:
+            with open(_eval_path0) as f:
+                _eval = json.load(f) or {}
+        except (json.JSONDecodeError, OSError):
+            _eval = {}
+    _acct = _eval.get("ga4_account", {}) or {}
+    _bc = config.get("business_context", {}) or {}
+    _sess = float(_acct.get("sessions") or 0)
+    _purch = float(_acct.get("purchases") or 0)
+    site_rate = (_purch / _sess) if _sess > 0 else None
+    aov = _acct.get("aov") or _bc.get("aov")
+    margin = float((config.get("profit_model", {}) or {}).get("gross_margin_high", 0.30))
+    floor = float((config.get("grow_sales", {}) or {}).get("materiality_floor_monthly", 50))
+    leaks = landing_leaks(funnel, config, site_purchase_rate=site_rate,
+                          aov=(float(aov) if aov else None), margin=margin,
+                          window_days=28, min_monthly_value=floor)
     base = _site_base_url(config)
 
     # Read the top leaking pages and judge them the way a human would — does the
@@ -8722,7 +8744,7 @@ def api_grow_sales_landing_leaks():
             lk["actionable"] = (info.get("product_links", 0) == 0)
 
     payload = {"available": True, "date": today, "base_url": base,
-               "leaks": leaks,
+               "leaks": leaks, "floor": floor,
                "total_wasted": sum(l["wasted_sessions"] for l in leaks)}
     try:
         with open(LANDING_LEAKS_PATH, "w") as f:

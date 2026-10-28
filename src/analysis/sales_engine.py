@@ -104,6 +104,20 @@ def _junk_url(url: str) -> bool:
     return (not u) or "(not set)" in u or u.endswith("/(not%20set)")
 
 
+def _looks_encoded(url: str) -> bool:
+    """True for the garbled base64 blog slugs GA4 sometimes reports (e.g.
+    /blog/c2NyZWVuLW, /blog/ZnVuLXdheX) — a no-hyphen, mixed-case, base64-alphabet
+    token. Real slugs are hyphenated lowercase words, so these are almost always
+    phantom/encoded URLs, not pages worth a 'fix this' card."""
+    seg = (url or "").split("?", 1)[0].split("#", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    if not seg or "-" in seg or "_" in seg or "." in seg or len(seg) < 6:
+        return False
+    has_upper = any(c.isupper() for c in seg)
+    has_lower = any(c.islower() for c in seg)
+    only_b64 = re.fullmatch(r"[A-Za-z0-9+/=]+", seg) is not None
+    return has_upper and has_lower and only_b64
+
+
 def _is_product(r: dict) -> bool:
     return (r.get("asset_type") or "").lower() in ("product", "category")
 
@@ -649,15 +663,27 @@ def _page_kind(path: str, config: dict = None) -> str:
 
 def landing_leaks(landing_funnel: dict, config: dict = None,
                   min_sessions: int = 30, target_view_rate: float = 0.25,
-                  limit: int = 25) -> list:
-    """Rank landing pages by the TRAFFIC THEY WASTE — visitors who land and never
-    reach a product. Each gets a plain fix matched to the page type. This turns
-    'get people to products' into a specific page list. Needs the GA4 landing
+                  limit: int = 25, site_purchase_rate: float = None,
+                  aov: float = None, margin: float = None,
+                  window_days: int = 28, min_monthly_value: float = None) -> list:
+    """Landing pages whose visitors land and never reach a product. Each page's
+    wasted traffic is translated into an honest CEILING — orders/month and
+    profit/month IF those wasted visitors converted at your site average (a best
+    case, not a promise) — and the list is ranked by that money, not by raw session
+    count, so product/category pages with real upside beat a tail of 40-click blogs.
+
+    When site_purchase_rate/aov/margin are given, each page gets ceiling_orders_mo /
+    ceiling_profit_mo and a below_floor flag (true when even the ceiling is under
+    min_monthly_value); callers bucket those away. Without them it falls back to the
+    old behaviour (rank by wasted sessions, nothing flagged). Needs the GA4 landing
     funnel; returns [] without it (never guesses)."""
+    have_money = (site_purchase_rate is not None and aov is not None and margin is not None)
+    floor = (min_monthly_value if min_monthly_value is not None else 0.0)
+    month_factor = (30.4 / window_days) if window_days else 1.0
     out = []
     for lp, d in (landing_funnel or {}).items():
-        if _junk_url(lp) or _SYSTEM_RE.search(lp or ""):
-            continue
+        if _junk_url(lp) or _SYSTEM_RE.search(lp or "") or _looks_encoded(lp):
+            continue  # skip junk, system pages, and phantom base64 slugs
         sess = int(d.get("sessions") or 0)
         pv = int(d.get("product_view_sessions") or 0)
         if sess < min_sessions:
@@ -666,6 +692,10 @@ def landing_leaks(landing_funnel: dict, config: dict = None,
         if vr >= target_view_rate:
             continue  # enough of this page's visitors already reach a product
         wasted = round(sess * (1 - vr))
+        # Honest ceiling: wasted visitors converting at the site-average rate.
+        ceiling_orders_mo = (wasted * site_purchase_rate * month_factor) if have_money else None
+        ceiling_profit_mo = (ceiling_orders_mo * aov * margin) if have_money else None
+        below_floor = bool(have_money and ceiling_profit_mo < floor)
         kind = _page_kind(lp, config)
         if kind == "blog/info":
             rec = ("Visitors read this and almost none reach a product. First look at the page: "
@@ -691,10 +721,18 @@ def landing_leaks(landing_funnel: dict, config: dict = None,
             "product_view_sessions": pv,
             "view_rate_pct": round(vr * 100, 1),
             "wasted_sessions": wasted,
+            "ceiling_orders_mo": round(ceiling_orders_mo, 2) if ceiling_orders_mo is not None else None,
+            "ceiling_profit_mo": round(ceiling_profit_mo, 2) if ceiling_profit_mo is not None else None,
+            "below_floor": below_floor,
             "kind": kind,
             "recommendation": rec,
         })
-    out.sort(key=lambda x: -x["wasted_sessions"])
+    # Rank by money when we have it (so real upside beats a long tail of tiny blog
+    # pages); fall back to wasted sessions when no rates were passed.
+    if have_money:
+        out.sort(key=lambda x: -(x["ceiling_profit_mo"] or 0.0))
+    else:
+        out.sort(key=lambda x: -x["wasted_sessions"])
     return out[:limit]
 
 
