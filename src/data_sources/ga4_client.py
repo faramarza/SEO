@@ -364,6 +364,88 @@ class GA4Client:
             print(f"GA4 account-totals error: {e}")
             return {}
 
+    def get_paid_cpc_totals(self, days: int = 30) -> dict:
+        """Purchases, pre-tax revenue and sales tax for Google Ads traffic only
+        (sessionSourceMedium == 'google / cpc'). Used by the Paid Search agent to
+        reconcile Google Ads conversions against GA4, and to check whether Ads'
+        conversion value includes tax (margins are on PRE-TAX revenue). Returns
+        {purchases, revenue, tax, sessions}; empty on failure or no GA4."""
+        client = self._get_client()
+        if client is None:
+            return {}
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest, DateRange, Metric, Filter, FilterExpression,
+            )
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+            req = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                       end_date=end_date.isoformat())],
+                metrics=[Metric(name="ecommercePurchases"),
+                         Metric(name="purchaseRevenue"),
+                         Metric(name="taxAmount"),
+                         Metric(name="sessions")],
+                dimension_filter=FilterExpression(
+                    filter=Filter(field_name="sessionSourceMedium",
+                                  string_filter=Filter.StringFilter(
+                                      value="google / cpc",
+                                      match_type=Filter.StringFilter.MatchType.EXACT))),
+            )
+            resp = client.run_report(req)
+            if not resp.rows:
+                return {"purchases": 0, "revenue": 0.0, "tax": 0.0, "sessions": 0}
+            m = {h.name: resp.rows[0].metric_values[i].value
+                 for i, h in enumerate(resp.metric_headers)}
+            return {
+                "purchases": int(float(m.get("ecommercePurchases", 0))),
+                "revenue": round(float(m.get("purchaseRevenue", 0)), 2),
+                "tax": round(float(m.get("taxAmount", 0)), 2),
+                "sessions": int(float(m.get("sessions", 0))),
+            }
+        except Exception as e:
+            print(f"GA4 paid-cpc-totals error: {e}")
+            return {}
+
+    def get_paid_cpc_by_device(self, days: int = 30) -> dict:
+        """Google Ads (google / cpc) sessions and purchases split by device, so the
+        Paid Search agent can compare paid conversion rate mobile vs desktop vs
+        tablet. Returns {device: {sessions, purchases}}; empty on failure."""
+        client = self._get_client()
+        if client is None:
+            return {}
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest, DateRange, Dimension, Metric, Filter, FilterExpression,
+            )
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+            req = RunReportRequest(
+                property=f"properties/{self.property_id}",
+                date_ranges=[DateRange(start_date=start_date.isoformat(),
+                                       end_date=end_date.isoformat())],
+                dimensions=[Dimension(name="deviceCategory")],
+                metrics=[Metric(name="sessions"), Metric(name="ecommercePurchases")],
+                dimension_filter=FilterExpression(
+                    filter=Filter(field_name="sessionSourceMedium",
+                                  string_filter=Filter.StringFilter(
+                                      value="google / cpc",
+                                      match_type=Filter.StringFilter.MatchType.EXACT))),
+            )
+            resp = client.run_report(req)
+            out = {}
+            for row in resp.rows:
+                dev = row.dimension_values[0].value or "(unknown)"
+                m = {h.name: row.metric_values[i].value
+                     for i, h in enumerate(resp.metric_headers)}
+                out[dev] = {"sessions": int(float(m.get("sessions", 0))),
+                            "purchases": int(float(m.get("ecommercePurchases", 0)))}
+            return out
+        except Exception as e:
+            print(f"GA4 paid-cpc-by-device error: {e}")
+            return {}
+
     def get_funnel_counts(self, days: int = 28) -> dict:
         """The real site funnel, by USERS (not events) — the only reliable way to
         measure a drop-off. Pulls distinct users (and raw event counts) for the key
