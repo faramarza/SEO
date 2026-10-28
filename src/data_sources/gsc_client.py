@@ -361,6 +361,67 @@ class GSCClient:
             print(f"GSC API error: {e}")
             return {}
 
+    def get_query_data(self, days: int = 30) -> dict[str, dict]:
+        """Query-level organic metrics (dimension=['query'], so position is GSC's
+        own aggregate across all pages for that query — NOT query x page). This is
+        what the Paid Search agent needs to decide 'we already rank organically for
+        this ad search term'. Returns {query_lower: {clicks, impressions, ctr,
+        position}}; empty on failure. The query is lower-cased for matching."""
+        service = self._get_service()
+        if service is None:
+            return {}
+        end_date = date.today() - timedelta(days=3)
+        start_date = end_date - timedelta(days=days)
+        try:
+            rows = self._query_all_rows(service, {
+                'startDate': start_date.isoformat(),
+                'endDate': end_date.isoformat(),
+                'dimensions': ['query'],
+            })
+            out = {}
+            for row in (rows or []):
+                q = (row['keys'][0] or '').strip().lower()
+                if not q:
+                    continue
+                out[q] = {
+                    'clicks': int(row.get('clicks', 0)),
+                    'impressions': int(row.get('impressions', 0)),
+                    'ctr': float(row.get('ctr', 0.0)),
+                    'position': float(row.get('position', 0.0)),
+                }
+            return out
+        except Exception as e:
+            print(f"GSC query-data error: {e}")
+            return {}
+
+    def get_query_page_rows(self, days: int = 30) -> list[dict]:
+        """Flat query x page rows (dimensions=['query','page']) so the Paid Search
+        agent can see WHICH page an organic query sent clicks to — the basis for
+        'new keyword candidates' (queries landing on ad-eligible product pages).
+        Returns [{query, page, clicks, impressions, ctr, position}]; [] on failure."""
+        service = self._get_service()
+        if service is None:
+            return []
+        end_date = date.today() - timedelta(days=3)
+        start_date = end_date - timedelta(days=days)
+        try:
+            rows = self._query_all_rows(service, {
+                'startDate': start_date.isoformat(),
+                'endDate': end_date.isoformat(),
+                'dimensions': ['query', 'page'],
+            })
+            return [{
+                'query': row['keys'][0],
+                'page': row['keys'][1],
+                'clicks': int(row.get('clicks', 0)),
+                'impressions': int(row.get('impressions', 0)),
+                'ctr': float(row.get('ctr', 0.0)),
+                'position': float(row.get('position', 0.0)),
+            } for row in (rows or []) if row.get('keys')]
+        except Exception as e:
+            print(f"GSC query-page error: {e}")
+            return []
+
     def inspect_url(self, url: str) -> dict:
         """
         Inspect a URL using the URL Inspection API.
