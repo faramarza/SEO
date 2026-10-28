@@ -1061,6 +1061,15 @@ def grow_sales():
     return render_template("grow_sales.html")
 
 
+@app.route("/paid-search")
+def paid_search_page():
+    """Paid Search — the weekly, READ-ONLY Google Ads report: new keyword candidates,
+    ad spend overlapping free organic traffic, negative-keyword suggestions, per-
+    campaign profit vs break-even, data-only headline ideas, and the device split.
+    Suggests only; the owner applies every change by hand."""
+    return render_template("paid_search.html")
+
+
 # ============================================================
 # API ROUTES
 # ============================================================
@@ -8522,6 +8531,97 @@ def api_grow_sales_done():
 
 
 LANDING_LEAKS_PATH = DATA_PATH / "landing_leaks_cache.json"
+PAID_SEARCH_PATH = DATA_PATH / "paid_search_cache.json"
+
+
+@app.route("/api/paid-search")
+def api_paid_search():
+    """The weekly Paid Search report. READ-ONLY: reads the Ads export Sheet, GSC and
+    GA4 google/cpc data, and returns suggestions — it changes nothing. On-demand with
+    a per-day cache (pass ?refresh=1 to force a fresh pull), like landing-leaks."""
+    from datetime import date as _date
+    from src.analysis.paid_search import build_paid_search_report
+    from src.data_sources.ads_sheet import AdsSheetClient
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+    today = _date.today().isoformat()
+    refresh = request.args.get("refresh") == "1"
+
+    cached = None
+    if PAID_SEARCH_PATH.exists():
+        try:
+            with open(PAID_SEARCH_PATH) as f:
+                cached = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            cached = None
+    if cached and cached.get("date") == today and not refresh:
+        return jsonify(cached)
+
+    ps_cfg = config.get("paid_search", {}) or {}
+    days = int(ps_cfg.get("lookback_days", 30))
+
+    # Google Ads export Sheet (read-only). Missing/not-shared -> empty + honest note.
+    ads = AdsSheetClient.from_config(config)
+    search_terms = ads.get_search_terms() if ads.configured() else []
+    keyword_rows = ads.get_keywords() if ads.configured() else []
+    existing_keywords = [k.get("keyword", "") for k in keyword_rows if k.get("keyword")]
+
+    # GSC query data (reuses the existing service account).
+    gsc_cfg = (config.get("data_sources", {}) or {}).get("gsc", {}) or {}
+    query_positions, query_page_rows = {}, []
+    try:
+        gsc = GSCClient(property_url=gsc_cfg.get("property_url", ""),
+                        credentials_path=gsc_cfg.get("credentials_path") or None)
+        query_positions = gsc.get_query_data(days=days)
+        query_page_rows = gsc.get_query_page_rows(days=days)
+    except Exception as e:
+        print(f"paid-search GSC error: {e}")
+
+    # GA4 google/cpc totals (reconciliation + tax) and device split.
+    ga4_cfg = (config.get("data_sources", {}) or {}).get("ga4", {}) or {}
+    ga4_cpc, ga4_devices = {}, {}
+    try:
+        ga4 = GA4Client(property_id=ga4_cfg.get("property_id", ""),
+                        credentials_path=ga4_cfg.get("credentials_path") or None)
+        ga4_cpc = ga4.get_paid_cpc_totals(days=days)
+        ga4_devices = ga4.get_paid_cpc_by_device(days=days)
+    except Exception as e:
+        print(f"paid-search GA4 error: {e}")
+
+    # Page titles for data-only headline ideas, from the latest evaluation.
+    page_titles = {}
+    eval_path = DATA_PATH / "latest_evaluation.json"
+    if eval_path.exists():
+        try:
+            with open(eval_path) as f:
+                for r in ((json.load(f) or {}).get("results", []) or []):
+                    if r.get("url") and r.get("title"):
+                        page_titles[r["url"]] = r["title"]
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    report = build_paid_search_report(
+        search_term_rows=search_terms, keyword_rows=keyword_rows,
+        existing_keywords=existing_keywords, query_page_rows=query_page_rows,
+        query_positions=query_positions, query_rows=query_page_rows,
+        page_titles=page_titles, ga4_cpc=ga4_cpc, ga4_devices=ga4_devices,
+        config=config)
+
+    report["date"] = today
+    report["lookback_days"] = days
+    report["base_url"] = _site_base_url(config)
+    report["ads_sheet_configured"] = ads.configured()
+    if ads.configured() and ads.last_error:
+        report.setdefault("notes", []).append(ads.last_error)
+
+    try:
+        with open(PAID_SEARCH_PATH, "w") as f:
+            json.dump(report, f, indent=2)
+    except OSError:
+        pass
+    return jsonify(report)
 
 
 def _site_base_url(config):

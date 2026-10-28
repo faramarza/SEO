@@ -66,6 +66,7 @@
       "carpets":     {"margin": 0.10, "url_patterns": ["rug", "carpet"]}
     },
     "default_margin": 0.15,
+    "keyword_candidate_lines": ["name_trains", "books", "stools"],
     "campaign_line_overrides": {
       "Name Trains Search-2026": "name_trains"
     },

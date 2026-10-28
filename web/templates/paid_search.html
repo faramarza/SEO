@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}Paid Search{% endblock %}
+{% block header %}📣 Paid Search{% endblock %}
+
+{% block content %}
+<style>
+.ps-sub{font-size:13px;color:var(--text-secondary,#374151);margin:0 0 14px;}
+.ps-foot{font-size:12px;color:var(--text-muted,#6b7280);margin:6px 0 0;line-height:1.5;}
+.ps-h{font-size:17px;font-weight:800;margin:28px 0 4px;}
+.ps-ro{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;color:#047857;
+  background:#ecfdf5;border:1px solid #a7f3d0;border-radius:999px;padding:2px 10px;margin-left:8px;}
+.ps-banner{border:1px solid var(--border,#e5e7eb);border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;line-height:1.5;}
+.ps-banner.warn{background:#fffbeb;border-color:#fde68a;color:#92400e;}
+.ps-banner.ok{background:#ecfdf5;border-color:#a7f3d0;color:#065f46;}
+.ps-banner.info{background:var(--bg-hover,#f3f4f6);color:var(--text-secondary,#374151);}
+.ps-card{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;
+  padding:14px 16px;margin:10px 0;}
+.ps-card h3{font-size:15px;font-weight:700;margin:0 0 2px;}
+.ps-card .ps-why{font-size:12px;color:var(--text-muted,#6b7280);margin:0 0 10px;}
+table.ps-tbl{width:100%;border-collapse:collapse;font-size:13px;}
+table.ps-tbl th{text-align:left;font-size:11px;letter-spacing:.03em;color:var(--text-muted,#6b7280);
+  text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--border,#e5e7eb);white-space:nowrap;}
+table.ps-tbl td{padding:7px 8px;border-bottom:1px solid var(--border,#f1f1f3);vertical-align:top;}
+table.ps-tbl td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.ps-pill{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;}
+.ps-pill.good{background:#ecfdf5;color:#047857;}
+.ps-pill.bad{background:#fef2f2;color:#b91c1c;}
+.ps-pill.mut{background:var(--bg-hover,#f3f4f6);color:var(--text-muted,#6b7280);}
+.ps-empty{font-size:13px;color:var(--text-muted,#6b7280);padding:6px 2px;}
+.ps-btn{font-size:13px;padding:7px 14px;border:1px solid var(--border,#e5e7eb);border-radius:8px;
+  background:var(--card,#fff);color:var(--text-primary,#111827);cursor:pointer;font-weight:600;}
+.ps-btn:hover{background:var(--bg-hover,#f3f4f6);}
+.ps-loading{font-size:13px;color:var(--text-muted,#6b7280);padding:20px 2px;}
+.ps-chip{font-size:11px;color:var(--text-muted,#6b7280);}
+</style>
+
+<p class="ps-sub">Your weekly Google Ads read-out <span class="ps-ro">READ-ONLY</span><br>
+Governor reads Google Ads (via a daily Sheet export), Search Console and GA4, then <b>suggests</b>.
+It never changes your ads, bids, budgets or keywords — you apply every change by hand.</p>
+
+<div style="margin:6px 0 10px;"><button class="ps-btn" onclick="psLoad(true)">↻ Refresh from the data</button>
+<span class="ps-chip" id="ps-asof" style="margin-left:8px;"></span></div>
+
+<div id="ps-root"><div class="ps-loading">Loading your Paid Search report…</div></div>
+
+<script>
+let PS=null;
+function psEsc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function psMoney(n){return '$'+Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0});}
+function psNum(n){return Number(n||0).toLocaleString();}
+
+function psLoad(refresh){
+  document.getElementById('ps-root').innerHTML='<div class="ps-loading">Loading your Paid Search report…</div>';
+  fetch('/api/paid-search'+(refresh?'?refresh=1':''))
+    .then(r=>r.json()).then(d=>{PS=d; psRender(d);})
+    .catch(()=>{document.getElementById('ps-root').innerHTML='<div class="ps-banner warn">Could not load the report — try Refresh.</div>';});
+}
+
+function psSection(title, why, bodyHtml){
+  return '<div class="ps-card"><h3>'+psEsc(title)+'</h3>'+
+    (why?'<div class="ps-why">'+psEsc(why)+'</div>':'')+bodyHtml+'</div>';
+}
+function psTable(cols, rows){
+  if(!rows.length) return '<div class="ps-empty">Nothing to show here right now.</div>';
+  let h='<table class="ps-tbl"><thead><tr>';
+  cols.forEach(c=>h+='<th'+(c.num?' style="text-align:right;"':'')+'>'+psEsc(c.label)+'</th>');
+  h+='</tr></thead><tbody>';
+  rows.forEach(r=>{h+='<tr>';cols.forEach(c=>{h+='<td'+(c.num?' class="num"':'')+'>'+(c.render?c.render(r):psEsc(r[c.key]))+'</td>';});h+='</tr>';});
+  return h+'</tbody></table>';
+}
+
+function psRender(d){
+  const as=document.getElementById('ps-asof');
+  if(as) as.textContent = d.date?('Last '+(d.lookback_days||30)+' days · built '+d.date):'';
+  let h='';
+
+  if(!d.ads_sheet_configured){
+    h+='<div class="ps-banner warn"><b>Connect your Google Ads export first.</b> This report needs the daily Ads Script export Sheet. '+
+       'See the install steps, then paste the Sheet ID into config (<code>paid_search.ads_sheet.sheet_id</code>) and share the Sheet read-only with your service account.</div>';
+  }
+  (d.notes||[]).forEach(n=>{h+='<div class="ps-banner info">'+psEsc(n)+'</div>';});
+
+  // Tax banner
+  const t=d.tax_note;
+  if(t){ const cls=(t.status==='includes_tax')?'warn':(t.status==='excludes_tax')?'ok':'info';
+    h+='<div class="ps-banner '+cls+'">'+psEsc(t.message)+'</div>'; }
+
+  // 4. Profit per campaign (lead with the money)
+  const cp=d.campaign_profit||{};
+  const camps=cp.campaigns||[];
+  let cpBody=psTable([
+    {label:'Campaign',key:'campaign'},
+    {label:'Line',render:r=>r.product_line?psEsc(r.product_line)+(r.margin_assumed?' <span class="ps-chip">(assumed)</span>':''):'<span class="ps-chip">— (assumed '+Math.round(r.margin*100)+'%)</span>'},
+    {label:'Cost',num:true,render:r=>psMoney(r.cost)},
+    {label:'Conv. value',num:true,render:r=>psMoney(r.conversion_value)},
+    {label:'ROAS',num:true,render:r=>r.roas==null?'—':r.roas.toFixed(1)},
+    {label:'Break-even',num:true,render:r=>r.break_even_roas==null?'—':r.break_even_roas.toFixed(1)},
+    {label:'Est. profit',num:true,render:r=>(r.estimated_profit>=0?'':'−')+psMoney(Math.abs(r.estimated_profit))},
+    {label:'',render:r=>r.verdict==='profitable'?'<span class="ps-pill good">profitable</span>':r.verdict==='losing'?'<span class="ps-pill bad">below break-even</span>':'<span class="ps-pill mut">no spend</span>'},
+  ],camps);
+  if(cp.reconciliation){const rc=cp.reconciliation;
+    cpBody+='<div class="ps-foot">Attribution check: Google Ads counted <b>'+psNum(rc.ads_conversions)+'</b> conversions vs GA4 google/cpc <b>'+psNum(rc.ga4_cpc_purchases)+'</b> purchases'+
+      (rc.gap_pct==null?'':' ('+(rc.gap_pct>0?'+':'')+rc.gap_pct+'%)')+'. '+
+      (rc.flag?'⚠️ Gap exceeds '+rc.threshold_pct+'% — check your conversion tracking.':'Within tolerance.')+'</div>';
+  }
+  h+=psSection('💵 Profit check per campaign','ROAS vs the break-even for each product line, and estimated profit (conversion value × margin − card fee − ad cost).',cpBody);
+
+  // 3. Negative keywords
+  h+=psSection('🚫 Negative-keyword suggestions','Search terms spending over the threshold with zero conversions — candidates to block. Review before adding.',
+    psTable([
+      {label:'Search term',key:'search_term'},
+      {label:'Wasted',num:true,render:r=>psMoney(r.wasted_cost)},
+      {label:'Clicks',num:true,key:'clicks'},
+      {label:'Campaign',render:r=>'<span class="ps-chip">'+psEsc(r.campaign)+'</span>'},
+    ], d.negative_keyword_suggestions||[]));
+
+  // 2. Paying for free traffic
+  h+=psSection('🆓 Paying for traffic you rank for free','Ad search terms where you ALSO rank organically at position ≤ 2 (aggregate across pages). The paid click may be buying a visit you\'d get anyway — test pausing and watch total clicks.',
+    psTable([
+      {label:'Search term',key:'search_term'},
+      {label:'Organic pos.',num:true,render:r=>r.organic_position.toFixed(1)},
+      {label:'Ad cost',num:true,render:r=>psMoney(r.ad_cost)},
+      {label:'Ad clicks',num:true,key:'ad_clicks'},
+      {label:'Organic clicks',num:true,key:'organic_clicks'},
+    ], d.paying_for_free_traffic||[]));
+
+  // 1. New keyword candidates
+  h+=psSection('🌱 New keyword candidates','Organic queries already sending clicks to your name-train / book / stool pages that you don\'t bid on yet. Ranked by clicks.',
+    psTable([
+      {label:'Query',key:'query'},
+      {label:'Clicks',num:true,key:'clicks'},
+      {label:'Product line(s)',render:r=>'<span class="ps-chip">'+psEsc((r.product_lines||[]).join(', '))+'</span>'},
+    ], d.new_keyword_candidates||[]));
+
+  // 6. Device split
+  h+=psSection('📱 Paid conversion rate by device','From GA4 google/cpc. If one device converts far worse, that\'s where budget leaks.',
+    psTable([
+      {label:'Device',key:'device'},
+      {label:'Sessions',num:true,key:'sessions'},
+      {label:'Purchases',num:true,key:'purchases'},
+      {label:'Conv. rate',num:true,render:r=>r.conversion_rate_pct.toFixed(2)+'%'},
+    ], d.device_split||[]));
+
+  // 5. Headline ideas
+  h+=psSection('✍️ Ad-copy headline ideas (≤30 chars)','Straight from your highest organic-CTR queries and page titles — data only, nothing invented. Trimmed to 30 characters.',
+    psTable([
+      {label:'Headline',key:'headline'},
+      {label:'Chars',num:true,key:'chars'},
+      {label:'From query',render:r=>'<span class="ps-chip">'+psEsc(r.from_query)+'</span>'},
+      {label:'Organic CTR',num:true,render:r=>r.ctr_pct+'%'},
+    ], d.headline_ideas||[]));
+
+  document.getElementById('ps-root').innerHTML=h;
+}
+
+psLoad(false);
+</script>
+{% endblock %}

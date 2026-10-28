@@ -146,10 +146,15 @@ def normalize_keyword(kw: str) -> str:
 
 def new_keyword_candidates(query_page_rows: list, existing_keywords: list,
                            config: dict, limit: int = 25) -> list:
-    """Organic queries (GSC) whose clicks land on an ad-eligible product line's
-    pages but aren't bid on yet. query_page_rows: [{query, page, clicks, ...}].
-    Ranked by clicks. Pages that don't map to a product line are skipped."""
+    """Organic queries (GSC) whose clicks land on an ADVERTISABLE product line's
+    pages but aren't bid on yet. Advertisable lines come from config
+    (keyword_candidate_lines, default name trains / books / stools — the lines whose
+    break-even ROAS is low enough to be worth bidding on; Montessori/carpets are
+    excluded by default). query_page_rows: [{query, page, clicks, ...}]. Ranked by
+    clicks. Pages that don't map to an advertisable line are skipped."""
     have = {normalize_keyword(k) for k in (existing_keywords or [])}
+    allowed = set(_ps_config(config).get("keyword_candidate_lines")
+                  or ["name_trains", "books", "stools"])
     agg: dict[str, dict] = {}
     for r in (query_page_rows or []):
         q = (r.get("query") or "").strip()
@@ -157,8 +162,8 @@ def new_keyword_candidates(query_page_rows: list, existing_keywords: list,
         if not q:
             continue
         line = line_for("", page, config)
-        if not line:
-            continue  # only suggest keywords for pages we can tie to a bid-worthy line
+        if not line or line not in allowed:
+            continue  # only suggest keywords for pages tied to an advertisable line
         if normalize_keyword(q) in have:
             continue  # already an ad keyword
         clicks = int(r.get("clicks") or 0)

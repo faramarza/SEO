@@ -27,6 +27,7 @@ CFG = {
             "montessori":  {"margin": 0.15, "url_patterns": ["montessori"]},
             "carpets":     {"margin": 0.10, "url_patterns": ["rug", "carpet"]},
         },
+        "keyword_candidate_lines": ["name_trains", "books", "stools"],
         "campaign_line_overrides": {"Name Trains Search-2026": "name_trains"},
         "thresholds": {
             "negative_kw_min_spend": 5.0, "attribution_gap_pct": 25,
@@ -96,13 +97,14 @@ def test_new_keyword_candidates_excludes_existing_and_ranks_by_clicks():
     rows = [
         {"query": "wooden name train gift", "page": "https://x/name-train.html", "clicks": 40},
         {"query": "name train", "page": "https://x/name-train.html", "clicks": 99},  # already bid
-        {"query": "montessori toy 1 year", "page": "https://x/montessori-x.html", "clicks": 12},
+        {"query": "montessori toy 1 year", "page": "https://x/montessori-x.html", "clicks": 12},  # not advertisable
         {"query": "random blog thing", "page": "https://x/blog/activities.html", "clicks": 80},  # no line
     ]
     out = new_keyword_candidates(rows, existing_keywords=["[name train]"], config=CFG)
     qs = [o["query"] for o in out]
     assert "wooden name train gift" in qs
     assert "name train" not in qs                 # already an ad keyword
+    assert "montessori toy 1 year" not in qs      # Montessori isn't an advertisable line
     assert "random blog thing" not in qs          # page maps to no product line
     assert out[0]["clicks"] >= out[-1]["clicks"]  # ranked by clicks
 
