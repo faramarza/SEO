@@ -8431,6 +8431,38 @@ def _save_sales_plan(store):
         pass
 
 
+CHANNEL_FUNNEL_CACHE = DATA_PATH / "channel_funnel_cache.json"
+
+
+def _grow_sales_channels(config):
+    """Per-channel funnel (live GA4, cached per day) so Grow Sales can show where
+    buyers actually come from without re-running the whole evaluation. None on any
+    failure — the section just hides."""
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    if CHANNEL_FUNNEL_CACHE.exists():
+        try:
+            c = json.load(open(CHANNEL_FUNNEL_CACHE))
+            if c.get("date") == today:
+                return c.get("data")
+        except (json.JSONDecodeError, OSError):
+            pass
+    from src.analysis.sales_engine import channel_breakdown
+    ga4_cfg = (config.get("data_sources", {}) or {}).get("ga4", {}) or {}
+    data = None
+    try:
+        ga4 = GA4Client(property_id=ga4_cfg.get("property_id", ""),
+                        credentials_path=ga4_cfg.get("credentials_path") or None)
+        data = channel_breakdown(ga4.get_funnel_by_channel(days=28))
+    except Exception as e:
+        print(f"grow-sales channels error: {e}")
+    try:
+        json.dump({"date": today, "data": data}, open(CHANNEL_FUNNEL_CACHE, "w"))
+    except OSError:
+        pass
+    return data
+
+
 def _grow_sales_payload():
     """Assemble the full Grow Sales view from persisted data. Never fabricates:
     with no evaluation yet it returns readiness only so the page can say what to
@@ -8474,6 +8506,7 @@ def _grow_sales_payload():
         "bundle": bundle,
         "plan": plan,
         "readiness": readiness,
+        "channels": _grow_sales_channels(config),
     }
 
 

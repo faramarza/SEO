@@ -446,6 +446,46 @@ class GA4Client:
             print(f"GA4 paid-cpc-by-device error: {e}")
             return {}
 
+    def get_funnel_by_channel(self, days: int = 28) -> dict:
+        """The funnel split by acquisition channel (sessionDefaultChannelGroup): per
+        channel, total users, users who REACHED a product (view_item / select_item /
+        add_to_cart), and buyers. Turns the blended 'X% reach a product' into
+        per-channel reality — paid vs organic vs direct. Returns
+        {channel: {users, reached, buyers}}; empty on failure or no GA4."""
+        client = self._get_client()
+        if client is None:
+            return {}
+        try:
+            from google.analytics.data_v1beta.types import (
+                RunReportRequest, DateRange, Dimension, Metric, Filter, FilterExpression,
+            )
+            end_date = date.today() - timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
+            dr = [DateRange(start_date=start_date.isoformat(), end_date=end_date.isoformat())]
+            chan = Dimension(name="sessionDefaultChannelGroup")
+            prop = f"properties/{self.property_id}"
+
+            def _by_channel(dimension_filter):
+                req = RunReportRequest(property=prop, date_ranges=dr, dimensions=[chan],
+                                       metrics=[Metric(name="totalUsers")],
+                                       dimension_filter=dimension_filter, limit=50)
+                resp = client.run_report(req)
+                return {row.dimension_values[0].value or "(other)":
+                        int(float(row.metric_values[0].value)) for row in resp.rows}
+
+            totals = _by_channel(None)
+            reached = _by_channel(FilterExpression(filter=Filter(
+                field_name="eventName", in_list_filter=Filter.InListFilter(
+                    values=["view_item", "select_item", "add_to_cart"]))))
+            buyers = _by_channel(FilterExpression(filter=Filter(
+                field_name="eventName", string_filter=Filter.StringFilter(
+                    value="purchase", match_type=Filter.StringFilter.MatchType.EXACT))))
+            return {ch: {"users": u, "reached": reached.get(ch, 0), "buyers": buyers.get(ch, 0)}
+                    for ch, u in totals.items()}
+        except Exception as e:
+            print(f"GA4 funnel-by-channel error: {e}")
+            return {}
+
     def get_funnel_counts(self, days: int = 28) -> dict:
         """The real site funnel, by USERS (not events) — the only reliable way to
         measure a drop-off. Pulls distinct users (and raw event counts) for the key

@@ -221,6 +221,65 @@ def _leak_checkout(account: dict, profile: dict = None, funnel: dict = None) -> 
     }
 
 
+_CHECKOUT_STEP_OK = 0.60   # begin_checkout -> purchase: healthy completion band
+
+
+def _leak_checkout_step(account: dict, funnel: dict = None,
+                        profile: dict = None) -> Optional[dict]:
+    """The checkout STEP itself: people who START checkout (begin_checkout) and never
+    finish. This is distinct from cart→order and is otherwise INVISIBLE — a store can
+    have a healthy cart→order yet still bleed committed buyers at the payment step
+    (surprise shipping, forced account, hidden wallet buttons). Only fires when
+    cart→order is healthy (so it doesn't double-count the broader cart leak)."""
+    if not (funnel and funnel.get("available")):
+        return None
+    checkouts = _num(funnel.get("_checkout_users"))
+    carts = _num(funnel.get("_cart_users"))
+    buys = _num(funnel.get("_buy_users"))
+    if checkouts < MIN_CARTS or buys <= 0:
+        return None
+    # If cart→order itself is weak, _leak_checkout already covers it — don't stack.
+    if carts and (buys / carts) < TARGET_CLOSE:
+        return None
+    rate = buys / checkouts
+    if rate >= _CHECKOUT_STEP_OK:
+        return None  # checkout completion is healthy
+    aov = _aov(account)
+    lost = (_CHECKOUT_STEP_OK - rate) * checkouts   # recoverable orders at a healthy rate
+    dollars = round(lost * aov) if aov else None
+    sev = "high" if (dollars or 0) >= 400 else "medium"
+    return {
+        "id": "checkout_step_abandonment",
+        "category": "conversion",
+        "severity": sev,
+        "dollars": dollars,
+        "title": "Buyers abandon AT checkout",
+        "what": (f"{int(checkouts)} people started checkout but only {int(buys)} finished "
+                 f"({rate*100:.0f}% completion). That's {int(checkouts - buys)} committed "
+                 f"buyers lost at the payment step (healthy is ~{int(_CHECKOUT_STEP_OK*100)}%)."),
+        "why": ("These shoppers made it all the way TO checkout — they wanted to buy. "
+                "Losing them here is the most expensive leak on the site, and it's usually "
+                "friction you can't see from the cart: a shipping cost that appears only at "
+                "the end, a forced account, too many form fields, or your Apple/Google Pay "
+                "buttons being buried. Your overall cart→order looks fine, which is exactly "
+                "why this step hides."),
+        "steps": [
+            "On your phone, buy one of your own products from cart to confirmation — note "
+            "every screen where you'd hesitate. That's the fix list.",
+            "Show the full price (shipping + tax) BEFORE the final step — surprise cost is "
+            "the #1 checkout killer.",
+            "Put Apple Pay / Google Pay / Shop Pay at the TOP of checkout (you have them — "
+            "make them the first thing, so mobile buyers skip the forms).",
+            "Allow guest checkout; never force account creation to buy.",
+            "Turn on an abandoned-checkout email — recovers ~10% of these for near-zero cost.",
+        ],
+        "evidence": {"checkouts": int(checkouts), "orders": int(buys),
+                     "completion_pct": round(rate * 100, 1),
+                     "target_pct": int(_CHECKOUT_STEP_OK * 100), "aov": aov},
+        "where": [],
+    }
+
+
 def _leak_leaky_products(results: list, account: dict, profile: dict = None,
                          config: dict = None) -> list:
     """Product pages where lots of people add to cart but few buy — your worst
@@ -706,8 +765,53 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
         "add_to_cart_rate_pct": round(atc_rate, 1),
         "close_rate_pct": round(close_rate, 1),
         "leak_step": leak,
-        "_view_users": viewers, "_cart_users": carts, "_buy_users": buys,
+        "_view_users": viewers, "_cart_users": carts,
+        "_checkout_users": checkouts, "_buy_users": buys,
     }
+
+
+def channel_breakdown(ga4_channels: dict, min_users: int = 30) -> Optional[dict]:
+    """Turn the blended funnel into per-channel reality: for each acquisition channel
+    (Organic Search, Paid Search, Direct, …), how many visitors, what share reach a
+    product, and what share buy. This is what makes the top-of-funnel diagnosis
+    actionable — 'your paid traffic reaches products at 80%, your organic at 3%' tells
+    you to fix the traffic mix, not the site. Returns None without data (never guesses).
+
+    ga4_channels: {channel: {users, reached, buyers}}."""
+    rows = []
+    for ch, d in (ga4_channels or {}).items():
+        users = int((d or {}).get("users") or 0)
+        if users < min_users:
+            continue
+        reached = int(d.get("reached") or 0)
+        buyers = int(d.get("buyers") or 0)
+        rows.append({
+            "channel": ch or "(other)",
+            "users": users,
+            "reached": reached,
+            "reach_rate_pct": round(reached / users * 100, 1) if users else 0.0,
+            "buyers": buyers,
+            "buy_rate_pct": round(buyers / users * 100, 2) if users else 0.0,
+        })
+    if not rows:
+        return None
+    rows.sort(key=lambda r: -r["users"])
+    # The honest, data-driven read: which channel actually produces buyers, and the
+    # spread between the best and worst at reaching a product.
+    by_buyers = sorted(rows, key=lambda r: -r["buyers"])
+    best_reach = max(rows, key=lambda r: r["reach_rate_pct"])
+    worst_reach = min(rows, key=lambda r: r["reach_rate_pct"])
+    top_buyer_ch = by_buyers[0]
+    insight = (f"{top_buyer_ch['channel']} brings most of your buyers "
+               f"({top_buyer_ch['buyers']} of {sum(r['buyers'] for r in rows)}). ")
+    if best_reach["channel"] != worst_reach["channel"] and worst_reach["reach_rate_pct"] >= 0:
+        insight += (f"{best_reach['channel']} visitors reach a product "
+                    f"{best_reach['reach_rate_pct']:.0f}% of the time, but "
+                    f"{worst_reach['channel']} only {worst_reach['reach_rate_pct']:.0f}% — "
+                    "so your blended 'reach a product' rate is an average of very different "
+                    "traffic. Send more of what converts; stop judging the low-intent "
+                    "channels by the same bar.")
+    return {"rows": rows, "insight": insight}
 
 
 _INFO_RE = re.compile(
@@ -1113,6 +1217,9 @@ def build_sales_leaks(eval_data: dict, config: dict = None,
     co = _leak_checkout(account, profile, funnel)
     if co:
         leaks.append(co)
+    cs = _leak_checkout_step(account, funnel, profile)
+    if cs:
+        leaks.append(cs)
     leaks += _leak_leaky_products(results, account, profile, config)
     leaks += _leak_dead_traffic(results, account, config, exclude_urls=atc_urls)
     leaks += _leak_no_reviews(results, reviews, config)

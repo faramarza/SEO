@@ -39,6 +39,15 @@
 .gs-h{font-size:17px;font-weight:800;margin:30px 0 4px;}
 .gs-sub{font-size:13px;color:var(--text-secondary,#374151);margin:0 0 14px;}
 .gs-foot{font-size:12px;color:var(--text-muted,#6b7280);margin:8px 0 0;line-height:1.5;}
+.gs-note{font-size:13px;line-height:1.5;background:var(--bg-hover,#f3f4f6);border:1px solid var(--border,#e5e7eb);
+  border-radius:10px;padding:10px 12px;margin:0 0 10px;color:var(--text-secondary,#374151);}
+table.gs-ch{width:100%;border-collapse:collapse;font-size:13px;}
+table.gs-ch th{text-align:left;font-size:11px;letter-spacing:.03em;color:var(--text-muted,#6b7280);
+  text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--border,#e5e7eb);white-space:nowrap;}
+table.gs-ch th.num,table.gs-ch td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+table.gs-ch td{padding:7px 8px;border-bottom:1px solid var(--border,#f1f1f3);}
+.gs-ch-pct.good{color:#047857;font-weight:700;}
+.gs-ch-pct.bad{color:#b91c1c;font-weight:700;}
 
 /* Today's plan */
 .gs-today{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;
@@ -155,6 +164,9 @@ function gsRender(d){
     body.innerHTML=h; gsBind(); return;
   }
 
+  // Season banner — it's a gift store; Q4 is peak. Make timing impossible to miss.
+  h+=gsSeason();
+
   // Tiles + funnel. When the GA4 by-users funnel is available it's the headline —
   // the reliable view of where people actually drop off.
   const t=b.totals||{};
@@ -180,6 +192,9 @@ function gsRender(d){
        '<b>Re-run your evaluation (with crawl)</b> to pull the real GA4 funnel (who views a product, who adds to cart, who buys).</p>';
   }
   if(F&&F.available) h+=gsFunnel(F);
+
+  // Where your buyers come from — the channel slice that un-blends the funnel.
+  h+=gsChannels(d.channels);
 
   // Today's plan — the 3 things to do, right under the funnel.
   h+='<div class="gs-h">✅ Do these today</div>';
@@ -309,6 +324,35 @@ function gsLoadLanding(refresh){
   fetch('/api/grow-sales/landing-leaks'+(refresh?'?refresh=1':''))
     .then(r=>r.json()).then(d=>{ GS_LANDING=d; GS_LANDING_LOADING=false; if(GS_DATA) gsRender(GS_DATA); })
     .catch(()=>{ GS_LANDING_LOADING=false; GS_LANDING={available:false,note:'Could not load — try Refresh.',leaks:[]}; if(GS_DATA) gsRender(GS_DATA); });
+}
+
+// Season banner — a gift store makes most of its year in Q4. Surface the timing.
+function gsSeason(){
+  const m=new Date().getMonth(); // 0=Jan
+  if(m===9) return '<div class="gs-note" style="background:#fffbeb;border-color:#fde68a;color:#92400e;">🎁 <b>Peak season is starting.</b> For a personalized-gift store, Oct–Dec is most of your year. Ship the checkout + product-page fixes below NOW, before traffic ramps — a fix in October compounds across the whole holiday run.</div>';
+  if(m===10||m===11) return '<div class="gs-note" style="background:#fef2f2;border-color:#fecaca;color:#991b1b;">🎁 <b>You\'re in peak gift season.</b> Every conversion fix matters 3–4× more this month. Prioritise the checkout and your proven converters; don\'t start slow-burn content now.</div>';
+  if(m===0) return '<div class="gs-note">📉 Post-holiday lull — a good window to fix pages and set up for next year, not to expect volume.</div>';
+  return '';
+}
+
+// Where your buyers come from — un-blends the funnel by acquisition channel.
+function gsChannels(ch){
+  if(!ch || !(ch.rows||[]).length) return '';
+  let h='<div class="gs-h">🧭 Where your buyers come from</div>';
+  h+='<p class="gs-sub">The funnel above is a blend of very different traffic. This splits it by channel — so "35% reach a product" stops hiding that some channels shop and some don\'t.</p>';
+  if(ch.insight) h+='<div class="gs-note">'+gsEsc(ch.insight)+'</div>';
+  h+='<table class="gs-ch"><thead><tr><th>Channel</th><th class="num">Visitors</th><th class="num">Reach a product</th><th class="num">Buy</th><th class="num">Buyers</th></tr></thead><tbody>';
+  ch.rows.forEach(r=>{
+    const rc=r.reach_rate_pct, good=rc>=50, bad=rc<15;
+    h+='<tr><td>'+gsEsc(r.channel)+'</td>'+
+       '<td class="num">'+Number(r.users).toLocaleString()+'</td>'+
+       '<td class="num"><span class="gs-ch-pct'+(good?' good':(bad?' bad':''))+'">'+rc+'%</span></td>'+
+       '<td class="num">'+r.buy_rate_pct+'%</td>'+
+       '<td class="num">'+Number(r.buyers).toLocaleString()+'</td></tr>';
+  });
+  h+='</tbody></table>';
+  h+='<p class="gs-foot">Live from GA4 (last 28 days, by people), refreshed daily.</p>';
+  return h;
 }
 
 function gsFunnel(F){

@@ -488,6 +488,43 @@ def test_funnel_leak_leads_do_these_today():
     assert b["totals"]["add_to_cart_rate_pct"] == round(116 / 1965 * 100, 1)
 
 
+def test_channel_breakdown_splits_the_blended_funnel():
+    from src.analysis.sales_engine import channel_breakdown
+    chans = {
+        "Organic Search": {"users": 3000, "reached": 90, "buyers": 3},    # tire-kickers
+        "Paid Search":    {"users": 300,  "reached": 240, "buyers": 12},  # shoppers
+        "Direct":         {"users": 500,  "reached": 300, "buyers": 20},
+        "Email":          {"users": 10,   "reached": 8,   "buyers": 2},   # below min_users
+    }
+    out = channel_breakdown(chans, min_users=30)
+    chmap = {r["channel"]: r for r in out["rows"]}
+    assert "Email" not in chmap                       # too small, dropped
+    assert chmap["Organic Search"]["reach_rate_pct"] == 3.0
+    assert chmap["Paid Search"]["reach_rate_pct"] == 80.0
+    assert out["rows"][0]["channel"] == "Organic Search"   # most users first
+    # the insight must name the spread between best/worst reach channel
+    assert "average" in out["insight"].lower()
+    assert channel_breakdown({}, min_users=30) is None     # no data -> None, never guesses
+
+
+def test_checkout_step_leak_sizes_the_payment_step():
+    from src.analysis.sales_engine import _leak_checkout_step
+    # cart->order healthy (41/125=33%), but checkout completion weak (41/85=48%).
+    funnel = {"available": True, "_cart_users": 125, "_checkout_users": 85, "_buy_users": 41}
+    leak = _leak_checkout_step({"aov": 60.0}, funnel, {})
+    assert leak and leak["id"] == "checkout_step_abandonment"
+    assert leak["dollars"] == round((0.60 - 41/85) * 85 * 60.0)   # ~601
+    assert "44 committed buyers" in leak["what"]
+    # Guard 1: when cart->order is ALSO weak, the broader cart leak owns it -> suppress.
+    weak = {"available": True, "_cart_users": 200, "_checkout_users": 85, "_buy_users": 20}
+    assert _leak_checkout_step({"aov": 60.0}, weak, {}) is None
+    # Guard 2: healthy completion -> no leak.
+    ok = {"available": True, "_cart_users": 125, "_checkout_users": 85, "_buy_users": 60}
+    assert _leak_checkout_step({"aov": 60.0}, ok, {}) is None
+    # No funnel -> None (never guesses).
+    assert _leak_checkout_step({"aov": 60.0}, None, {}) is None
+
+
 def test_healthy_close_suppresses_checkout_leak():
     ev = _funnel_eval()
     ev["ga4_funnel"] = _ga4_funnel()   # close 38/116 = 33% -> healthy
