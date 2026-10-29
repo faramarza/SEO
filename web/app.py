@@ -13558,6 +13558,15 @@ def _cb_fetch_page(url: str):
     """Fetch a competitor page's HTML for term extraction. Server-side (egress ok);
     bounded by a timeout and a size cap; HTML only. Returns text or None."""
     import httpx
+    # Never request a phantom base64 slug (e.g. /blog/c2NyZWVuLW). These arrive in
+    # GA4/crawl inputs but aren't real pages; refusing them here stops GovernorBot
+    # from re-requesting them and feeding the loop.
+    try:
+        from src.analysis.sales_engine import _looks_encoded
+        if _looks_encoded(url):
+            return None
+    except Exception:
+        pass
     try:
         with httpx.stream("GET", url, follow_redirects=True, timeout=12.0,
                           headers={"User-Agent": "Mozilla/5.0 (compatible; GovernorBot/1.0)"}) as r:
@@ -13627,6 +13636,13 @@ def _url_status(url: str):
     import httpx
     if not url or not url.startswith("http"):
         return "dead"
+    # Phantom base64 slugs aren't real URLs — treat as dead without requesting them.
+    try:
+        from src.analysis.sales_engine import _looks_encoded
+        if _looks_encoded(url):
+            return "dead"
+    except Exception:
+        pass
     hdrs = {"User-Agent": "Mozilla/5.0 (compatible; GovernorBot/1.0)"}
     for method in ("HEAD", "GET"):
         try:
