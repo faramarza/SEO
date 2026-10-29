@@ -192,24 +192,31 @@ def test_landing_leaks_money_ranking_and_materiality_floor():
     assert by["/blog/tiny-post"]["ceiling_profit_mo"] < 50
 
 
-def test_b2b_opportunity_surfaces_stuck_rug_carts():
+def test_b2b_opportunity_excludes_zero_view_phantom_carts():
     from src.analysis.sales_engine import b2b_opportunity
+    # Mirrors the real data: some rugs have real views+carts (credible), others have
+    # carts but ZERO views (attribution ghosts that must NOT inflate the headline).
     prods = [
-        {"title": "KidSoft Tranquil Trees Rug", "url": "https://x/kidsoft.html",
-         "add_to_carts": 8, "orders": 0},
-        {"title": "8x12 Tan Classroom Rug", "url": "https://x/tan.html",
-         "add_to_carts": 4, "orders": 0},
+        {"title": "Circletime Rug", "url": "https://x/circletime.html",
+         "views": 7, "add_to_carts": 2, "orders": 0},     # credible
+        {"title": "Colorful Rows Rug", "url": "https://x/colorful.html",
+         "views": 6, "add_to_carts": 3, "orders": 0},     # credible
+        {"title": "KidSoft Tranquil Trees", "url": "https://x/kidsoft.html",
+         "views": 0, "add_to_carts": 8, "orders": 0},     # 0 views -> phantom
+        {"title": "8x12 Tan Rug", "url": "https://x/tan.html",
+         "views": 0, "add_to_carts": 4, "orders": 0},     # 0 views -> phantom
         {"title": "World Map Rug", "url": "https://x/worldmap.html",
-         "add_to_carts": 2, "orders": 1},     # converted — not stuck
+         "views": 10, "add_to_carts": 2, "orders": 1},    # converted -> not stuck
     ]
     opp = b2b_opportunity(prods)
-    assert opp["add_to_carts"] == 14 and opp["orders"] == 1
-    assert opp["stuck_count"] == 2                      # the two 0-order rugs
-    assert opp["top"][0]["add_to_carts"] == 8          # ranked by interest
-    assert "quote" in opp["why"].lower() and opp["steps"]
-    assert "dollars" not in opp                          # no fabricated $ figure
-    # No carts anywhere -> no opportunity (never invents one).
-    assert b2b_opportunity([{"title": "x", "add_to_carts": 0, "orders": 0}]) is None
+    assert opp["add_to_carts"] == 5            # 2 + 3 credible only, NOT 17
+    assert opp["stuck_count"] == 2             # the two viewed-and-carted rugs
+    assert opp["unverified_carts"] == 12 and opp["unverified_count"] == 2
+    assert "attribution noise" in opp["what"].lower()
+    assert all(t["title"] in ("Circletime Rug", "Colorful Rows Rug") for t in opp["top"])
+    assert "dollars" not in opp                 # no fabricated $ figure
+    # All carts are phantom (no views anywhere) -> no credible signal -> no opportunity.
+    assert b2b_opportunity([{"title": "x", "views": 0, "add_to_carts": 9, "orders": 0}]) is None
     assert b2b_opportunity([]) is None
 
 

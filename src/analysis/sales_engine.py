@@ -520,24 +520,48 @@ def b2b_opportunity(b2b_products: list) -> Optional[dict]:
 
     No dollar figure: rug prices aren't reliably in the data, and a fabricated
     number here is exactly the kind of guess we don't make. The honest signal is
-    the demand (carts) with no conversion path."""
+    the demand (carts) with no conversion path.
+
+    CREDIBLE carts only: a product with add-to-carts but ZERO product-page views is
+    almost certainly a GA4 item-attribution artifact (you can't add a cart to a page
+    nobody viewed), so those carts are excluded from the headline and reported
+    separately as 'unverified'. Without this guard a handful of phantom 0-view carts
+    can more than double the number and oversell the opportunity."""
     prods = b2b_products or []
-    total_carts = sum(int(p.get("add_to_carts") or 0) for p in prods)
-    total_orders = sum(int(p.get("orders") or 0) for p in prods)
-    if total_carts < 1:
-        return None
-    stuck = [p for p in prods if int(p.get("add_to_carts") or 0) >= 1
-             and int(p.get("orders") or 0) == 0]
-    stuck.sort(key=lambda p: -int(p.get("add_to_carts") or 0))
+
+    def _c(p): return int(p.get("add_to_carts") or 0)
+    def _o(p): return int(p.get("orders") or 0)
+    def _v(p): return int(p.get("views") or 0)
+
+    # Credible = added to cart, never ordered, AND the product page was actually
+    # viewed (so the cart is real demand, not an attribution ghost).
+    credible = [p for p in prods if _c(p) >= 1 and _o(p) == 0 and _v(p) >= 1]
+    # Unverified = carts on a product with no recorded views — flagged, not counted.
+    unverified = [p for p in prods if _c(p) >= 1 and _o(p) == 0 and _v(p) == 0]
+    credible.sort(key=lambda p: -_c(p))
+
+    credible_carts = sum(_c(p) for p in credible)
+    unverified_carts = sum(_c(p) for p in unverified)
+    total_orders = sum(_o(p) for p in prods)
+    if credible_carts < 1:
+        return None  # no trustworthy demand signal -> no opportunity (never invent one)
+
+    caveat = ""
+    if unverified:
+        caveat = (f" (Ignored {unverified_carts} more add-to-cart(s) on "
+                  f"{len(unverified)} rug(s) that had NO recorded product-page views — "
+                  "almost certainly GA4 attribution noise, not real demand.)")
     return {
         "id": "b2b_opportunity",
-        "add_to_carts": total_carts,
+        "add_to_carts": credible_carts,
         "orders": total_orders,
-        "stuck_count": len(stuck),
+        "stuck_count": len(credible),
+        "unverified_carts": unverified_carts,
+        "unverified_count": len(unverified),
         "title": "Schools are trying to buy rugs — give them a quote path",
-        "what": (f"{total_carts} add-to-cart(s) across your classroom rugs but only "
-                 f"{total_orders} order(s). {len(stuck)} rug(s) were added to a cart and "
-                 "never ordered."),
+        "what": (f"{credible_carts} credible add-to-cart(s) across {len(credible)} "
+                 f"classroom rug(s), but {total_orders} order(s) — people with real "
+                 "interest who never got a way to buy." + caveat),
         "why": ("These are institutions (schools/daycares), not impulse shoppers: they "
                 "add a high-ticket rug to price it, then need a quote or purchase order — "
                 "not a self-serve checkout. One classroom-rug order can be worth more than "
@@ -551,7 +575,7 @@ def b2b_opportunity(b2b_products: list) -> Optional[dict]:
             "List the rugs people added but didn't order, and chase those first.",
         ],
         "top": [{"title": p.get("title"), "url": p.get("url"),
-                 "add_to_carts": int(p.get("add_to_carts") or 0)} for p in stuck[:6]],
+                 "add_to_carts": _c(p)} for p in credible[:6]],
     }
 
 
