@@ -340,6 +340,7 @@ function gsChannels(ch){
   if(!ch || !(ch.rows||[]).length) return '';
   let h='<div class="gs-h">🧭 Where your buyers come from</div>';
   h+='<p class="gs-sub">The funnel above is a blend of very different traffic. This splits it by channel — so "35% reach a product" stops hiding that some channels shop and some don\'t.</p>';
+  if(ch.paid_warning) h+='<div class="gs-note" style="background:#fef2f2;border-color:#fecaca;color:#991b1b;font-weight:600;">🚨 '+gsEsc(ch.paid_warning.message)+'</div>';
   if(ch.insight) h+='<div class="gs-note">'+gsEsc(ch.insight)+'</div>';
   h+='<table class="gs-ch"><thead><tr><th>Channel</th><th class="num">Visitors</th><th class="num">Reach a product</th><th class="num">Buy</th><th class="num">Buyers</th></tr></thead><tbody>';
   ch.rows.forEach(r=>{

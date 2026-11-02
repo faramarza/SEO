@@ -507,6 +507,28 @@ def test_channel_breakdown_splits_the_blended_funnel():
     assert channel_breakdown({}, min_users=30) is None     # no data -> None, never guesses
 
 
+def test_channel_breakdown_flags_paid_dependency():
+    from src.analysis.sales_engine import channel_breakdown
+    # Mirrors the real data: Cross-network (PMax) is the top buyer source.
+    chans = {
+        "Direct":        {"users": 2660, "reached": 458, "buyers": 8},
+        "Organic Search":{"users": 1207, "reached": 241, "buyers": 7},
+        "Cross-network": {"users": 1197, "reached": 1111, "buyers": 20},  # PMax = ads
+        "Organic Shopping":{"users": 40, "reached": 40,  "buyers": 2},
+    }
+    out = channel_breakdown(chans, min_users=30)
+    w = out["paid_warning"]
+    assert w is not None
+    assert w["channel"] == "Cross-network"
+    assert w["share_pct"] == round(20 / 37 * 100)          # ~54%
+    assert "performance max" in w["message"].lower()       # names PMax
+    assert "go dark" in w["message"].lower()
+    # No paid channel at the top -> no warning (don't cry wolf on organic stores).
+    organic_only = {"Organic Search": {"users": 2000, "reached": 400, "buyers": 30},
+                    "Direct": {"users": 500, "reached": 100, "buyers": 5}}
+    assert channel_breakdown(organic_only, min_users=30)["paid_warning"] is None
+
+
 def test_checkout_step_leak_sizes_the_payment_step():
     from src.analysis.sales_engine import _leak_checkout_step
     # cart->order healthy (41/125=33%), but checkout completion weak (41/85=48%).

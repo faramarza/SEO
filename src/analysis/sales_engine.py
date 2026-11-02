@@ -770,6 +770,14 @@ def site_funnel(eval_data: dict) -> Optional[dict]:
     }
 
 
+# GA4 channel groups that are PAID advertising — revenue from these only exists
+# while the campaigns run and are funded. "Cross-network" = Performance Max /
+# Demand Gen; "Display" and any "Paid *" group are ads too.
+def _is_paid_channel(name: str) -> bool:
+    n = (name or "").strip().lower()
+    return ("paid" in n) or n in ("cross-network", "display")
+
+
 def channel_breakdown(ga4_channels: dict, min_users: int = 30) -> Optional[dict]:
     """Turn the blended funnel into per-channel reality: for each acquisition channel
     (Organic Search, Paid Search, Direct, …), how many visitors, what share reach a
@@ -811,7 +819,37 @@ def channel_breakdown(ga4_channels: dict, min_users: int = 30) -> Optional[dict]
                     "so your blended 'reach a product' rate is an average of very different "
                     "traffic. Send more of what converts; stop judging the low-intent "
                     "channels by the same bar.")
-    return {"rows": rows, "insight": insight}
+
+    # Paid-dependency warning: when PAID advertising is a top buyer source, flag that
+    # the revenue vanishes the moment the ads pause — the exact trap where a store
+    # turns off Performance Max and silently loses half its sales.
+    total_buyers = sum(r["buyers"] for r in rows)
+    paid_rows = [r for r in rows if _is_paid_channel(r["channel"])]
+    paid_buyers = sum(r["buyers"] for r in paid_rows)
+    paid_warning = None
+    if total_buyers > 0 and paid_buyers >= 1:
+        share = paid_buyers / total_buyers * 100
+        top_paid = max(paid_rows, key=lambda r: r["buyers"])
+        # Fire when ads are the single biggest buyer source OR a big share overall.
+        if _is_paid_channel(top_buyer_ch["channel"]) or share >= 30:
+            pmax = "cross-network" in top_paid["channel"].lower()
+            paid_warning = {
+                "share_pct": round(share),
+                "channel": top_paid["channel"],
+                "buyers": paid_buyers,
+                "total_buyers": total_buyers,
+                "message": (
+                    f"{round(share)}% of your buyers come from PAID advertising"
+                    + (f" — {top_paid['channel']} alone is {top_paid['buyers']} of "
+                       f"{total_buyers} buyers" if len(paid_rows) == 1 or
+                       top_paid["buyers"] else "")
+                    + ". That revenue only exists while the ads run and are funded: "
+                    "pause or cut these campaigns and those sales go dark with them. "
+                    "Confirm they're live and budgeted — especially heading into peak season."
+                    + (" (Cross-network = Google Performance Max / Demand Gen.)" if pmax else "")
+                ),
+            }
+    return {"rows": rows, "insight": insight, "paid_warning": paid_warning}
 
 
 _INFO_RE = re.compile(
