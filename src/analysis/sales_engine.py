@@ -843,9 +843,12 @@ def channel_breakdown(ga4_channels: dict, min_users: int = 30) -> Optional[dict]
                     + (f" — {top_paid['channel']} alone is {top_paid['buyers']} of "
                        f"{total_buyers} buyers" if len(paid_rows) == 1 or
                        top_paid["buyers"] else "")
-                    + ". That revenue only exists while the ads run and are funded: "
-                    "pause or cut these campaigns and those sales go dark with them. "
-                    "Confirm they're live and budgeted — especially heading into peak season."
+                    + ". This cuts both ways, so decide on PROFIT, not buyer count: "
+                    "those sales vanish if you pause the ads — but they're only worth keeping "
+                    "if the ads clear your break-even ROAS. Check ROAS vs break-even in Paid "
+                    "Search first. If it clears, protect this (don't pause into peak season); "
+                    "if it's below break-even, these are loss-making sales and pausing can be "
+                    "the right call."
                     + (" (Cross-network = Google Performance Max / Demand Gen.)" if pmax else "")
                 ),
             }

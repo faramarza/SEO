@@ -522,7 +522,9 @@ def test_channel_breakdown_flags_paid_dependency():
     assert w["channel"] == "Cross-network"
     assert w["share_pct"] == round(20 / 37 * 100)          # ~54%
     assert "performance max" in w["message"].lower()       # names PMax
-    assert "go dark" in w["message"].lower()
+    # Balanced, profit-first message — not a naive "keep the ads on" cheer.
+    assert "break-even" in w["message"].lower()
+    assert "pausing can be the right call" in w["message"].lower()
     # No paid channel at the top -> no warning (don't cry wolf on organic stores).
     organic_only = {"Organic Search": {"users": 2000, "reached": 400, "buyers": 30},
                     "Direct": {"users": 500, "reached": 100, "buyers": 5}}
