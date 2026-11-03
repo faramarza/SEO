@@ -166,7 +166,13 @@ async function suAdsLoad(){
   }catch(e){}
 }
 function suCopyText(text,btn){
-  navigator.clipboard.writeText(text).then(()=>{const o=btn.textContent;btn.textContent='✓ Copied';setTimeout(()=>btn.textContent=o,1500);}).catch(()=>suToast('Copy failed — select and copy manually',true));
+  // Use the shared HTTP-safe helper (govCopy in base.html) — navigator.clipboard
+  // is unavailable on this plain-HTTP server, so it falls back to execCommand.
+  const o=btn.textContent;
+  govCopy(text, ok=>{
+    if(ok){ btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent=o,1500); }
+    else suToast('Copy blocked — select the text and press ⌘/Ctrl-C',true);
+  });
 }
 function suAdsCopyScript(b){ if(!SU_ADS_SCRIPT){suToast('Script not loaded yet',true);return;} suCopyText(SU_ADS_SCRIPT,b); }
 function suAdsCopyEmail(b){ const e=document.getElementById('su-ads-sa').textContent; if(!e||e[0]==='('){suToast('Service-account email not available',true);return;} suCopyText(e,b); }
