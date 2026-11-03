@@ -90,15 +90,16 @@ function psRender(d){
   if(ops.length){
     let ob='';
     ops.forEach(o=>{
+      const tops=(o.top_products||[]);
       ob+='<div class="ps-card" style="margin:8px 0;">'+
-        '<h3 style="margin:0 0 2px;">'+psEsc(o.title)+' <span class="ps-chip">'+psEsc(o.product_line||'')+'</span></h3>'+
+        '<h3 style="margin:0 0 2px;">'+psEsc(o.title)+'</h3>'+
         '<div class="ps-why" style="margin:0 0 8px;">'+psEsc(o.why)+'</div>'+
-        '<div style="font-size:13px;line-height:1.6;">'+
+        '<div style="font-size:13px;line-height:1.7;">'+
           '<b>Run:</b> '+psEsc((o.campaign_type||{}).primary||'')+' — '+psEsc((o.campaign_type||{}).note||'')+'<br>'+
-          '<b>Keywords to start with:</b> '+ (o.keywords||[]).map(k=>'<span class="ps-chip" style="margin:2px 4px 2px 0;">'+psEsc(k)+'</span>').join('')+'<br>'+
-          '<b>Keep it profitable:</b> aim for ROAS ≥ '+(o.break_even_roas!=null?o.break_even_roas.toFixed(1):'your break-even')+' (your break-even for this line). Set that as the campaign’s target ROAS so Google only buys sales that clear your margin.'+
+          '<b>Keywords to start with:</b> '+ (o.keywords||[]).map(k=>'<span class="ps-chip" style="margin:2px 5px 2px 0;">'+psEsc(k)+'</span>').join(' ')+'<br>'+
+          (tops.length?'<b>Feature your best-sellers:</b> '+tops.map(p=>'<a href="'+psEsc(p.url)+'" target="_blank" rel="noopener">'+psEsc(p.title)+'</a> ('+p.orders+')').join(', ')+'<br>':'')+
+          '<b>Keep it profitable:</b> target ROAS ≥ '+(o.break_even_roas!=null?o.break_even_roas.toFixed(1):'your break-even')+' (your break-even for this line) so Google only buys sales that clear your margin.'+
         '</div>'+
-        (o.url?'<div class="ps-foot"><a href="'+psEsc(o.url)+'" target="_blank" rel="noopener">View product ↗</a></div>':'')+
       '</div>';
     });
     h+=psSection('🎯 What to advertise next','Your proven converters — products that already sell when people see them, in profitable lines. Advertising a winner is the safest ad money there is. (Built from your GA4 sales + catalog, so it works even before Google Ads is connected.)',ob);
@@ -120,7 +121,7 @@ function psRender(d){
     {label:'',render:r=>r.verdict==='profitable'?'<span class="ps-pill good">profitable</span>':r.verdict==='losing'?'<span class="ps-pill bad">below break-even</span>':'<span class="ps-pill mut">no spend</span>'},
   ],camps);
   if(cp.reconciliation){const rc=cp.reconciliation;
-    if(rc.ads_connected===false){
+    if(rc.ads_connected===false || rc.note){
       cpBody+='<div class="ps-foot">'+psEsc(rc.note||'')+'</div>';
     } else {
       cpBody+='<div class="ps-foot">Attribution check: Google Ads counted <b>'+psNum(rc.ads_conversions)+'</b> conversions vs GA4 google/cpc <b>'+psNum(rc.ga4_cpc_purchases)+'</b> purchases'+

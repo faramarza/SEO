@@ -314,7 +314,7 @@ def campaign_profit(keyword_rows: list, config: dict,
     if ga4_purchases is not None:
         # Don't cry "tracking broken" when there's simply no Ads data connected yet.
         # A gap is only meaningful once the Ads export exists (keyword_rows present).
-        if not keyword_rows:
+        if not (keyword_rows or campaign_rows):
             recon = {
                 "ads_connected": False,
                 "ads_conversions": 0,
@@ -323,6 +323,20 @@ def campaign_profit(keyword_rows: list, config: dict,
                 "note": ("Connect the Google Ads export (Setup) to reconcile Ads "
                          f"conversions against the {int(float(ga4_purchases))} GA4 google/cpc "
                          "purchases — can't compare until it's connected."),
+            }
+        elif not campaign_rows:
+            # Only keyword/Search data — that misses Performance Max conversions, so a
+            # gap here is an incomplete comparison, not a tracking failure.
+            recon = {
+                "ads_connected": True,
+                "ads_conversions": round(total_ads_conv, 2),
+                "ga4_cpc_purchases": round(float(ga4_purchases), 2),
+                "flag": False,
+                "note": (f"Only Search-campaign data is connected ({round(total_ads_conv)} "
+                         f"conversions), but GA4 shows {int(float(ga4_purchases))} google/cpc "
+                         "purchases — the rest are from Performance Max, which has no keywords. "
+                         "Re-run the updated Ads Script so it adds the Campaigns tab, then this "
+                         "reconciles PMax too."),
             }
         else:
             gap_pct = _pct_gap(total_ads_conv, ga4_purchases)
@@ -490,33 +504,35 @@ def _campaign_type_for(line: str) -> dict:
                     "Cross-network / PMax already drives most of your buyers, so this works.)"}
 
 
-def _ad_keywords(name: str, line: str) -> list:
-    base = re.sub(r"\s+", " ", (name or "").strip().lower())
-    out = [base] if base else []
-    out += {
-        "name_trains": ["personalized name train", "wooden name train", "name train for toddler"],
-        "books": ["personalized baby book", "custom name book", "personalized kids book"],
-        "stools": ["personalized step stool", "wooden step stool for kids"],
-    }.get(line, [])
-    seen = []
-    for k in out:
-        if k and k not in seen:
-            seen.append(k)
-    return seen[:5]
+_LINE_LABELS = {
+    "name_trains": "Personalized name trains",
+    "books": "Personalized books",
+    "stools": "Personalized step stools",
+}
+
+_LINE_KEYWORDS = {
+    "name_trains": ["personalized name train", "wooden name train", "name train for toddler", "custom name train"],
+    "books": ["personalized baby book", "custom name book", "personalized kids book"],
+    "stools": ["personalized step stool", "wooden step stool for kids"],
+}
 
 
-def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
-    """Agency-style: which products to advertise next, from YOUR data — no ad account
-    needed. Leads with PROVEN CONVERTERS that aren't getting much traffic (the safest,
-    cheapest ad money: it already sells when seen), restricted to advertisable,
-    profitable lines (name trains / books / stools — Montessori's break-even is too
-    high to buy traffic for). Each carries a campaign type, why, and example keywords.
-    Never invents demand — a product with no orders isn't recommended."""
+def ad_opportunities(results: list, config: dict, limit: int = 4) -> list:
+    """Agency-style: which product LINES to advertise next, from YOUR data — no ad
+    account needed. Rolls proven-converting SKUs up to the line (you run ONE
+    'personalized name trains' campaign, not one per letter-count), restricted to
+    advertisable, profitable lines (name trains / books / stools — Montessori's
+    break-even is too high to buy traffic for). Each carries a campaign type, the
+    best-selling examples, line-level keywords, and the break-even ROAS to target.
+
+    Reports ORDER COUNTS only — never a conversion rate, because GA4's per-item
+    sessions don't reconcile with its per-item orders (you'd get nonsense like '4
+    orders from 2 visits'). Order count is the honest proven-converter signal."""
     from src.analysis.sales_engine import _is_b2b, _junk_url, _label, _display_name
     fee = _card_fee(config)
     allowed = set(_ps_config(config).get("keyword_candidate_lines")
                   or ["name_trains", "books", "stools"])
-    recs = []
+    lines: dict[str, dict] = {}
     for r in (results or []):
         if (r.get("asset_type") or "").lower() not in ("product", "category"):
             continue
@@ -527,24 +543,33 @@ def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
         if line not in allowed:
             continue
         purchases = int(float(r.get("item_purchases") or 0))
-        sessions = int(float(r.get("ga4_sessions") or 0))
-        revenue = float(r.get("item_revenue") or 0.0)
         if purchases < 1:
             continue  # only proven converters — never recommend buying traffic on a hunch
+        L = lines.setdefault(line, {"orders": 0, "revenue": 0.0, "skus": []})
+        L["orders"] += purchases
+        L["revenue"] += float(r.get("item_revenue") or 0.0)
+        L["skus"].append({"title": _display_name({"title": r.get("title"), "url": url}),
+                          "url": url, "orders": purchases})
+
+    recs = []
+    for line, L in lines.items():
         margin, _ = margin_for(line, config)
         be = break_even_roas(margin, fee)
-        name = _display_name({"title": r.get("title"), "url": url})
+        L["skus"].sort(key=lambda s: -s["orders"])
+        n_sku = len(L["skus"])
         recs.append({
-            "title": name, "url": url, "product_line": line,
-            "orders": purchases, "sessions": sessions,
-            "aov": round(revenue / purchases, 2) if purchases and revenue else None,
-            "why": (f"Already converts — {purchases} order(s)"
-                    + (f" from only {sessions} visits" if sessions else "")
-                    + ". A proven winner is the safest ad spend: send it more traffic."),
+            "product_line": line,
+            "title": _LINE_LABELS.get(line, line.replace("_", " ").title()),
+            "orders": L["orders"],
+            "sku_count": n_sku,
+            "why": (f"Your proven bestseller line — {L['orders']} order(s) across "
+                    f"{n_sku} product{'s' if n_sku != 1 else ''} in the last window. "
+                    "Advertising a line that already sells is the safest ad money there is."),
+            "top_products": L["skus"][:3],
             "campaign_type": _campaign_type_for(line),
-            "keywords": _ad_keywords(name, line),
+            "keywords": _LINE_KEYWORDS.get(line, []),
             "break_even_roas": round(be, 2) if be else None,
-            "_score": purchases * (margin or 0.3),
+            "_score": L["orders"] * (margin or 0.3),
         })
     recs.sort(key=lambda x: -x["_score"])
     for rec in recs:

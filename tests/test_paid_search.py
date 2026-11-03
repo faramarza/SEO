@@ -143,12 +143,13 @@ def test_negative_keywords_spend_over_threshold_zero_conv():
 # ── output 4: campaign profit + reconciliation ───────────────────────────────
 
 def test_campaign_profit_verdict_and_reconciliation():
-    kw = [
-        {"campaign": "Name Trains Search-2026", "cost": 100.0,
-         "conversions": 3, "conversion_value": 500.0},
+    # Campaign-level data (the complete picture incl. PMax) is the reconciliation path.
+    camps = [
+        {"campaign": "Name Trains Search-2026", "type": "SEARCH", "status": "ENABLED",
+         "cost": 100.0, "conversions": 3, "conversion_value": 500.0},
     ]
     # ROAS = 5.0, break-even for name trains = 3.70 -> profitable
-    res = campaign_profit(kw, CFG, ga4_cpc={"purchases": 5})
+    res = campaign_profit([], CFG, ga4_cpc={"purchases": 5}, campaign_rows=camps)
     c = res["campaigns"][0]
     assert c["product_line"] == "name_trains"
     assert _approx(c["roas"], 5.0) and _approx(c["break_even_roas"], 3.70, 0.01)
@@ -158,6 +159,15 @@ def test_campaign_profit_verdict_and_reconciliation():
     # reconciliation: Ads 3 vs GA4 5 -> gap = (3-5)/5 = -40% -> flagged
     recon = res["reconciliation"]
     assert recon["flag"] is True and _approx(recon["gap_pct"], -40.0)
+
+
+def test_reconciliation_soft_note_when_only_keyword_data():
+    # Search-only data (no campaign tab) must NOT fire a scary gap — PMax conversions
+    # are missing, so it's an incomplete comparison, not broken tracking.
+    kw = [{"campaign": "Name Trains Search-2026", "cost": 24.0, "conversions": 0, "conversion_value": 0.0}]
+    recon = campaign_profit(kw, CFG, ga4_cpc={"purchases": 16})["reconciliation"]
+    assert recon["flag"] is False and recon.get("note")
+    assert "performance max" in recon["note"].lower()
 
 
 def test_campaign_profit_drops_zombie_campaigns():
@@ -241,16 +251,23 @@ def test_ad_opportunities_recommends_proven_converters_only():
         {"asset_type": "product", "url": "https://x/carpets-for-kids-rug-6ft-x-9ft.html",
          "title": "Classroom Rug 6ft x 9ft", "item_purchases": 2, "ga4_sessions": 50, "item_revenue": 900.0},  # B2B
     ]
+    # Add a second name-train SKU so we can prove the roll-up.
+    results.append({"asset_type": "product", "url": "https://x/3-letter-name-train.html",
+                    "title": "3 Letter Name Train", "item_purchases": 6, "ga4_sessions": 2, "item_revenue": 400.0})
     recs = ad_opportunities(results, CFG)
-    titles = [r["title"] for r in recs]
-    assert "5 Letter Name Train" in titles
-    assert "Montessori Shape Sorter" not in titles   # Montessori break-even too high
-    assert "Unsold Name Train" not in titles         # no orders -> never recommended
-    assert "Classroom Rug 6ft x 9ft" not in titles   # B2B excluded
-    rec = recs[0]
-    assert rec["campaign_type"]["primary"] and rec["keywords"]
-    assert rec["break_even_roas"] is not None
-    assert "_score" not in rec                         # internal field stripped
+    lines = [r["product_line"] for r in recs]
+    assert lines.count("name_trains") == 1            # rolled up to ONE line, not per-SKU
+    assert "montessori" not in lines                  # break-even too high
+    nt = next(r for r in recs if r["product_line"] == "name_trains")
+    assert nt["orders"] == 11                          # 5 + 6 across the two SKUs
+    assert nt["title"] == "Personalized name trains"   # line label, not a SKU title
+    assert nt["sku_count"] == 2
+    assert "visits" not in nt["why"].lower()          # no impossible conversion-rate claim
+    assert nt["campaign_type"]["primary"] and nt["keywords"] and nt["break_even_roas"] is not None
+    assert nt["top_products"][0]["orders"] == 6       # best-seller first
+    # A B2B rug and a zero-order product never appear.
+    assert all("montessori" not in r["product_line"] for r in recs)
+    assert "_score" not in nt
 
 
 def test_report_degrades_without_fabricating():
