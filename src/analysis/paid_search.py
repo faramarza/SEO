@@ -495,9 +495,9 @@ def _campaign_type_for(line: str) -> dict:
     intent → Search; visual/discovery products → Shopping / Performance Max."""
     if line in ("name_trains", "books", "stools"):
         return {"primary": "Search + Shopping",
-                "note": "People who search a personalized name train are ready to buy — "
-                        "run Search ads on exact buyer keywords, and add a Shopping feed so "
-                        "the product shows with its photo and price."}
+                "note": "People who search for a specific personalized gift are ready to buy — "
+                        "run Search ads on the exact buyer keywords below, and add a Shopping "
+                        "feed so the product shows with its photo and price."}
     return {"primary": "Shopping / Performance Max",
             "note": "These sell on looks and browsing, not a typed keyword — Shopping and "
                     "Performance Max put the product photo in front of browsers. (Your "
@@ -545,11 +545,20 @@ def ad_opportunities(results: list, config: dict, limit: int = 4) -> list:
         purchases = int(float(r.get("item_purchases") or 0))
         if purchases < 1:
             continue  # only proven converters — never recommend buying traffic on a hunch
-        L = lines.setdefault(line, {"orders": 0, "revenue": 0.0, "skus": []})
+        L = lines.setdefault(line, {"orders": 0, "revenue": 0.0, "skus": [],
+                                    "impressions": 0, "queries": {}})
         L["orders"] += purchases
         L["revenue"] += float(r.get("item_revenue") or 0.0)
+        L["impressions"] += int(float(r.get("gsc_impressions") or 0))
         L["skus"].append({"title": _display_name({"title": r.get("title"), "url": url}),
                           "url": url, "orders": purchases})
+        # Collect the REAL searches these pages already get impressions for — this is
+        # demand, straight from Search Console, not a canned keyword list.
+        for q in (r.get("top_queries") or []):
+            qt = (q.get("query") or "").strip().lower()
+            if not qt:
+                continue
+            L["queries"][qt] = L["queries"].get(qt, 0) + int(float(q.get("impressions") or 0))
 
     recs = []
     for line, L in lines.items():
@@ -557,19 +566,31 @@ def ad_opportunities(results: list, config: dict, limit: int = 4) -> list:
         be = break_even_roas(margin, fee)
         L["skus"].sort(key=lambda s: -s["orders"])
         n_sku = len(L["skus"])
+        # Keywords from REAL demand: the queries your pages already rank for, by
+        # impressions. Fall back to the generic line list only when GSC gave nothing.
+        real_q = sorted(L["queries"].items(), key=lambda kv: -kv[1])
+        keywords = [q for q, _ in real_q[:6]] or _LINE_KEYWORDS.get(line, [])
+        keywords_from_demand = bool(real_q)
+        impr = L["impressions"]
+        why = (f"Your proven bestseller line — {L['orders']} order(s) across "
+               f"{n_sku} product{'s' if n_sku != 1 else ''} in the last window. "
+               "Advertising a line that already sells is the safest ad money there is.")
+        if impr:
+            why += (f" Search Console shows ~{impr:,} searches saw these pages last "
+                    "month — real demand you can buy more of.")
         recs.append({
             "product_line": line,
             "title": _LINE_LABELS.get(line, line.replace("_", " ").title()),
             "orders": L["orders"],
             "sku_count": n_sku,
-            "why": (f"Your proven bestseller line — {L['orders']} order(s) across "
-                    f"{n_sku} product{'s' if n_sku != 1 else ''} in the last window. "
-                    "Advertising a line that already sells is the safest ad money there is."),
+            "demand_impressions": impr,
+            "why": why,
             "top_products": L["skus"][:3],
             "campaign_type": _campaign_type_for(line),
-            "keywords": _LINE_KEYWORDS.get(line, []),
+            "keywords": keywords,
+            "keywords_from_demand": keywords_from_demand,
             "break_even_roas": round(be, 2) if be else None,
-            "_score": L["orders"] * (margin or 0.3),
+            "_score": L["orders"] * (margin or 0.3) + impr * 0.0001,
         })
     recs.sort(key=lambda x: -x["_score"])
     for rec in recs:

@@ -265,6 +265,17 @@ def test_ad_opportunities_recommends_proven_converters_only():
     assert "visits" not in nt["why"].lower()          # no impossible conversion-rate claim
     assert nt["campaign_type"]["primary"] and nt["keywords"] and nt["break_even_roas"] is not None
     assert nt["top_products"][0]["orders"] == 6       # best-seller first
+    # Demand-aware: when GSC top_queries exist they become the keywords (real search
+    # demand), not the canned line list, and impressions are reported.
+    results.append({"asset_type": "product", "url": "https://x/9-letter-name-train.html",
+                    "title": "9 Letter Name Train", "item_purchases": 1, "gsc_impressions": 1200,
+                    "top_queries": [{"query": "wooden train with name", "impressions": 800},
+                                    {"query": "baby name train gift", "impressions": 300}]})
+    nt2 = next(r for r in ad_opportunities(results, CFG) if r["product_line"] == "name_trains")
+    assert nt2["keywords_from_demand"] is True
+    assert "wooden train with name" in nt2["keywords"]   # a REAL query, not canned
+    assert nt2["demand_impressions"] >= 1200
+    assert "searches saw these pages" in nt2["why"].lower()
     # A B2B rug and a zero-order product never appear.
     assert all("montessori" not in r["product_line"] for r in recs)
     assert "_score" not in nt
