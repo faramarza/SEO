@@ -8628,7 +8628,7 @@ def api_paid_search():
     gsc_cfg = (config.get("data_sources", {}) or {}).get("gsc", {}) or {}
     query_positions, query_page_rows = {}, []
     try:
-        gsc = GSCClient(property_url=gsc_cfg.get("property_url", ""),
+        gsc = GSCClient(site_url=gsc_cfg.get("property_url", ""),
                         credentials_path=gsc_cfg.get("credentials_path") or None)
         query_positions = gsc.get_query_data(days=days)
         query_page_rows = gsc.get_query_page_rows(days=days)
