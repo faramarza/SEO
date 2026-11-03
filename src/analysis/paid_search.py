@@ -490,37 +490,37 @@ def device_split(ga4_devices: dict) -> list:
 
 # ── Output 7: what to advertise next (the "agency" recommendation) ───────────
 
-def _campaign_type_for(line: str) -> dict:
-    """Which kind of ad fits a product line. Personalized gifts have clear buyer
-    intent → Search; visual/discovery products → Shopping / Performance Max."""
-    if line in ("name_trains", "books", "stools"):
-        return {"primary": "Search + Shopping",
-                "note": "People who search for a specific personalized gift are ready to buy — "
-                        "run Search ads on the exact buyer keywords below, and add a Shopping "
-                        "feed so the product shows with its photo and price."}
-    return {"primary": "Shopping / Performance Max",
-            "note": "These sell on looks and browsing, not a typed keyword — Shopping and "
-                    "Performance Max put the product photo in front of browsers. (Your "
-                    "Cross-network / PMax already drives most of your buyers, so this works.)"}
+def _line_spec(line: str, config: dict) -> dict:
+    return (_product_lines(config).get(line) or {})
 
 
-_LINE_LABELS = {
-    "name_trains": "Personalized name trains",
-    "books": "Personalized books",
-    "stools": "Personalized step stools",
-    "montessori": "Montessori toys",
-    "carpets": "Classroom rugs",
-}
+def _line_label(line: str, config: dict) -> str:
+    """Display name: the config label if the business set one, else derived from the
+    line key. No hardcoded product names in code."""
+    spec = _line_spec(line, config)
+    return spec.get("label") or line.replace("_", " ").replace("-", " ").strip().title()
 
-# Above this break-even ROAS, paid ads are very hard to run profitably on a thin
-# margin — we still SHOW the line (demand is real) but flag it honestly.
-_HARD_BREAK_EVEN = 5.0
 
-_LINE_KEYWORDS = {
-    "name_trains": ["personalized name train", "wooden name train", "name train for toddler", "custom name train"],
-    "books": ["personalized baby book", "custom name book", "personalized kids book"],
-    "stools": ["personalized step stool", "wooden step stool for kids"],
-}
+def _campaign_type_for(line: str, config: dict) -> dict:
+    """Which kind of ad fits a line — driven by its configured intent, not hardcoded
+    line names. intent='search' (buyer types a specific thing) → Search + Shopping;
+    intent='browse' (bought on looks/discovery) → Shopping / PMax. Unset → the safe
+    generic default (Search + Shopping)."""
+    intent = (_line_spec(line, config).get("intent") or "search").lower()
+    if intent == "browse":
+        return {"primary": "Shopping / Performance Max",
+                "note": "These sell on looks and browsing, not a typed keyword — Shopping and "
+                        "Performance Max put the product photo in front of browsers."}
+    return {"primary": "Search + Shopping",
+            "note": "People searching for a specific product are ready to buy — run Search ads "
+                    "on the real buyer keywords below, and add a Shopping feed so the product "
+                    "shows with its photo and price."}
+
+
+def _advertisable_max_break_even(config: dict) -> float:
+    """Above this break-even ROAS, ads are very hard on a thin margin. Config-driven."""
+    th = _ps_config(config).get("thresholds") or {}
+    return float(th.get("advertisable_max_break_even", 5.0) or 5.0)
 
 
 def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
@@ -574,7 +574,9 @@ def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
         L["skus"].sort(key=lambda s: -s["orders"])
         n_sku = len(L["skus"])
         real_q = sorted(L["queries"].items(), key=lambda kv: -kv[1])
-        keywords = [q for q, _ in real_q[:6]] or _LINE_KEYWORDS.get(line, [])
+        # Keywords come ONLY from real Search Console demand — never invented. Empty
+        # when there's no search data yet (the UI says so).
+        keywords = [q for q, _ in real_q[:6]]
         keywords_from_demand = bool(real_q)
         impr = L["impressions"]
         demand = (f" Search Console shows ~{impr:,} searches saw these pages last month "
@@ -605,7 +607,7 @@ def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
 
         margin, _ = margin_for(line, config)
         be = break_even_roas(margin, fee)
-        hard = (be is None) or (be > _HARD_BREAK_EVEN)
+        hard = (be is None) or (be > _advertisable_max_break_even(config))
         if hard:
             why = (f"This line sells ({L['orders']} order(s) across {n_sku} "
                    f"product{'s' if n_sku != 1 else ''}) and has demand," + demand
@@ -624,10 +626,10 @@ def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
                    f"{n_sku} product{'s' if n_sku != 1 else ''} in the last window. "
                    "Advertising a line that already sells is the safest ad money there is."
                    + demand)
-            ctype = _campaign_type_for(line)
+            ctype = _campaign_type_for(line, config)
         recs.append({
             "product_line": line,
-            "title": _LINE_LABELS.get(line, line.replace("_", " ").title()),
+            "title": _line_label(line, config),
             "orders": L["orders"],
             "sku_count": n_sku,
             "demand_impressions": impr,

@@ -22,10 +22,10 @@ CFG = {
         "card_fee": 0.03,
         "default_margin": 0.15,
         "product_lines": {
-            "name_trains": {"margin": 0.30, "url_patterns": ["name-train", "letter-train"]},
-            "books":       {"margin": 0.30, "url_patterns": ["book"]},
-            "montessori":  {"margin": 0.15, "url_patterns": ["montessori"]},
-            "carpets":     {"margin": 0.10, "url_patterns": ["rug", "carpet"]},
+            "name_trains": {"margin": 0.30, "label": "Personalized name trains", "intent": "search", "url_patterns": ["name-train", "letter-train"]},
+            "books":       {"margin": 0.30, "label": "Personalized books", "intent": "search", "url_patterns": ["book"]},
+            "montessori":  {"margin": 0.15, "label": "Montessori toys", "intent": "browse", "url_patterns": ["montessori"]},
+            "carpets":     {"margin": 0.10, "label": "Classroom rugs", "intent": "browse", "url_patterns": ["rug", "carpet"]},
         },
         "keyword_candidate_lines": ["name_trains", "books", "stools"],
         "campaign_line_overrides": {"Name Trains Search-2026": "name_trains"},
@@ -269,7 +269,9 @@ def test_ad_opportunities_recommends_proven_converters_only():
     assert nt["title"] == "Personalized name trains"   # line label, not a SKU title
     assert nt["sku_count"] == 2
     assert "visits" not in nt["why"].lower()          # no impossible conversion-rate claim
-    assert nt["campaign_type"]["primary"] and nt["keywords"] and nt["break_even_roas"] is not None
+    # Keywords are data-only: empty here (these SKUs had no top_queries), never invented.
+    assert nt["keywords"] == [] and nt["keywords_from_demand"] is False
+    assert nt["campaign_type"]["primary"] and nt["break_even_roas"] is not None
     assert nt["top_products"][0]["orders"] == 6       # best-seller first
     # Demand-aware: when GSC top_queries exist they become the keywords (real search
     # demand), not the canned line list, and impressions are reported.

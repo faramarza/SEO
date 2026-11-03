@@ -62,11 +62,11 @@
   "paid_search": {
     "card_fee": 0.03,
     "product_lines": {
-      "name_trains": {"margin": 0.30, "url_patterns": ["name-train", "letter-train", "name-letter"]},
-      "books":       {"margin": 0.30, "url_patterns": ["book"]},
-      "stools":      {"margin": 0.30, "url_patterns": ["stool", "step-stool"]},
-      "montessori":  {"margin": 0.15, "url_patterns": ["montessori"]},
-      "carpets":     {"margin": 0.10, "url_patterns": ["rug", "carpet"]}
+      "name_trains": {"margin": 0.30, "label": "Personalized name trains", "intent": "search", "url_patterns": ["name-train", "letter-train", "name-letter"]},
+      "books":       {"margin": 0.30, "label": "Personalized books", "intent": "search", "url_patterns": ["book"]},
+      "stools":      {"margin": 0.30, "label": "Personalized step stools", "intent": "search", "url_patterns": ["stool", "step-stool"]},
+      "montessori":  {"margin": 0.15, "label": "Montessori toys", "intent": "browse", "url_patterns": ["montessori"]},
+      "carpets":     {"margin": 0.10, "label": "Classroom rugs", "intent": "browse", "url_patterns": ["rug", "carpet"]}
     },
     "default_margin": 0.15,
     "keyword_candidate_lines": ["name_trains", "books", "stools"],
@@ -83,7 +83,8 @@
       "attribution_gap_pct": 25,
       "free_traffic_max_position": 2.0,
       "headline_max_chars": 30,
-      "tax_match_tolerance_pct": 2.0
+      "tax_match_tolerance_pct": 2.0,
+      "advertisable_max_break_even": 5.0
     },
     "lookback_days": 30
   }

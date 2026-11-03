@@ -97,7 +97,7 @@ function psRender(d){
         '<div class="ps-why" style="margin:0 0 8px;">'+psEsc(o.why)+'</div>'+
         '<div style="font-size:13px;line-height:1.7;">'+
           '<b>Run:</b> '+psEsc((o.campaign_type||{}).primary||'')+' — '+psEsc((o.campaign_type||{}).note||'')+'<br>'+
-          '<b>'+(o.keywords_from_demand?'Keywords people actually search (from Search Console)':'Keywords to start with')+':</b> '+ (o.keywords||[]).map(k=>'<span class="ps-chip" style="margin:2px 5px 2px 0;">'+psEsc(k)+'</span>').join(' ')+'<br>'+
+          ((o.keywords||[]).length?('<b>Keywords people actually search (from Search Console):</b> '+ o.keywords.map(k=>'<span class="ps-chip" style="margin:2px 5px 2px 0;">'+psEsc(k)+'</span>').join(' ')):'<b>Keywords:</b> <span class="ps-chip">no Search Console searches recorded for these pages yet</span> — they’ll fill in from real demand once there is data')+'<br>'+
           (tops.length?'<b>Feature your best-sellers:</b> '+tops.map(p=>'<a href="'+psEsc(p.url)+'" target="_blank" rel="noopener">'+psEsc(p.title)+'</a> ('+p.orders+')').join(', ')+'<br>':'')+
           '<b>Keep it profitable:</b> target ROAS ≥ '+(o.break_even_roas!=null?o.break_even_roas.toFixed(1):'your break-even')+' (your break-even for this line) so Google only buys sales that clear your margin.'+
         '</div>'+
