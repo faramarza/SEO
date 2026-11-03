@@ -269,6 +269,12 @@ def campaign_profit(keyword_rows: list, config: dict,
     out = []
     total_ads_conv = 0.0
     for c in camps.values():
+        # Drop zombie rows — removed/long-dead campaigns with no activity in the
+        # window (no cost, no conversions, no value). This keeps a recently-paused
+        # campaign that still had spend mid-window (e.g. a PMax you paused), which
+        # you WANT for the ROAS decision, while hiding the dead clutter.
+        if c["cost"] <= 0 and c["conversions"] <= 0 and c["conversion_value"] <= 0:
+            continue
         line = line_for(c["campaign"], "", config)
         margin, known = margin_for(line, config)
         be = break_even_roas(margin, fee)

@@ -34,7 +34,8 @@ function main() {
     ['Search term', 'Campaign', 'Clicks', 'Cost', 'Conversions', 'Conv. value'],
     'SELECT search_term_view.search_term, campaign.name, metrics.clicks, ' +
     'metrics.cost_micros, metrics.conversions, metrics.conversions_value ' +
-    'FROM search_term_view WHERE segments.date DURING ' + DATE_RANGE,
+    'FROM search_term_view WHERE segments.date DURING ' + DATE_RANGE +
+    " AND campaign.status != 'REMOVED'",
     function (row) {
       return [
         get(row, ['searchTermView', 'searchTerm']),
@@ -53,7 +54,8 @@ function main() {
     'campaign.name, metrics.clicks, metrics.cost_micros, metrics.conversions, ' +
     'metrics.conversions_value FROM keyword_view ' +
     'WHERE segments.date DURING ' + DATE_RANGE +
-    " AND ad_group_criterion.status != 'REMOVED'",
+    " AND ad_group_criterion.status != 'REMOVED'" +
+    " AND campaign.status != 'REMOVED'",
     function (row) {
       return [
         get(row, ['adGroupCriterion', 'keyword', 'text']),

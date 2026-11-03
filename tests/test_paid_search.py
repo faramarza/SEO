@@ -160,6 +160,19 @@ def test_campaign_profit_verdict_and_reconciliation():
     assert recon["flag"] is True and _approx(recon["gap_pct"], -40.0)
 
 
+def test_campaign_profit_drops_zombie_campaigns():
+    # Removed/dead campaigns (no cost, no conversions, no value) must not clutter
+    # the report; recently-paused campaigns that still had spend are kept.
+    kw = [
+        {"campaign": "Name Trains Search-2026", "cost": 100.0, "conversions": 3, "conversion_value": 360.0},
+        {"campaign": "OLD Removed", "cost": 0.0, "conversions": 0, "conversion_value": 0.0},  # zombie
+        {"campaign": "Paused PMax", "cost": 80.0, "conversions": 2, "conversion_value": 200.0},  # keep
+    ]
+    names = [c["campaign"] for c in campaign_profit(kw, CFG, ga4_cpc=None)["campaigns"]]
+    assert "OLD Removed" not in names
+    assert "Name Trains Search-2026" in names and "Paused PMax" in names
+
+
 def test_campaign_losing_when_below_break_even():
     kw = [{"campaign": "Montessori Test", "cost": 100.0,
            "conversions": 1, "conversion_value": 300.0}]  # ROAS 3.0 < 8.33
