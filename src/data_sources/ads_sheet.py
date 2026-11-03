@@ -20,10 +20,32 @@ different order won't break it.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 
 _SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
+
+
+def _friendly_sheets_error(e: Exception, tab: str) -> str:
+    """Turn a raw Google API error into a plain, actionable message. The common
+    first-time ones are the Sheets API not being enabled, or the Sheet not shared
+    with the service account."""
+    msg = str(e)
+    low = msg.lower()
+    if "has not been used in project" in low or "service_disabled" in low or "accessnotconfigured" in low:
+        m = re.search(r"https://console\.developers\.google\.com/apis/api/sheets\.googleapis\.com/overview\?project=\d+", msg)
+        link = m.group(0) if m else "Google Cloud Console → APIs & Services → enable “Google Sheets API”"
+        return ("The Google Sheets API isn't turned on for your service account's Google "
+                "Cloud project yet. Enable it (one click, then wait ~2 min) and Refresh: " + link)
+    if "403" in low and ("permission" in low or "does not have" in low or "the caller does not" in low):
+        return ("Governor's service account can't open the Sheet — share the Sheet "
+                "(Viewer / read-only) with the service-account email shown on Setup, then Refresh.")
+    if "404" in low or "not found" in low or "unable to parse range" in low:
+        return (f"Couldn't find the “{tab}” tab (or the Sheet). Make sure the Ads Script has "
+                f"run at least once so it created the SearchTerms and Keywords tabs, and that "
+                "the Sheet ID is correct.")
+    return f"Could not read tab '{tab}': {msg}"
 
 # Header aliases -> canonical field. Matching is on a normalized header (lowercased,
 # non-alphanumerics stripped) so "Conv. value", "conversion_value" etc. all map.
@@ -112,7 +134,7 @@ class AdsSheetClient:
                     .get(spreadsheetId=self.sheet_id, range=f"{tab}").execute())
             values = resp.get("values", [])
         except Exception as e:
-            self._last_error = f"Could not read tab '{tab}': {e}"
+            self._last_error = _friendly_sheets_error(e, tab)
             return []
         if len(values) < 2:
             return []
