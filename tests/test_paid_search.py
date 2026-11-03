@@ -257,8 +257,14 @@ def test_ad_opportunities_recommends_proven_converters_only():
     recs = ad_opportunities(results, CFG)
     lines = [r["product_line"] for r in recs]
     assert lines.count("name_trains") == 1            # rolled up to ONE line, not per-SKU
-    assert "montessori" not in lines                  # break-even too high
+    # Montessori now SHOWS (it sold) but is flagged 'hard' (thin margin), not hidden.
+    montessori = next((r for r in recs if r["product_line"] == "montessori"), None)
+    assert montessori is not None and montessori["advertisable"] is False
+    assert "margin" in montessori["why"].lower() and "organic" in montessori["why"].lower()
+    # Advertisable lines rank above hard ones.
+    assert recs[0]["advertisable"] is True
     nt = next(r for r in recs if r["product_line"] == "name_trains")
+    assert nt["advertisable"] is True
     assert nt["orders"] == 11                          # 5 + 6 across the two SKUs
     assert nt["title"] == "Personalized name trains"   # line label, not a SKU title
     assert nt["sku_count"] == 2
@@ -277,7 +283,8 @@ def test_ad_opportunities_recommends_proven_converters_only():
     assert nt2["demand_impressions"] >= 1200
     assert "searches saw these pages" in nt2["why"].lower()
     # A B2B rug and a zero-order product never appear.
-    assert all("montessori" not in r["product_line"] for r in recs)
+    all_lines = [r["product_line"] for r in ad_opportunities(results, CFG)]
+    assert "carpets" not in all_lines            # B2B rug excluded
     assert "_score" not in nt
 
 

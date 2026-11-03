@@ -508,7 +508,13 @@ _LINE_LABELS = {
     "name_trains": "Personalized name trains",
     "books": "Personalized books",
     "stools": "Personalized step stools",
+    "montessori": "Montessori toys",
+    "carpets": "Classroom rugs",
 }
+
+# Above this break-even ROAS, paid ads are very hard to run profitably on a thin
+# margin — we still SHOW the line (demand is real) but flag it honestly.
+_HARD_BREAK_EVEN = 5.0
 
 _LINE_KEYWORDS = {
     "name_trains": ["personalized name train", "wooden name train", "name train for toddler", "custom name train"],
@@ -517,31 +523,32 @@ _LINE_KEYWORDS = {
 }
 
 
-def ad_opportunities(results: list, config: dict, limit: int = 4) -> list:
+def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
     """Agency-style: which product LINES to advertise next, from YOUR data — no ad
     account needed. Rolls proven-converting SKUs up to the line (you run ONE
-    'personalized name trains' campaign, not one per letter-count), restricted to
-    advertisable, profitable lines (name trains / books / stools — Montessori's
-    break-even is too high to buy traffic for). Each carries a campaign type, the
-    best-selling examples, line-level keywords, and the break-even ROAS to target.
+    'personalized name trains' campaign, not one per letter-count). Shows EVERY
+    consumer line that sold — including thin-margin ones like Montessori — but
+    HONESTLY flags whether ads can profit: a line whose break-even ROAS is above
+    ~5 is marked 'hard' (advertise only with a strict target ROAS, or keep it
+    organic) rather than silently dropped. B2B rugs are excluded (quote path, not
+    self-serve ads). Each carries a campaign type, the best-selling examples,
+    line-level keywords (from real search demand), and the break-even ROAS.
 
     Reports ORDER COUNTS only — never a conversion rate, because GA4's per-item
     sessions don't reconcile with its per-item orders (you'd get nonsense like '4
     orders from 2 visits'). Order count is the honest proven-converter signal."""
     from src.analysis.sales_engine import _is_b2b, _junk_url, _label, _display_name
     fee = _card_fee(config)
-    allowed = set(_ps_config(config).get("keyword_candidate_lines")
-                  or ["name_trains", "books", "stools"])
     lines: dict[str, dict] = {}
     for r in (results or []):
         if (r.get("asset_type") or "").lower() not in ("product", "category"):
             continue
         url = r.get("url") or ""
         if _junk_url(url) or _is_b2b(_label(r), config):
-            continue
+            continue  # B2B rugs sell by quote/PO, not ads — handled separately
         line = line_for("", url, config)
-        if line not in allowed:
-            continue
+        if not line:
+            continue  # can't map to a line -> can't advise on it
         purchases = int(float(r.get("item_purchases") or 0))
         if purchases < 1:
             continue  # only proven converters — never recommend buying traffic on a hunch
@@ -564,6 +571,7 @@ def ad_opportunities(results: list, config: dict, limit: int = 4) -> list:
     for line, L in lines.items():
         margin, _ = margin_for(line, config)
         be = break_even_roas(margin, fee)
+        hard = (be is None) or (be > _HARD_BREAK_EVEN)
         L["skus"].sort(key=lambda s: -s["orders"])
         n_sku = len(L["skus"])
         # Keywords from REAL demand: the queries your pages already rank for, by
@@ -572,25 +580,44 @@ def ad_opportunities(results: list, config: dict, limit: int = 4) -> list:
         keywords = [q for q, _ in real_q[:6]] or _LINE_KEYWORDS.get(line, [])
         keywords_from_demand = bool(real_q)
         impr = L["impressions"]
-        why = (f"Your proven bestseller line — {L['orders']} order(s) across "
-               f"{n_sku} product{'s' if n_sku != 1 else ''} in the last window. "
-               "Advertising a line that already sells is the safest ad money there is.")
-        if impr:
-            why += (f" Search Console shows ~{impr:,} searches saw these pages last "
-                    "month — real demand you can buy more of.")
+        demand = (f" Search Console shows ~{impr:,} searches saw these pages last month "
+                  "— the demand is real." if impr else "")
+        if hard:
+            why = (f"This line sells ({L['orders']} order(s) across {n_sku} "
+                   f"product{'s' if n_sku != 1 else ''}) and has demand," + demand
+                   + f" BUT at {round((margin or 0) * 100)}% margin you'd need ROAS "
+                   + (f"≥ {be:.1f}" if be else "impossibly high")
+                   + " to profit on ads — very hard. Advertise it ONLY with Shopping / "
+                   "Performance Max at a strict target ROAS (never broad Search), or keep "
+                   "it as an organic / content play, which is usually the better call for "
+                   "a thin-margin line.")
+            ctype = {"primary": "Shopping / PMax only — strict target ROAS",
+                     "note": "At this margin, broad Search loses money. If you run ads at "
+                             "all, use Shopping or Performance Max with the target ROAS set "
+                             "to break-even and watch it closely."}
+        else:
+            why = (f"Your proven bestseller line — {L['orders']} order(s) across "
+                   f"{n_sku} product{'s' if n_sku != 1 else ''} in the last window. "
+                   "Advertising a line that already sells is the safest ad money there is."
+                   + demand)
+            ctype = _campaign_type_for(line)
         recs.append({
             "product_line": line,
             "title": _LINE_LABELS.get(line, line.replace("_", " ").title()),
             "orders": L["orders"],
             "sku_count": n_sku,
             "demand_impressions": impr,
+            "margin_pct": round((margin or 0) * 100),
+            "advertisable": not hard,
+            "verdict": "hard" if hard else "advertisable",
             "why": why,
             "top_products": L["skus"][:3],
-            "campaign_type": _campaign_type_for(line),
+            "campaign_type": ctype,
             "keywords": keywords,
             "keywords_from_demand": keywords_from_demand,
             "break_even_roas": round(be, 2) if be else None,
-            "_score": L["orders"] * (margin or 0.3) + impr * 0.0001,
+            # Advertisable lines rank first; within each, by orders + a little demand.
+            "_score": (0 if hard else 1_000_000) + L["orders"] * (margin or 0.3) + impr * 0.0001,
         })
     recs.sort(key=lambda x: -x["_score"])
     for rec in recs:
