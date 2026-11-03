@@ -295,14 +295,28 @@ def campaign_profit(keyword_rows: list, config: dict,
 
     recon = None
     if ga4_purchases is not None:
-        gap_pct = _pct_gap(total_ads_conv, ga4_purchases)
-        recon = {
-            "ads_conversions": round(total_ads_conv, 2),
-            "ga4_cpc_purchases": round(float(ga4_purchases), 2),
-            "gap_pct": round(gap_pct, 1) if gap_pct is not None else None,
-            "flag": (gap_pct is not None and abs(gap_pct) > gap_th),
-            "threshold_pct": gap_th,
-        }
+        # Don't cry "tracking broken" when there's simply no Ads data connected yet.
+        # A gap is only meaningful once the Ads export exists (keyword_rows present).
+        if not keyword_rows:
+            recon = {
+                "ads_connected": False,
+                "ads_conversions": 0,
+                "ga4_cpc_purchases": round(float(ga4_purchases), 2),
+                "flag": False,
+                "note": ("Connect the Google Ads export (Setup) to reconcile Ads "
+                         f"conversions against the {int(float(ga4_purchases))} GA4 google/cpc "
+                         "purchases — can't compare until it's connected."),
+            }
+        else:
+            gap_pct = _pct_gap(total_ads_conv, ga4_purchases)
+            recon = {
+                "ads_connected": True,
+                "ads_conversions": round(total_ads_conv, 2),
+                "ga4_cpc_purchases": round(float(ga4_purchases), 2),
+                "gap_pct": round(gap_pct, 1) if gap_pct is not None else None,
+                "flag": (gap_pct is not None and abs(gap_pct) > gap_th),
+                "threshold_pct": gap_th,
+            }
     return {"campaigns": out, "reconciliation": recon}
 
 

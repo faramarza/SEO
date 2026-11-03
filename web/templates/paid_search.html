@@ -99,9 +99,13 @@ function psRender(d){
     {label:'',render:r=>r.verdict==='profitable'?'<span class="ps-pill good">profitable</span>':r.verdict==='losing'?'<span class="ps-pill bad">below break-even</span>':'<span class="ps-pill mut">no spend</span>'},
   ],camps);
   if(cp.reconciliation){const rc=cp.reconciliation;
-    cpBody+='<div class="ps-foot">Attribution check: Google Ads counted <b>'+psNum(rc.ads_conversions)+'</b> conversions vs GA4 google/cpc <b>'+psNum(rc.ga4_cpc_purchases)+'</b> purchases'+
-      (rc.gap_pct==null?'':' ('+(rc.gap_pct>0?'+':'')+rc.gap_pct+'%)')+'. '+
-      (rc.flag?'⚠️ Gap exceeds '+rc.threshold_pct+'% — check your conversion tracking.':'Within tolerance.')+'</div>';
+    if(rc.ads_connected===false){
+      cpBody+='<div class="ps-foot">'+psEsc(rc.note||'')+'</div>';
+    } else {
+      cpBody+='<div class="ps-foot">Attribution check: Google Ads counted <b>'+psNum(rc.ads_conversions)+'</b> conversions vs GA4 google/cpc <b>'+psNum(rc.ga4_cpc_purchases)+'</b> purchases'+
+        (rc.gap_pct==null?'':' ('+(rc.gap_pct>0?'+':'')+rc.gap_pct+'%)')+'. '+
+        (rc.flag?'⚠️ Gap exceeds '+rc.threshold_pct+'% — check your conversion tracking.':'Within tolerance.')+'</div>';
+    }
   }
   h+=psSection('💵 Profit check per campaign','ROAS vs the break-even for each product line, and estimated profit (conversion value × margin − card fee − ad cost).',cpBody);
 
