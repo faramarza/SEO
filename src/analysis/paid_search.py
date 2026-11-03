@@ -546,9 +546,11 @@ def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
         url = r.get("url") or ""
         if _junk_url(url) or _is_b2b(_label(r), config):
             continue  # B2B rugs sell by quote/PO, not ads — handled separately
-        line = line_for("", url, config)
-        if not line:
-            continue  # can't map to a line -> can't advise on it
+        # Map to a configured line, or bucket under "_other" so nothing that SELLS is
+        # silently hidden just because it isn't one of the configured lines (wooden
+        # blocks, pretend play, puzzles, …). "_other" is shown but flagged "margin
+        # not set" rather than judged on a guessed margin.
+        line = line_for("", url, config) or "_other"
         purchases = int(float(r.get("item_purchases") or 0))
         if purchases < 1:
             continue  # only proven converters — never recommend buying traffic on a hunch
@@ -569,19 +571,41 @@ def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
 
     recs = []
     for line, L in lines.items():
-        margin, _ = margin_for(line, config)
-        be = break_even_roas(margin, fee)
-        hard = (be is None) or (be > _HARD_BREAK_EVEN)
         L["skus"].sort(key=lambda s: -s["orders"])
         n_sku = len(L["skus"])
-        # Keywords from REAL demand: the queries your pages already rank for, by
-        # impressions. Fall back to the generic line list only when GSC gave nothing.
         real_q = sorted(L["queries"].items(), key=lambda kv: -kv[1])
         keywords = [q for q, _ in real_q[:6]] or _LINE_KEYWORDS.get(line, [])
         keywords_from_demand = bool(real_q)
         impr = L["impressions"]
         demand = (f" Search Console shows ~{impr:,} searches saw these pages last month "
                   "— the demand is real." if impr else "")
+
+        # Unconfigured sellers: surface them, but don't pretend to know their margin.
+        if line == "_other":
+            examples = ", ".join(s["title"] for s in L["skus"][:4])
+            recs.append({
+                "product_line": "_other",
+                "title": "Other best-sellers (set their margin to judge)",
+                "orders": L["orders"], "sku_count": n_sku, "demand_impressions": impr,
+                "margin_pct": None, "advertisable": False, "verdict": "unknown",
+                "why": (f"{L['orders']} order(s) across {n_sku} product(s) outside your "
+                        "configured lines already sell" + demand + f" — e.g. {examples}. "
+                        "I can't tell you whether ads would profit because their margin "
+                        "isn't set. Add them under paid_search.product_lines (name + "
+                        "margin) and they'll get a real advertise / keep-organic verdict."),
+                "top_products": L["skus"][:4],
+                "campaign_type": {"primary": "Set the margin first",
+                                  "note": "Break-even ROAS = 1 / (margin − card fee). Once I "
+                                          "know the margin I can say whether paid can profit."},
+                "keywords": keywords, "keywords_from_demand": keywords_from_demand,
+                "break_even_roas": None,
+                "_score": -1 + L["orders"] * 0.001,  # below judged lines, but visible
+            })
+            continue
+
+        margin, _ = margin_for(line, config)
+        be = break_even_roas(margin, fee)
+        hard = (be is None) or (be > _HARD_BREAK_EVEN)
         if hard:
             why = (f"This line sells ({L['orders']} order(s) across {n_sku} "
                    f"product{'s' if n_sku != 1 else ''}) and has demand," + demand

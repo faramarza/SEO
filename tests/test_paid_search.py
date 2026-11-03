@@ -288,6 +288,28 @@ def test_ad_opportunities_recommends_proven_converters_only():
     assert "_score" not in nt
 
 
+def test_ad_opportunities_never_hides_unconfigured_sellers():
+    # A product outside every configured line (wooden blocks) must still surface —
+    # bucketed under "_other" with a "margin not set" verdict, never silently dropped.
+    from src.analysis.paid_search import ad_opportunities
+    results = [
+        {"asset_type": "product", "url": "https://x/5-letter-name-train.html",
+         "title": "5 Letter Name Train", "item_purchases": 3, "item_revenue": 200.0},
+        {"asset_type": "product", "url": "https://x/wooden-building-blocks.html",
+         "title": "Wooden Building Blocks", "item_purchases": 5, "item_revenue": 180.0,
+         "gsc_impressions": 1800, "top_queries": [{"query": "wooden building blocks", "impressions": 1200}]},
+    ]
+    recs = ad_opportunities(results, CFG)
+    other = next((r for r in recs if r["product_line"] == "_other"), None)
+    assert other is not None                      # NOT hidden
+    assert other["verdict"] == "unknown" and other["advertisable"] is False
+    assert other["break_even_roas"] is None       # honest: can't judge without margin
+    assert "Wooden Building Blocks" in (other["why"] + " " + " ".join(p["title"] for p in other["top_products"]))
+    assert "margin" in other["why"].lower()
+    # Configured lines still rank above the unknown bucket.
+    assert recs[0]["product_line"] != "_other"
+
+
 def test_report_degrades_without_fabricating():
     rep = build_paid_search_report(
         search_term_rows=[], keyword_rows=[], existing_keywords=[],

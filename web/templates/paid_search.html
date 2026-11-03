@@ -91,7 +91,7 @@ function psRender(d){
     let ob='';
     ops.forEach(o=>{
       const tops=(o.top_products||[]);
-      const badge=o.advertisable?'<span class="ps-pill good" style="margin-left:6px;">good ad candidate</span>':'<span class="ps-pill bad" style="margin-left:6px;">hard — thin margin</span>';
+      const badge=(o.verdict==='unknown')?'<span class="ps-pill mut" style="margin-left:6px;">margin not set</span>':(o.advertisable?'<span class="ps-pill good" style="margin-left:6px;">good ad candidate</span>':'<span class="ps-pill bad" style="margin-left:6px;">hard — thin margin</span>');
       ob+='<div class="ps-card" style="margin:8px 0;">'+
         '<h3 style="margin:0 0 2px;">'+psEsc(o.title)+badge+'</h3>'+
         '<div class="ps-why" style="margin:0 0 8px;">'+psEsc(o.why)+'</div>'+
