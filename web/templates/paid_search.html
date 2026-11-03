@@ -75,8 +75,8 @@ function psRender(d){
   let h='';
 
   if(!d.ads_sheet_configured){
-    h+='<div class="ps-banner warn"><b>Connect your Google Ads export first.</b> This report needs the daily Ads Script export Sheet. '+
-       'See the install steps, then paste the Sheet ID into config (<code>paid_search.ads_sheet.sheet_id</code>) and share the Sheet read-only with your service account.</div>';
+    h+='<div class="ps-banner warn"><b>Connect your Google Ads export first.</b> This report needs a daily Google Sheet that a tiny Ads Script fills in (no API token, read-only). '+
+       '<a href="/setup" style="font-weight:700;text-decoration:underline;">Open Setup → “📣 Paid Search — connect Google Ads”</a>: copy the script, share the Sheet with your service account, and paste the Sheet link — all with buttons, no config files.</div>';
   }
   (d.notes||[]).forEach(n=>{h+='<div class="ps-banner info">'+psEsc(n)+'</div>';});
 

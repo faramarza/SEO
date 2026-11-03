@@ -46,6 +46,27 @@
   <p id="su-cg-note" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></p>
 </div>
 
+<div class="card" style="margin-bottom:14px;">
+  <h3 style="margin:0 0 6px;">📣 Paid Search — connect Google Ads</h3>
+  <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px;">Optional. Governor reads your Google Ads data from a Google Sheet a tiny script fills daily — no API token needed, and it only <b>reads</b> your ads. About 10 minutes, once.</p>
+  <ol style="font-size:13px;line-height:1.7;padding-left:20px;margin:0 0 10px;">
+    <li>Create a blank Google Sheet in your Google Drive; keep its tab open.</li>
+    <li>In <b>Google Ads → Tools (wrench) → Bulk actions → Scripts → ＋</b>, delete the starter code and paste Governor's export script:
+      <button class="pb-task-btn pb-task-btn-alt" onclick="suAdsCopyScript(this)" style="margin-left:6px;">📋 Copy the script</button></li>
+    <li>In the pasted script, replace <code>PASTE_YOUR_GOOGLE_SHEET_URL_HERE</code> with your Sheet's URL. Click <b>Authorize</b>, then <b>Run</b> once, then set the schedule to <b>Daily</b>.</li>
+    <li>Share your Sheet (<b>Viewer</b> / read-only) with Governor's service account:<br>
+      <code id="su-ads-sa" style="font-size:12px;">(loading…)</code>
+      <button class="pb-task-btn pb-task-btn-alt" onclick="suAdsCopyEmail(this)" style="margin-left:6px;">📋 Copy email</button></li>
+    <li>Paste your Sheet's URL (or ID) below and Save:</li>
+  </ol>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <input id="su-ads-sheet" type="text" style="flex:1;min-width:280px;font-size:13px;padding:7px 10px;border:1px solid var(--border,#ccc);border-radius:7px;" placeholder="Paste Google Sheet URL or ID">
+    <button id="su-ads-btn" class="pb-task-btn" onclick="suAdsSave(this)">💾 Save</button>
+    <a class="pb-task-btn pb-task-btn-alt" href="/paid-search">Open Paid Search ↗</a>
+  </div>
+  <p id="su-ads-note" style="font-size:12px;color:var(--text-muted);margin-top:6px;"></p>
+</div>
+
 <div class="card">
   <h3 style="margin:0 0 6px;">▶️ Run the tool</h3>
   <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">Re-evaluates your whole site (crawl + GSC + GA4) and refreshes Start Here. <span id="su-lasteval"></span></p>
@@ -130,6 +151,37 @@ async function suRunEval(btn){
   }catch(e){ suToast('Failed to start',true); }
   finally{ btn.disabled=false; btn.textContent=o; }
 }
+
+// ── Paid Search: connect the Google Ads export Sheet ──────────────────────
+let SU_ADS_SCRIPT='';
+async function suAdsLoad(){
+  try{
+    const d=await (await fetch('/api/setup/ads-sheet')).json();
+    SU_ADS_SCRIPT=d.script||'';
+    document.getElementById('su-ads-sa').textContent=d.service_account_email||'(service account not found — check credentials.json on the server)';
+    if(d.sheet_id){
+      document.getElementById('su-ads-sheet').value=d.sheet_id;
+      document.getElementById('su-ads-note').textContent='Connected ✓ Sheet ID saved. Open Paid Search and click “Refresh from the data”.';
+    }
+  }catch(e){}
+}
+function suCopyText(text,btn){
+  navigator.clipboard.writeText(text).then(()=>{const o=btn.textContent;btn.textContent='✓ Copied';setTimeout(()=>btn.textContent=o,1500);}).catch(()=>suToast('Copy failed — select and copy manually',true));
+}
+function suAdsCopyScript(b){ if(!SU_ADS_SCRIPT){suToast('Script not loaded yet',true);return;} suCopyText(SU_ADS_SCRIPT,b); }
+function suAdsCopyEmail(b){ const e=document.getElementById('su-ads-sa').textContent; if(!e||e[0]==='('){suToast('Service-account email not available',true);return;} suCopyText(e,b); }
+async function suAdsSave(btn){
+  const v=document.getElementById('su-ads-sheet').value.trim();
+  if(!v){suToast('Paste your Sheet URL or ID first',true);return;}
+  btn.disabled=true;
+  try{
+    const r=await (await fetch('/api/setup/ads-sheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet_id:v})})).json();
+    if(r.success){ document.getElementById('su-ads-note').textContent='Saved ✓ Sheet ID: '+r.sheet_id+'. Open Paid Search and click “Refresh from the data”.'; suToast('Saved'); }
+    else suToast(r.error||'Save failed',true);
+  }catch(e){suToast('Save failed',true);}
+  btn.disabled=false;
+}
+suAdsLoad();
 suLoad();
 </script>
 {% endblock %}

@@ -13166,6 +13166,58 @@ def setup_page():
     return render_template("setup.html")
 
 
+@app.route("/api/setup/ads-sheet", methods=["GET", "POST"])
+def api_setup_ads_sheet():
+    """Connect the Google Ads export Sheet from the UI — no JSON editing. GET returns
+    the current Sheet ID, the service-account email to share the Sheet with, and the
+    Google Ads Script text to copy. POST {sheet_id} saves it into config.
+    READ-ONLY toward Google Ads: this only stores a Sheet ID Governor reads."""
+    config = load_config()
+    ps = config.setdefault("paid_search", {})
+    sheet = ps.setdefault("ads_sheet", {})
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        raw = (data.get("sheet_id") or "").strip()
+        # Accept a full Sheet URL and extract the ID, or a bare ID.
+        m = re.search(r"/spreadsheets/d/([a-zA-Z0-9\-_]+)", raw)
+        sheet_id = m.group(1) if m else raw
+        sheet["sheet_id"] = sheet_id
+        sheet.setdefault("search_terms_tab", "SearchTerms")
+        sheet.setdefault("keywords_tab", "Keywords")
+        try:
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(config, f, indent=2)
+                f.write("\n")
+        except OSError as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": True, "sheet_id": sheet_id})
+
+    # GET — current value + what the user needs to finish the connection.
+    sa_email = ""
+    try:
+        cred_path = (config.get("data_sources", {}).get("ga4", {}) or {}).get(
+            "credentials_path") or "credentials.json"
+        cp = cred_path if os.path.isabs(cred_path) else str(Path(__file__).parent.parent / cred_path)
+        if os.path.exists(cp):
+            with open(cp) as f:
+                sa_email = (json.load(f) or {}).get("client_email", "") or ""
+    except (json.JSONDecodeError, OSError):
+        sa_email = ""
+    script_text = ""
+    try:
+        sp = Path(__file__).parent.parent / "scripts" / "ads_export.js"
+        if sp.exists():
+            script_text = sp.read_text()
+    except OSError:
+        script_text = ""
+    return jsonify({
+        "sheet_id": sheet.get("sheet_id", "") or "",
+        "service_account_email": sa_email,
+        "script": script_text,
+    })
+
+
 @app.route("/api/setup/status")
 def api_setup_status():
     """Mission-control: one place that shows every input the tool needs and
