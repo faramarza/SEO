@@ -399,14 +399,21 @@ def _from_winnable(winnable, out):
         elif r.get("meta_needs_query"):
             steps.append(f"Front-load “{q}” into your existing meta description.")
         srcs = r.get("link_sources") or []
+        target = r.get("url") or r.get("path") or "this page"
         if srcs:
-            names = "; ".join(s.get("path", "") for s in srcs)
-            steps.append(f"Add internal links with anchor “{q}” from your related pages: {names}. "
-                         "This is the real lever — it channels authority you already have into "
-                         "this page and pushes it toward the top 5.")
+            names = ", ".join(s.get("path", "") for s in srcs[:5])
+            steps.append(f"Add internal links — the real lever (it channels authority you "
+                         f"already have into this page). ON THESE PAGES: {names} — add a link "
+                         f"whose clickable text is “{q}” pointing to {target}.")
         else:
-            steps.append(f"Add internal links with anchor “{q}” from your homepage and the "
-                         "closest hub/category page.")
+            steps.append(f"Add internal links — the real lever. On your homepage and your "
+                         f"closest category/hub page, add a link whose clickable text is "
+                         f"“{q}” pointing to {target}.")
+        steps.append(f"HOW (in Magento): open each of those pages → edit its content (CMS page "
+                     f"= Content; category = Description; product = Description) → highlight a "
+                     f"few words like “{q}” → click the link/chain button → paste {target} → "
+                     f"Save → then System ▸ Cache ▸ Flush. The link must sit in the page’s "
+                     f"visible text, not the menu.")
         serp = r.get("serp") or {}
         if serp:
             bits = []
