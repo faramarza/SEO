@@ -21,6 +21,7 @@
 var SHEET_URL = 'PASTE_YOUR_GOOGLE_SHEET_URL_HERE';
 var SEARCH_TERMS_TAB = 'SearchTerms';
 var KEYWORDS_TAB = 'Keywords';
+var CAMPAIGNS_TAB = 'Campaigns';
 var DATE_RANGE = 'LAST_30_DAYS';
 
 function main() {
@@ -28,6 +29,27 @@ function main() {
     throw new Error('Set SHEET_URL to your Google Sheet URL first.');
   }
   var ss = SpreadsheetApp.openByUrl(SHEET_URL);
+
+  // Campaign-level totals — the ONLY view that includes Performance Max / Shopping
+  // (those have no keywords or search terms). This is what the profit check uses.
+  writeReport(
+    ss, CAMPAIGNS_TAB,
+    ['Campaign', 'Type', 'Status', 'Clicks', 'Cost', 'Conversions', 'Conv. value'],
+    'SELECT campaign.name, campaign.advertising_channel_type, campaign.status, ' +
+    'metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.conversions_value ' +
+    'FROM campaign WHERE segments.date DURING ' + DATE_RANGE +
+    " AND campaign.status != 'REMOVED'",
+    function (row) {
+      return [
+        get(row, ['campaign', 'name']),
+        get(row, ['campaign', 'advertisingChannelType']),
+        get(row, ['campaign', 'status']),
+        num(get(row, ['metrics', 'clicks'])),
+        micros(get(row, ['metrics', 'costMicros'])),
+        num(get(row, ['metrics', 'conversions'])),
+        num(get(row, ['metrics', 'conversionsValue']))
+      ];
+    });
 
   writeReport(
     ss, SEARCH_TERMS_TAB,

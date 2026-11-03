@@ -54,6 +54,8 @@ _ALIASES = {
     "keyword": "keyword", "criteria": "keyword",
     "matchtype": "match_type", "match_type": "match_type",
     "campaign": "campaign", "campaignname": "campaign",
+    "type": "type", "advertisingchanneltype": "type", "channeltype": "type",
+    "status": "status", "campaignstatus": "status",
     "clicks": "clicks",
     "cost": "cost", "costmicros": "cost_micros", "spend": "cost",
     "conversions": "conversions", "conv": "conversions",
@@ -84,11 +86,13 @@ class AdsSheetClient:
     paid_search.ads_sheet config block (sheet_id + tab names)."""
 
     def __init__(self, sheet_id: str = "", credentials_path: Optional[str] = None,
-                 search_terms_tab: str = "SearchTerms", keywords_tab: str = "Keywords"):
+                 search_terms_tab: str = "SearchTerms", keywords_tab: str = "Keywords",
+                 campaigns_tab: str = "Campaigns"):
         self.sheet_id = (sheet_id or "").strip()
         self.credentials_path = credentials_path
         self.search_terms_tab = search_terms_tab or "SearchTerms"
         self.keywords_tab = keywords_tab or "Keywords"
+        self.campaigns_tab = campaigns_tab or "Campaigns"
         self._service = None
         self._last_error = None
 
@@ -100,7 +104,8 @@ class AdsSheetClient:
                  ).get("credentials_path") or "credentials.json"
         return cls(sheet_id=sheet.get("sheet_id", ""), credentials_path=creds,
                    search_terms_tab=sheet.get("search_terms_tab", "SearchTerms"),
-                   keywords_tab=sheet.get("keywords_tab", "Keywords"))
+                   keywords_tab=sheet.get("keywords_tab", "Keywords"),
+                   campaigns_tab=sheet.get("campaigns_tab", "Campaigns"))
 
     def configured(self) -> bool:
         return bool(self.sheet_id)
@@ -152,7 +157,7 @@ class AdsSheetClient:
             if "cost" not in rec and "cost_micros" in rec:
                 rec["cost"] = round(rec.pop("cost_micros") / 1_000_000.0, 2)
             rec.pop("cost_micros", None)
-            if any(rec.get(k) for k in ("search_term", "keyword")):
+            if any(rec.get(k) for k in ("search_term", "keyword", "campaign")):
                 rows.append(rec)
         return rows
 
@@ -163,6 +168,12 @@ class AdsSheetClient:
     def get_keywords(self) -> list[dict]:
         """[{keyword, match_type, campaign, clicks, cost, conversions, conversion_value}]."""
         return self._read_tab(self.keywords_tab)
+
+    def get_campaigns(self) -> list[dict]:
+        """Campaign-level totals incl. Performance Max / Shopping (which have no
+        keywords): [{campaign, type, status, clicks, cost, conversions,
+        conversion_value}]. Empty if the Campaigns tab isn't present."""
+        return self._read_tab(self.campaigns_tab)
 
     @property
     def last_error(self) -> Optional[str]:

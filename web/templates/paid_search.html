@@ -85,11 +85,32 @@ function psRender(d){
   if(t){ const cls=(t.status==='includes_tax')?'warn':(t.status==='excludes_tax')?'ok':'info';
     h+='<div class="ps-banner '+cls+'">'+psEsc(t.message)+'</div>'; }
 
+  // LEAD: what to advertise next (works from GA4/catalog even without Ads connected)
+  const ops=d.ad_opportunities||[];
+  if(ops.length){
+    let ob='';
+    ops.forEach(o=>{
+      ob+='<div class="ps-card" style="margin:8px 0;">'+
+        '<h3 style="margin:0 0 2px;">'+psEsc(o.title)+' <span class="ps-chip">'+psEsc(o.product_line||'')+'</span></h3>'+
+        '<div class="ps-why" style="margin:0 0 8px;">'+psEsc(o.why)+'</div>'+
+        '<div style="font-size:13px;line-height:1.6;">'+
+          '<b>Run:</b> '+psEsc((o.campaign_type||{}).primary||'')+' — '+psEsc((o.campaign_type||{}).note||'')+'<br>'+
+          '<b>Keywords to start with:</b> '+ (o.keywords||[]).map(k=>'<span class="ps-chip" style="margin:2px 4px 2px 0;">'+psEsc(k)+'</span>').join('')+'<br>'+
+          '<b>Keep it profitable:</b> aim for ROAS ≥ '+(o.break_even_roas!=null?o.break_even_roas.toFixed(1):'your break-even')+' (your break-even for this line). Set that as the campaign’s target ROAS so Google only buys sales that clear your margin.'+
+        '</div>'+
+        (o.url?'<div class="ps-foot"><a href="'+psEsc(o.url)+'" target="_blank" rel="noopener">View product ↗</a></div>':'')+
+      '</div>';
+    });
+    h+=psSection('🎯 What to advertise next','Your proven converters — products that already sell when people see them, in profitable lines. Advertising a winner is the safest ad money there is. (Built from your GA4 sales + catalog, so it works even before Google Ads is connected.)',ob);
+  }
+
   // 4. Profit per campaign (lead with the money)
   const cp=d.campaign_profit||{};
   const camps=cp.campaigns||[];
+  const psType=t=>{t=(t||'').toUpperCase();return t.indexOf('PERFORMANCE')>=0?'PMax':t.indexOf('SHOPPING')>=0?'Shopping':t.indexOf('SEARCH')>=0?'Search':t.indexOf('DISPLAY')>=0?'Display':t.indexOf('VIDEO')>=0?'Video':(t?t.charAt(0)+t.slice(1).toLowerCase():'');};
   let cpBody=psTable([
-    {label:'Campaign',key:'campaign'},
+    {label:'Campaign',render:r=>psEsc(r.campaign)+(r.status&&r.status.toUpperCase()!=='ENABLED'?' <span class="ps-chip">'+psEsc((r.status||'').toLowerCase())+'</span>':'')},
+    {label:'Type',render:r=>'<span class="ps-chip">'+psEsc(psType(r.type))+'</span>'},
     {label:'Line',render:r=>r.product_line?psEsc(r.product_line)+(r.margin_assumed?' <span class="ps-chip">(assumed)</span>':''):'<span class="ps-chip">— (assumed '+Math.round(r.margin*100)+'%)</span>'},
     {label:'Cost',num:true,render:r=>psMoney(r.cost)},
     {label:'Conv. value',num:true,render:r=>psMoney(r.conversion_value)},

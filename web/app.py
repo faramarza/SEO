@@ -8621,6 +8621,7 @@ def api_paid_search():
     ads = AdsSheetClient.from_config(config)
     search_terms = ads.get_search_terms() if ads.configured() else []
     keyword_rows = ads.get_keywords() if ads.configured() else []
+    campaign_rows = ads.get_campaigns() if ads.configured() else []
     existing_keywords = [k.get("keyword", "") for k in keyword_rows if k.get("keyword")]
 
     # GSC query data (reuses the existing service account).
@@ -8645,13 +8646,16 @@ def api_paid_search():
     except Exception as e:
         print(f"paid-search GA4 error: {e}")
 
-    # Page titles for data-only headline ideas, from the latest evaluation.
+    # Page titles for headline ideas + full results for "what to advertise next",
+    # from the latest evaluation (so the recommender works even without Ads connected).
     page_titles = {}
+    eval_results = []
     eval_path = DATA_PATH / "latest_evaluation.json"
     if eval_path.exists():
         try:
             with open(eval_path) as f:
-                for r in ((json.load(f) or {}).get("results", []) or []):
+                eval_results = (json.load(f) or {}).get("results", []) or []
+                for r in eval_results:
                     if r.get("url") and r.get("title"):
                         page_titles[r["url"]] = r["title"]
         except (json.JSONDecodeError, OSError):
@@ -8662,7 +8666,7 @@ def api_paid_search():
         existing_keywords=existing_keywords, query_page_rows=query_page_rows,
         query_positions=query_positions, query_rows=query_page_rows,
         page_titles=page_titles, ga4_cpc=ga4_cpc, ga4_devices=ga4_devices,
-        config=config)
+        config=config, campaign_rows=campaign_rows, results=eval_results)
 
     report["date"] = today
     report["lookback_days"] = days

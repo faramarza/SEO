@@ -237,11 +237,16 @@ def negative_keyword_suggestions(search_term_rows: list, config: dict,
 # ── Output 4: per-campaign profit check + attribution reconciliation ──────────
 
 def campaign_profit(keyword_rows: list, config: dict,
-                    ga4_cpc: dict = None) -> list:
+                    ga4_cpc: dict = None, campaign_rows: list = None) -> list:
     """Per campaign: cost, conversion value, ROAS vs the break-even for its product
     line, estimated profit, and (when ga4_cpc is given) a reconciliation of Ads
     conversions against GA4 google/cpc purchases, flagged when the gap exceeds the
-    threshold. keyword_rows: [{campaign, cost, conversions, conversion_value, ...}].
+    threshold.
+
+    Prefers campaign_rows — campaign-level totals that INCLUDE Performance Max and
+    Shopping (which have no keywords, so keyword_rows misses them). Falls back to
+    aggregating keyword_rows when campaign_rows isn't available. Each campaign row:
+    {campaign, type, status, cost, conversions, conversion_value}.
 
     conversion_value is used as given. If the tax check (see tax_note) found Ads
     value to be tax-inclusive, the caller should pass tax-adjusted rows OR read the
@@ -251,10 +256,14 @@ def campaign_profit(keyword_rows: list, config: dict,
     gap_th = th["attribution_gap_pct"]
 
     camps: dict[str, dict] = {}
-    for r in (keyword_rows or []):
+    # Campaign-level data is authoritative (and the only source that shows PMax).
+    source = campaign_rows if campaign_rows else keyword_rows
+    for r in (source or []):
         name = (r.get("campaign") or "").strip() or "(unnamed campaign)"
-        c = camps.setdefault(name, {"campaign": name, "cost": 0.0,
-                                    "conversions": 0.0, "conversion_value": 0.0})
+        c = camps.setdefault(name, {"campaign": name, "cost": 0.0, "conversions": 0.0,
+                                    "conversion_value": 0.0,
+                                    "type": (r.get("type") or "").strip(),
+                                    "status": (r.get("status") or "").strip()})
         c["cost"] += float(r.get("cost") or 0.0)
         c["conversions"] += float(r.get("conversions") or 0.0)
         c["conversion_value"] += float(r.get("conversion_value") or 0.0)
@@ -286,6 +295,8 @@ def campaign_profit(keyword_rows: list, config: dict,
         total_ads_conv += c["conversions"]
         out.append({
             "campaign": c["campaign"],
+            "type": c.get("type", ""),
+            "status": c.get("status", ""),
             "product_line": line,
             "margin": round(margin, 3),
             "margin_assumed": not known,
@@ -463,21 +474,102 @@ def device_split(ga4_devices: dict) -> list:
     return out
 
 
+# ── Output 7: what to advertise next (the "agency" recommendation) ───────────
+
+def _campaign_type_for(line: str) -> dict:
+    """Which kind of ad fits a product line. Personalized gifts have clear buyer
+    intent → Search; visual/discovery products → Shopping / Performance Max."""
+    if line in ("name_trains", "books", "stools"):
+        return {"primary": "Search + Shopping",
+                "note": "People who search a personalized name train are ready to buy — "
+                        "run Search ads on exact buyer keywords, and add a Shopping feed so "
+                        "the product shows with its photo and price."}
+    return {"primary": "Shopping / Performance Max",
+            "note": "These sell on looks and browsing, not a typed keyword — Shopping and "
+                    "Performance Max put the product photo in front of browsers. (Your "
+                    "Cross-network / PMax already drives most of your buyers, so this works.)"}
+
+
+def _ad_keywords(name: str, line: str) -> list:
+    base = re.sub(r"\s+", " ", (name or "").strip().lower())
+    out = [base] if base else []
+    out += {
+        "name_trains": ["personalized name train", "wooden name train", "name train for toddler"],
+        "books": ["personalized baby book", "custom name book", "personalized kids book"],
+        "stools": ["personalized step stool", "wooden step stool for kids"],
+    }.get(line, [])
+    seen = []
+    for k in out:
+        if k and k not in seen:
+            seen.append(k)
+    return seen[:5]
+
+
+def ad_opportunities(results: list, config: dict, limit: int = 6) -> list:
+    """Agency-style: which products to advertise next, from YOUR data — no ad account
+    needed. Leads with PROVEN CONVERTERS that aren't getting much traffic (the safest,
+    cheapest ad money: it already sells when seen), restricted to advertisable,
+    profitable lines (name trains / books / stools — Montessori's break-even is too
+    high to buy traffic for). Each carries a campaign type, why, and example keywords.
+    Never invents demand — a product with no orders isn't recommended."""
+    from src.analysis.sales_engine import _is_b2b, _junk_url, _label, _display_name
+    fee = _card_fee(config)
+    allowed = set(_ps_config(config).get("keyword_candidate_lines")
+                  or ["name_trains", "books", "stools"])
+    recs = []
+    for r in (results or []):
+        if (r.get("asset_type") or "").lower() not in ("product", "category"):
+            continue
+        url = r.get("url") or ""
+        if _junk_url(url) or _is_b2b(_label(r), config):
+            continue
+        line = line_for("", url, config)
+        if line not in allowed:
+            continue
+        purchases = int(float(r.get("item_purchases") or 0))
+        sessions = int(float(r.get("ga4_sessions") or 0))
+        revenue = float(r.get("item_revenue") or 0.0)
+        if purchases < 1:
+            continue  # only proven converters — never recommend buying traffic on a hunch
+        margin, _ = margin_for(line, config)
+        be = break_even_roas(margin, fee)
+        name = _display_name({"title": r.get("title"), "url": url})
+        recs.append({
+            "title": name, "url": url, "product_line": line,
+            "orders": purchases, "sessions": sessions,
+            "aov": round(revenue / purchases, 2) if purchases and revenue else None,
+            "why": (f"Already converts — {purchases} order(s)"
+                    + (f" from only {sessions} visits" if sessions else "")
+                    + ". A proven winner is the safest ad spend: send it more traffic."),
+            "campaign_type": _campaign_type_for(line),
+            "keywords": _ad_keywords(name, line),
+            "break_even_roas": round(be, 2) if be else None,
+            "_score": purchases * (margin or 0.3),
+        })
+    recs.sort(key=lambda x: -x["_score"])
+    for rec in recs:
+        rec.pop("_score", None)
+    return recs[:limit]
+
+
 # ── Top-level assembly ───────────────────────────────────────────────────────
 
 def build_paid_search_report(*, search_term_rows: list, keyword_rows: list,
                              existing_keywords: list, query_page_rows: list,
                              query_positions: dict, query_rows: list,
                              page_titles: dict, ga4_cpc: dict, ga4_devices: dict,
-                             config: dict) -> dict:
+                             config: dict, campaign_rows: list = None,
+                             results: list = None) -> dict:
     """Assemble the full weekly report from already-fetched inputs. Each section is
     independent, so a missing input degrades that section to empty + a note rather
     than failing the whole report. Returns a dict the web layer serializes."""
-    ads_total_value = sum(float(r.get("conversion_value") or 0.0) for r in (keyword_rows or []))
+    # Tax check uses campaign-level value when available (includes PMax), else keywords.
+    _value_src = campaign_rows if campaign_rows else keyword_rows
+    ads_total_value = sum(float(r.get("conversion_value") or 0.0) for r in (_value_src or []))
     tax = tax_note(ads_total_value, ga4_cpc, config)
 
     notes = []
-    if not (search_term_rows or keyword_rows):
+    if not (search_term_rows or keyword_rows or campaign_rows):
         notes.append("No Google Ads data — connect the Ads export Sheet (see Setup).")
     if not query_positions:
         notes.append("No GSC query data — 'paying for free traffic' can't be computed.")
@@ -486,13 +578,14 @@ def build_paid_search_report(*, search_term_rows: list, keyword_rows: list,
                      "split are unavailable.")
 
     return {
-        "available": bool(search_term_rows or keyword_rows),
+        "available": bool(search_term_rows or keyword_rows or campaign_rows),
         "notes": notes,
         "tax_note": tax,
         "new_keyword_candidates": new_keyword_candidates(query_page_rows, existing_keywords, config),
         "paying_for_free_traffic": paying_for_free_traffic(search_term_rows, query_positions, config),
         "negative_keyword_suggestions": negative_keyword_suggestions(search_term_rows, config),
-        "campaign_profit": campaign_profit(keyword_rows, config, ga4_cpc=ga4_cpc),
+        "campaign_profit": campaign_profit(keyword_rows, config, ga4_cpc=ga4_cpc, campaign_rows=campaign_rows),
+        "ad_opportunities": ad_opportunities(results, config),
         "headline_ideas": headline_ideas(query_rows, page_titles, config),
         "device_split": device_split(ga4_devices),
     }

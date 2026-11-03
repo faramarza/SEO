@@ -229,6 +229,30 @@ def test_device_split_conversion_rate():
 
 # ── assembly: missing inputs degrade honestly ────────────────────────────────
 
+def test_ad_opportunities_recommends_proven_converters_only():
+    from src.analysis.paid_search import ad_opportunities
+    results = [
+        {"asset_type": "product", "url": "https://x/5-letter-name-train.html",
+         "title": "5 Letter Name Train", "item_purchases": 5, "ga4_sessions": 120, "item_revenue": 340.0},
+        {"asset_type": "product", "url": "https://x/montessori-shape-sorter.html",
+         "title": "Montessori Shape Sorter", "item_purchases": 3, "ga4_sessions": 80, "item_revenue": 60.0},  # not advertisable line
+        {"asset_type": "product", "url": "https://x/name-train-no-sales.html",
+         "title": "Unsold Name Train", "item_purchases": 0, "ga4_sessions": 300, "item_revenue": 0.0},  # no orders
+        {"asset_type": "product", "url": "https://x/carpets-for-kids-rug-6ft-x-9ft.html",
+         "title": "Classroom Rug 6ft x 9ft", "item_purchases": 2, "ga4_sessions": 50, "item_revenue": 900.0},  # B2B
+    ]
+    recs = ad_opportunities(results, CFG)
+    titles = [r["title"] for r in recs]
+    assert "5 Letter Name Train" in titles
+    assert "Montessori Shape Sorter" not in titles   # Montessori break-even too high
+    assert "Unsold Name Train" not in titles         # no orders -> never recommended
+    assert "Classroom Rug 6ft x 9ft" not in titles   # B2B excluded
+    rec = recs[0]
+    assert rec["campaign_type"]["primary"] and rec["keywords"]
+    assert rec["break_even_roas"] is not None
+    assert "_score" not in rec                         # internal field stripped
+
+
 def test_report_degrades_without_fabricating():
     rep = build_paid_search_report(
         search_term_rows=[], keyword_rows=[], existing_keywords=[],
