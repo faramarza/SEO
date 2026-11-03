@@ -54,9 +54,10 @@
     <li>In <b>Google Ads → Tools (wrench) → Bulk actions → Scripts → ＋</b>, delete the starter code and paste Governor's export script:
       <button class="pb-task-btn pb-task-btn-alt" onclick="suAdsCopyScript(this)" style="margin-left:6px;">📋 Copy the script</button></li>
     <li>In the pasted script, replace <code>PASTE_YOUR_GOOGLE_SHEET_URL_HERE</code> with your Sheet's URL. Click <b>Authorize</b>, then <b>Run</b> once, then set the schedule to <b>Daily</b>.</li>
-    <li>Share your Sheet (<b>Viewer</b> / read-only) with Governor's service account:<br>
+    <li><b>Let Governor read the Sheet.</b> Open your Google Sheet, click the blue <b>Share</b> button (top-right), paste the email below into the "Add people" box, set it to <b>Viewer</b>, and click <b>Send</b>:<br>
       <code id="su-ads-sa" style="font-size:12px;">(loading…)</code>
-      <button class="pb-task-btn pb-task-btn-alt" onclick="suAdsCopyEmail(this)" style="margin-left:6px;">📋 Copy email</button></li>
+      <button class="pb-task-btn pb-task-btn-alt" onclick="suAdsCopyEmail(this)" style="margin-left:6px;">📋 Copy email</button>
+      <br><span style="font-size:12px;color:var(--text-muted);">That email is a "robot" Google account Governor reads the Sheet with — sharing with it is exactly like sharing a doc with a coworker, except it can only look, never edit. (Untick "Notify people" — robots don't read email.)</span></li>
     <li>Paste your Sheet's URL (or ID) below and Save:</li>
   </ol>
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">

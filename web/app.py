@@ -700,11 +700,33 @@ def _start_scheduler():
 _scheduler_started = False
 
 
+CONFIG_OVERRIDES_PATH = DATA_PATH / "config_overrides.json"
+
+
+def _deep_merge(base: dict, over: dict) -> dict:
+    """Recursively merge `over` into `base` (over wins), returning base."""
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep_merge(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
 def load_config():
+    cfg = {}
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
-            return json.load(f)
-    return {}
+            cfg = json.load(f)
+    # UI-saved settings live in data/ (writable by the service user; config/ is not).
+    # They override defaults.json so the app never needs write access to config/.
+    if CONFIG_OVERRIDES_PATH.exists():
+        try:
+            with open(CONFIG_OVERRIDES_PATH) as f:
+                _deep_merge(cfg, json.load(f) or {})
+        except (json.JSONDecodeError, OSError):
+            pass
+    return cfg
 
 
 def _site_base_url(config=None):
@@ -13182,13 +13204,22 @@ def api_setup_ads_sheet():
         # Accept a full Sheet URL and extract the ID, or a bare ID.
         m = re.search(r"/spreadsheets/d/([a-zA-Z0-9\-_]+)", raw)
         sheet_id = m.group(1) if m else raw
-        sheet["sheet_id"] = sheet_id
-        sheet.setdefault("search_terms_tab", "SearchTerms")
-        sheet.setdefault("keywords_tab", "Keywords")
+        # Save to the writable overrides file in data/ (the service user can't write
+        # config/defaults.json). load_config() merges this over the defaults.
+        overrides = {}
+        if CONFIG_OVERRIDES_PATH.exists():
+            try:
+                with open(CONFIG_OVERRIDES_PATH) as f:
+                    overrides = json.load(f) or {}
+            except (json.JSONDecodeError, OSError):
+                overrides = {}
+        ov_sheet = overrides.setdefault("paid_search", {}).setdefault("ads_sheet", {})
+        ov_sheet["sheet_id"] = sheet_id
+        ov_sheet.setdefault("search_terms_tab", "SearchTerms")
+        ov_sheet.setdefault("keywords_tab", "Keywords")
         try:
-            with open(CONFIG_PATH, "w") as f:
-                json.dump(config, f, indent=2)
-                f.write("\n")
+            with open(CONFIG_OVERRIDES_PATH, "w") as f:
+                json.dump(overrides, f, indent=2)
         except OSError as e:
             return jsonify({"success": False, "error": str(e)}), 500
         return jsonify({"success": True, "sheet_id": sheet_id})
