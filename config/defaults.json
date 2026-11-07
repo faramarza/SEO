@@ -66,7 +66,7 @@
       "books":       {"margin": 0.30, "label": "Personalized books", "intent": "search", "url_patterns": ["book"]},
       "stools":      {"margin": 0.30, "label": "Personalized step stools", "intent": "search", "url_patterns": ["stool", "step-stool"]},
       "montessori":  {"margin": 0.15, "label": "Montessori toys", "intent": "browse", "url_patterns": ["montessori"]},
-      "carpets":     {"margin": 0.10, "label": "Classroom rugs", "intent": "browse", "url_patterns": ["rug", "carpet"]}
+      "carpets":     {"margin": 0.095, "margin_source": "Carpets for Kids 2027 sheet: NET of freight (free shipping, zone-avg), median of 872 SKUs. XL rugs run negative; see data/product_margins.json and scripts/ingest_pricesheet.py.", "label": "Classroom rugs", "intent": "browse", "url_patterns": ["rug", "carpet"]}
     },
     "default_margin": 0.15,
     "keyword_candidate_lines": ["name_trains", "books", "stools"],
