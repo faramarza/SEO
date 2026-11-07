@@ -337,8 +337,44 @@ def main():
               f"{site_conv:.2f}% conv")
         print()
 
+    # ---- TRACKING-ARTIFACT GUARD ----
+    # Before trusting the revenue side, check whether GA4 purchase tracking looks
+    # BROKEN in the campaign window. Signature: categories that clearly sold in the
+    # baseline drop to $0 even though their organic SESSIONS held up or rose, and/or
+    # site-wide organic conversion craters while traffic does not. If so, the honest
+    # read is "revenue unverifiable", NOT "conversion is the bottleneck" — the tool
+    # must not assert a sales conclusion from data that probably stopped recording.
+    tracking_suspect = False
+    suspect_note = ""
+    if ga4._get_client() is not None and ab is not None and acb is not None:
+        base_selling = [k for k, _l, _p in cats if ab[k]["revenue"] >= 50]
+        zeroed = [k for k in base_selling
+                  if acb[k]["revenue"] == 0
+                  and acb[k]["sessions"] >= ab[k]["sessions"] * 0.5]
+        sbt, sct = site_base or {}, site_camp or {}
+        bconv_site = (sbt.get("purchases", 0) / sbt.get("sessions", 1)
+                      if sbt.get("sessions") else 0)
+        cconv_site = (sct.get("purchases", 0) / sct.get("sessions", 1)
+                      if sct.get("sessions") else 0)
+        site_crater = (bconv_site > 0 and cconv_site < bconv_site * 0.3
+                       and sct.get("sessions", 0) >= sbt.get("sessions", 0) * 0.8)
+        if (len(base_selling) >= 2 and len(zeroed) >= max(2, len(base_selling) * 0.5)) \
+                or site_crater:
+            tracking_suspect = True
+            suspect_note = (
+                f"{len(zeroed)} of {len(base_selling)} categories that SOLD in the "
+                "baseline went to $0 while their\n      organic sessions held up — "
+                "and site-wide organic conversion fell from "
+                f"{bconv_site*100:.2f}% to {cconv_site*100:.2f}% without a traffic drop.")
+
     # ---- PER-CATEGORY VERDICT ----
     if svc is not None and ga4._get_client() is not None:
+        if tracking_suspect:
+            print("!! GA4 PURCHASE-TRACKING LOOKS BROKEN IN THE CAMPAIGN WINDOW !!")
+            print(f"   {suspect_note}")
+            print("   Revenue/conversion below is UNRELIABLE for this window. Verify "
+                  "actual orders in\n   Magento before drawing any sales conclusion. "
+                  "The GSC (clicks/rank) side is unaffected.\n")
         print("VERDICT BY CATEGORY")
         site_conv = ((site_camp or {}).get("purchases", 0)
                      / (site_camp or {}).get("sessions", 1) * 100
@@ -360,10 +396,14 @@ def main():
             elif selling and converting and (clicks_up or rank_up):
                 v = (f"PAID OFF — rank/clicks up AND organic sells "
                      f"(${c['revenue']:,.0f}, {conv:.1f}% conv).")
+            elif (clicks_up or rank_up) and not selling and tracking_suspect:
+                v = ("RANK/CLICKS UP; revenue UNVERIFIABLE (tracking looks broken) — "
+                     "links moved\n        organic traffic, but GA4 can't confirm "
+                     "whether it sells. Fix tracking, then judge.")
             elif (clicks_up or rank_up) and not selling:
                 v = ("RANK/CLICKS UP, NO MONEY — organic traffic rose but it isn't "
-                     "converting.\n        -> confirms the bottleneck is CONVERSION, "
-                     "not rankings. More links won't fix this.")
+                     "converting.\n        -> bottleneck is CONVERSION, not rankings. "
+                     "More links won't fix this.")
             elif selling and not (clicks_up or rank_up):
                 v = (f"SELLS but organic traffic FLAT — ${c['revenue']:,.0f} from "
                      "organic without a link-driven lift.")
@@ -375,9 +415,17 @@ def main():
     print("HOW TO READ THIS")
     print("  The renewal question = 'did backlinks bring PROFITABLE customers?'")
     print("  - 'PAID OFF' categories are the case FOR continuing (targeted, if any).")
-    print("  - 'RANK/CLICKS UP, NO MONEY' is the case AGAINST — it proves Frank's")
-    print("    email right: the bottleneck is conversion, so fix the broken routes")
-    print("    and product pages before buying more links.")
+    if tracking_suspect:
+        print("  - Revenue tracking looks broken this window, so you CANNOT measure")
+        print("    organic ROI right now. That alone argues against new link spend —")
+        print("    you don't fund a channel you can't measure. Fix GA4/Magento tracking")
+        print("    first, then re-run this. The GSC side still stands: links grew the")
+        print("    low-margin categories (where organic is the right engine) and your")
+        print("    high-margin lines LOST organic ground.")
+    else:
+        print("  - 'RANK/CLICKS UP, NO MONEY' is the case AGAINST — it proves Frank's")
+        print("    email right: the bottleneck is conversion, so fix the broken routes")
+        print("    and product pages before buying more links.")
     print("  - Compare each category's organic conv% to the SITE-WIDE organic conv%")
     print("    above: well below site = a page/offer problem, not a traffic problem.\n")
 
