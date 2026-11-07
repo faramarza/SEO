@@ -301,14 +301,20 @@ class MagentoClient:
                 "base_revenue": round(base_revenue, 2),
                 "capped": bool(total and count < total)}
 
-    def prices_for_skus(self, skus, batch: int = 50) -> dict:
+    def prices_for_skus(self, skus, batch: int = 50, name_contains: str = None) -> dict:
         """READ-ONLY. Map {sku: price} for the given SKUs, pulling YOUR actual
         store price (the regular 'price' field) in batches via a sku 'in' filter.
         SKUs not found, or with no regular price (some configurable/bundle types),
         are simply absent from the result. Note: this is the regular price, not a
-        special/sale price."""
+        special/sale price.
+
+        name_contains guards against SKU collisions across vendors (a supplier's
+        rug SKU can equal an unrelated catalog SKU): when set, only products whose
+        name contains that text (case-insensitive) are returned."""
         out = {}
         skus = [str(s) for s in skus if str(s).strip()]
+        nc = name_contains.lower() if name_contains else None
+        fields = "items[sku,price,name]" if nc else "items[sku,price]"
         for i in range(0, len(skus), batch):
             chunk = skus[i:i + batch]
             val = ",".join(chunk)
@@ -316,12 +322,15 @@ class MagentoClient:
                  f"&searchCriteria[filterGroups][0][filters][0][value]={val}"
                  "&searchCriteria[filterGroups][0][filters][0][conditionType]=in"
                  f"&searchCriteria[pageSize]={len(chunk)}"
-                 "&fields=items[sku,price]")
+                 f"&fields={fields}")
             resp = self._req("GET", q) or {}
             for it in resp.get("items", []) or []:
                 sku, price = it.get("sku"), it.get("price")
-                if sku is not None and price is not None:
-                    out[str(sku)] = float(price)
+                if sku is None or price is None:
+                    continue
+                if nc and nc not in str(it.get("name", "")).lower():
+                    continue
+                out[str(sku)] = float(price)
         return out
 
     def resolve_url(self, url: str, asset_type: str = ""):

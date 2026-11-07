@@ -50,7 +50,14 @@ def main():
                     help="config product_lines key this sheet is for (e.g. carpets)")
     ap.add_argument("--sell", choices=["map", "msrp", "store"], default="map",
                     help="sell-price basis: map/msrp from the sheet, or 'store' to "
-                         "use YOUR actual Magento prices (default map)")
+                         "use YOUR actual prices (default map)")
+    ap.add_argument("--catalog-csv", default=None,
+                    help="with --sell store: a Magento product-export CSV to read "
+                         "your prices from (avoids a live Magento call)")
+    ap.add_argument("--brand", default=None,
+                    help="restrict SKU matches to this brand (STRONGLY recommended with "
+                         "--sell store: numeric SKUs collide across vendors). "
+                         "e.g. --brand 'Carpets for Kids'")
     ap.add_argument("--sheet", type=int, default=0, help="worksheet index (default 0)")
     ap.add_argument("--ship-model", choices=["none", "carpets", "flat"], default="none",
                     help="'carpets' uses the Carpets for Kids size/zone freight card; "
@@ -86,25 +93,36 @@ def main():
 
     price_map = None
     if args.sell == "store":
-        try:
-            from src.data_sources.magento_client import MagentoClient, MagentoError
-        except Exception as e:
-            sys.exit(f"Cannot import Magento client for --sell store: {e}")
-        mc = MagentoClient()
-        if not mc.configured:
-            sys.exit("--sell store needs Magento creds (MAGENTO_BASE_URL/MAGENTO_TOKEN "
-                     "in .env or the service env). Run this on the server.")
         skus = [r["sku"] for r in records]
-        try:
-            price_map = mc.prices_for_skus(skus)
-        except MagentoError as e:
-            sys.exit(f"Magento price read failed: {e}")
-        matched = sum(1 for r in records if price_map.get(r["sku"]))
-        print(f"Matched {matched}/{len(skus)} pricesheet SKUs to live Magento prices.")
+        if args.catalog_csv:
+            from src.analysis.margins import price_map_from_catalog_csv
+            if not args.brand:
+                print("WARNING: --sell store without --brand can mismatch SKUs that "
+                      "collide across vendors. Pass --brand to be safe.")
+            price_map = price_map_from_catalog_csv(args.catalog_csv, brand_contains=args.brand)
+            matched = sum(1 for r in records if price_map.get(r["sku"]))
+            print(f"Matched {matched}/{len(skus)} pricesheet SKUs to catalog CSV "
+                  f"prices{f' (brand={args.brand!r})' if args.brand else ''}.")
+        else:
+            try:
+                from src.data_sources.magento_client import MagentoClient, MagentoError
+            except Exception as e:
+                sys.exit(f"Cannot import Magento client for --sell store: {e}")
+            mc = MagentoClient()
+            if not mc.configured:
+                sys.exit("--sell store needs Magento creds (MAGENTO_BASE_URL/MAGENTO_TOKEN) "
+                         "or a --catalog-csv export. Run on the server, or pass --catalog-csv.")
+            try:
+                price_map = mc.prices_for_skus(skus, name_contains=args.brand)
+            except MagentoError as e:
+                sys.exit(f"Magento price read failed: {e}")
+            matched = sum(1 for r in records if price_map.get(r["sku"]))
+            print(f"Matched {matched}/{len(skus)} pricesheet SKUs to live Magento "
+                  f"prices{f' (name contains {args.brand!r})' if args.brand else ''}.")
         if matched == 0:
-            sys.exit("No SKUs matched your Magento catalog. The pricesheet SKU column "
-                     "may not equal your Magento SKUs; tell me how they map and I'll "
-                     "add a translation.")
+            sys.exit("No SKUs matched. Either the pricesheet SKUs differ from your "
+                     "catalog SKUs, or the --brand filter is too strict. Tell me how "
+                     "they map and I'll adjust.")
 
     res = compute_margins(records, sell_basis=args.sell,
                           shipping_flat=args.shipping_flat,

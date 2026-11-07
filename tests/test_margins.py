@@ -97,6 +97,29 @@ def test_recommended_line_margin_is_median():
     assert recommended_line_margin(res["summary"]) == 0.4
 
 
+def test_price_map_from_catalog_csv():
+    import os
+    import tempfile
+    from src.analysis.margins import price_map_from_catalog_csv
+    csv_text = (
+        "sku,price,special_price,name,additional_attributes\n"
+        "5506,280.46,,CFK Rug A,brand_google=Carpets for Kids\n"
+        "5512,400.00,300.00,CFK Rug B,brand_google=Carpets for Kids\n"
+        "5656,33.99,,PlanToys Game,brand_google=Plan Toys\n"   # SKU collision, non-CFK
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, newline="") as f:
+        f.write(csv_text)
+        path = f.name
+    try:
+        pm = price_map_from_catalog_csv(path, brand_contains="Carpets for Kids")
+        # 5512 uses special (300<400); 5656 excluded by brand despite matching SKU
+        assert pm == {"5506": 280.46, "5512": 300.0}, pm
+        pm2 = price_map_from_catalog_csv(path)   # no brand filter -> collision included
+        assert "5656" in pm2
+    finally:
+        os.unlink(path)
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

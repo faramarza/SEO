@@ -285,6 +285,46 @@ def compute_margins(records: list[dict], sell_basis: str = "map",
     return {"summary": summary, "skus": per_sku}
 
 
+def price_map_from_catalog_csv(path: str, brand_contains: str | None = None) -> dict:
+    """Build {sku: effective_price} from a Magento product-export CSV, so margins
+    use YOUR real store prices. Effective price = special_price when it is set and
+    below the regular price (what customers actually pay), else price.
+
+    brand_contains (recommended) restricts to rows whose brand matches, because
+    numeric SKUs collide across vendors: a rug pricesheet SKU can equal an
+    unrelated catalog SKU. Brand is read from additional_attributes brand_google,
+    with the product name as a fallback signal."""
+    import csv as _csv
+    _csv.field_size_limit(10_000_000)
+    brand_re = re.compile(re.escape(brand_contains), re.I) if brand_contains else None
+    brand_attr = re.compile(r"brand_google=([^,]*)", re.I)
+    out: dict[str, float] = {}
+    with open(path, newline="", encoding="utf-8-sig", errors="replace") as f:
+        r = _csv.reader(f)
+        header = next(r)
+        C = {h: i for i, h in enumerate(header)}
+
+        def g(row, h):
+            i = C.get(h)
+            return row[i] if i is not None and i < len(row) else ""
+
+        for row in r:
+            sku = str(g(row, "sku")).strip()
+            if not sku or sku in out:
+                continue
+            pr = money(g(row, "price"))
+            if pr is None:
+                continue
+            if brand_re is not None:
+                m = brand_attr.search(g(row, "additional_attributes"))
+                brand = (m.group(1) if m else "")
+                if not (brand_re.search(brand) or brand_re.search(g(row, "name"))):
+                    continue
+            sp = money(g(row, "special_price"))
+            out[sku] = sp if (sp and 0 < sp < pr) else pr
+    return out
+
+
 def recommended_line_margin(summary: dict) -> float | None:
     """The single number to feed a config product_line: the MEDIAN per-SKU gross
     margin (robust to outliers). None if nothing priced."""
