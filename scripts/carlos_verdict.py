@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Carlos link-building verdict — the one memo that settles the renewal decision.
+"""Carlos link-building verdict, the one memo that settles the renewal decision.
 
 Answers the question the vendor report could NOT (it had no GSC/GA4/sales data):
 for each commercial category, did the ranking gains turn into (a) real organic
-CLICKS and (b) actual organic REVENUE — or did traffic rise with no money, which
+CLICKS and (b) actual organic REVENUE, or did traffic rise with no money, which
 would confirm that the bottleneck is conversion, not rankings?
 
 For a baseline window and a campaign window it prints, PER CATEGORY:
@@ -100,7 +100,7 @@ def _categories(cfg: dict) -> list[tuple[str, str, list[str]]]:
     is the report's headline category but not (yet) its own config line."""
     lines = cfg.get("paid_search", {}).get("product_lines", {})
     out: list[tuple[str, str, list[str]]] = []
-    # report's headline win — explicit, flagged in the docstring/output
+    # report's headline win, explicit, flagged in the docstring/output
     out.append(("name_puzzles", "Personalized name puzzles",
                 ["name-puzzle", "name_puzzle", "name puzzle", "puzzle"]))
     # everything the config defines, in a priority order that avoids collisions
@@ -270,9 +270,9 @@ def main():
                     credentials_path=ga4_cfg.get("credentials_path") or None)
 
     if svc is None:
-        print("WARNING: GSC not configured (no credentials) — GSC section skipped.")
+        print("WARNING: GSC not configured (no credentials), GSC section skipped.")
     if ga4._get_client() is None:
-        print("WARNING: GA4 not configured (no credentials) — GA4 section skipped.")
+        print("WARNING: GA4 not configured (no credentials), GA4 section skipped.")
 
     gsc_end = date.today() - timedelta(days=3)     # GSC lags ~3d
     if args.split:
@@ -284,12 +284,12 @@ def main():
     camp_start, camp_end = split, gsc_end
 
     print(f"\n{'='*74}")
-    print("CARLOS LINK-BUILDING VERDICT — did rankings become clicks, and clicks money?")
+    print("CARLOS LINK-BUILDING VERDICT, did rankings become clicks, and clicks money?")
     print(f"{'='*74}")
     print(f"BASELINE window: {base_start} -> {base_end}  ({span.days} days)")
     print(f"CAMPAIGN window: {camp_start} -> {camp_end}  ({span.days} days)")
     print("NOTE: GSC retains ~16 months, GA4 event data ~2-14 months. A true "
-          "pre-May-2025\n      baseline is usually beyond retention — empty rows "
+          "pre-May-2025\n      baseline is usually beyond retention, empty rows "
           "there are a retention gap,\n      not zero demand. This shows the "
           "campaign's TRAJECTORY in the retained window.\n")
 
@@ -342,7 +342,7 @@ def main():
     # BROKEN in the campaign window. Signature: categories that clearly sold in the
     # baseline drop to $0 even though their organic SESSIONS held up or rose, and/or
     # site-wide organic conversion craters while traffic does not. If so, the honest
-    # read is "revenue unverifiable", NOT "conversion is the bottleneck" — the tool
+    # read is "revenue unverifiable", NOT "conversion is the bottleneck", the tool
     # must not assert a sales conclusion from data that probably stopped recording.
     tracking_suspect = False
     suspect_note = ""
@@ -363,7 +363,7 @@ def main():
             tracking_suspect = True
             suspect_note = (
                 f"{len(zeroed)} of {len(base_selling)} categories that SOLD in the "
-                "baseline went to $0 while their\n      organic sessions held up — "
+                "baseline went to $0 while their\n      organic sessions held up, "
                 "and site-wide organic conversion fell from "
                 f"{bconv_site*100:.2f}% to {cconv_site*100:.2f}% without a traffic drop.")
 
@@ -394,21 +394,21 @@ def main():
             if not (bi or ci):
                 v = "NO DATA in retained window (demand unknown here, not zero)."
             elif selling and converting and (clicks_up or rank_up):
-                v = (f"PAID OFF — rank/clicks up AND organic sells "
+                v = (f"PAID OFF, rank/clicks up AND organic sells "
                      f"(${c['revenue']:,.0f}, {conv:.1f}% conv).")
             elif (clicks_up or rank_up) and not selling and tracking_suspect:
-                v = ("RANK/CLICKS UP; revenue UNVERIFIABLE (tracking looks broken) — "
+                v = ("RANK/CLICKS UP; revenue UNVERIFIABLE (tracking looks broken), "
                      "links moved\n        organic traffic, but GA4 can't confirm "
                      "whether it sells. Fix tracking, then judge.")
             elif (clicks_up or rank_up) and not selling:
-                v = ("RANK/CLICKS UP, NO MONEY — organic traffic rose but it isn't "
+                v = ("RANK/CLICKS UP, NO MONEY, organic traffic rose but it isn't "
                      "converting.\n        -> bottleneck is CONVERSION, not rankings. "
                      "More links won't fix this.")
             elif selling and not (clicks_up or rank_up):
-                v = (f"SELLS but organic traffic FLAT — ${c['revenue']:,.0f} from "
+                v = (f"SELLS but organic traffic FLAT, ${c['revenue']:,.0f} from "
                      "organic without a link-driven lift.")
             else:
-                v = "FLAT — no clear rank, click, or revenue movement from the links."
+                v = "FLAT, no clear rank, click, or revenue movement from the links."
             print(f"  • {label}: {v}")
         print()
 
@@ -417,13 +417,13 @@ def main():
     print("  - 'PAID OFF' categories are the case FOR continuing (targeted, if any).")
     if tracking_suspect:
         print("  - Revenue tracking looks broken this window, so you CANNOT measure")
-        print("    organic ROI right now. That alone argues against new link spend —")
+        print("    organic ROI right now. That alone argues against new link spend -")
         print("    you don't fund a channel you can't measure. Fix GA4/Magento tracking")
         print("    first, then re-run this. The GSC side still stands: links grew the")
         print("    low-margin categories (where organic is the right engine) and your")
         print("    high-margin lines LOST organic ground.")
     else:
-        print("  - 'RANK/CLICKS UP, NO MONEY' is the case AGAINST — it proves Frank's")
+        print("  - 'RANK/CLICKS UP, NO MONEY' is the case AGAINST, it proves Frank's")
         print("    email right: the bottleneck is conversion, so fix the broken routes")
         print("    and product pages before buying more links.")
     print("  - Compare each category's organic conv% to the SITE-WIDE organic conv%")

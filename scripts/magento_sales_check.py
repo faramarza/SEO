@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Magento sales reality check — did total orders actually hold up?
+"""Magento sales reality check, did total orders actually hold up?
 
 The Carlos verdict found GA4 ORGANIC revenue zeroing out across categories while
 organic sessions rose. That pattern usually means GA4 purchase tracking (or its

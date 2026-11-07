@@ -7,7 +7,7 @@ derived from an actual pricesheet (dealer cost vs the price you sell at). Reads
 Column detection is fuzzy so it works across vendors: it finds the header row
 and maps columns to roles (sku, title, cost, map, msrp, size) by header text. If
 it can't find cost or a sell price it raises with the headers it did see, rather
-than guessing — a wrong margin is worse than an honest failure.
+than guessing, because a wrong margin is worse than an honest failure.
 
 Margin convention matches config: GROSS product margin = (sell - cost) / sell,
 BEFORE the card fee (break-even math subtracts card_fee separately). Sell price
