@@ -236,6 +236,71 @@ class MagentoClient:
                 "meta_title": self._attr(c, "meta_title"),
                 "meta_description": self._attr(c, "meta_description")}
 
+    def _orders_date_query(self, date_from: str, date_to_exclusive: str,
+                           exclude_canceled: bool, page_size: int,
+                           current_page: int = 1) -> str:
+        """Build an /orders searchCriteria for created_at in
+        [date_from, date_to_exclusive). Dates are 'YYYY-MM-DD' (no time, so no
+        URL-encoded spaces). Separate filterGroups are AND-ed together."""
+        groups = [
+            ("created_at", date_from, "gteq"),
+            ("created_at", date_to_exclusive, "lt"),
+        ]
+        if exclude_canceled:
+            groups.append(("status", "canceled", "neq"))
+        parts = []
+        for i, (field, value, cond) in enumerate(groups):
+            parts.append(
+                f"searchCriteria[filterGroups][{i}][filters][0][field]={field}"
+                f"&searchCriteria[filterGroups][{i}][filters][0][value]={value}"
+                f"&searchCriteria[filterGroups][{i}][filters][0][conditionType]={cond}")
+        parts.append(f"searchCriteria[pageSize]={page_size}")
+        parts.append(f"searchCriteria[currentPage]={current_page}")
+        return "/orders?" + "&".join(parts)
+
+    def order_count(self, date_from: str, date_to_exclusive: str,
+                    exclude_canceled: bool = True) -> int:
+        """READ-ONLY. Number of orders created in [date_from, date_to_exclusive).
+        Cheap: asks for one row and reads Magento's own total_count. Dates are
+        'YYYY-MM-DD'. Canceled orders are excluded by default so the trend tracks
+        real sales, not abandoned/voided ones."""
+        q = self._orders_date_query(date_from, date_to_exclusive, exclude_canceled,
+                                    page_size=1)
+        resp = self._req("GET", q) or {}
+        return int(resp.get("total_count", 0))
+
+    def order_revenue(self, date_from: str, date_to_exclusive: str,
+                      exclude_canceled: bool = True, max_orders: int = 20000) -> dict:
+        """READ-ONLY. Sum of order totals in [date_from, date_to_exclusive) by
+        paginating /orders. Returns {count, revenue, base_revenue, capped}. Uses
+        base_grand_total (store base currency) for revenue so multi-currency sums
+        are consistent; 'capped' is True if more orders exist than max_orders."""
+        page_size = 100
+        page = 1
+        count = 0
+        revenue = 0.0
+        base_revenue = 0.0
+        total = None
+        while True:
+            q = self._orders_date_query(date_from, date_to_exclusive, exclude_canceled,
+                                        page_size=page_size, current_page=page)
+            resp = self._req("GET", q) or {}
+            if total is None:
+                total = int(resp.get("total_count", 0))
+            items = resp.get("items") or []
+            if not items:
+                break
+            for o in items:
+                count += 1
+                revenue += float(o.get("grand_total") or 0)
+                base_revenue += float(o.get("base_grand_total") or o.get("grand_total") or 0)
+            if count >= min(total or 0, max_orders) or len(items) < page_size:
+                break
+            page += 1
+        return {"count": count, "revenue": round(revenue, 2),
+                "base_revenue": round(base_revenue, 2),
+                "capped": bool(total and count < total)}
+
     def resolve_url(self, url: str, asset_type: str = ""):
         """Find the editable entity behind a storefront URL. Tries the likely
         type first (by classified asset_type), then the other."""
