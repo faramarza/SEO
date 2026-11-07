@@ -225,23 +225,38 @@ def shipping_cost_for(rec: dict, shipping_flat: float = 0.0,
     return round(cost, 2)
 
 
+def _sell_price(rec: dict, sell_basis: str, price_map: dict | None) -> tuple[float | None, str]:
+    """Pick the sell price and say where it came from. For 'store', use the
+    actual store price from price_map, falling back to MAP then MSRP (flagged)
+    so a SKU missing from the store isn't silently dropped."""
+    if sell_basis == "store":
+        p = (price_map or {}).get(rec["sku"])
+        if p and p > 0:
+            return p, "store"
+        return (rec.get("map") or rec.get("msrp")), "fallback"
+    alt = "msrp" if sell_basis == "map" else "map"
+    return (rec.get(sell_basis) or rec.get(alt)), sell_basis
+
+
 def compute_margins(records: list[dict], sell_basis: str = "map",
                     shipping_flat: float = 0.0, shipping_per_lb: float = 0.0,
-                    xl_surcharge: float = 0.0, ship_fn=None) -> dict:
+                    xl_surcharge: float = 0.0, ship_fn=None,
+                    price_map: dict | None = None) -> dict:
     """Per-SKU NET margin (sell - cost - shipping)/sell on the chosen basis, with
-    a summary. sell_basis 'map' falls back to msrp per-row when MAP is missing,
-    and vice versa, so no priced row is dropped. Shipping defaults to 0 (then
-    this is gross margin). Pass ship_fn(record)->float for a per-SKU freight model
-    (e.g. a vendor rate card), or the flat/per_lb/xl params for a simple one."""
-    alt = "msrp" if sell_basis == "map" else "map"
+    a summary. sell_basis 'map'/'msrp' use the pricesheet; 'store' uses your
+    actual Magento price from price_map (falling back to MAP/MSRP, flagged, when a
+    SKU isn't in the store). Shipping defaults to 0 (gross); pass ship_fn(record)
+    for a per-SKU freight model, or the flat/per_lb/xl params for a simple one."""
     per_sku = {}
     margins = []
     ships = []
     xl_count = 0
+    src_counts = {"store": 0, "fallback": 0, "map": 0, "msrp": 0}
     for r in records:
-        sell = r.get(sell_basis) or r.get(alt)
+        sell, src = _sell_price(r, sell_basis, price_map)
         if not sell or sell <= 0 or r["cost"] is None:
             continue
+        src_counts[src] = src_counts.get(src, 0) + 1
         ship = (round(float(ship_fn(r)), 2) if ship_fn is not None
                 else shipping_cost_for(r, shipping_flat, shipping_per_lb, xl_surcharge))
         m = (sell - r["cost"] - ship) / sell
@@ -249,7 +264,8 @@ def compute_margins(records: list[dict], sell_basis: str = "map",
             xl_count += 1
         per_sku[r["sku"]] = {"cost": r["cost"], "sell": round(sell, 2),
                              "shipping": ship, "margin": round(m, 4),
-                             "size": r["size"], "xl": bool(r.get("xl"))}
+                             "size": r["size"], "xl": bool(r.get("xl")),
+                             "sell_source": src}
         margins.append(m)
         ships.append(ship)
     summary = {"n": len(margins), "xl_skus": xl_count}
@@ -264,6 +280,7 @@ def compute_margins(records: list[dict], sell_basis: str = "map",
             "shipping_model": {"flat": shipping_flat, "per_lb": shipping_per_lb,
                                "xl_surcharge": xl_surcharge},
             "avg_shipping": round(statistics.mean(ships), 2) if ships else 0.0,
+            "price_sources": {k: v for k, v in src_counts.items() if v},
         })
     return {"summary": summary, "skus": per_sku}
 

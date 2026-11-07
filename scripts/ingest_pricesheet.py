@@ -48,8 +48,9 @@ def main():
     ap.add_argument("pricesheet", help="Path to .xlsx or .csv pricesheet")
     ap.add_argument("--line", required=True,
                     help="config product_lines key this sheet is for (e.g. carpets)")
-    ap.add_argument("--sell", choices=["map", "msrp"], default="map",
-                    help="sell-price basis for margin (default map)")
+    ap.add_argument("--sell", choices=["map", "msrp", "store"], default="map",
+                    help="sell-price basis: map/msrp from the sheet, or 'store' to "
+                         "use YOUR actual Magento prices (default map)")
     ap.add_argument("--sheet", type=int, default=0, help="worksheet index (default 0)")
     ap.add_argument("--ship-model", choices=["none", "carpets", "flat"], default="none",
                     help="'carpets' uses the Carpets for Kids size/zone freight card; "
@@ -82,10 +83,34 @@ def main():
     if args.ship_model == "carpets":
         from src.analysis.shipping_carpets import make_ship_fn
         ship_fn = make_ship_fn(zone=args.zone, season_surcharge=not args.no_surcharge)
+
+    price_map = None
+    if args.sell == "store":
+        try:
+            from src.data_sources.magento_client import MagentoClient, MagentoError
+        except Exception as e:
+            sys.exit(f"Cannot import Magento client for --sell store: {e}")
+        mc = MagentoClient()
+        if not mc.configured:
+            sys.exit("--sell store needs Magento creds (MAGENTO_BASE_URL/MAGENTO_TOKEN "
+                     "in .env or the service env). Run this on the server.")
+        skus = [r["sku"] for r in records]
+        try:
+            price_map = mc.prices_for_skus(skus)
+        except MagentoError as e:
+            sys.exit(f"Magento price read failed: {e}")
+        matched = sum(1 for r in records if price_map.get(r["sku"]))
+        print(f"Matched {matched}/{len(skus)} pricesheet SKUs to live Magento prices.")
+        if matched == 0:
+            sys.exit("No SKUs matched your Magento catalog. The pricesheet SKU column "
+                     "may not equal your Magento SKUs; tell me how they map and I'll "
+                     "add a translation.")
+
     res = compute_margins(records, sell_basis=args.sell,
                           shipping_flat=args.shipping_flat,
                           shipping_per_lb=args.shipping_per_lb,
-                          xl_surcharge=args.xl_surcharge, ship_fn=ship_fn)
+                          xl_surcharge=args.xl_surcharge, ship_fn=ship_fn,
+                          price_map=price_map)
     s = res["summary"]
     median = recommended_line_margin(s)
     has_ship = args.ship_model != "none" and (
@@ -111,6 +136,11 @@ def main():
         print(f"{label} margin on {s['sell_basis'].upper()} (before 3% card fee): "
               f"median {s['median']*100:.1f}%  mean {s['mean']*100:.1f}%  "
               f"range {s['min']*100:.1f}% to {s['max']*100:.1f}%")
+        if s.get("price_sources"):
+            print("Price sources: " + ", ".join(f"{k}={v}" for k, v in
+                                                 s["price_sources"].items())
+                  + ("  (fallback = SKU not in Magento, used MAP/MSRP)"
+                     if s["price_sources"].get("fallback") else ""))
         be = (1.0 / (median - 0.03)) if median and median > 0.03 else None
         if be:
             print(f"Implied break-even ROAS at the median margin: {be:.1f} "

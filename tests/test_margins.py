@@ -70,6 +70,22 @@ def test_compute_margins_gross_vs_net():
     assert net["skus"]["B"]["shipping"] == sc.ship_cost("6ft x 9ft", zone="avg")
 
 
+def test_compute_margins_store_prices():
+    # store price differs from MAP; margin must use the store price, not MAP.
+    recs = [
+        {"sku": "A", "cost": 200.0, "map": 300.0, "msrp": 350.0, "size": "", "xl": False},
+        {"sku": "B", "cost": 100.0, "map": 200.0, "msrp": 240.0, "size": "", "xl": False},
+    ]
+    price_map = {"A": 400.0}   # A sells higher than MAP in the store; B missing
+    res = compute_margins(recs, sell_basis="store", price_map=price_map)
+    assert res["skus"]["A"]["sell"] == 400.0          # used store price
+    assert res["skus"]["A"]["sell_source"] == "store"
+    assert res["skus"]["A"]["margin"] == round((400 - 200) / 400, 4)
+    assert res["skus"]["B"]["sell"] == 200.0          # fell back to MAP
+    assert res["skus"]["B"]["sell_source"] == "fallback"
+    assert res["summary"]["price_sources"] == {"store": 1, "fallback": 1}
+
+
 def test_recommended_line_margin_is_median():
     recs = [
         {"sku": "A", "cost": 70, "map": 100, "msrp": None, "size": "", "xl": False},
