@@ -131,6 +131,13 @@ def main():
     ap.add_argument("--min-impr", type=int, default=150)
     ap.add_argument("--no-verify", action="store_true", help="skip live link-source checks")
     ap.add_argument("--max-sources", type=int, default=4)
+    ap.add_argument("--min-pos", type=float, default=4.0,
+                    help="lowest avg position to include (default 4)")
+    ap.add_argument("--max-pos", type=float, default=20.0,
+                    help="highest avg position to include (default 20; use 30 for page 3)")
+    ap.add_argument("--max-page-clicks", type=int, default=1,
+                    help="only pages with at most this many clicks (default 1; "
+                         "raise it to include pages that already get some traffic)")
     args = ap.parse_args()
 
     config = load_config()
@@ -153,7 +160,7 @@ def main():
         impr = r.get('impressions', 0)
         pos = r.get('position', 0.0)
         clk = r.get('clicks', 0)
-        if impr < args.min_impr or not (4.0 <= pos <= 20.0):
+        if impr < args.min_impr or not (args.min_pos <= pos <= args.max_pos):
             continue
         cur = best.get(url)
         if not cur or impr > cur[0]:
@@ -163,7 +170,7 @@ def main():
     winnable = []
     for url, (impr, clk, pos, query) in best.items():
         page_clicks = pages.get(url, {}).get('clicks', 0)
-        if page_clicks <= 1:
+        if page_clicks <= args.max_page_clicks:
             winnable.append((url, impr, pos, query, page_clicks))
     winnable.sort(key=lambda x: -x[1])
     winnable = winnable[:args.pages]
@@ -174,7 +181,8 @@ def main():
         return
 
     print(f"Window {start} → {end}\n")
-    print(f"WINNABLE PAGES: {len(winnable)} (non-brand demand, position 4–20, ~0 clicks)")
+    print(f"WINNABLE PAGES: {len(winnable)} (non-brand demand, position "
+          f"{args.min_pos:g}-{args.max_pos:g}, <= {args.max_page_clicks} page clicks)")
     print("=" * 74)
 
     for rank, (url, impr, pos, query, pclk) in enumerate(winnable, 1):
