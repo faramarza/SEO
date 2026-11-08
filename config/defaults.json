@@ -66,7 +66,7 @@
       "books":       {"margin": 0.30, "label": "Personalized books", "intent": "search", "url_patterns": ["book"]},
       "stools":      {"margin": 0.30, "label": "Personalized step stools", "intent": "search", "url_patterns": ["stool", "step-stool"]},
       "montessori":  {"margin": 0.15, "label": "Montessori toys", "intent": "browse", "url_patterns": ["montessori"]},
-      "carpets":     {"margin": 0.36, "margin_source": "Carpets for Kids 2027 sheet dealer cost vs YOUR Magento store prices (brand-verified, 692 SKUs), NET of real freight (free shipping, zone-avg, +$60 XL surcharge). Median net = 36.4%. Caveat: X-Large rugs are thin/negative (median ~3%), so advertise non-XL only. See scripts/ingest_pricesheet.py --sell store.", "label": "Classroom rugs", "intent": "browse", "url_patterns": ["rug", "carpet"]}
+      "carpets":     {"margin": 0.364, "margin_source": "Carpets for Kids 2027 dealer cost vs YOUR Magento store prices (brand-verified, 692 SKUs), NET of real freight (free shipping, zone-avg, +$60 XL surcharge). Median net 36.4% all rugs, 38.6% excluding X-Large. Break-even ROAS ~3.0. Caveat: X-Large (8ft x 12ft) rugs are thin/negative and being repriced; advertise non-XL. Regenerate with scripts/ingest_pricesheet.py --sell store.", "label": "Classroom rugs", "intent": "browse", "url_patterns": ["rug", "carpet"]}
     },
     "default_margin": 0.15,
     "keyword_candidate_lines": ["name_trains", "books", "stools"],
