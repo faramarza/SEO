@@ -68,6 +68,11 @@
       "montessori":  {"margin": 0.15, "label": "Montessori toys", "intent": "browse", "url_patterns": ["montessori"]},
       "carpets":     {"margin": 0.364, "margin_source": "Carpets for Kids 2027 dealer cost vs YOUR Magento store prices (brand-verified, 692 SKUs), NET of real freight (free shipping, zone-avg, +$60 XL surcharge). Median net 36.4% all rugs, 38.6% excluding X-Large. Break-even ROAS ~3.0. Caveat: X-Large (8ft x 12ft) rugs are thin/negative and being repriced; advertise non-XL. Regenerate with scripts/ingest_pricesheet.py --sell store.", "label": "Classroom rugs", "intent": "browse", "url_patterns": ["rug", "carpet"]}
     },
+    "brand_margins": {
+      "_note": "Reference margins by brand (NET), from each vendor's wholesale vs your Magento store prices. Line margins should become the count/sales-weighted blend of the brands they contain. The montessori line is 59% Plan Toys, 13% Guidecraft, 10% Tag Toys, so it cannot be set until Plan Toys/Tag Toys cost sheets are in.",
+      "carpets for kids": {"margin": 0.364, "note": "692 SKUs, net of real freight; see carpets line."},
+      "guide craft": {"margin": 0.496, "note": "70 matched SKUs, gross median 49.6%, shipping assumed minimal; mix of toys + furniture."}
+    },
     "default_margin": 0.15,
     "keyword_candidate_lines": ["name_trains", "books", "stools"],
     "campaign_line_overrides": {
