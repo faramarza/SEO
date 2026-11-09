@@ -64,14 +64,15 @@ def tokens(s, extra_stop=()):
     words = re.findall(r"[a-z0-9]+", (s or "").lower())
     out = set()
     for w in words:
+        w = w[:-1] if w.endswith("s") and len(w) > 4 else w            # crude singular
         if w in STOP or w in extra_stop or len(w) < 3 and not w.isdigit():
             continue
-        out.add(w[:-1] if w.endswith("s") and len(w) > 4 else w)   # crude singular
+        out.add(w)
     return out
 
 
 PAGE1_CTR = 0.025         # typical CTR at position 8 (bottom of page 1)
-MIN_GOOD_MATCH = 0.67
+MIN_GOOD_MATCH = 0.66   # two of three words
 
 
 def is_head_term(keyword, brand_words=()):

@@ -56,6 +56,14 @@ def test_realism_rules():
     assert target_ctr(6.0) == TARGET_CTR and target_ctr(None) == PAGE1_CTR and target_ctr(35) == PAGE1_CTR
 
 
+def test_plural_stopwords_and_step_stool():
+    from scripts.demand_map import best_match
+    prods = [{"name": "Heirloom Name Puzzle Step Stool"}]
+    prods[0]["_tokens"] = tokens(prods[0]["name"])
+    p, s = best_match("childs step stool", prods, set())
+    assert p and s == 1.0
+
+
 def _run():
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):
