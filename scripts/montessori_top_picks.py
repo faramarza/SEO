@@ -144,8 +144,11 @@ def rank(products, sales, sku_margins, brand_margins, default_margin,
     purchased, added_to_cart}}. stock_check(sku) -> (in_stock, qty) is called for
     any would-be pick whose stock is unknown; sold-out items are skipped and
     marked, never promoted. Returns (picks, ranked_all)."""
-    ranked = []
+    ranked, seen = [], set()
     for p in products:
+        if p["sku"] in seen:
+            continue  # the paged product API can return a SKU twice
+        seen.add(p["sku"])
         if not (p["enabled"] and p["in_stock"]):
             continue
         if not any("montessori" in c.lower() for c in p["categories"]):
@@ -189,6 +192,17 @@ def rank(products, sales, sku_margins, brand_margins, default_margin,
         if len(picks) >= n:
             break
     return picks, ranked
+
+
+def display_order(picks):
+    """Order shown on the page: the best seller (most units) first, then the rest
+    from lowest to highest price, so the row opens with an easy first purchase
+    instead of the most expensive set."""
+    if not picks:
+        return []
+    lead = max(picks, key=lambda r: (r["purchased"], r["profit"]))
+    rest = sorted((r for r in picks if r is not lead), key=lambda r: r["price"])
+    return [lead] + rest
 
 
 # ---------------------------------------------------------------- loaders
@@ -286,15 +300,20 @@ def sales_from_ga4(cfg, days):
     return {norm(k): v for k, v in raw.items()}
 
 
-def sku_margins_from_file():
+def sku_margins_from_file(cfg=None):
+    """Per-SKU margins: data/product_margins.json (pricesheet ingests) plus
+    config paid_search.sku_margins (hand-entered from vendor invoices)."""
+    out = {}
+    for sku, rec in ((cfg or {}).get("paid_search", {}).get("sku_margins") or {}).items():
+        if not sku.startswith("_") and isinstance(rec, dict) and rec.get("margin") is not None:
+            out[str(sku)] = float(rec["margin"])
     p = ROOT / "data" / "product_margins.json"
     if not p.exists():
-        return {}
+        return out
     try:
         d = json.loads(p.read_text())
     except Exception:
-        return {}
-    out = {}
+        return out
     for line in (d.get("lines") or {}).values():
         for sku, rec in (line.get("skus") or {}).items():
             if rec.get("margin") is not None:
@@ -325,7 +344,7 @@ def main():
     sales = {} if args.no_ga4 else sales_from_ga4(cfg, args.days)
     if not args.no_ga4 and not sales:
         print("WARNING: GA4 returned no item sales; ranking by margin and bestseller tag only.")
-    picks, ranked = rank(products, sales, sku_margins_from_file(), brand_margins,
+    picks, ranked = rank(products, sales, sku_margins_from_file(cfg), brand_margins,
                          default_margin, n=args.n, brand_cap=args.brand_cap,
                          min_margin=args.min_margin, exclude=args.exclude,
                          stock_check=magento_stock_check(mc) if mc else None)
@@ -356,10 +375,12 @@ def main():
           "profit as a guess.")
 
     print("\nPAGE BUILDER > Products element > Condition: SKU is one of:")
-    print("  " + ", ".join(r["sku"] for r in picks))
+    shown = display_order(picks)
+    print("  " + ", ".join(r["sku"] for r in shown))
+    print("  (display order: best seller first, then lowest to highest price)")
 
     OUT_HTML.parent.mkdir(parents=True, exist_ok=True)
-    OUT_HTML.write_text(section_html(picks))
+    OUT_HTML.write_text(section_html(shown))
     print(f"\nReady-to-paste section (widget + heading + CTA) -> {OUT_HTML}")
     print("Paste it into the Montessori Toys description just ABOVE "
           "<div class=\"mt-what-wrap\"> (right under the hero).")

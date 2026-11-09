@@ -76,6 +76,12 @@
       "whitney brothers": {"margin": 0.347, "note": "121 active SKUs vs 2026 dealer price list, all current. Net median 34.7%: 107 Ground items (~36%, est. UPS/FedEx commercial freight, none negative); 14 Truck items with LTL calibrated from a real Estes quote (WB6400N, 199 lb, $543.63 incl liftgate) = max($350, $2.73/lb), truck median 26.5%, none negative, lowest CH1330N 10.3%. WB ships and bills actual freight."}
     },
     "default_margin": 0.15,
+    "sku_margins": {
+      "_note": "Per-SKU NET margins from vendor invoices, (store price - cost - shipping) / store price, before card fee. Used where no pricesheet exists.",
+      "CH-fish":   {"margin": 0.36, "source": "Cubby Hole invoice 52324 (13-Oct-2026): $47 + $9.35 UPS Ground Saver single unit, sells $87.99"},
+      "CH-sport":  {"margin": 0.36, "source": "Cubby Hole invoice 52153 (5-Oct-2026): $47 each; single-unit shipping per 52324 ($9.35); sells $87.99. 5-unit box ships $3.63/unit = 42.5%"},
+      "CH-flower": {"margin": 0.36, "source": "Cubby Hole invoice 52153: $47, single-unit shipping $9.35, sells $87.99"}
+    },
     "keyword_candidate_lines": ["name_trains", "books", "stools"],
     "campaign_line_overrides": {
       "Name Trains Search-2026": "name_trains"

@@ -5,7 +5,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from scripts.montessori_top_picks import rank, margin_for, section_html, eff_price  # noqa: E402
+from scripts.montessori_top_picks import (  # noqa: E402
+    rank, margin_for, section_html, eff_price, display_order,
+)
 
 BRANDS = {"guide craft": {"margin": 0.496}, "tag toys": {"margin": 0.168},
           "whitney brothers": {"margin": 0.347}}
@@ -82,6 +84,21 @@ def test_stock_check_skips_sold_out():
     assert [r["sku"] for r in picks] == ["G2", "G3"]
     assert ranked[0]["stock_status"] == "OUT"
     assert picks[1]["stock_status"] == "UNCHECKED"
+
+
+def test_duplicate_skus_counted_once():
+    prods = [_p("G1", "Guide Craft"), _p("G1", "Guide Craft"), _p("G2", "Guide Craft")]
+    picks, ranked = rank(prods, {}, {}, BRANDS, 0.15)
+    assert [r["sku"] for r in ranked] == ["G1", "G2"] or len(ranked) == 2
+    assert len({r["sku"] for r in picks}) == len(picks)
+
+
+def test_display_order_best_seller_then_price():
+    picks = [{"sku": "BIG", "purchased": 3, "profit": 780, "price": 524},
+             {"sku": "STOOL", "purchased": 59, "profit": 714, "price": 77},
+             {"sku": "CHEAP", "purchased": 3, "profit": 100, "price": 67},
+             {"sku": "MID", "purchased": 6, "profit": 350, "price": 118}]
+    assert [r["sku"] for r in display_order(picks)] == ["STOOL", "CHEAP", "MID", "BIG"]
 
 
 def _run():
