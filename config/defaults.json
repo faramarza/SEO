@@ -80,7 +80,8 @@
       "_note": "Per-SKU NET margins from vendor invoices, (store price - cost - shipping) / store price, before card fee. Used where no pricesheet exists.",
       "CH-fish":   {"margin": 0.36, "source": "Cubby Hole invoice 52324 (13-Oct-2026): $47 + $9.35 UPS Ground Saver single unit, sells $87.99"},
       "CH-sport":  {"margin": 0.36, "source": "Cubby Hole invoice 52153 (5-Oct-2026): $47 each; single-unit shipping per 52324 ($9.35); sells $87.99. 5-unit box ships $3.63/unit = 42.5%"},
-      "CH-flower": {"margin": 0.36, "source": "Cubby Hole invoice 52153: $47, single-unit shipping $9.35, sells $87.99"}
+      "CH-flower": {"margin": 0.36, "source": "Cubby Hole invoice 52153: $47, single-unit shipping $9.35, sells $87.99"},
+      "CH-001-1NSS": {"margin": 0.268, "source": "Heirloom Name Puzzle Stool. Cost per Frank: same Cubby Hole $47 stool cost as invoices 52324/52153, + $9.35 single-unit UPS Ground Saver; sells $76.99. Lowest-margin stool: $11 cheaper than the themed stools at the same cost."}
     },
     "keyword_candidate_lines": ["name_trains", "books", "stools"],
     "campaign_line_overrides": {
