@@ -71,6 +71,9 @@ _WIDGET = (
 )
 
 
+_GRID_CSS = '.mt-start-wrap .block-products-list,.mt-start-wrap .block-content,.mt-start-wrap .products-grid{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.mt-start-wrap ol.product-items{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:24px!important;margin:0 0 1.5rem!important;padding:0!important;list-style:none!important}.mt-start-wrap ol.product-items>li.product-item{width:auto!important;max-width:none!important;margin:0!important;padding:0!important;float:none!important;flex:none!important}.mt-start-wrap .product-item-info{width:100%!important;max-width:none!important}.mt-start-wrap .product-item-name{word-break:normal!important;overflow-wrap:break-word;hyphens:none}@media (max-width:768px){.mt-start-wrap ol.product-items{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:16px!important}}'
+
+
 def section_html(picks):
     """The 'Where to Start' block in the page's own mt-hub style. The subtitle
     only says 'buy most' when every pick really has sales; otherwise it makes no
@@ -87,7 +90,11 @@ def section_html(picks):
     return (
         "<style>.mt-start-wrap{max-width:1200px;margin:2.5rem auto}"
         ".mt-start-sub{text-align:center;color:var(--mt-muted);max-width:720px;"
-        "margin:0 auto 1.25rem;font-family:'Poppins',sans-serif}</style>"
+        "margin:0 auto 1.25rem;font-family:'Poppins',sans-serif}"
+        # The theme's widget grid ignores the page width inside a category
+        # description (all 8 cards squeezed into one row on phones). Force a
+        # 4-column grid on desktop and 2 columns on mobile. Tested live.
+        + _GRID_CSS + "</style>"
         "<section class=\"mt-start-wrap\" id=\"where-to-start\" "
         "aria-labelledby=\"mt-start-heading\">"
         "<h2 id=\"mt-start-heading\" style=\"text-align:center;margin-bottom:.5rem;\">"
