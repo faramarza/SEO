@@ -184,6 +184,36 @@ def items(cfg, days):
                      credentials_path=str(ROOT / g["credentials_path"])).get_item_data(days=days)
 
 
+def item_breakdown(client, prop, start, end, name_contains):
+    """Views / add-to-carts / purchases of matching items by channel and device.
+    Item-scoped metrics with session dimensions; prints why if GA4 refuses."""
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric, Filter, FilterExpression,
+    )
+    flt = FilterExpression(filter=Filter(field_name="itemName", string_filter=Filter.StringFilter(
+        value=name_contains, match_type=Filter.StringFilter.MatchType.CONTAINS,
+        case_sensitive=False)))
+    for dim in ("sessionDefaultChannelGroup", "sessionSourceMedium", "deviceCategory"):
+        try:
+            req = RunReportRequest(
+                property=prop, date_ranges=[DateRange(start_date=start, end_date=end)],
+                dimensions=[Dimension(name="itemName"), Dimension(name=dim)],
+                metrics=[Metric(name=m) for m in ("itemsViewed", "itemsAddedToCart",
+                                                  "itemsPurchased", "itemRevenue")],
+                dimension_filter=flt, limit=200)
+            rows = client.run_report(req).rows
+        except Exception as e:
+            print(f"   ({dim}: GA4 refused this combination: {str(e)[:120]})")
+            continue
+        print(f"\n   by {dim}:")
+        print(f"   {'item':<40}{dim[:22]:<24}{'views':>7}{'carts':>7}{'sold':>6}{'revenue':>9}")
+        data = sorted(rows, key=lambda r: -float(r.metric_values[0].value))
+        for r in data[:25]:
+            m = [float(x.value) for x in r.metric_values]
+            print(f"   {r.dimension_values[0].value[:39]:<40}{r.dimension_values[1].value[:23]:<24}"
+                  f"{m[0]:>7.0f}{m[1]:>7.0f}{m[2]:>6.0f}{m[3]:>9.0f}")
+
+
 # ---------------------------------------------------------------- main
 def pct(x):
     return "   -  " if x is None else f"{x * 100:5.1f}%"
@@ -193,6 +223,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--top", type=int, default=20)
+    ap.add_argument("--item", default=None,
+                    help="only show where views/carts/sales of items whose name contains "
+                         "this text come from (channel, source, device)")
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
@@ -204,6 +237,10 @@ def main():
     end_d = date.today() - timedelta(days=1)
     start_d = end_d - timedelta(days=args.days - 1)
     client, prop = _ga4(cfg)
+    if args.item:
+        print(f"ITEM BREAKDOWN  '{args.item}'  {start_d} -> {end_d}")
+        item_breakdown(client, prop, start_d.isoformat(), end_d.isoformat(), args.item)
+        return
     fb = funnel_by_device(client, prop, start_d.isoformat(), end_d.isoformat())
     it = items(cfg, args.days)
 
