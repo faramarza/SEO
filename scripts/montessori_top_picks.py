@@ -71,7 +71,9 @@ _WIDGET = (
 )
 
 
-_GRID_CSS = '.mt-start-wrap .block-products-list,.mt-start-wrap .block-content,.mt-start-wrap .products-grid{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.mt-start-wrap ol.product-items{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:24px!important;margin:0 0 1.5rem!important;padding:0!important;list-style:none!important}.mt-start-wrap ol.product-items>li.product-item{width:auto!important;max-width:none!important;margin:0!important;padding:0!important;float:none!important;flex:none!important}.mt-start-wrap .product-item-info{width:100%!important;max-width:none!important}.mt-start-wrap .product-item-name{word-break:normal!important;overflow-wrap:break-word;hyphens:none}@media (max-width:768px){.mt-start-wrap ol.product-items{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:16px!important}}'
+_GRID_CSS = '.mt-start-wrap .block-products-list,.mt-start-wrap .products-grid{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.mt-start-wrap .block-content{position:relative;width:100%!important;max-width:100%!important;margin:0!important;padding:0 44px!important}.mt-start-wrap ol.product-items{display:flex!important;flex-wrap:nowrap!important;gap:20px!important;overflow-x:auto!important;scroll-snap-type:x mandatory;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;margin:0 0 1.5rem!important;padding:0 0 10px!important;list-style:none!important;scrollbar-width:none}.mt-start-wrap ol.product-items::-webkit-scrollbar{display:none}.mt-start-wrap ol.product-items>li.product-item{flex:0 0 calc((100% - 60px)/4)!important;width:auto!important;max-width:none!important;margin:0!important;padding:0!important;float:none!important;scroll-snap-align:start}.mt-start-wrap .product-item-info{width:100%!important;max-width:none!important}.mt-start-wrap .product-item-name{word-break:normal!important;overflow-wrap:break-word;hyphens:none}.mt-start-wrap .mt-car-btn{position:absolute;top:30%;z-index:5;width:40px;height:40px;border-radius:50%;border:1px solid var(--mt-purple-border,#e5dbf7);background:#fff;color:var(--mt-purple,#7e57c2);font-size:26px;line-height:36px;text-align:center;padding:0;cursor:pointer;box-shadow:0 4px 14px rgba(36,36,36,.12)}.mt-start-wrap .mt-car-btn:hover{background:var(--mt-purple-light,#b39ddb);color:#fff}.mt-start-wrap .mt-car-btn[disabled]{opacity:.3;cursor:default}.mt-start-wrap .mt-car-prev{left:0}.mt-start-wrap .mt-car-next{right:0}@media (max-width:768px){.mt-start-wrap .block-content{padding:0!important}.mt-start-wrap ol.product-items{gap:14px!important}.mt-start-wrap ol.product-items>li.product-item{flex-basis:calc((100% - 14px)/2.25)!important}.mt-start-wrap .mt-car-btn{display:none}}\n.category-description .mt-start-wrap p.mt-start-sub{display:block;text-align:center!important;max-width:720px;margin:0 auto 1.25rem!important;padding:0!important}.mt-start-wrap .cta-btn-center{display:block;text-align:center!important;width:100%}.mt-start-wrap .product-item-details{text-align:center!important}.mt-start-wrap .product-item-name{display:block;text-align:center!important}.mt-start-wrap .product-reviews-summary{display:flex!important;justify-content:center!important;margin:6px auto!important}.mt-start-wrap .product-reviews-summary .reviews-actions{display:none!important}.mt-start-wrap .price-box{display:flex!important;justify-content:center!important;align-items:baseline;gap:8px;text-align:center!important;margin:8px auto!important;width:100%}.mt-start-wrap .product-item-inner,.mt-start-wrap .product-item-actions{display:flex!important;justify-content:center!important;align-items:center!important;gap:10px;width:100%;margin:0 auto!important;position:static!important;text-align:center!important}.mt-start-wrap .product-item-actions .actions-primary,.mt-start-wrap .product-item-actions .actions-secondary{float:none!important;display:inline-flex!important;align-items:center;margin:0!important}'
+# Arrow buttons for the carousel (desktop); phones swipe. Self-contained, no theme JS.
+_CAROUSEL_JS = "(function(){function init(){var w=document.getElementById('where-to-start');if(!w||w.getAttribute('data-car'))return;var list=w.querySelector('ol.product-items'),box=w.querySelector('.block-content');if(!list||!box)return;w.setAttribute('data-car','1');function mk(c,l,t){var b=document.createElement('button');b.type='button';b.className='mt-car-btn '+c;b.setAttribute('aria-label',l);b.innerHTML=t;box.appendChild(b);return b}var p=mk('mt-car-prev','Previous products','&#8249;'),n=mk('mt-car-next','More products','&#8250;');function step(){return list.clientWidth}function upd(){p.disabled=list.scrollLeft<=4;n.disabled=list.scrollLeft+list.clientWidth>=list.scrollWidth-4}p.addEventListener('click',function(){list.scrollBy({left:-step(),behavior:'smooth'})});n.addEventListener('click',function(){list.scrollBy({left:step(),behavior:'smooth'})});list.addEventListener('scroll',upd,{passive:true});window.addEventListener('resize',upd);upd()}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init)}else{init()}})();"
 
 
 def section_html(picks):
@@ -91,9 +93,11 @@ def section_html(picks):
         "<style>.mt-start-wrap{max-width:1200px;margin:2.5rem auto}"
         ".mt-start-sub{text-align:center;color:var(--mt-muted);max-width:720px;"
         "margin:0 auto 1.25rem;font-family:'Poppins',sans-serif}"
-        # The theme's widget grid ignores the page width inside a category
-        # description (all 8 cards squeezed into one row on phones). Force a
-        # 4-column grid on desktop and 2 columns on mobile. Tested live.
+        # One-row carousel: 4 cards + arrows on desktop, 2.25 cards swipeable on
+        # phones, name/stars/price/buttons centered. Server-rendered on purpose
+        # (the theme's own slider loads products by AJAX, so they are not in
+        # the page HTML Google first sees). The theme's pencil button for
+        # personalized items is kept. Tested on the live page.
         + _GRID_CSS + "</style>"
         "<section class=\"mt-start-wrap\" id=\"where-to-start\" "
         "aria-labelledby=\"mt-start-heading\">"
@@ -103,7 +107,7 @@ def section_html(picks):
         + _WIDGET % {"n": len(picks), "skus": skus}
         + "<div class=\"cta-btn-center\"><a href=\"#shop-by-age\" "
         "class=\"cta-button action primary\">Shop Montessori Toys by Age</a></div>"
-        "</section>\n"
+        "</section><script>" + _CAROUSEL_JS + "</script>\n"
     )
 
 
