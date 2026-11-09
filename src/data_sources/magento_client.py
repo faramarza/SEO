@@ -388,17 +388,30 @@ class MagentoClient:
     # payload, so the two-field write denylist is untouched.
     def iter_all_products(self, page_size=100, max_products=None,
                           only_visible=True):
-        """Yield raw Magento product dicts across all pages. `only_visible`
-        keeps catalog/search-visible sellable products (visibility != 1)."""
+        """Yield raw Magento product dicts across all pages, each SKU once.
+        `only_visible` keeps catalog/search-visible sellable products
+        (visibility != 1).
+
+        Pages are sorted by entity_id: without a fixed sort order Magento's
+        paging is unstable, so some products come back on two pages and others
+        on none (seen live: the store's best-selling stool vanished between
+        runs while other SKUs appeared twice)."""
         page, seen = 1, 0
+        yielded = set()
         while True:
             q = (f"/products?searchCriteria[pageSize]={page_size}"
-                 f"&searchCriteria[currentPage]={page}")
+                 f"&searchCriteria[currentPage]={page}"
+                 f"&searchCriteria[sortOrders][0][field]=entity_id"
+                 f"&searchCriteria[sortOrders][0][direction]=ASC")
             data = self._req("GET", q) or {}
             items = data.get("items") or []
             if not items:
                 break
             for p in items:
+                key = p.get("id") or p.get("sku")
+                if key in yielded:
+                    continue
+                yielded.add(key)
                 if only_visible and str(self._attr(p, "visibility", "4")) == "1":
                     continue  # "Not Visible Individually" — not agent-sellable
                 yield p

@@ -349,6 +349,7 @@ def main():
                          min_margin=args.min_margin, exclude=args.exclude,
                          stock_check=magento_stock_check(mc) if mc else None)
 
+    print(f"Products read: {len(products)}  ({'catalog CSV' if args.catalog_csv else 'Magento API, sorted paging'})")
     print(f"Montessori candidates (enabled, in stock, margin >= {args.min_margin:.0%}): "
           f"{len(ranked)}   GA4 items with sales data: {len(sales)}")
     out = [r for r in ranked if r.get("stock_status") == "OUT"]
