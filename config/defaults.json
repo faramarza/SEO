@@ -52,6 +52,19 @@
     "break_even_roas": 4.0,
     "product_families": ["name trains", "personalized name puzzles", "personalized step stools", "personalized baby books", "personalized baby gifts", "personalized toys", "montessori toys", "classroom rugs", "kids furniture"]
   },
+  "demand_sources_note": "Sites whose Google rankings define demand for the catalog: makers (brand-filtered) and category stores ('*' = match against the whole catalog). Used by scripts/demand_map.py --all.",
+  "demand_sources": [
+    {"domain": "guidecraft.com", "brand": "guide craft"},
+    {"domain": "whitneybros.com", "brand": "whitney"},
+    {"domain": "carpetsforkids.com", "brand": "carpets for kids"},
+    {"domain": "tagtoys.com", "brand": "tag toys"},
+    {"domain": "maplelandmark.com", "brand": "maple landmark"},
+    {"domain": "iseeme.com", "brand": "*"},
+    {"domain": "cubbyholetoys.com", "brand": "*"},
+    {"domain": "montessorigeneration.com", "brand": "*"},
+    {"domain": "hazelandfawn.com", "brand": "*"},
+    {"domain": "kidcarpet.com", "brand": "*"}
+  ],
   "available_target_pages": {
     "category_urls": [],
     "top_product_urls": []

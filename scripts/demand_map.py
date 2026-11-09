@@ -5,7 +5,8 @@ Demand first, then products, then profit.
 
 Run on the server:
 
-    /var/www/seo/venv/bin/python scripts/demand_map.py --domain guidecraft.com --brand "guide craft"
+    /var/www/seo/venv/bin/python scripts/demand_map.py --all
+    ... --domain guidecraft.com --brand "guide craft"   (one source only)
     ... --top 40            (rows to list, default 40)
     ... --min-volume 30     (ignore searches under N/month, default 30)
 
@@ -103,7 +104,8 @@ def break_even_roas(margin):
 
 
 # ---------------------------------------------------------------- data
-def load_products(brand):
+def load_all_products():
+    """Every enabled, visible product with its brand label, price and URL."""
     from src.data_sources.magento_client import MagentoClient
     mc = MagentoClient()
     if not mc.configured:
@@ -116,9 +118,6 @@ def load_products(brand):
             continue
         seen.add(p.get("sku"))
         man = man_opts.get(str(mc._attr(p, "manufacturer")), "") or mc._attr(p, "brand_google")
-        name = p.get("name", "")
-        if brand.lower() not in f"{man} {name}".lower().replace("guidecraft", "guide craft"):
-            continue
         price = float(p.get("price") or 0)
         sp = mc._attr(p, "special_price")
         try:
@@ -126,9 +125,34 @@ def load_products(brand):
                 price = float(sp)
         except ValueError:
             pass
-        out.append({"sku": p.get("sku"), "name": name, "price": price,
-                    "url": "/" + (mc._attr(p, "url_key") or "") + ".html"})
+        out.append({"sku": p.get("sku"), "name": p.get("name", ""), "brand": man or "",
+                    "price": price, "url": "/" + (mc._attr(p, "url_key") or "") + ".html"})
     return out
+
+
+def brand_filter(products, brand):
+    """Products of one brand ('*' = whole catalog). Matches the brand label or name."""
+    if brand == "*":
+        return products
+    b = brand.lower().replace("guidecraft", "guide craft")
+    return [p for p in products
+            if b in f"{p['brand']} {p['name']}".lower().replace("guidecraft", "guide craft")]
+
+
+def product_margin(p, cfg):
+    """Net margin for one product: brand margin, else product line by URL, else
+    default; minus the card fee."""
+    ps = cfg.get("paid_search", {})
+    fee = float(ps.get("card_fee", 0.03))
+    label = f"{p.get('brand', '')} {p.get('name', '')}".lower().replace("guidecraft", "guide craft")
+    for k, v in ps.get("brand_margins", {}).items():
+        if not k.startswith("_") and k in label:
+            return float(v["margin"]) - fee
+    url = (p.get("url") or "").lower()
+    for line in ps.get("product_lines", {}).values():
+        if any(pat.lower() in url for pat in line.get("url_patterns", [])):
+            return float(line["margin"]) - fee
+    return float(ps.get("default_margin", 0.15)) - fee
 
 
 def load_gsc_queries(cfg, days=90):
@@ -136,15 +160,6 @@ def load_gsc_queries(cfg, days=90):
     g = cfg["data_sources"]["gsc"]
     gsc = GSCClient(site_url=g["property_url"], credentials_path=str(ROOT / g["credentials_path"]))
     return gsc.get_query_data(days=days)
-
-
-def margin_for_brand(cfg, brand):
-    ps = cfg.get("paid_search", {})
-    fee = float(ps.get("card_fee", 0.03))
-    for k, v in ps.get("brand_margins", {}).items():
-        if not k.startswith("_") and (k in brand.lower() or brand.lower() in k):
-            return float(v["margin"]) - fee
-    return float(ps.get("default_margin", 0.15)) - fee
 
 
 def organic_conversion(cfg, days=90):
@@ -162,80 +177,141 @@ def organic_conversion(cfg, days=90):
         return 0.01, 0, 0
 
 
-# ---------------------------------------------------------------- main
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--domain", required=True, help="maker's site, e.g. guidecraft.com")
-    ap.add_argument("--brand", required=True, help='your brand name for it, e.g. "guide craft"')
-    ap.add_argument("--top", type=int, default=40)
-    ap.add_argument("--min-volume", type=int, default=30)
-    args = ap.parse_args()
-
-    cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
-    from src.data_sources import dataforseo_client as dfs
-    demand = dfs.fetch_ranked_keywords(args.domain, limit=1000, max_position=20)
-    if not demand.get("available"):
-        sys.exit(f"Demand data unavailable: {demand.get('reason')}")
-    brand_words = {args.brand.lower(), args.brand.lower().replace(" ", ""),
-                   args.domain.split(".")[0].lower()}
+def source_rows(src, demand, all_products, gsc, conv, cfg, min_volume):
+    """Rows for one demand source: each search matched to a product of that brand
+    (or the whole catalog), valued at that product's own margin."""
+    domain, brand = src["domain"], src.get("brand", "*")
+    brand_words = {domain.split(".")[0].lower()}
+    if brand != "*":
+        brand_words |= {brand.lower(), brand.lower().replace(" ", "")}
     stop_brand = set()
     for b in brand_words:
         stop_brand |= set(re.findall(r"[a-z0-9]+", b))
-
-    products = load_products(args.brand)
+    products = brand_filter(all_products, brand) or all_products
     for p in products:
         p["_tokens"] = tokens(p["name"], stop_brand)
-    gsc = load_gsc_queries(cfg)
-    margin = margin_for_brand(cfg, args.brand)
-    conv, conv_s, conv_o = organic_conversion(cfg)
-    be = break_even_roas(margin)
-
     rows = []
-    for k in demand["keywords"]:
-        if (k.get("volume") or 0) < args.min_volume:
+    for k in demand.get("keywords", []):
+        if (k.get("volume") or 0) < min_volume:
             continue
         kw = k["keyword"]
         prod, score = best_match(kw, products, stop_brand)
         mine = gsc.get(kw.lower(), {})
         cur_ctr = (mine.get("clicks", 0) / mine["impressions"]) if mine.get("impressions") else 0.0
-        price = prod["price"] if prod else 0.0
-        extra, profit = monthly_profit(k["volume"], cur_ctr, conv, price, margin)
-        rows.append({"kw": kw, "vol": k["volume"], "cpc": k.get("cpc") or 0,
-                     "maker_pos": k.get("position"), "branded": is_branded(kw, brand_words),
-                     "prod": prod, "score": score, "my_pos": mine.get("position"),
-                     "my_clicks": mine.get("clicks", 0), "extra": extra,
-                     "profit": profit if (prod and score >= 0.5) else 0.0})
-    rows.sort(key=lambda r: -r["profit"])
+        good = bool(prod) and score >= 0.5
+        m = product_margin(prod, cfg) if prod else 0.0
+        extra, profit = monthly_profit(k["volume"], cur_ctr, conv, prod["price"] if prod else 0, m)
+        rows.append({"kw": kw, "vol": k["volume"], "cpc": k.get("cpc") or 0, "source": domain,
+                     "branded": brand != "*" and is_branded(kw, brand_words),
+                     "prod": prod if good else None, "cand": prod, "score": score, "margin": m,
+                     "my_pos": mine.get("position"), "my_clicks": mine.get("clicks", 0),
+                     "extra": extra, "profit": profit if good else 0.0})
+    return rows
 
-    tot_vol = sum(r["vol"] for r in rows)
-    matched = [r for r in rows if r["prod"] and r["score"] >= 0.5]
-    print("=" * 110)
-    print(f"DEMAND MAP  {args.domain}  ->  your '{args.brand}' products   (US, monthly searches)")
-    print("=" * 110)
-    print(f"searches found: {len(rows)} (>= {args.min_volume}/mo), {tot_vol:,} searches/month total; "
-          f"matched to one of your {len(products)} products: {len(matched)} "
-          f"({sum(r['vol'] for r in matched):,} searches/month)")
-    print(f"your net margin on this brand: {margin*100:.1f}%  ->  ads break even at a return of "
-          f"{be:.2f}" if be else "")
+
+def merge_rows(rows):
+    """One row per search: keep the most valuable match across sources."""
+    best = {}
+    for r in rows:
+        k = r["kw"].lower()
+        if k not in best or (r["profit"], r["vol"]) > (best[k]["profit"], best[k]["vol"]):
+            best[k] = r
+    return sorted(best.values(), key=lambda r: (-r["profit"], -r["vol"]))
+
+
+# ---------------------------------------------------------------- main
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--all", action="store_true",
+                    help="every source in config demand_sources (makers + category stores)")
+    ap.add_argument("--domain", help="one source site, e.g. guidecraft.com")
+    ap.add_argument("--brand", default="*", help='your brand name for it, e.g. "guide craft"; '
+                    '"*" = match against the whole catalog')
+    ap.add_argument("--top", type=int, default=50)
+    ap.add_argument("--min-volume", type=int, default=30)
+    args = ap.parse_args()
+
+    cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
+    if args.all:
+        sources = [s for s in cfg.get("demand_sources", []) if isinstance(s, dict)]
+    elif args.domain:
+        sources = [{"domain": args.domain, "brand": args.brand}]
+    else:
+        sys.exit("Pass --all, or --domain (and --brand).")
+
+    from src.data_sources import dataforseo_client as dfs
+    all_products = load_all_products()
+    gsc = load_gsc_queries(cfg)
+    conv, conv_s, conv_o = organic_conversion(cfg)
+
+    rows, skipped = [], []
+    for src in sources:
+        demand = dfs.fetch_ranked_keywords(src["domain"], limit=1000, max_position=20)
+        if not demand.get("available"):
+            skipped.append(f"{src['domain']}: {demand.get('reason')}")
+            continue
+        rows += source_rows(src, demand, all_products, gsc, conv, cfg, args.min_volume)
+    if not rows:
+        sys.exit("No demand data. " + " | ".join(skipped))
+    rows = merge_rows(rows)
+
+    print("=" * 118)
+    print(f"DEMAND MAP  ({len(sources)} source sites, US monthly searches)  ->  your "
+          f"{len(all_products)} products")
+    print("=" * 118)
+    for s in skipped:
+        print(f"   skipped {s}")
     print(f"organic conversion used: {conv*100:.2f}% ({conv_o} orders / {conv_s} organic "
-          f"sessions on product+category pages, GA4 90 days)")
-    print(f"\n{'search':<38}{'vol/mo':>7}{'cpc':>6}{'you':>6}{'clk':>5}{'+$/mo':>7}  "
-          f"{'B':<2}{'your matching product':<44}{'match':>5}")
+          f"product+category sessions, GA4 90 days); value = reaching #3 (10% click rate)")
+
+    by_brand = {}
+    for r in rows:
+        key = (r["prod"]["brand"] or "(no brand)") if r["prod"] else "NO MATCHING PRODUCT"
+        b = by_brand.setdefault(key, {"searches": 0, "vol": 0, "profit": 0.0, "margin": r["margin"]})
+        b["searches"] += 1
+        b["vol"] += r["vol"]
+        b["profit"] += r["profit"]
+    print(f"\nBY BRAND  {'brand':<28}{'searches':>9}{'volume/mo':>11}{'margin':>8}"
+          f"{'ads break-even':>16}{'+$/mo at #3':>13}")
+    for name, b in sorted(by_brand.items(), key=lambda x: -x[1]["profit"]):
+        be = break_even_roas(b["margin"]) if name != "NO MATCHING PRODUCT" else None
+        print(f"          {name[:27]:<28}{b['searches']:>9}{b['vol']:>11,}"
+              f"{(b['margin']*100 if be else 0):>7.1f}%{(f'{be:.2f}' if be else '-'):>16}"
+              f"{b['profit']:>13,.0f}")
+
+    print(f"\nTOP {args.top} SEARCHES BY PROFIT POTENTIAL")
+    print(f"{'search':<36}{'vol/mo':>7}{'cpc':>6}{'you':>5}{'clk':>5}{'+$/mo':>7}  "
+          f"{'B':<2}{'your product':<40}{'brand':<16}")
     for r in rows[:args.top]:
         p = r["prod"]
         you = f"{r['my_pos']:.0f}" if r["my_pos"] else "-"
-        pname = (p["name"][:43] if p else "(no product of yours matches)")
-        print(f"{r['kw'][:37]:<38}{r['vol']:>7,}{r['cpc']:>6.2f}{you:>6}{r['my_clicks']:>5}"
-              f"{r['profit']:>7,.0f}  {'B' if r['branded'] else ' ':<2}{pname:<44}"
-              f"{r['score']*100:>4.0f}%")
-    unmatched = sorted((r for r in rows if not r["prod"] or r["score"] < 0.5), key=lambda r: -r["vol"])
-    if unmatched:
-        print("\nDEMAND YOU HAVE NO GOOD PRODUCT FOR (top 15 by volume) - candidates to add:")
-        for r in unmatched[:15]:
-            print(f"   {r['kw'][:50]:<52}{r['vol']:>7,}/mo  cpc ${r['cpc']:.2f}")
-    print("\nB = branded search (maker holds #1; aim for #2-#5). match < 50% = check by hand, "
-          "not valued.\n+$/mo = gross profit if you reached position 3, at your conversion rate "
-          "and margin.")
+        print(f"{r['kw'][:35]:<36}{r['vol']:>7,}{r['cpc']:>6.2f}{you:>5}{r['my_clicks']:>5}"
+              f"{r['profit']:>7,.0f}  {'B' if r['branded'] else ' ':<2}"
+              f"{(p['name'][:39] if p else '-'):<40}{(p['brand'][:15] if p else ''):<16}")
+
+    unmatched = sorted((r for r in rows if not r["prod"]), key=lambda r: -r["vol"])
+    print("\nHIGH DEMAND WITH NO GOOD PRODUCT MATCH (top 25 by volume): add a product, or a "
+          "page that answers it")
+    for r in unmatched[:25]:
+        near = f"  nearest: {r['cand']['name'][:40]} ({r['score']*100:.0f}%)" if r["cand"] else ""
+        print(f"   {r['kw'][:44]:<46}{r['vol']:>7,}/mo  cpc ${r['cpc']:.2f}  [{r['source']}]{near}")
+
+    out = ROOT / "data" / "demand_map.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    import csv
+    with open(out, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["search", "volume", "cpc", "source", "branded", "your_position", "your_clicks",
+                    "product", "sku", "brand", "url", "match", "net_margin", "profit_at_3"])
+        for r in rows:
+            p = r["prod"] or {}
+            w.writerow([r["kw"], r["vol"], r["cpc"], r["source"], int(r["branded"]),
+                        r["my_pos"] or "", r["my_clicks"], p.get("name", ""), p.get("sku", ""),
+                        p.get("brand", ""), p.get("url", ""), round(r["score"], 2),
+                        round(r["margin"], 3), round(r["profit"], 2)])
+    print(f"\nEvery search -> {out}")
+    print("B = branded (the maker holds #1; aim for #2-#5). +$/mo = gross profit if you reached "
+          "#3, at your conversion and that product's net margin.")
 
 
 if __name__ == "__main__":

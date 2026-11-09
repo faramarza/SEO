@@ -33,6 +33,22 @@ def test_branded_and_money():
     assert round(break_even_roas(0.466), 2) == 2.15
 
 
+def test_margin_merge_and_brand_filter():
+    from scripts.demand_map import product_margin, merge_rows, brand_filter
+    cfg = {"paid_search": {"card_fee": 0.03, "default_margin": 0.15,
+           "brand_margins": {"guide craft": {"margin": 0.496}},
+           "product_lines": {"name_trains": {"margin": 0.30, "url_patterns": ["name-train"]}}}}
+    assert round(product_margin({"brand": "Guide Craft", "name": "x", "url": "/x.html"}, cfg), 3) == 0.466
+    assert round(product_margin({"brand": "Maple Landmark", "name": "x",
+                                 "url": "/5-letter-name-train.html"}, cfg), 3) == 0.27
+    assert round(product_margin({"brand": "", "name": "x", "url": "/y.html"}, cfg), 3) == 0.12
+    rows = merge_rows([{"kw": "A", "profit": 5, "vol": 10}, {"kw": "a", "profit": 9, "vol": 10},
+                       {"kw": "b", "profit": 1, "vol": 99}])
+    assert [r["profit"] for r in rows] == [9, 1]
+    prods = [{"brand": "Guide Craft", "name": "x"}, {"brand": "Tag Toys", "name": "y"}]
+    assert len(brand_filter(prods, "guidecraft")) == 1 and len(brand_filter(prods, "*")) == 2
+
+
 def _run():
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):
