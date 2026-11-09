@@ -49,6 +49,13 @@ def test_margin_merge_and_brand_filter():
     assert len(brand_filter(prods, "guidecraft")) == 1 and len(brand_filter(prods, "*")) == 2
 
 
+def test_realism_rules():
+    from scripts.demand_map import is_head_term, target_ctr, TARGET_CTR, PAGE1_CTR
+    assert is_head_term("blocks", set()) and is_head_term("kids wooden", set())
+    assert not is_head_term("wooden unit blocks", set())
+    assert target_ctr(6.0) == TARGET_CTR and target_ctr(None) == PAGE1_CTR and target_ctr(35) == PAGE1_CTR
+
+
 def _run():
     for k, v in sorted(globals().items()):
         if k.startswith("test_"):

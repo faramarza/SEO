@@ -515,6 +515,7 @@ def fetch_ranked_keywords(domain: str, limit: int = 1000, max_position: int = 20
             "competition": ki.get("competition") or 0,
             "position": se.get("rank_group") or se.get("rank_absolute") or 0,
             "url": se.get("url") or "",
+            "difficulty": (kd.get("keyword_properties") or {}).get("keyword_difficulty"),
         })
 
     out = {"available": True, "domain": domain,
