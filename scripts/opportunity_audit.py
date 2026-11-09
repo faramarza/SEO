@@ -116,11 +116,25 @@ def build_ctr_curve(rows, min_impr=MIN_BUCKET_IMPR):
             curve[b], src[b] = c / i, "site"
         else:
             curve[b], src[b] = FALLBACK_CTR[b], "fallback"
-    prev = 1.0
-    for b in sorted(curve):
-        curve[b] = min(curve[b], prev)
-        prev = curve[b]
+    # Non-increasing, enforced from the WORST position upward: a better position
+    # is raised to at least the next-worse one. (Enforcing top-down let one noisy
+    # bucket at #1 with 0 clicks zero out the whole curve.)
+    nxt = 0.0
+    for b in sorted(curve, reverse=True):
+        curve[b] = max(curve[b], nxt)
+        nxt = curve[b]
     return curve, src
+
+
+def raw_ctr_table(rows):
+    """{bucket: (impressions, clicks)} of the site's own non-brand data, printed
+    so the curve can be audited."""
+    agg = defaultdict(lambda: [0, 0])
+    for r in rows:
+        b = bucket(r["position"])
+        agg[b][0] += r["impressions"]
+        agg[b][1] += r["clicks"]
+    return {b: tuple(v) for b, v in agg.items()}
 
 
 def ctr_at(curve, pos):
@@ -152,15 +166,18 @@ def margin_for_path(path, product_lines, default_margin, card_fee):
     return max(0.0, default_margin - card_fee)
 
 
-def find_cannibals(rows, share=0.15):
+def find_cannibals(rows, share=0.15, min_query_impr=100):
     """Paths that share a query with another of your paths, each holding >= share
-    of that query's impressions. Returns {path: set(queries)}."""
+    of that query's impressions, for queries with real volume (>= min_query_impr
+    impressions in the window). Returns {path: set(queries)}."""
     by_q = defaultdict(list)
     for r in rows:
         by_q[r["query"]].append(r)
     out = defaultdict(set)
     for q, rs in by_q.items():
         tot = sum(r["impressions"] for r in rs)
+        if tot < min_query_impr:
+            continue
         big = [r for r in rs if tot and r["impressions"] / tot >= share]
         if len({r["path"] for r in big}) >= 2:
             for r in big:
@@ -179,6 +196,14 @@ def row_opportunity(r, curve, value_per_click):
         extra = max(0.0, r["impressions"] * (ctr_at(curve, target) - cur_ctr))
         out[name] = (extra, extra * value_per_click)
     return out
+
+
+def snippet_gap(r, industry=FALLBACK_CTR):
+    """Clicks lost at the CURRENT position versus a typical result at that
+    position: impressions x (industry CTR - your CTR). Big gaps mean the
+    listing is shown but not chosen (title/description, SERP features, intent)."""
+    cur = r["clicks"] / r["impressions"] if r["impressions"] else 0.0
+    return max(0.0, r["impressions"] * (industry[bucket(r["position"])] - cur))
 
 
 # ---------------------------------------------------------------- data loads
@@ -290,7 +315,8 @@ def main():
     # per-row opportunity, aggregated per page
     cannibals = find_cannibals(rows)
     pages = defaultdict(lambda: {"impr": 0, "clicks": 0, "pos_w": 0.0, "top_q": ("", 0),
-                                 "A_clicks": 0.0, "A_profit": 0.0, "B_clicks": 0.0, "B_profit": 0.0})
+                                 "A_clicks": 0.0, "A_profit": 0.0, "B_clicks": 0.0, "B_profit": 0.0,
+                                 "gap_clicks": 0.0, "gap_profit": 0.0})
     for r in rows:
         path = r["path"]
         t = page_type(path, cat_paths)
@@ -307,6 +333,9 @@ def main():
         for s in SCENARIOS:
             pg[f"{s}_clicks"] += opp[s][0]
             pg[f"{s}_profit"] += opp[s][1]
+        g = snippet_gap(r)
+        pg["gap_clicks"] += g
+        pg["gap_profit"] += g * vpc
 
     # optional live check: category pages that list no products
     no_products = set()
@@ -327,10 +356,15 @@ def main():
     print(f"SEO OPPORTUNITY AUDIT  last {args.days} days  (non-brand Google search; brand "
           f"clicks excluded: {brand_clicks})")
     print("=" * 96)
-    print("\nYOUR CLICK-THROUGH BY POSITION (non-brand)")
-    print("   " + "  ".join(f"#{b}:{curve[b]*100:.1f}%{'' if src[b]=='site' else '*'}"
-                            for b in sorted(curve)))
-    print("   * = too few impressions at that position; published industry curve used")
+    raw_t = raw_ctr_table(rows)
+    print("\nYOUR CLICK-THROUGH BY POSITION (non-brand) vs a typical result")
+    print(f"   {'pos':>5}{'impressions':>13}{'clicks':>8}{'your CTR':>10}{'typical':>9}{'used':>8}")
+    for b in sorted(curve):
+        i, c = raw_t.get(b, (0, 0))
+        lab = f"#{b}" if b <= 10 else {15: "11-15", 20: "16-20", 30: "21+"}[b]
+        print(f"   {lab:>5}{i:>13,}{c:>8,}{(c / i * 100 if i else 0):>9.2f}%"
+              f"{FALLBACK_CTR[b]*100:>8.1f}%{curve[b]*100:>7.2f}%{'' if src[b]=='site' else '*'}")
+    print("   used = your own CTR (made non-increasing); * = too few impressions, typical used")
     print("\nORGANIC CONVERSION BY PAGE TYPE (GA4 landing pages"
           + (f", x{capture:.2f} for orders GA4 misses" if capture > 1 else "") + ")")
     for t in PAGE_TYPES:
@@ -349,6 +383,10 @@ def main():
         pr = sum(d[f"{s}_profit"] for d in pages.values()) / months
         print(f"   scenario {s} (every page reaches #{target}): +{c:,.0f} clicks/month, "
               f"+${pr:,.0f} gross profit/month")
+    gc = sum(d["gap_clicks"] for d in pages.values()) / months
+    gp = sum(d["gap_profit"] for d in pages.values()) / months
+    print(f"   snippet gap (same positions, typical click rate): +{gc:,.0f} clicks/month, "
+          f"+${gp:,.0f} gross profit/month")
     by_type = defaultdict(float)
     for d in pages.values():
         by_type[d["type"]] += d["A_profit"] / months
@@ -358,7 +396,7 @@ def main():
     ranked = sorted(pages.items(), key=lambda kv: -kv[1]["A_profit"])
     print(f"\nTOP {args.top} PAGES BY PROFIT FROM REACHING #8 (scenario A), per month")
     print(f"   {'page':<46}{'type':<9}{'impr/mo':>8}{'pos':>6}{'clk/mo':>7}"
-          f"{'+clk A':>7}{'+$ A':>7}{'+$ B':>7}  flags / top query")
+          f"{'+clk A':>7}{'+$ A':>7}{'+$ B':>7}{'gapclk':>7}  flags / top query")
     for path, d in ranked[:args.top]:
         pos = d["pos_w"] / d["impr"] if d["impr"] else 0
         flags = []
@@ -368,7 +406,8 @@ def main():
             flags.append("NO-PRODUCTS")
         print(f"   {path[:45]:<46}{d['type']:<9}{d['impr']/months:>8,.0f}{pos:>6.1f}"
               f"{d['clicks']/months:>7,.0f}{d['A_clicks']/months:>7,.0f}"
-              f"{d['A_profit']/months:>7,.0f}{d['B_profit']/months:>7,.0f}  "
+              f"{d['A_profit']/months:>7,.0f}{d['B_profit']/months:>7,.0f}"
+              f"{d['gap_clicks']/months:>7,.0f}  "
               f"{' '.join(flags)} \"{d['top_q'][0][:40]}\"")
 
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
@@ -376,13 +415,15 @@ def main():
         w = csv.writer(f)
         w.writerow(["path", "type", "impressions", "clicks", "avg_position", "margin_net",
                     "value_per_click", "extra_clicks_A", "extra_profit_A", "extra_clicks_B",
-                    "extra_profit_B", "cannibal_queries", "no_products", "top_query"])
+                    "extra_profit_B", "snippet_gap_clicks", "cannibal_queries", "no_products",
+                    "top_query"])
         for path, d in ranked:
             w.writerow([path, d["type"], d["impr"], d["clicks"],
                         round(d["pos_w"] / d["impr"], 1) if d["impr"] else "",
                         round(d["margin"], 3), round(d["vpc"], 3),
                         round(d["A_clicks"], 1), round(d["A_profit"], 2),
                         round(d["B_clicks"], 1), round(d["B_profit"], 2),
+                        round(d["gap_clicks"], 1),
                         "; ".join(sorted(cannibals.get(path, []))[:5]),
                         int(path in no_products), d["top_q"][0]])
     print(f"\nFull table (every page) -> {OUT_CSV}")

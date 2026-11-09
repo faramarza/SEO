@@ -22,9 +22,16 @@ def test_curve_uses_site_data_then_fallback_and_is_monotonic():
             {"clicks": 80, "impressions": 1000, "position": 3.0}]     # site 8% at #3 > #1
     curve, src = build_ctr_curve(rows, min_impr=500)
     assert src[1] == "site" and src[3] == "site" and src[2] == "fallback"
-    # #3 must not beat #1: forced non-increasing
-    assert curve[1] == 0.05 and curve[3] <= curve[2] <= curve[1]
-    assert curve[30] <= FALLBACK_CTR[30]
+    # non-increasing enforced bottom-up: #1 raised to at least #2/#3
+    assert curve[3] <= curve[2] <= curve[1]
+    assert curve[1] >= 0.08
+
+
+def test_curve_not_zeroed_by_noisy_top_bucket():
+    rows = [{"clicks": 0, "impressions": 1000, "position": 1.0},      # noisy 0% at #1
+            {"clicks": 20, "impressions": 1000, "position": 8.0}]     # 2% at #8
+    curve, _ = build_ctr_curve(rows, min_impr=500)
+    assert curve[8] == 0.02 and curve[1] >= 0.02
 
 
 def test_page_type():
@@ -42,12 +49,15 @@ def test_margin_by_url_minus_card_fee():
 
 
 def test_cannibals():
-    rows = [{"query": "q", "path": "/a.html", "impressions": 60},
-            {"query": "q", "path": "/b.html", "impressions": 40},
+    rows = [{"query": "q", "path": "/a.html", "impressions": 600},
+            {"query": "q", "path": "/b.html", "impressions": 400},
             {"query": "z", "path": "/a.html", "impressions": 99},
             {"query": "z", "path": "/c.html", "impressions": 1}]
     c = find_cannibals(rows)
     assert c["/a.html"] == {"q"} and c["/b.html"] == {"q"} and "/c.html" not in c
+    small = [{"query": "t", "path": "/a.html", "impressions": 6},
+             {"query": "t", "path": "/b.html", "impressions": 4}]
+    assert find_cannibals(small) == {}
 
 
 def test_row_opportunity():
@@ -58,6 +68,12 @@ def test_row_opportunity():
     assert round(o["A"][0], 6) == 20.0 and round(o["A"][1], 6) == 40.0
     assert o["B"][0] > o["A"][0]
     assert row_opportunity({"impressions": 100, "clicks": 9, "position": 2.0}, curve, 1)["A"] == (0.0, 0.0)
+
+
+def test_snippet_gap():
+    from scripts.opportunity_audit import snippet_gap
+    # 1000 impressions at #8 (typical 2.5%) with 5 clicks: 25 - 5 = 20 lost
+    assert round(snippet_gap({"impressions": 1000, "clicks": 5, "position": 8.0}), 6) == 20.0
 
 
 def test_brand():
