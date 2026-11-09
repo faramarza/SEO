@@ -29,12 +29,32 @@ Read-only. Changes nothing in GA4, GSC, Magento or the site.
 """
 import argparse
 import json
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+
+def _load_dotenv():
+    """Read KEY=VALUE lines from the project .env (where the web app keeps the
+    Magento creds) without overwriting vars already set."""
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key, val = key.strip(), val.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
+_load_dotenv()
 
 # Countries you can actually sell to. Traffic outside these cannot buy, so it is
 # reported separately (real or not, it is not your market).
