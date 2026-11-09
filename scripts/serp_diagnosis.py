@@ -155,6 +155,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", help='lines of "query | /your-path.html"')
     ap.add_argument("--no-content", action="store_true", help="skip word-count fetches")
+    ap.add_argument("--domains", type=int, default=12,
+                    help="competitor domains to compare site-level authority (default 12)")
     args = ap.parse_args()
 
     targets = DEFAULT_TARGETS
@@ -181,6 +183,7 @@ def main():
              "  [authority check OFF: DataForSEO not configured]"))
     print("=" * 78)
     tally = {}
+    seen_domains = {}   # competitor domain -> how many of your queries it is on page 1 for
     for q, path in targets:
         res = serp_client.fetch_serp(q)
         if not res:
@@ -190,6 +193,11 @@ def main():
         kinds = [classify_result(r["url"], r.get("title", "")) for r in top]
         own_urls = [r["url"] for r, k in zip(top, kinds) if k == "own"]
         own_pos = next((r["position"] for r, k in zip(top, kinds) if k == "own"), None)
+        for r, k in zip(top, kinds):
+            if k == "shop":
+                d = (urlparse(r["url"]).netloc or "").lower().removeprefix("www.")
+                if d:
+                    seen_domains[d] = seen_domains.get(d, 0) + 1
 
         own_words = comp_words = None
         if not args.no_content:
@@ -239,6 +247,37 @@ def main():
                   f"{(r.get('title') or '')[:42]}")
         if res.get("serp_features"):
             print(f"    features: {', '.join(res['serp_features'])}")
+
+    # ---- Site-level authority: page-level referring domains are ~0 for most
+    # small shops, so they can't explain page 1. Domain-level strength can.
+    if use_dfs and seen_domains:
+        print("\n" + "=" * 78)
+        print("SITE-LEVEL AUTHORITY  (referring domains to the WHOLE site, DataForSEO)")
+        ranked = sorted(seen_domains.items(), key=lambda x: -x[1])[:args.domains]
+        rows = []
+        for dom in [OWN] + [d for d, _ in ranked]:
+            s = dfs.fetch_backlinks_summary(dom)
+            if s.get("available"):
+                rows.append((dom, s.get("referring_domains", 0), s.get("rank", 0),
+                             seen_domains.get(dom, 0)))
+            else:
+                print(f"   {dom}: {s.get('reason', 'unavailable')}")
+        own_rd_site = next((r[1] for r in rows if r[0] == OWN), None)
+        comp = [r[1] for r in rows if r[0] != OWN]
+        print(f"   {'domain':<32}{'ref.domains':>12}{'rank':>7}{'on page 1 for':>15}")
+        for dom, rd, rk, n in sorted(rows, key=lambda x: -x[1]):
+            mark = "  <- you" if dom == OWN else ""
+            print(f"   {dom[:31]:<32}{rd:>12}{rk:>7}{(str(n) + ' queries') if n else '':>15}{mark}")
+        if own_rd_site is not None and comp:
+            med = statistics.median(comp)
+            print(f"\n   Median competitor: {int(med)} referring domains; you: {own_rd_site}.")
+            if own_rd_site < med / 2:
+                print("   -> You ARE out-linked at site level. On-page fixes help at the margin, "
+                      "but\n      site-wide backlinks (to the domain and Montessori/rug hubs) "
+                      "are a real lever.")
+            else:
+                print("   -> Site-level links are NOT your gap. The difference is on-page and "
+                      "category depth.")
 
     names = {"B": "marketplace wall", "I": "intent mismatch (needs a guide)",
              "D": "cannibalization", "C": "content gap", "F": "authority gap (backlinks)",
