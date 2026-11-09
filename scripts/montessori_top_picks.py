@@ -137,10 +137,13 @@ DEFAULT_EXCLUDE = r"name[- ]?train|letter[- ]?train|alphabet[- ]train"
 
 
 def rank(products, sales, sku_margins, brand_margins, default_margin,
-         n=8, brand_cap=3, min_margin=0.15, exclude=DEFAULT_EXCLUDE):
+         n=8, brand_cap=3, min_margin=0.15, exclude=DEFAULT_EXCLUDE,
+         stock_check=None):
     """Pure ranking, unit-tested. products: dicts with sku, name, brand, price,
     categories, enabled, in_stock. sales: {normalized item name: {revenue,
-    purchased, added_to_cart}}. Returns (picks, ranked_all)."""
+    purchased, added_to_cart}}. stock_check(sku) -> (in_stock, qty) is called for
+    any would-be pick whose stock is unknown; sold-out items are skipped and
+    marked, never promoted. Returns (picks, ranked_all)."""
     ranked = []
     for p in products:
         if not (p["enabled"] and p["in_stock"]):
@@ -170,6 +173,17 @@ def rank(products, sales, sku_margins, brand_margins, default_margin,
         b = norm(r["brand"]) or "(none)"
         if per_brand.get(b, 0) >= brand_cap:
             continue
+        if r.get("stock_known") is False and stock_check:
+            ok, qty = stock_check(r["sku"])
+            r["qty"] = qty
+            r["stock_known"] = ok is not None
+            if ok is None:
+                r["stock_status"] = "UNCHECKED"
+            elif not ok:
+                r["stock_status"] = "OUT"
+                continue
+            else:
+                r["stock_status"] = "in stock"
         picks.append(r)
         per_brand[b] = per_brand.get(b, 0) + 1
         if len(picks) >= n:
@@ -210,12 +224,32 @@ def products_from_csv(path):
     return out
 
 
-def products_from_magento():
+def _magento():
     from src.data_sources.magento_client import MagentoClient
     mc = MagentoClient()
     if not mc.configured:
         sys.exit("Magento not configured (MAGENTO_BASE_URL / MAGENTO_TOKEN in .env). "
                  "Or pass --catalog-csv with a product export.")
+    return mc
+
+
+def magento_stock_check(mc):
+    """READ-ONLY per-SKU stock lookup. (in_stock, qty); (None, None) if unreadable.
+    In stock = flagged in stock AND (qty > 0 or stock not managed)."""
+    from urllib.parse import quote
+
+    def check(sku):
+        try:
+            st = mc._req("GET", f"/stockItems/{quote(sku, safe='')}") or {}
+        except Exception:
+            return None, None
+        qty = float(st.get("qty") or 0)
+        managed = bool(st.get("manage_stock", True))
+        return bool(st.get("is_in_stock")) and (qty > 0 or not managed), qty
+    return check
+
+
+def products_from_magento(mc):
     cats = {}
     data = mc._req("GET", "/categories/list?searchCriteria[pageSize]=2000") or {}
     for c in data.get("items") or []:
@@ -286,28 +320,40 @@ def main():
     brand_margins = ps.get("brand_margins", {})
     default_margin = float(ps.get("default_margin", 0.15))
 
-    products = products_from_csv(args.catalog_csv) if args.catalog_csv else products_from_magento()
+    mc = None if args.catalog_csv else _magento()
+    products = products_from_csv(args.catalog_csv) if args.catalog_csv else products_from_magento(mc)
     sales = {} if args.no_ga4 else sales_from_ga4(cfg, args.days)
     if not args.no_ga4 and not sales:
         print("WARNING: GA4 returned no item sales; ranking by margin and bestseller tag only.")
     picks, ranked = rank(products, sales, sku_margins_from_file(), brand_margins,
                          default_margin, n=args.n, brand_cap=args.brand_cap,
-                         min_margin=args.min_margin, exclude=args.exclude)
+                         min_margin=args.min_margin, exclude=args.exclude,
+                         stock_check=magento_stock_check(mc) if mc else None)
 
     print(f"Montessori candidates (enabled, in stock, margin >= {args.min_margin:.0%}): "
           f"{len(ranked)}   GA4 items with sales data: {len(sales)}")
-    unknown = sum(1 for r in ranked if r.get("stock_known") is False)
-    if unknown:
-        print(f"NOTE: {unknown} candidates have no stock info from the API; check the "
-              "picks are in stock before publishing.")
-    print(f"\n{'#':>2} {'SKU':<14}{'name':<44}{'brand':<17}{'price':>8}{'margin':>7}"
-          f"{'sold':>5}{'revenue':>9}{'profit':>8}")
+    out = [r for r in ranked if r.get("stock_status") == "OUT"]
+    unchecked = [r for r in picks if r.get("stock_status") == "UNCHECKED"]
+    if out:
+        print(f"Skipped as SOLD OUT (checked live): " + ", ".join(r["sku"] for r in out))
+    if unchecked:
+        print("WARNING: could not read stock for " + ", ".join(r["sku"] for r in unchecked)
+              + " (token may lack Inventory access). Check these by hand.")
+    print(f"\n{'#':>2} {'SKU':<14}{'name':<44}{'brand':<17}{'price':>8}{'margin':>8}"
+          f"{'sold':>5}{'revenue':>9}{'profit':>8}  stock")
     for i, r in enumerate(ranked[:25], 1):
-        tag = "*" if r in picks else " "
+        tag = "*" if r in picks else ("x" if r.get("stock_status") == "OUT" else " ")
+        guess = "?" if r["margin_source"] == "default" else " "
+        qty = r.get("qty")
+        stock = r.get("stock_status", "")
+        if qty is not None and stock:
+            stock = f"{stock} ({qty:g})"
         print(f"{i:>2}{tag}{r['sku'][:13]:<14}{r['name'][:43]:<44}{r['brand'][:16]:<17}"
-              f"{r['price']:>8.2f}{r['margin']*100:>6.1f}%{r['purchased']:>5}"
-              f"{r['revenue']:>9.0f}{r['profit']:>8.0f}")
-    print("\n* = picked (brand cap applied). Swap any you dislike with the next rows.")
+              f"{r['price']:>8.2f}{r['margin']*100:>6.1f}%{guess}{r['purchased']:>5}"
+              f"{r['revenue']:>9.0f}{r['profit']:>8.0f}  {stock}")
+    print("\n* = picked (brand cap applied, stock verified)   x = sold out, skipped")
+    print("? = margin is the config DEFAULT (no cost data for that brand): treat its "
+          "profit as a guess.")
 
     print("\nPAGE BUILDER > Products element > Condition: SKU is one of:")
     print("  " + ", ".join(r["sku"] for r in picks))

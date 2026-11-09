@@ -72,6 +72,18 @@ def test_name_trains_excluded_by_default():
     assert len(picks) == 2
 
 
+def test_stock_check_skips_sold_out():
+    prods = [_p("G1", "Guide Craft"), _p("G2", "Guide Craft"), _p("G3", "Guide Craft")]
+    for p in prods:
+        p["stock_known"] = False
+    sales = {"toy g1": {"revenue": 900}, "toy g2": {"revenue": 500}, "toy g3": {"revenue": 100}}
+    stock = {"G1": (False, 0.0), "G2": (True, 4.0), "G3": (None, None)}
+    picks, ranked = rank(prods, sales, {}, BRANDS, 0.15, n=2, stock_check=stock.get)
+    assert [r["sku"] for r in picks] == ["G2", "G3"]
+    assert ranked[0]["stock_status"] == "OUT"
+    assert picks[1]["stock_status"] == "UNCHECKED"
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
