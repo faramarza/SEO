@@ -52,5 +52,6 @@ personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/
 Plain titles: 21 pages, Google kept 57%. Separator titles: 9 pages, kept 22%. What Google drops is the
 tail after a separator (store name, "Free Shipping"); natural titles that match the H1 and are under
 ~60 characters are kept. Rule from now on: plain wording, a colon is fine, no "|" or "- Brand" tails.
-Fixes #1, #2, #3, #4, #5, #7, #7b get plain titles (8b, given to Frank 2026-11-10). The SERP still showed
+Fixes #1, #2, #3, #4, #5, #7, #7b get plain titles (8b, given to Frank 2026-11-10): same words in the same
+order as the researched titles, with the "|" swapped for a colon, so the target search still leads. The SERP still showed
 the old titles for #3 and #7 (not recrawled yet), so re-run the check after 2026-11-24.
