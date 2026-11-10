@@ -84,7 +84,7 @@
       "_note": "Reference margins by brand (NET), from each vendor's wholesale vs your Magento store prices. Line margins are the count-weighted blend of the active brands they contain. Plan Toys are INACTIVE (362 in catalog, 0 online) so they are excluded from line margins.",
       "carpets for kids": {"margin": 0.364, "note": "692 SKUs, net of real freight; see carpets line."},
       "guide craft": {"margin": 0.496, "note": "70 matched SKUs, gross median 49.6%, shipping assumed minimal; mix of toys + furniture."},
-      "tag toys": {"margin": 0.168, "note": "62 matched SKUs, net of UPS/FedEx-commercial shipping on billable weight (dim 139) plus $5 dropship fee. Matches the ~15% figure Frank cited."},
+      "tag toys": {"margin": 0.168, "discontinued": "2026-11-10: TAG Toys closed, no longer accepting orders. All 68 SKUs set out of stock.", "note": "62 matched SKUs, net of UPS/FedEx-commercial shipping on billable weight (dim 139) plus $5 dropship fee. Matches the ~15% figure Frank cited."},
       "whitney brothers": {"margin": 0.347, "note": "121 active SKUs vs 2026 dealer price list, all current. Net median 34.7%: 107 Ground items (~36%, est. UPS/FedEx commercial freight, none negative); 14 Truck items with LTL calibrated from a real Estes quote (WB6400N, 199 lb, $543.63 incl liftgate) = max($350, $2.73/lb), truck median 26.5%, none negative, lowest CH1330N 10.3%. WB ships and bills actual freight."}
     },
     "default_margin": 0.15,

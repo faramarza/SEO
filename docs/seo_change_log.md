@@ -33,6 +33,10 @@ Parked (on-page already fine, problem is assortment/competition): /personalized-
 personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/Personalization Mall).
 
 ## Site-wide changes (affect all measurements)
+- 2026-11-10: TAG Toys closed (no longer accepting orders). All 68 TAG SKUs to be set out of stock
+  (docs/imports/tag_toys_closed_out_of_stock.csv), kept online for rankings/backlinks; Montessori Toys
+  carousel SC2/SM11/RH10 replaced by Guidecraft G5066/G5084/G3082. Expect fewer products on Montessori
+  age pages and Made in USA Toys until refilled.
 - 2026-11-09: Consent Mode defaults granted outside EU/UK/CH (consent.phtml). Expect more
   Google Ads conversions and fewer GA4 "(not set)" orders from this date.
 - 2026-11-09: RECOMMENDED pausing Google Ads campaigns "Name Trains Search-2026" and

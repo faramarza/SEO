@@ -144,7 +144,7 @@ def margin_for(sku, brand, sku_margins, brand_margins, default):
     return default, "default"
 
 
-DEFAULT_EXCLUDE = r"name[- ]?train|letter[- ]?train|alphabet[- ]train"
+DEFAULT_EXCLUDE = r"name[- ]?train|letter[- ]?train|alphabet[- ]train|\btag toys\b"  # TAG Toys closed 2026-11
 
 
 def rank(products, sales, sku_margins, brand_margins, default_margin,
