@@ -245,7 +245,25 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--top", type=int, default=60)
     ap.add_argument("--min-volume", type=int, default=50)
+    ap.add_argument("--check", nargs="+", metavar="SEARCH",
+                    help='only look up these searches: volume, CPC, your Google position, e.g. '
+                         '--check "kids wooden table" "preschool tables"')
     args = ap.parse_args()
+
+    if args.check:
+        cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
+        from scripts.demand_map import load_gsc_queries
+        kws = [k.strip().lower() for k in args.check if k.strip()]
+        vols = search_volumes(kws)
+        gsc = load_gsc_queries(cfg)
+        print(f"{'search':<40}{'vol/mo':>9}{'cpc':>7}{'you':>6}{'clicks':>8}{'impr':>8}")
+        for k in sorted(kws, key=lambda k: -(vols.get(k) or {}).get("volume", 0)):
+            v, g = vols.get(k) or {}, gsc.get(k) or {}
+            pos = f"{g['position']:.0f}" if g.get("position") else "-"
+            print(f"{k[:39]:<40}{(v.get('volume') or 0):>9,}{(v.get('cpc') or 0):>7.2f}{pos:>6}"
+                  f"{g.get('clicks', 0):>8}{g.get('impressions', 0):>8}")
+        print("\nyou = your average Google position (Search Console, 90 days); '-' = not showing.")
+        return
 
     cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
     from scripts.demand_map import product_margin, load_gsc_queries, organic_conversion, norm_brand
