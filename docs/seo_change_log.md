@@ -9,6 +9,7 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 | 0 | 2026-11-09 | /montessori-toys.html | "Where to Start" carousel (8 products, server-rendered) | montessori toys (33,100) | #14-16.6, 13-19 clicks/90d | 2026-12-21 |
 | 1 | 2026-11-10 | /wooden-name-puzzles.html | 12 name puzzle stools added (3 -> 19 products); meta title "Personalized Name Puzzles for Kids \| Wooden, Made in USA"; new meta description | name puzzle (2,400); wooden name puzzles (1,000); personalized puzzle (5,400) | #16 (via /nursery-decor.html); #6; #25 | 2026-12-22 |
 | 1b | 2026-11-10 | /nursery-decor.html | link "personalized name puzzles" -> /wooden-name-puzzles.html | (supports #1) | | 2026-12-22 |
+| 2 | 2026-11-10 | /personalized-books-for-kids.html | meta title "Personalized Books for Kids \| Your Child's Name in the Story" (was "Personalized Storybooks..."); new meta description; sort Name -> Position with Christmas/ornament books first | personalized books for kids (8,100); personalized book (8,100) | #9 with 1 click; #30 | 2026-12-22 |
 
 ## Site-wide changes (affect all measurements)
 - 2026-11-09: Consent Mode defaults granted outside EU/UK/CH (consent.phtml). Expect more
