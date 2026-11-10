@@ -19,8 +19,8 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 
 | 7 | 2026-11-10 | /rainbow-seating-rug-8x13.html (SKU 8434) | Stop it competing with the category for "classroom rugs": meta title "Rainbow Seating Rug 8ft 4in x 13ft 4in \| Carpets for Kids" (was "...Classroom Kids Carpet"), H1 "Rainbow Seating Rug, 8ft 4in x 13ft 4in", link "classroom rugs" -> /classroom-rugs.html | classroom rugs (14,800) | product #17, category #28 | 2026-12-22 |
 
-Pending: /classroom-rugs.html meta title "Classroom Rugs & Carpets for Teachers \| Circle Time Rugs" not yet
-live (store-view copy). Rug best sellers for sort order: waiting on scripts/sales_by_line.py --match rug.
+7b (2026-11-10): /classroom-rugs.html meta title now "Classroom Rugs & Carpets for Teachers | Circle Time Rugs" (live).
+Rug best sellers for sort order: waiting on scripts/sales_by_line.py --match rug.
 Disavow file (32 spam domains) generated at data/disavow.txt on the server; upload pending.
 
 Pending: Classroom Furniture "Classroom Favorites" carousel (Fix #5b) not yet in the alphabettrains
