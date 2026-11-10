@@ -13,3 +13,9 @@ def test_anchor_kinds():
     assert anchor_kind("", pw) == "empty/image"
     assert anchor_kind("colorful classroom carpets", pw) == "keyword"
     assert anchor_kind("great toys", pw) == "other"
+
+
+def test_spam_pattern():
+    from scripts.backlink_anchors import SPAM
+    assert SPAM.search("high quality dofollow backlinks da 50 pa 40 premium")
+    assert not SPAM.search("classroom rugs") and not SPAM.search("alphabet trains")

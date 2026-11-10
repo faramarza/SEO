@@ -41,6 +41,9 @@ def _load_dotenv():
 _load_dotenv()
 
 BRAND = re.compile(r"(?i)alphabet[\s-]*trains?|alphabettrains")
+SPAM = re.compile(r"(?i)dofollow backlink|\bda ?\d{2}\b.*\bpa ?\d{2}\b|buy backlinks|seo backlinks|"
+                  r"high quality backlinks|guest post service|link building service|casino|viagra|"
+                  r"porn|escort|loan|crypto")
 GENERIC = re.compile(r"(?i)^(click here|here|this|website|link|read more|more|visit|shop|"
                      r"source|homepage|home|site|learn more|this site|view|see more)$")
 
@@ -94,6 +97,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=1000)
     ap.add_argument("--page", default=None)
+    ap.add_argument("--disavow", action="store_true",
+                    help="write data/disavow.txt (domain: lines) for spam-anchor domains, "
+                         "ready to upload in Search Console's Disavow Links tool")
     args = ap.parse_args()
 
     links = fetch(args.limit)
@@ -127,6 +133,17 @@ def main():
         anchors = collections.Counter((l["anchor"] or "(image/empty)").lower()[:40] for l in ls)
         print(f"   {m:<28}{len(ls):>4} domains   " +
               (", ".join(f'"{a}" x{c}' for a, c in anchors.most_common(5)) if ls else "none"))
+    spam = sorted({l["from"] for l in links if SPAM.search(l["anchor"] or "") and l["from"]})
+    print(f"\nSPAM-ANCHOR DOMAINS (bought link-farm patterns): {len(spam)}")
+    for d in spam[:40]:
+        print(f"   {d}")
+    if args.disavow and spam:
+        out = ROOT / "data" / "disavow.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("# Disavow file for alphabet-trains.com (spam/paid-link anchors)\n"
+                       + "\n".join(f"domain:{d}" for d in spam) + "\n")
+        print(f"   -> {out}  (Search Console > Disavow links tool, property alphabet-trains.com)")
+
     print("\nTop anchor texts overall:")
     for a, c in collections.Counter((l["anchor"] or "(image/empty)").lower()[:50]
                                     for l in links).most_common(15):
