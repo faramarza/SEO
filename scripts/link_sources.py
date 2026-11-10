@@ -38,8 +38,17 @@ def _load_dotenv():
 _load_dotenv()
 
 
+BRAND = re.compile(r"alphabet[- ]?trains?(\.com)?", re.I)
+
+
+def clean(html):
+    """Visible text only: drop <script>/<style> (schema JSON) and the store name."""
+    h = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html or "")
+    return BRAND.sub(" ", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", h)))
+
+
 def text_of(html):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html or "")).lower()
+    return clean(html).lower()
 
 
 def score_post(content, words, target):
@@ -51,7 +60,7 @@ def score_post(content, words, target):
 
 
 def sentences_with(content, words, n=2):
-    t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", content or ""))
+    t = clean(content)
     out = []
     for s in re.split(r"(?<=[.!?])\s+", t):
         if any(re.search(r"\b" + re.escape(w) + r"s?\b", s, re.I) for w in words):
@@ -105,7 +114,7 @@ def main():
         hits, links = score_post(content, args.word, args.target)
         if sum(hits.values()) == 0:
             continue
-        rows.append({"id": p.get("entity_id"), "name": p.get("name", ""), "slug": p.get("url_key", ""),
+        rows.append({"id": p.get("entity_id") or p.get("post_id") or p.get("id"), "name": p.get("name", ""), "slug": p.get("url_key", ""),
                      "hits": hits, "links": links, "impr": impr.get(p.get("url_key", ""), 0),
                      "examples": sentences_with(content, args.word)})
     rows.sort(key=lambda r: (r["links"], -r["impr"], -sum(r["hits"].values())))

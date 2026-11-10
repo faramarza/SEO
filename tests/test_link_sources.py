@@ -12,3 +12,9 @@ def test_score_post_counts_words_and_existing_link():
 def test_sentences_with():
     s = sentences_with("<p>Blocks are fun. Circle time with an ABC rug works. Done.</p>", ["abc"])
     assert s == ["Circle time with an ABC rug works."]
+
+
+def test_ignores_brand_and_schema():
+    html = '<script>{"name": "Alphabet Trains"}</script><p>At Alphabet Trains we love rugs.</p>'
+    hits, _ = score_post(html, ["alphabet", "rug"], "x")
+    assert hits == {"alphabet": 0, "rug": 1}
