@@ -47,3 +47,10 @@ personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/
 - 2026-11-09: RECOMMENDED pausing Google Ads campaigns "Name Trains Search-2026" and
   "PMAX - Carpets for Kids" (0 ROAS over Oct 1 - Nov 9); not yet confirmed done.
   Re-evaluate the two remaining PMAX campaigns around 2026-11-30.
+
+## Title policy (2026-11-10, from scripts/title_rewrite_check.py on the top 30 pages)
+Plain titles: 21 pages, Google kept 57%. Separator titles: 9 pages, kept 22%. What Google drops is the
+tail after a separator (store name, "Free Shipping"); natural titles that match the H1 and are under
+~60 characters are kept. Rule from now on: plain wording, a colon is fine, no "|" or "- Brand" tails.
+Fixes #1, #2, #3, #4, #5, #7, #7b were retitled the same day to plain titles (8b). The SERP still showed
+the old titles for #3 and #7 (not recrawled yet), so re-run the check after 2026-11-24.
