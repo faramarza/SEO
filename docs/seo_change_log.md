@@ -14,6 +14,12 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 
 | 4 | 2026-11-10 | /wooden-blocks.html | 17 Guidecraft products restocked (wrongly zeroed by an earlier partial-inventory qty file), reindexed: 9 -> 26 products visible; meta title "Wooden Blocks for Kids \| Unit, Rainbow & Building Block Sets" (was "...FREE Shipping" + emojis); new meta description; H1 "Wooden Blocks for Kids: Unit, Rainbow and Building Block Sets" | wooden blocks (18,100); childrens wooden blocks (6,600); wooden unit blocks (260) | #15; #15-19; #12 | 2026-12-22 |
 
+| 5 | 2026-11-10 | /kids-tables.html, /classroom-furniture.html | Retargeted from consumer "kids table" (mass-market, CPC $0.75-0.90) to institutional searches: titles "Classroom & Preschool Tables \| Daycare and Kids Tables" and "Classroom Furniture \| Preschool and Daycare Furniture", new descriptions and H1s; 13 Whitney Brothers Top-50 Ground best sellers re-enabled (28-33% net); Kids Tables 23 -> 27 products | classroom furniture (2,900, CPC $6.55); classroom tables (1,900); daycare furniture (880); preschool tables (720); preschool furniture (590); daycare tables (480) | not ranking for any | 2026-12-22 |
+| 6 | 2026-11-10 | blog posts 75, 54, 57, 329, 62 | Contextual links added: -> /classroom-rugs.html (75, 54, 57), -> /classroom-furniture.html (75, 329, 62), -> /kids-tables.html (329). Before: 0 of 101 posts linked to classroom furniture or kids tables | (supports #5 and classroom rugs) | | 2026-12-22 |
+
+Pending: Classroom Furniture "Classroom Favorites" carousel (Fix #5b) not yet in the alphabettrains
+store-view copy of the category description.
+
 Pending: 11 Guidecraft products (unit blocks 84/135/218 pc and others) on guidecraft.com but not on the
 2027 dealer price list; Frank asking Guidecraft. Restock file: docs/imports/guidecraft_restock_ask_guidecraft_first.csv.
 
