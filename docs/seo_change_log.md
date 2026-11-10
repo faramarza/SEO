@@ -13,5 +13,6 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 ## Site-wide changes (affect all measurements)
 - 2026-11-09: Consent Mode defaults granted outside EU/UK/CH (consent.phtml). Expect more
   Google Ads conversions and fewer GA4 "(not set)" orders from this date.
-- 2026-11-09: Paused Google Ads campaigns "Name Trains Search-2026" and "PMAX - Carpets for Kids"
-  (0 ROAS over Oct 1 - Nov 9). Re-evaluate the two remaining PMAX campaigns around 2026-11-30.
+- 2026-11-09: RECOMMENDED pausing Google Ads campaigns "Name Trains Search-2026" and
+  "PMAX - Carpets for Kids" (0 ROAS over Oct 1 - Nov 9); not yet confirmed done.
+  Re-evaluate the two remaining PMAX campaigns around 2026-11-30.
