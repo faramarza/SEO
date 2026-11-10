@@ -74,7 +74,7 @@
   "paid_search": {
     "card_fee": 0.03,
     "product_lines": {
-      "name_trains": {"margin": 0.30, "label": "Personalized name trains", "intent": "search", "url_patterns": ["name-train", "letter-train", "name-letter"]},
+      "name_trains": {"margin": 0.22, "margin_source": "2026-11-10 reprice (nametrain_price_update.csv): train-only net 19.0% (3 letters) to 23.8% (10 letters) at the new special prices; about 28% with typical add-ons. 0.22 = mid-range train-only figure (conservative vs add-ons). Ads break-even ROAS about 1/(0.22-0.03) = 5.3.", "label": "Personalized name trains", "intent": "search", "url_patterns": ["name-train", "letter-train", "name-letter"]},
       "books":       {"margin": 0.30, "label": "Personalized books", "intent": "search", "url_patterns": ["book"]},
       "stools":      {"margin": 0.30, "label": "Personalized step stools", "intent": "search", "url_patterns": ["stool", "step-stool"]},
       "montessori":  {"margin": 0.352, "margin_source": "PROVISIONAL. Active montessori line (Plan Toys inactive, excluded). Count-weighted blend of brands with cost data: Guidecraft 70 SKUs @ 49.6% (minimal shipping), Tag Toys 55 @ 16.8% (UPS/FedEx commercial on billable weight dim-139 + $5 dropship), Whitney Brothers 21 @ 35.6% (2026 dealer cost vs store price; Ground freight estimated, Truck LTL calibrated from a real Estes quote). Maple Landmark (27) still pending. Break-even ROAS ~3.1.", "label": "Montessori toys", "intent": "browse", "url_patterns": ["montessori"]},
