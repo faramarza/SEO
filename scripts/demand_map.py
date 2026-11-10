@@ -75,10 +75,32 @@ PAGE1_CTR = 0.025         # typical CTR at position 8 (bottom of page 1)
 MIN_GOOD_MATCH = 0.66   # two of three words
 
 
+INFO_RE = re.compile(r"^(how|what|why|when|where|who|which|is|are|can|does|do)\b|\b(diy|how to|meaning|definition|printable|free)\b")
+BRAND_ALIASES = {"guidecraft": "Guidecraft", "guide craft": "Guidecraft",
+                 "carpets for kids": "Carpets for Kids", "carpet for kids": "Carpets for Kids",
+                 "iseeme": "I See Me", "i see me": "I See Me", "tag toys": "Tag Toys",
+                 "whitney": "Whitney Brothers", "maple landmark": "Maple Landmark",
+                 "cubby": "Cubbyhole Toys", "hollow wood": "Hollow Woodworks"}
+
+
+def is_informational(keyword):
+    """Question / how-to searches: readers, not shoppers. Never valued."""
+    return bool(INFO_RE.search((keyword or "").lower()))
+
+
+def norm_brand(label):
+    l = (label or "").lower()
+    for k, v in BRAND_ALIASES.items():
+        if k in l:
+            return v
+    return label or "(no brand)"
+
+
 def is_head_term(keyword, brand_words=()):
     """One meaningful word ('blocks', 'wooden', 'sensory'): too broad to send
     buyers to one product and rarely winnable. Reported, never valued."""
-    return len(tokens(keyword, brand_words)) < 2
+    words = [w for w in re.findall(r"[a-z0-9]+", (keyword or "").lower()) if w not in brand_words]
+    return len(words) < 2
 
 
 def target_ctr(my_pos):
@@ -220,17 +242,25 @@ def source_rows(src, demand, all_products, gsc, conv, cfg, min_volume):
         mine = gsc.get(kw.lower(), {})
         cur_ctr = (mine.get("clicks", 0) / mine["impressions"]) if mine.get("impressions") else 0.0
         head = is_head_term(kw, stop_brand)
-        good = bool(prod) and score >= MIN_GOOD_MATCH and not head
+        info = is_informational(kw)
+        good = bool(prod) and score >= MIN_GOOD_MATCH and not head and not info
+        if brand == "*" and not good:
+            # a store's other merchandise (baby gear, plush...) is not your demand
+            continue
         m = product_margin(prod, cfg) if prod else 0.0
         extra, profit = monthly_profit(k["volume"], cur_ctr, conv, prod["price"] if prod else 0, m,
                                        target_ctr=target_ctr(mine.get("position")))
         rows.append({"kw": kw, "vol": k["volume"], "cpc": k.get("cpc") or 0, "source": domain,
                      "branded": brand != "*" and is_branded(kw, brand_words),
                      "prod": prod if good else None, "cand": prod, "score": score, "margin": m,
-                     "head": head, "difficulty": k.get("difficulty"),
+                     "head": head, "info": info, "difficulty": k.get("difficulty"),
                      "my_pos": mine.get("position"), "my_clicks": mine.get("clicks", 0),
                      "extra": extra, "profit": profit if good else 0.0})
     return rows
+
+
+def r_is_sold(name):
+    return name != "MAKER PRODUCTS YOU DON'T SELL"
 
 
 def merge_rows(rows):
@@ -290,7 +320,7 @@ def main():
 
     by_brand = {}
     for r in rows:
-        key = (r["prod"]["brand"] or "(no brand)") if r["prod"] else "NO MATCHING PRODUCT"
+        key = norm_brand(r["prod"]["brand"]) if r["prod"] else "MAKER PRODUCTS YOU DON'T SELL"
         b = by_brand.setdefault(key, {"searches": 0, "vol": 0, "profit": 0.0, "margin": r["margin"]})
         b["searches"] += 1
         b["vol"] += r["vol"]
@@ -298,7 +328,7 @@ def main():
     print(f"\nBY BRAND  {'brand':<28}{'searches':>9}{'volume/mo':>11}{'margin':>8}"
           f"{'ads break-even':>16}{'+$/mo at #3':>13}")
     for name, b in sorted(by_brand.items(), key=lambda x: -x[1]["profit"]):
-        be = break_even_roas(b["margin"]) if name != "NO MATCHING PRODUCT" else None
+        be = break_even_roas(b["margin"]) if r_is_sold(name) else None
         print(f"          {name[:27]:<28}{b['searches']:>9}{b['vol']:>11,}"
               f"{(b['margin']*100 if be else 0):>7.1f}%{(f'{be:.2f}' if be else '-'):>16}"
               f"{b['profit']:>13,.0f}")
@@ -306,7 +336,7 @@ def main():
     print(f"\nTOP {args.top} SEARCHES BY PROFIT POTENTIAL")
     print(f"{'search':<36}{'vol/mo':>7}{'cpc':>6}{'KD':>4}{'you':>5}{'clk':>5}{'+$/mo':>7}  "
           f"{'B':<2}{'your product':<40}{'brand':<16}")
-    for r in rows[:args.top]:
+    for r in [x for x in rows if x["prod"]][:args.top]:
         p = r["prod"]
         you = f"{r['my_pos']:.0f}" if r["my_pos"] else "-"
         kd = f"{r['difficulty']:.0f}" if isinstance(r.get("difficulty"), (int, float)) else "-"
@@ -314,9 +344,10 @@ def main():
               f"{r['profit']:>7,.0f}  {'B' if r['branded'] else ' ':<2}"
               f"{(p['name'][:39] if p else '-'):<40}{(p['brand'][:15] if p else ''):<16}")
 
-    unmatched = sorted((r for r in rows if not r["prod"] and not r["head"]), key=lambda r: -r["vol"])
-    print("\nHIGH DEMAND WITH NO GOOD PRODUCT MATCH (top 25 by volume): add a product, or a "
-          "page that answers it")
+    unmatched = sorted((r for r in rows if not r["prod"] and not r["head"] and not r["info"]),
+                       key=lambda r: -r["vol"])
+    print("\nMAKERS' PRODUCTS PEOPLE SEARCH FOR THAT YOU DON'T SELL (top 25 by volume): "
+          "candidates to add")
     for r in unmatched[:25]:
         near = f"  nearest: {r['cand']['name'][:40]} ({r['score']*100:.0f}%)" if r["cand"] else ""
         print(f"   {r['kw'][:44]:<46}{r['vol']:>7,}/mo  cpc ${r['cpc']:.2f}  [{r['source']}]{near}")

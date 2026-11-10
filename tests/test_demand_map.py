@@ -51,7 +51,7 @@ def test_margin_merge_and_brand_filter():
 
 def test_realism_rules():
     from scripts.demand_map import is_head_term, target_ctr, TARGET_CTR, PAGE1_CTR
-    assert is_head_term("blocks", set()) and is_head_term("kids wooden", set())
+    assert is_head_term("blocks", set()) and not is_head_term("toddler tower", set())
     assert not is_head_term("wooden unit blocks", set())
     assert target_ctr(6.0) == TARGET_CTR and target_ctr(None) == PAGE1_CTR and target_ctr(35) == PAGE1_CTR
 
@@ -62,6 +62,20 @@ def test_plural_stopwords_and_step_stool():
     prods[0]["_tokens"] = tokens(prods[0]["name"])
     p, s = best_match("childs step stool", prods, set())
     assert p and s == 1.0
+
+
+def test_store_merchandise_never_leaks_and_filters():
+    from scripts.demand_map import source_rows, is_informational, norm_brand
+    cfg = {"paid_search": {"card_fee": 0.03, "default_margin": 0.15, "brand_margins": {}, "product_lines": {}}}
+    prods = [{"sku": "S", "name": "Toddler Sensory Table", "brand": "Whitney Brothers", "price": 300, "url": "/s.html"}]
+    demand = {"keywords": [{"keyword": "jellycat stuffed animals", "volume": 74000},
+                           {"keyword": "convertible car seat", "volume": 110000},
+                           {"keyword": "toddler sensory table", "volume": 9900}]}
+    rows = source_rows({"domain": "store.com", "brand": "*"}, demand, prods, {}, 0.01, cfg, 30)
+    assert [r["kw"] for r in rows] == ["toddler sensory table"]
+    assert is_informational("how to play backgammon") and not is_informational("water table")
+    assert norm_brand("Guide Craft") == norm_brand("guidecraft") == "Guidecraft"
+    assert norm_brand("ISeeMe Books") == "I See Me"
 
 
 def _run():
