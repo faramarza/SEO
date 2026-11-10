@@ -18,7 +18,7 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 | 6 | 2026-11-10 | blog posts 75, 54, 57, 329, 62 | Contextual links added: -> /classroom-rugs.html (75, 54, 57), -> /classroom-furniture.html (75, 329, 62), -> /kids-tables.html (329). Before: 0 of 101 posts linked to classroom furniture or kids tables | (supports #5 and classroom rugs) | | 2026-12-22 |
 
 | 7 | 2026-11-10 | /rainbow-seating-rug-8x13.html (SKU 8434) | Stop it competing with the category for "classroom rugs": meta title "Rainbow Seating Rug 8ft 4in x 13ft 4in \| Carpets for Kids" (was "...Classroom Kids Carpet"), H1 "Rainbow Seating Rug, 8ft 4in x 13ft 4in", link "classroom rugs" -> /classroom-rugs.html | classroom rugs (14,800) | product #17, category #28 | 2026-12-22 |
-| 8 | 2026-11-10 | /name-trains.html + 3-10 letter product pages | Category meta title "Personalized Wooden Name Trains Made in the USA" (was truncated "Alphabet Name Train Toys Personalized Wooden Letter ..."), new meta description; product meta titles "{N} Letter Name Train: Personalized Wooden Train Made in USA" (plain, no separators, per Frank: separator titles get rewritten) replacing "Buy ... at Discount" / "on Sale" (docs/imports/name_train_meta_update.csv, store view alphabettrains) | name train / name trains; wooden name train | #7 / #7, 2,791 impr/mo, 23 clicks/mo (0.8% CTR vs ~3% typical at #7); #4 | 2026-12-22 |
+| 8 | 2026-11-10 | /name-trains.html + 3-10 letter product pages | Category meta title "Personalized Wooden Name Trains Made in the USA" (was truncated "Alphabet Name Train Toys Personalized Wooden Letter ..."), new meta description; product meta titles "Personalized {N} Letter Name Train, Wooden and Made in USA" (plain, no separators, per Frank: separator titles get rewritten) replacing "Buy ... at Discount" / "on Sale" (docs/imports/name_train_meta_update.csv, store view alphabettrains) | name train / name trains; wooden name train | #7 / #7, 2,791 impr/mo, 23 clicks/mo (0.8% CTR vs ~3% typical at #7); #4 | 2026-12-22 |
 
 7b (2026-11-10): /classroom-rugs.html meta title now "Classroom Rugs & Carpets for Teachers | Circle Time Rugs" (live).
 Rug best sellers for sort order: waiting on scripts/sales_by_line.py --match rug.
@@ -51,7 +51,8 @@ personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/
 ## Title policy (2026-11-10, from scripts/title_rewrite_check.py on the top 30 pages)
 Plain titles: 21 pages, Google kept 57%. Separator titles: 9 pages, kept 22%. What Google drops is the
 tail after a separator (store name, "Free Shipping"); natural titles that match the H1 and are under
-~60 characters are kept. Rule from now on: plain wording, a colon is fine, no "|" or "- Brand" tails.
+~60 characters are kept. Rule from now on: plain wording, no separators (|, dash, colon), target search first, under 60 characters.
 Fixes #1, #2, #3, #4, #5, #7, #7b get plain titles (8b, given to Frank 2026-11-10): same words in the same
-order as the researched titles, with the "|" swapped for a colon, so the target search still leads. The SERP still showed
+order as the researched titles, no separators at all (no |, dash or colon; a colon is a separator too),
+written as a plain phrase with commas/"and", so the target search still leads. The SERP still showed
 the old titles for #3 and #7 (not recrawled yet), so re-run the check after 2026-11-24.

@@ -42,7 +42,8 @@ def _load_dotenv():
 
 _load_dotenv()
 
-SEPARATOR = re.compile(r"\s[|\-:–]\s|\|")
+SEPARATOR = re.compile(r"\s[|\-–]\s|\||:")
+KINDS = (("pipe", "|"), ("colon", ":"), ("dash", " - "), ("dash", " – "))
 
 
 def norm(t):
@@ -52,7 +53,12 @@ def norm(t):
 
 
 def style(title):
-    return "separator" if SEPARATOR.search(title or "") else "plain"
+    """pipe / colon / dash / none: which separator the title uses (first found)."""
+    t = title or ""
+    for kind, ch in KINDS:
+        if ch in t:
+            return kind
+    return "none"
 
 
 def verdict(mine, shown):
