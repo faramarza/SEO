@@ -12,6 +12,11 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 | 2 | 2026-11-10 | /personalized-books-for-kids.html | meta title "Personalized Books for Kids \| Your Child's Name in the Story" (was "Personalized Storybooks..."); new meta description; sort Name -> Position with Christmas/ornament books first | personalized books for kids (8,100); personalized book (8,100) | #9 with 1 click; #30 | 2026-12-22 |
 | 3 | 2026-11-10 | /personalized-step-stools.html | meta title "Name Puzzle Stools \| Personalized Step Stools for Kids, USA" (was "...Create and Play"); new meta description; sort Name -> Position, Heirloom stool first | name puzzle stool (590); personalized step stools (2,900) | #11 (3 clicks); not ranking | 2026-12-22 |
 
+| 4 | 2026-11-10 | /wooden-blocks.html | 17 Guidecraft products restocked (wrongly zeroed by an earlier partial-inventory qty file), reindexed: 9 -> 26 products visible; meta title "Wooden Blocks for Kids \| Unit, Rainbow & Building Block Sets" (was "...FREE Shipping" + emojis); new meta description; H1 "Wooden Blocks for Kids: Unit, Rainbow and Building Block Sets" | wooden blocks (18,100); childrens wooden blocks (6,600); wooden unit blocks (260) | #15; #15-19; #12 | 2026-12-22 |
+
+Pending: 11 Guidecraft products (unit blocks 84/135/218 pc and others) on guidecraft.com but not on the
+2027 dealer price list; Frank asking Guidecraft. Restock file: docs/imports/guidecraft_restock_ask_guidecraft_first.csv.
+
 Parked (on-page already fine, problem is assortment/competition): /personalized-baby-blankets.html,
 personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/Personalization Mall).
 
