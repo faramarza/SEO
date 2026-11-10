@@ -17,6 +17,12 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 | 5 | 2026-11-10 | /kids-tables.html, /classroom-furniture.html | Retargeted from consumer "kids table" (mass-market, CPC $0.75-0.90) to institutional searches: titles "Classroom & Preschool Tables \| Daycare and Kids Tables" and "Classroom Furniture \| Preschool and Daycare Furniture", new descriptions and H1s; 13 Whitney Brothers Top-50 Ground best sellers re-enabled (28-33% net); Kids Tables 23 -> 27 products | classroom furniture (2,900, CPC $6.55); classroom tables (1,900); daycare furniture (880); preschool tables (720); preschool furniture (590); daycare tables (480) | not ranking for any | 2026-12-22 |
 | 6 | 2026-11-10 | blog posts 75, 54, 57, 329, 62 | Contextual links added: -> /classroom-rugs.html (75, 54, 57), -> /classroom-furniture.html (75, 329, 62), -> /kids-tables.html (329). Before: 0 of 101 posts linked to classroom furniture or kids tables | (supports #5 and classroom rugs) | | 2026-12-22 |
 
+| 7 | 2026-11-10 | /rainbow-seating-rug-8x13.html (SKU 8434) | Stop it competing with the category for "classroom rugs": meta title "Rainbow Seating Rug 8ft 4in x 13ft 4in \| Carpets for Kids" (was "...Classroom Kids Carpet"), H1 "Rainbow Seating Rug, 8ft 4in x 13ft 4in", link "classroom rugs" -> /classroom-rugs.html | classroom rugs (14,800) | product #17, category #28 | 2026-12-22 |
+
+Pending: /classroom-rugs.html meta title "Classroom Rugs & Carpets for Teachers \| Circle Time Rugs" not yet
+live (store-view copy). Rug best sellers for sort order: waiting on scripts/sales_by_line.py --match rug.
+Disavow file (32 spam domains) generated at data/disavow.txt on the server; upload pending.
+
 Pending: Classroom Furniture "Classroom Favorites" carousel (Fix #5b) not yet in the alphabettrains
 store-view copy of the category description.
 
