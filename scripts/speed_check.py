@@ -55,6 +55,20 @@ def main():
     if not c.api_key:
         sys.exit("GOOGLE_API_KEY not set in .env (a Google Cloud API key with the Chrome UX "
                  "Report API enabled).")
+    # Ask Google directly once, so a refusal or "no data" is explained, not hidden.
+    import requests
+    for label, body in (("site (origin), phones", {"origin": "https://alphabet-trains.com", "formFactor": "PHONE"}),
+                        ("site (origin), all devices", {"origin": "https://alphabet-trains.com"})):
+        try:
+            r = requests.post("https://chromeuxreport.googleapis.com/v1/records:queryRecord",
+                              params={"key": c.api_key}, json=body, timeout=15)
+            msg = (r.json().get("error") or {}).get("message", "") if r.status_code != 200 else "data available"
+            print(f"Google CrUX check, {label}: HTTP {r.status_code}  {msg}")
+        except Exception as e:
+            print(f"Google CrUX check, {label}: request failed ({e})")
+    print("  404 'chrome ux report data not found' = too few Chrome visitors for Google to publish speed data;\n"
+          "  403 / 400 = the API key is refused (enable 'Chrome UX Report API' for that key).\n")
+
     urls = [f"https://alphabet-trains.com{p}" for p in PAGES] + args.url
     print(f"{'page':<42}{'level':<8}{'LCP':>8}{'INP':>8}{'CLS':>7}{'FCP':>8}{'TTFB':>8}  rating")
     for u in urls:
