@@ -22,6 +22,8 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 
 | 9 | 2026-11-10 | /alphabet-themed-carpets.html | meta title "Alphabet Rugs for Classrooms and Kids That Teach the ABCs" (rug once, no stuffing), carpet and abc rug wording moved to the meta description (was "Alphabet Carpet for Kids – Classroom & Playroom Rugs"); "abc carpet" (4,400) excluded: ABC Carpet & Home brand search | alphabet rug/rugs/carpet (1,600, one Google group); abc rug (1,600); alphabet rug for classroom (480); classroom alphabet rug (480); abc rug for classroom (320) | #31/#14/#13 (248 impr); #11; #20; #23; #26; 0 clicks on all, 90d | 2026-12-22 |
 
+| 10 | 2026-11-10 | /montessori-toys-2-year-olds.html, /made-in-usa-montessori-toys.html | Refill after TAG closure (docs/imports/tag_refill_2yo_and_made_in_usa.csv): 2-year-olds +11 (Guidecraft Grippies/Wedgies, Whitney blocks/sensory table/mirror/light box), 35 live before; Made in USA +18 Whitney, 56 live before (110 pre-TAG). Titles "Best Montessori Toys for 2 Year Olds, Top Picks for 2026" and "Montessori Toys Made in USA, Natural Wood and Safe Finish" (no separators) | montessori toys for 2 year old(s) (~2,000 impr/mo combined); montessori toys made in usa (90 impr/mo) | #10-13, 10 clicks/mo; #2.3 at 3.7% CTR vs 15% typical | 2026-12-22 |
+
 7b (2026-11-10): /classroom-rugs.html meta title now "Classroom Rugs & Carpets for Teachers | Circle Time Rugs" (live).
 Rug best sellers for sort order: waiting on scripts/sales_by_line.py --match rug.
 Disavow: not uploaded by decision (Google de-emphasizes disavow; only needed with a manual action).
