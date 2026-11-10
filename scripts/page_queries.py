@@ -50,12 +50,21 @@ def typical(pos):
 
 def group(rows, matches):
     """{query: [rows for matching pages]} plus totals."""
-    out = collections.defaultdict(list)
+    out = collections.defaultdict(dict)
     for r in rows:
         path = urlparse(r["page"]).path
-        if any(m.lower() in path.lower() for m in matches):
-            out[r["query"]].append({**r, "path": path})
-    return out
+        if not any(m.lower() in path.lower() for m in matches):
+            continue
+        # ?p=2 / sort variants of the same page are one page, not competitors
+        cur = out[r["query"]].get(path)
+        if cur is None:
+            out[r["query"]][path] = {**r, "path": path}
+        else:
+            imp = cur["impressions"] + r["impressions"]
+            cur["position"] = ((cur["position"] * cur["impressions"] + r["position"] * r["impressions"])
+                               / imp if imp else cur["position"])
+            cur["impressions"], cur["clicks"] = imp, cur["clicks"] + r["clicks"]
+    return {q: list(v.values()) for q, v in out.items()}
 
 
 def main():
