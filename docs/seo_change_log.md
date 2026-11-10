@@ -21,10 +21,10 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 
 7b (2026-11-10): /classroom-rugs.html meta title now "Classroom Rugs & Carpets for Teachers | Circle Time Rugs" (live).
 Rug best sellers for sort order: waiting on scripts/sales_by_line.py --match rug.
-Disavow file (32 spam domains) generated at data/disavow.txt on the server; upload pending.
+Disavow: not uploaded by decision (Google de-emphasizes disavow; only needed with a manual action).
 
-Pending: Classroom Furniture "Classroom Favorites" carousel (Fix #5b) not yet in the alphabettrains
-store-view copy of the category description.
+5b (2026-11-10): /classroom-furniture.html "Classroom Favorites: Whitney Brothers 2026 Best Sellers"
+carousel live (8 products, server-rendered, verified).
 
 Pending: 11 Guidecraft products (unit blocks 84/135/218 pc and others) on guidecraft.com but not on the
 2027 dealer price list; Frank asking Guidecraft. Restock file: docs/imports/guidecraft_restock_ask_guidecraft_first.csv.
