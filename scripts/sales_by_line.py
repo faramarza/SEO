@@ -9,6 +9,7 @@ Run on the server:
     ... --days 365          (window, default 365)
     ... --top 25            (products to list per section, default 25)
     ... --match "carpets"   (only products whose name or SKU contains this text)
+    ... --by-month          (orders and revenue per month, e.g. to see the effect of a change)
 
 Read-only. Canceled orders excluded.
 """
@@ -80,6 +81,17 @@ def summarize(items):
     return prod, lines
 
 
+def by_month(items):
+    """{YYYY-MM: (orders, units, revenue)} in month order."""
+    m = collections.defaultdict(lambda: [set(), 0.0, 0.0])
+    for it in items:
+        r = m[it.get("month", "")]
+        r[0].add(it["order_id"])
+        r[1] += it["qty"]
+        r[2] += it["revenue"]
+    return {k: (len(v[0]), v[1], v[2]) for k, v in sorted(m.items())}
+
+
 def fetch_items(mc, start, end_excl, max_orders=20000):
     page, out, seen = 1, [], 0
     while True:
@@ -96,7 +108,8 @@ def fetch_items(mc, start, end_excl, max_orders=20000):
                             "qty": float(it.get("qty_ordered") or 0),
                             "revenue": float(it.get("base_row_total") or it.get("row_total") or 0)
                             - float(it.get("base_discount_amount") or 0),
-                            "order_id": o.get("entity_id")})
+                            "order_id": o.get("entity_id"),
+                            "month": (o.get("created_at") or "")[:7]})
         total = int(data.get("total_count") or 0)
         if not orders or page * 100 >= total or seen >= max_orders:
             break
@@ -109,6 +122,7 @@ def main():
     ap.add_argument("--days", type=int, default=365)
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--match", default=None)
+    ap.add_argument("--by-month", action="store_true")
     args = ap.parse_args()
 
     from src.data_sources.magento_client import MagentoClient
@@ -131,6 +145,10 @@ def main():
     for name, l in sorted(lines.items(), key=lambda x: -x[1]["revenue"]):
         print(f"                  {name:<24}{len(l['orders']):>8}{l['qty']:>8.0f}{l['revenue']:>12,.0f}"
               f"{l['skus']:>15}")
+    if args.by_month:
+        print(f"\nBY MONTH          {'month':<10}{'orders':>8}{'units':>8}{'revenue':>12}")
+        for month, (o, u, r) in by_month(items).items():
+            print(f"                  {month:<10}{o:>8}{u:>8.0f}{r:>12,.0f}")
     print(f"\nTOP {args.top} PRODUCTS BY REVENUE")
     print(f"   {'sku':<18}{'product':<52}{'orders':>7}{'units':>7}{'revenue':>11}")
     for sku, p in sorted(prod.items(), key=lambda x: -x[1]["revenue"])[:args.top]:
