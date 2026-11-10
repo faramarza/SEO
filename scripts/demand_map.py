@@ -182,6 +182,9 @@ def product_margin(p, cfg):
     default; minus the card fee."""
     ps = cfg.get("paid_search", {})
     fee = float(ps.get("card_fee", 0.03))
+    sku_m = (ps.get("sku_margins") or {}).get(str(p.get("sku", "")))
+    if isinstance(sku_m, dict) and sku_m.get("margin") is not None:
+        return float(sku_m["margin"]) - fee          # invoice-based per-SKU margin wins
     label = f"{p.get('brand', '')} {p.get('name', '')}".lower().replace("guidecraft", "guide craft")
     for k, v in ps.get("brand_margins", {}).items():
         if not k.startswith("_") and k in label:
