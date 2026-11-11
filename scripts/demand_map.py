@@ -9,6 +9,7 @@ Run on the server:
     ... --domain guidecraft.com --brand "guide craft"   (one source only)
     ... --top 40            (rows to list, default 40)
     ... --min-volume 30     (ignore searches under N/month, default 30)
+    ... --generic-only      (drop searches naming the maker: product-TYPE demand only)
 
 HOW (every number sourced, nothing guessed):
   1. DEMAND: DataForSEO Labs "ranked keywords" for --domain (the maker's site):
@@ -277,6 +278,11 @@ def merge_rows(rows):
 
 
 # ---------------------------------------------------------------- main
+def generic_rows(rows):
+    """Keep only searches that don't name the maker (product-type demand)."""
+    return [r for r in rows if not r.get("branded")]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", action="store_true",
@@ -286,6 +292,9 @@ def main():
                     '"*" = match against the whole catalog')
     ap.add_argument("--top", type=int, default=50)
     ap.add_argument("--min-volume", type=int, default=30)
+    ap.add_argument("--generic-only", action="store_true",
+                    help="drop searches containing the maker's name: keep only the TYPE of product "
+                         "(e.g. 'wooden blocks', 'kids light table'), which any store can win")
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
@@ -311,6 +320,8 @@ def main():
     if not rows:
         sys.exit("No demand data. " + " | ".join(skipped))
     rows = merge_rows(rows)
+    if args.generic_only:
+        rows = generic_rows(rows)
 
     print("=" * 118)
     print(f"DEMAND MAP  ({len(sources)} source sites, US monthly searches)  ->  your "

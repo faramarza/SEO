@@ -86,3 +86,9 @@ def _run():
 
 if __name__ == "__main__":
     _run()
+
+
+def test_generic_rows_drops_branded():
+    from scripts.demand_map import generic_rows
+    rows = [{"kw": "guidecraft light table", "branded": True}, {"kw": "kids light table", "branded": False}]
+    assert [r["kw"] for r in generic_rows(rows)] == ["kids light table"]
