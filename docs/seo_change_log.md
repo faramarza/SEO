@@ -43,6 +43,7 @@ CH-001-1NSS = 43 of 71 orders. No page work until lead time is fixed (Hollow Woo
 date, or a second maker).
 
 ## Site-wide changes (affect all measurements)
+- 2026-11-10: "Order by December 15 for Christmas delivery" banner (widget Name Train Christmas) on /name-trains.html and all 10 name-train product pages. Change text Dec 16, disable Dec 26. Expect a conversion lift on name trains from this date.
 - 2026-11-10: TAG Toys closed (no longer accepting orders). All 68 TAG SKUs to be set out of stock
   (docs/imports/tag_toys_closed_out_of_stock.csv), kept online for rankings/backlinks; Montessori Toys
   carousel SC2/SM11/RH10 replaced by Guidecraft G5066/G5084/G3082. Expect fewer products on Montessori
