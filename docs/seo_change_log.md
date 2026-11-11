@@ -37,6 +37,11 @@ Pending: 11 Guidecraft products (unit blocks 84/135/218 pc and others) on guidec
 Parked (on-page already fine, problem is assortment/competition): /personalized-baby-blankets.html,
 personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/Personalization Mall).
 
+Parked (supply, not SEO): name puzzle stools. Sales ~8 orders/mo Nov 2025-Jun 2026, ~3/mo Jul-Sep, 0 in Oct and
+Nov 1-10 2026, after the "12 weeks or longer" Cubby Hole lead-time warning went up (~July 2026). Heirloom stool
+CH-001-1NSS = 43 of 71 orders. No page work until lead time is fixed (Hollow Woodworks lead time, firm Cubby Hole
+date, or a second maker).
+
 ## Site-wide changes (affect all measurements)
 - 2026-11-10: TAG Toys closed (no longer accepting orders). All 68 TAG SKUs to be set out of stock
   (docs/imports/tag_toys_closed_out_of_stock.csv), kept online for rankings/backlinks; Montessori Toys
