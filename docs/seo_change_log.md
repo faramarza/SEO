@@ -24,6 +24,8 @@ Baselines come from Governor (`scripts/line_demand.py`, `scripts/opportunity_aud
 
 | 10 | 2026-11-10 | /montessori-toys-2-year-olds.html, /made-in-usa-montessori-toys.html | Refill after TAG closure (docs/imports/tag_refill_2yo_and_made_in_usa.csv): 2-year-olds +11 (Guidecraft Grippies/Wedgies, Whitney blocks/sensory table/mirror/light box), 35 live before; Made in USA +18 Whitney, 56 live before (110 pre-TAG). Titles "Best Montessori Toys for 2 Year Olds, Top Picks for 2026" and "Montessori Toys Made in USA, Natural Wood and Safe Finish" (no separators) | montessori toys for 2 year old(s) (~2,000 impr/mo combined); montessori toys made in usa (90 impr/mo) | #10-13, 10 clicks/mo; #2.3 at 3.7% CTR vs 15% typical | 2026-12-22 |
 
+| 11 | 2026-11-11 | NEW /classroom-rugs/preschool-daycare-rugs.html; /circle-time-rugs.html; /classroom-rugs/large-classroom-rugs.html; Rolling Art Cart WB0285R | New category "Preschool and Daycare Rugs" (35 Carpets for Kids rugs, docs/imports/preschool_daycare_rugs.csv); plain titles: "Circle Time Rugs for Classrooms, Preschool and Kindergarten", "Large Classroom Rugs in 6x9, 7x10 and 8x10 Sizes", "Rolling Art Cart on Wheels for Classroom Art Supplies" | preschool rugs 720, carpet for preschool 720, daycare rugs 390-480, daycare carpet 390, preschool classroom rugs 320; circle time rug 590; large classroom rugs 720; rolling art cart 590 | #12 / - / #15 / - / -; #14 (158 impr/90d); #15 (175 impr); not showing | 2026-12-23 |
+
 7b (2026-11-10): /classroom-rugs.html meta title now "Classroom Rugs & Carpets for Teachers | Circle Time Rugs" (live).
 Rug best sellers for sort order: waiting on scripts/sales_by_line.py --match rug.
 Disavow: not uploaded by decision (Google de-emphasizes disavow; only needed with a manual action).
