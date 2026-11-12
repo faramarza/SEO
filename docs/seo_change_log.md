@@ -36,8 +36,10 @@ carousel live (8 products, server-rendered, verified).
 2026-11-12: Guidecraft answered: the 11 are discontinued, sold until gone at the quoted wholesale. Restock with Guidecraft's
 remaining quantities: docs/imports/guidecraft_discontinued_restock.csv.
 PROPOSED (Frank's decision): 56 of 79 online Guidecraft SKUs are priced above Guidecraft MSRP (median +16%, up to +84%).
-docs/imports/guidecraft_reprice_to_msrp.csv moves 51 of them to MSRP (avg -21% price, median gross margin 55% -> 44%);
-heavy or thin-at-MSRP items kept (G2100R, G7533, G2121B, G2151, G6111). Measure Guidecraft units/revenue before vs after.
+APPROVED with a margin floor: docs/imports/guidecraft_reprice_to_msrp.csv lowers 43 SKUs toward MSRP but never below a 25% NET
+margin after card fee (3%) and ESTIMATED free-shipping cost ($9.50 + $0.85/lb, UPS Ground residential estimate; replace with real
+Guidecraft freight when known). 6 reach MSRP, 37 land between MSRP and old price, 8 unchanged; net median 33% -> 26%, min 20% (unchanged
+items). Heavy/thin items kept (G2100R, G7533, G2121B, G2151, G6111). Measure Guidecraft units/revenue 4 weeks before vs after.
 
 Parked (on-page already fine, problem is assortment/competition): /personalized-baby-blankets.html,
 personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/Personalization Mall).
