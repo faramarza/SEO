@@ -77,3 +77,5 @@ the old titles for #3 and #7 (not recrawled yet), so re-run the check after 2026
 Dropped (2026-11-12, serp_diagnosis): "magnetic blocks" 18,100 and "magnetic building blocks" 5,400. Page 1 is a marketplace
 wall (Amazon x2, Target, Walmart, Kohl's, eBay, Toys R Us, Magna-Tiles). No page or SEO work. PowerClix is not a Magna-Tiles
 substitute on price; revisit only as a small Shopping test after the Guidecraft reprice shows whether Guidecraft converts.
+2026-11-12 verified live: 11 discontinued Guidecraft SKUs in stock at Guidecraft's remaining quantities; all 43 Guidecraft reprices
+live. Test window: Guidecraft orders/revenue Nov 12 - Dec 10 vs Oct 15 - Nov 11 (scripts/sales_by_line.py --match guidecraft --by-month).
