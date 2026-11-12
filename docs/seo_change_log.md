@@ -33,8 +33,11 @@ Disavow: not uploaded by decision (Google de-emphasizes disavow; only needed wit
 5b (2026-11-10): /classroom-furniture.html "Classroom Favorites: Whitney Brothers 2026 Best Sellers"
 carousel live (8 products, server-rendered, verified).
 
-Pending: 11 Guidecraft products (unit blocks 84/135/218 pc and others) on guidecraft.com but not on the
-2027 dealer price list; Frank asking Guidecraft. Restock file: docs/imports/guidecraft_restock_ask_guidecraft_first.csv.
+2026-11-12: Guidecraft answered: the 11 are discontinued, sold until gone at the quoted wholesale. Restock with Guidecraft's
+remaining quantities: docs/imports/guidecraft_discontinued_restock.csv.
+PROPOSED (Frank's decision): 56 of 79 online Guidecraft SKUs are priced above Guidecraft MSRP (median +16%, up to +84%).
+docs/imports/guidecraft_reprice_to_msrp.csv moves 51 of them to MSRP (avg -21% price, median gross margin 55% -> 44%);
+heavy or thin-at-MSRP items kept (G2100R, G7533, G2121B, G2151, G6111). Measure Guidecraft units/revenue before vs after.
 
 Parked (on-page already fine, problem is assortment/competition): /personalized-baby-blankets.html,
 personalized baby blankets 22,200/mo at #54 (11 I See Me designs vs Etsy/Amazon/Personalization Mall).
