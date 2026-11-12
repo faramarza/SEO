@@ -73,3 +73,7 @@ Fixes #1, #2, #3, #4, #5, #7, #7b get plain titles (8b, given to Frank 2026-11-1
 order as the researched titles, no separators at all (no |, dash or colon; a colon is a separator too),
 written as a plain phrase with commas/"and", so the target search still leads. The SERP still showed
 the old titles for #3 and #7 (not recrawled yet), so re-run the check after 2026-11-24.
+
+Dropped (2026-11-12, serp_diagnosis): "magnetic blocks" 18,100 and "magnetic building blocks" 5,400. Page 1 is a marketplace
+wall (Amazon x2, Target, Walmart, Kohl's, eBay, Toys R Us, Magna-Tiles). No page or SEO work. PowerClix is not a Magna-Tiles
+substitute on price; revisit only as a small Shopping test after the Guidecraft reprice shows whether Guidecraft converts.
