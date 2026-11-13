@@ -80,7 +80,7 @@ substitute on price; revisit only as a small Shopping test after the Guidecraft 
 2026-11-12 verified live: 11 discontinued Guidecraft SKUs in stock at Guidecraft's remaining quantities; all 43 Guidecraft reprices
 live. Test window: Guidecraft orders/revenue Nov 12 - Dec 10 vs Oct 15 - Nov 11 (scripts/sales_by_line.py --match guidecraft --by-month).
 
-Sourcing decision (2026-11-13, line_demand --check): replace TAG's busy board (RH10). Demand: busy board 8,100/mo (you #14),
-montessori busy board 3,600 (#11, 2,914 impr/90d, via the blog post), wooden busy board 590 (#16). Ball tracker (110+20) and
-lock box (50+110) too small; lock box already covered by Guidecraft G5058 (RH10 URL 301s there). When a US/Canadian busy board
-is sourced: new product page, then repoint the 4 links in /blog/what-is-a-montessori-busy-board from the RH10 redirect to it.
+Sourcing decision (2026-11-13): NO custom replacement for TAG's busy board, lock box or ball tracker. Generic 'busy board'
+volume (8,100) is mostly $20 imports. Qualified searches are tiny: wooden busy board 590, locks and latches board 70,
+montessori lock box 50, wooden ball tracker 20, busy board made in usa 10. No US-made option on Faire. The busy board
+post's TAG links keep 301ing to Guidecraft Peekaboo Lock Boxes (G5058).
