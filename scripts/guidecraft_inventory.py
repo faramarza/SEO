@@ -13,8 +13,11 @@ Rules (each one learned the hard way):
   - Multi-box kits (G6110-1 / G6110-2) become one SKU (G6110) with the smallest
     box count, since a kit ships only when every box is there.
   - SKUs are kept exactly as in the report (the store uses G16836US too).
-Rows for SKUs your store doesn't have are kept; Magento's "Skip error entries"
-skips them, and the script lists them so nothing is a surprise.
+Guidecraft's report also lists items NOT on the dealer price list (rockers, Nordic
+set, dress-up centers, etc.). Those are not offered to dealers and are not in the
+store, and Magento rejects them ("Product Type is invalid", and more than 10 such
+rows blocks the whole import). Remove them before importing: pass --store-skus with
+a CSV of your store SKUs (a "sku" column) to keep only products you carry.
 """
 import argparse
 import csv
@@ -74,8 +77,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("report")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--store-skus", default=None, help="CSV with a 'sku' column: keep only these")
     args = ap.parse_args()
     rows = build(read_report(args.report))
+    if args.store_skus:
+        with open(args.store_skus, newline="", encoding="utf-8", errors="replace") as f:
+            keep = {r["sku"].strip() for r in csv.DictReader(f) if r.get("sku")}
+        dropped = [r["sku"] for r in rows if r["sku"] not in keep]
+        rows = [r for r in rows if r["sku"] in keep]
+        if dropped:
+            print(f"dropped {len(dropped)} SKUs not in your store: {', '.join(dropped)}")
     out = args.out or "guidecraft_inventory_import.csv"
     with open(out, "w", newline="") as f:
         w = csv.writer(f)
