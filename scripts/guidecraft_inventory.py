@@ -12,7 +12,7 @@ Rules (each one learned the hard way):
   - "Active - Do Not Order" = Guidecraft won't take orders: out of stock.
   - Multi-box kits (G6110-1 / G6110-2) become one SKU (G6110) with the smallest
     box count, since a kit ships only when every box is there.
-  - Report SKUs with a country suffix (G16836US) map to the store SKU (G16836).
+  - SKUs are kept exactly as in the report (the store uses G16836US too).
 Rows for SKUs your store doesn't have are kept; Magento's "Skip error entries"
 skips them, and the script lists them so nothing is a surprise.
 """
@@ -22,7 +22,6 @@ import re
 import sys
 from pathlib import Path
 
-SUFFIX = re.compile(r"^(G\w+?)(US)$")
 BOX = re.compile(r"^(G\w+)-(\d)$")
 
 
@@ -63,9 +62,6 @@ def build(rows):
         if m:
             boxes.setdefault(m.group(1), []).append((qty, note))
             continue
-        m = SUFFIX.match(sku)
-        if m:
-            sku = m.group(1)
         out[sku] = {"sku": sku, "qty": qty, "is_in_stock": 1 if qty > 0 else 0, "note": note}
     for sku, parts in boxes.items():
         qty = min(q for q, _ in parts)

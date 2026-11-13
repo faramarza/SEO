@@ -19,6 +19,6 @@ def test_rules():
     assert by["G5058"]["qty"] == 384 and by["G5058"]["is_in_stock"] == 1
     assert by["G3012"]["qty"] == 0 and by["G3012"]["is_in_stock"] == 0
     assert by["G16837"]["is_in_stock"] == 0 and "11/23" in by["G16837"]["note"]
-    assert "G16836" in by and "G16836US" not in by
+    assert "G16836US" in by
     assert by["G6110"]["qty"] == 0 and by["G97078"]["qty"] == 11
     assert "G6110-1" not in by
