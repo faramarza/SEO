@@ -10,6 +10,7 @@ Run on the server:
     ... --top 25            (products to list per section, default 25)
     ... --match "carpets"   (only products whose name or SKU contains this text)
     ... --by-month          (orders and revenue per month, e.g. to see the effect of a change)
+    ... --sku-file f.csv    (only SKUs listed in the "sku" column of a CSV, e.g. a brand's SKU list)
 
 Read-only. Canceled orders excluded.
 """
@@ -81,6 +82,16 @@ def summarize(items):
     return prod, lines
 
 
+def load_skus(path):
+    import csv as _csv
+    with open(path, newline="") as f:
+        return {r["sku"].strip().lower() for r in _csv.DictReader(f) if r.get("sku")}
+
+
+def filter_skus(items, skus):
+    return [i for i in items if (i.get("sku") or "").strip().lower() in skus]
+
+
 def by_month(items):
     """{YYYY-MM: (orders, units, revenue)} in month order."""
     m = collections.defaultdict(lambda: [set(), 0.0, 0.0])
@@ -123,6 +134,7 @@ def main():
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--match", default=None)
     ap.add_argument("--by-month", action="store_true")
+    ap.add_argument("--sku-file", default=None)
     args = ap.parse_args()
 
     from src.data_sources.magento_client import MagentoClient
@@ -135,6 +147,8 @@ def main():
     if args.match:
         m = args.match.lower()
         items = [i for i in items if m in f"{i['name']} {i['sku']}".lower()]
+    if args.sku_file:
+        items = filter_skus(items, load_skus(args.sku_file))
     prod, lines = summarize(items)
 
     print("=" * 96)

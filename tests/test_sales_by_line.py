@@ -22,3 +22,9 @@ def test_by_month():
              {"order_id": 1, "qty": 1, "revenue": 30, "month": "2026-05"},
              {"order_id": 2, "qty": 2, "revenue": 90, "month": "2026-07"}]
     assert by_month(items) == {"2026-05": (1, 2.0, 80.0), "2026-07": (1, 2.0, 90.0)}
+
+
+def test_filter_skus():
+    from scripts.sales_by_line import filter_skus
+    items = [{"sku": "SM11"}, {"sku": "G526"}, {"sku": "sc2 "}]
+    assert [i["sku"] for i in filter_skus(items, {"sm11", "sc2"})] == ["SM11", "sc2 "]
