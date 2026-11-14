@@ -25,7 +25,9 @@ import sys
 import requests
 
 SITE = "https://alphabet-trains.com"
-PAGES = ["/5-letter-name-train.html", "/name-trains.html", "/ch-personalized-step-stool.html",
+PAGES = ["/3-letter-name-train.html", "/4-letter-name-train.html", "/5-letter-name-train.html",
+         "/6-letter-name-train.html", "/7-letter-name-train.html", "/10-letter-name-train.html",
+         "/alphabet-train-set.html", "/name-trains.html", "/ch-personalized-step-stool.html",
          "/regular-personalized-name-stool.html", "/wooden-name-puzzles.html",
          "/classroom-rugs.html", "/rainbow-seating-rug-8x13.html"]
 POLICY = "/return-policy"
@@ -59,6 +61,17 @@ def prechecked_addons(page):
     return out
 
 
+def bundle_made_to_order(page):
+    """Made-to-order products offered in a gift set/upsell block, ticked or not."""
+    out = []
+    for m in re.finditer(r'<input\b[^>]*class="panth-addon-check"[^>]*>', page):
+        alt = re.search(r'alt="([^"]+)"', page[m.end():m.end() + 1500])
+        name = htmllib.unescape(alt.group(1)).strip() if alt else ""
+        if name and MADE_TO_ORDER.search(name):
+            out.append(name)
+    return out
+
+
 def return_days(text):
     return sorted({int(n) for n in re.findall(r"return[^.]{0,60}?(\d{1,3})\s*days", text, re.I)})
 
@@ -88,6 +101,9 @@ def page_findings(url, page, policy_text):
         slow = [t for t in ticked if MADE_TO_ORDER.search(t)]
         f.append(f"ADD-ONS TICKED BY DEFAULT: {len(ticked)} ({'; '.join(ticked[:8])})"
                  + (f"  <- made-to-order among them: {'; '.join(slow)}" if slow else ""))
+    slow_offered = bundle_made_to_order(page)
+    if slow_offered:
+        f.append("MADE-TO-ORDER IN GIFT SET (long waits, Christmas risk): " + "; ".join(slow_offered))
     days, pol = return_days(text), policy_days(policy_text, url)
     if days and pol and pol not in days:
         f.append(f"RETURN WINDOW MISMATCH: page says {days} days, Return Policy says {pol} days")

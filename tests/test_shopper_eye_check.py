@@ -24,3 +24,10 @@ def test_findings():
     assert "TICKED BY DEFAULT: 2" in joined and "made-to-order among them: Heirloom" in joined
     assert "page says [30] days, Return Policy says 60" in joined
     assert "STOCK vs MADE-TO-ORDER" in joined
+
+
+def test_bundle_made_to_order_even_unticked():
+    from scripts.shopper_eye_check import bundle_made_to_order
+    page = ('<input type="checkbox" class="panth-addon-check"/><img alt="Personalized Coat Rack">'
+            '<input type="checkbox" class="panth-addon-check"/><img alt="My Very Own Name Book">')
+    assert bundle_made_to_order(page) == ["Personalized Coat Rack"]
