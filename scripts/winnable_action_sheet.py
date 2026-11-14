@@ -119,25 +119,54 @@ def _is_brand(query):
     return any(b in ql for b in BRAND_TOKENS)
 
 
+SYNONYMS = {"rug": "carpet", "rugs": "carpet", "carpets": "carpet", "personalised": "personalized",
+            "toy": "toys", "book": "books", "storybook": "books", "olds": "old", "month": "months"}
+
+
+def _norm_tokens(s):
+    return {SYNONYMS.get(w, w) for w in _tokens(s)}
+
+
+def _junk_query(q):
+    """Searches not worth a title: quoted product codes, dimension-only strings."""
+    letters = re.findall(r"[a-z]{3,}", q.lower())
+    return '"' in q or len(letters) < 2
+
+
 def _title_rewrite(query, current_title):
-    """Honest front-load: put the searcher's exact words first, KEEP the page's real
-    title. If the query is already there, don't fake a change."""
-    q = query.strip()
+    """None if the title already covers the search (synonyms count: rug = carpet).
+    Otherwise a NOTE, not a ready-made title: write it by hand as one plain phrase
+    with the search words first, no "|" or dash separators (Google rewrites those)."""
     cur = (current_title or "").strip()
-    if cur and q.lower() in cur.lower():
-        return None  # already present — retitle won't help; fix position/links
-    lead = q[:1].upper() + q[1:]
-    merged = f"{lead} | {cur}" if cur else lead
-    if len(merged) <= MAX_TITLE:
-        return merged
-    # keep the whole query; trim the tail of the old title at a word boundary
-    room = MAX_TITLE - len(lead) - 3
-    if room <= 8:
-        return lead[:MAX_TITLE].rstrip()
-    tail = cur[:room]
-    if " " in tail and not cur[room:room + 1].isspace():
-        tail = tail.rsplit(" ", 1)[0]  # don't cut mid-word
-    return f"{lead} | {tail.rstrip()}".rstrip(" |")
+    if cur and _norm_tokens(query) <= _norm_tokens(cur):
+        return None
+    missing = sorted(_norm_tokens(query) - _norm_tokens(cur))
+    return (f"title lacks {', '.join(missing)}: rewrite as one plain phrase leading with "
+            f"\"{query}\" (no | or - separators, under 60 chars)")
+
+
+def recently_changed(log_path, within_days=42):
+    """{path: date} for pages in docs/seo_change_log.md changed in the last N days.
+    Search Console data still reflects the OLD page, so don't re-advise them."""
+    from datetime import date as _d, datetime as _dt
+    out = {}
+    try:
+        text = open(log_path).read()
+    except OSError:
+        return out
+    for line in text.splitlines():
+        m = re.search(r"(20\d\d-\d\d-\d\d)", line)
+        if not m:
+            continue
+        try:
+            d = _dt.strptime(m.group(1), "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if (_d.today() - d).days > within_days:
+            continue
+        for path in re.findall(r"(/[a-z0-9][a-z0-9/_-]*\.html)", line):
+            out.setdefault(path, m.group(1))
+    return out
 
 
 def main():
@@ -171,7 +200,7 @@ def main():
     for r in pq:
         url, query = r['keys'][0], r['keys'][1]
         src_index.setdefault(url, set()).update(_tokens(query))
-        if _is_brand(query) or "shop-by-brands" in url:
+        if _is_brand(query) or "shop-by-brands" in url or _junk_query(query):
             continue
         impr = r.get('impressions', 0)
         pos = r.get('position', 0.0)
@@ -210,6 +239,7 @@ def main():
               f"≥{args.min_impr} impr, page ~0 clicks). Loosen --min-impr.")
         return
 
+    recent = recently_changed(str(PROJECT_ROOT / "docs" / "seo_change_log.md"))
     print(f"Window {start} → {end}\n")
     print(f"WINNABLE PAGES: {len(winnable)} (non-brand demand, position "
           f"{args.min_pos:g}-{args.max_pos:g}, <= {args.max_page_clicks} page clicks)")
@@ -233,12 +263,16 @@ def main():
         print(f"   CURRENT TITLE: {title or '(none found)'}")
 
         # --- title recommendation ---
+        changed = recent.get(path)
         rw = _title_rewrite(query, title)
-        if rw is None:
-            print("   ✓ TITLE OK   : query already in title — do NOT retitle. "
-                  "The gap is POSITION/authority → internal links below.")
+        if changed:
+            print(f"   ⏸ CHANGED {changed}: per the change log. Search Console still shows the old page; "
+                  "do NOT retitle, judge it after 4-6 weeks.")
+        elif rw is None:
+            print("   ✓ TITLE OK   : search words already in the title (synonyms count). "
+                  "The gap is position: internal links below.")
         else:
-            print(f"   → NEW TITLE  : {rw}   ({len(rw)} chars)")
+            print(f"   → TITLE      : {rw}")
 
         # --- meta recommendation ---
         if not meta:
