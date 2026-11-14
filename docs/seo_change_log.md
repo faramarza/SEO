@@ -50,6 +50,9 @@ CH-001-1NSS = 43 of 71 orders. No page work until lead time is fixed (Hollow Woo
 date, or a second maker).
 
 ## Site-wide changes (affect all measurements)
+- 2026-11-13: Shopper's-eye fixes. Klaviyo email popup no longer covers pages (was full-screen ~6 s on every page): desktop =
+  exit intent only, phone = small teaser only; reshow after 30 days. Name train gift set no longer pre-ticks 6 add-ons
+  (developer). Return policy unified at 30 days (name trains, rugs, other items). Expect conversion gains from this date.
 - 2026-11-10: "Order by December 15 for Christmas delivery" banner (widget Name Train Christmas) on /name-trains.html and all 10 name-train product pages. Change text Dec 16, disable Dec 26. Expect a conversion lift on name trains from this date.
 - 2026-11-10: TAG Toys closed (no longer accepting orders). All 68 TAG SKUs to be set out of stock
   (docs/imports/tag_toys_closed_out_of_stock.csv), kept online for rankings/backlinks; Montessori Toys
