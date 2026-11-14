@@ -82,6 +82,9 @@ the old titles for #3 and #7 (not recrawled yet), so re-run the check after 2026
 Dropped (2026-11-12, serp_diagnosis): "magnetic blocks" 18,100 and "magnetic building blocks" 5,400. Page 1 is a marketplace
 wall (Amazon x2, Target, Walmart, Kohl's, eBay, Toys R Us, Magna-Tiles). No page or SEO work. PowerClix is not a Magna-Tiles
 substitute on price; revisit only as a small Shopping test after the Guidecraft reprice shows whether Guidecraft converts.
+2026-11-14: Guidecraft invoice SO1026704 shows no freight, only a $5 drop-ship fee per order. Second reprice
+(docs/imports/guidecraft_reprice_ds_fee.csv): 55 SKUs lowered, 44 to MSRP, floor 25% net after $5 DS fee + 3% card;
+net median 31%. Guidecraft test window now counts from 2026-11-14 for the second step.
 2026-11-12 verified live: 11 discontinued Guidecraft SKUs in stock at Guidecraft's remaining quantities; all 43 Guidecraft reprices
 live. Test window: Guidecraft orders/revenue Nov 12 - Dec 10 vs Oct 15 - Nov 11 (scripts/sales_by_line.py --match guidecraft --by-month).
 
