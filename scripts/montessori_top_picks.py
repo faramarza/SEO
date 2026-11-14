@@ -282,7 +282,7 @@ def products_from_magento(mc):
     meta = mc.product_attributes_meta()
     man_opts = (meta.get("manufacturer") or {}).get("options", {})
     out = []
-    for p in mc.iter_all_products(only_visible=True):
+    for p in mc.iter_all_products(only_visible=True, only_sellable=True):
         ext = p.get("extension_attributes") or {}
         names = [cats.get(int(l.get("category_id", 0)), "") for l in ext.get("category_links") or []]
         stock = ext.get("stock_item") or {}

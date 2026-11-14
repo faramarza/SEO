@@ -152,7 +152,7 @@ def load_all_products():
     meta = mc.product_attributes_meta()
     man_opts = (meta.get("manufacturer") or {}).get("options", {})
     out, seen = [], set()
-    for p in mc.iter_all_products(only_visible=True):
+    for p in mc.iter_all_products(only_visible=True, only_sellable=True):
         if int(p.get("status", 1)) != 1 or p.get("sku") in seen:
             continue
         seen.add(p.get("sku"))

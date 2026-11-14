@@ -82,6 +82,22 @@ def _fetch(url, timeout=20):
     return urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
 
 
+def _live_check(url, timeout=20):
+    """(ok, reason). Skips pages that redirect away (closed TAG products now 301
+    to replacements) or show Out of stock: no point optimizing what can't sell."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        r = urllib.request.urlopen(req, timeout=timeout)
+        html = r.read().decode("utf-8", "replace")
+    except Exception as e:
+        return False, f"could not fetch ({type(e).__name__})", ""
+    if r.geturl().split("?")[0].rstrip("/") != url.split("?")[0].rstrip("/"):
+        return False, f"redirects to {urlparse(r.geturl()).path}", ""
+    if re.search(r'class="stock unavailable"', html):
+        return False, "out of stock", ""
+    return True, "", html
+
+
 def _extract(html):
     def tag(pat):
         m = re.search(pat, html, re.I | re.S)
@@ -173,7 +189,21 @@ def main():
         if page_clicks <= args.max_page_clicks:
             winnable.append((url, impr, pos, query, page_clicks))
     winnable.sort(key=lambda x: -x[1])
-    winnable = winnable[:args.pages]
+    kept, skipped, pages_html = [], [], {}
+    for w in winnable:
+        if len(kept) >= args.pages:
+            break
+        ok, why, html = _live_check(w[0])
+        if ok:
+            kept.append(w)
+            pages_html[w[0]] = html
+        else:
+            skipped.append((urlparse(w[0]).path, why))
+        time.sleep(0.3)
+    winnable = kept
+    if skipped:
+        print(f"Skipped {len(skipped)} page(s) that can't sell today: "
+              + "; ".join(f"{p} ({why})" for p, why in skipped[:15]))
 
     if not winnable:
         print("No winnable pages matched (non-brand query, pos 4–20, "
@@ -188,7 +218,7 @@ def main():
     for rank, (url, impr, pos, query, pclk) in enumerate(winnable, 1):
         path = urlparse(url).path or url
         try:
-            title, meta, _h1 = _extract(_fetch(url))
+            title, meta, _h1 = _extract(pages_html.get(url) or _fetch(url))
         except Exception as e:
             title, meta, _h1 = "", "", ""
             fetch_err = f"(could not fetch page: {type(e).__name__})"

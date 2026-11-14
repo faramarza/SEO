@@ -387,7 +387,7 @@ class MagentoClient:
     # stock, links) for the Agentic Commerce audit. They never build a write
     # payload, so the two-field write denylist is untouched.
     def iter_all_products(self, page_size=100, max_products=None,
-                          only_visible=True):
+                          only_visible=True, only_sellable=False):
         """Yield raw Magento product dicts across all pages, each SKU once.
         `only_visible` keeps catalog/search-visible sellable products
         (visibility != 1).
@@ -414,6 +414,8 @@ class MagentoClient:
                 yielded.add(key)
                 if only_visible and str(self._attr(p, "visibility", "4")) == "1":
                     continue  # "Not Visible Individually" — not agent-sellable
+                if only_sellable and not is_sellable(p, discontinued_brands()):
+                    continue
                 yield p
                 seen += 1
                 if max_products and seen >= max_products:
@@ -661,3 +663,38 @@ class MagentoClient:
             return self.update_category_meta(entity["category_id"],
                                              meta_title, meta_description)
         raise MagentoError(f"Unknown entity type: {entity.get('entity_type')}")
+
+
+# ---------------------------------------------------------------- sellable today
+# One rule for every Governor list (demand map, line demand, carousels): only
+# products a shopper can buy today. Closed brands (config brand_margins
+# "discontinued", e.g. TAG Toys), products renamed "...discontinued", disabled
+# or out-of-stock products are left out, so advice never points at them.
+def discontinued_brands():
+    import json
+    from pathlib import Path
+    cfg = Path(__file__).resolve().parents[2] / "config" / "defaults.json"
+    try:
+        bm = json.loads(cfg.read_text()).get("paid_search", {}).get("brand_margins", {})
+    except (OSError, ValueError):
+        return set()
+    return {k.lower() for k, v in bm.items() if isinstance(v, dict) and v.get("discontinued")}
+
+
+def is_sellable(p, closed_brands=()):
+    if int(p.get("status", 1) or 1) != 1:
+        return False
+    stock = (p.get("extension_attributes") or {}).get("stock_item") or {}
+    if stock and not stock.get("is_in_stock", True):
+        return False
+    name = (p.get("name") or "").lower()
+    if "discontinued" in name:
+        return False
+    brand = ""
+    for a in p.get("custom_attributes") or []:
+        if a.get("attribute_code") == "brand_google":
+            brand = str(a.get("value") or "").lower()
+    for b in closed_brands:
+        if b and (b in brand or b in name):
+            return False
+    return True
