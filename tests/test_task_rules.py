@@ -25,3 +25,10 @@ def test_small_decay_is_noise():
     _from_decay({"decaying": [{"url": "https://x/toy-chest.html", "peak_clicks": 10, "current_clicks": 5},
                               {"url": "https://x/name-trains.html", "peak_clicks": 80, "current_clicks": 40}]}, out)
     assert [t["url"] for t in out] == ["https://x/name-trains.html"]
+
+
+def test_dead_pages():
+    from src.analysis.task_rules import is_dead_page
+    assert is_dead_page("https://alphabet-trains.com/family-doll-house-furniture.html", "TAG Toys Family Dollhouse Furniture")
+    assert is_dead_page("/montessori-geometric-shapes.html")          # 301'd TAG product
+    assert not is_dead_page("/kids-furniture.html", "Montessori Furniture for Child-Sized Independence")

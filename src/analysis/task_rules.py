@@ -85,3 +85,31 @@ def apply(tasks, recent=None):
             t["rule_note"] = why
         kept.append(t)
     return kept, dropped
+
+
+_REDIRECTED = None
+
+
+def redirected_paths():
+    """Old URLs that now 301 elsewhere (closed TAG products), from the redirect files."""
+    global _REDIRECTED
+    if _REDIRECTED is None:
+        import csv
+        out = set()
+        for f in (ROOT / "docs" / "imports").glob("*replacements*.csv"):
+            try:
+                for r in csv.DictReader(open(f)):
+                    if r.get("old_url"):
+                        out.add(r["old_url"].strip())
+            except OSError:
+                pass
+        _REDIRECTED = out
+    return _REDIRECTED
+
+
+CLOSED = re.compile(r"tag[- ]toys|discontinued", re.I)
+
+
+def is_dead_page(url, title=""):
+    """True for pages no task may link to: closed brands, discontinued, redirected."""
+    return bool(CLOSED.search(f"{url} {title}")) or _path(url) in redirected_paths()

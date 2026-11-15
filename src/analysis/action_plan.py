@@ -659,6 +659,10 @@ def _from_interlinks(interlinks, out):
             anc = (l.get("anchor") or "").strip()
             if not tgt or not anc:
                 continue
+            from src.analysis.task_rules import is_dead_page
+            if (is_dead_page(tgt, anc) or
+                    is_dead_page(g.get("source_url", ""), g.get("source_title", ""))):
+                continue
             by_fam.setdefault(fam, []).append({
                 "source_url": g.get("source_url", ""),
                 "source_title": g.get("source_title") or g.get("source_url") or "this page",
@@ -685,8 +689,8 @@ def _from_interlinks(interlinks, out):
         for pb in page_blocks:
             steps.append(f"On your “{pb['source_title']}” page, in the body content:")
             for l in pb["links"]:
-                where = ("link UP to the main hub" if l["direction"] == "spoke_to_hub"
-                         else "link DOWN to this page")
+                where = ("add a link to the main category page" if l["direction"] == "spoke_to_hub"
+                         else "add a link to this page")
                 orphan = " — rescues an orphan (nothing links to it yet)" if l["fixes_orphan"] else ""
                 steps.append(f"  → {where}: {l['url']} (anchor text: “{l['anchor']}”){orphan}")
         steps.append("Add them, Save, then hit DONE.")

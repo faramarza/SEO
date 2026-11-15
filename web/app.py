@@ -15408,6 +15408,10 @@ def api_interlink_apply():
     source_url = (b.get("source_url") or "").strip()
     family = (b.get("family") or "").strip()
     links = b.get("links") or []
+    # Never write a link to a closed, discontinued or redirected page (TAG Toys etc.).
+    from src.analysis.task_rules import is_dead_page
+    links = [l for l in links
+             if not is_dead_page((l.get("url") or l.get("target_url") or ""), l.get("anchor") or "")]
     if not source_url or not links:
         return jsonify({"error": "Nothing to add."}), 400
     mc, cat, reason = _il_resolve_category(source_url)
