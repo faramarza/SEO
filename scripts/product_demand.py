@@ -239,6 +239,7 @@ def shopping_check(query, cache):
     hit = cache.get("shopitems|" + query)
     if hit and (time.time() - hit.get("t", 0)) < 30 * 86400:
         items = [tuple(x) for x in hit["items"]]
+        SHOP_STATUS["cached"] += 1
     else:
         items = _shopping_items(query)
         if items is None:
@@ -312,7 +313,7 @@ def shopping_median(query, cache):
     return med
 
 
-SHOP_STATUS = {"checked": 0, "priced": 0, "error": ""}
+SHOP_STATUS = {"checked": 0, "priced": 0, "cached": 0, "error": ""}
 
 
 def price_flag(my_price, median, ratio=2.5):
@@ -333,7 +334,7 @@ STOP_T = {"and", "for", "the", "of", "a", "with", "in", "to"}
 
 
 def norm_tokens(text):
-    return {SYN.get(w, plural_key(w)) for w in re.findall(r"[a-z]+", (text or "").lower())
+    return {SYN.get(w, plural_key(w)) for w in re.findall(r"[a-z]+|\d+", (text or "").lower())
             if w not in STOP_T}
 
 
@@ -648,8 +649,8 @@ def main():
         verified.append(r)
     CACHE.write_text(json.dumps(cache))
     rows.sort(key=lambda r: -r["profit"])
-    print(f"price check: {SHOP_STATUS['checked']} searches looked up, {SHOP_STATUS['priced']} had "
-          f"Shopping results; dropped {sum(1 for r in rows if r['flag'] == 'NOTKIDS')} that Google shows "
+    print(f"price check: {SHOP_STATUS['checked']} looked up on Google Shopping now, "
+          f"{SHOP_STATUS['cached']} from the saved copy (under 30 days old); dropped {sum(1 for r in rows if r['flag'] == 'NOTKIDS')} that Google shows "
           f"as not for kids, {sum(1 for r in rows if r['flag'] == 'PRICEY')} PRICEY" + (f"  [PROBLEM: {SHOP_STATUS['error']}]" if SHOP_STATUS["error"] else ""))
 
     print(f"\n{'search':<38}{'vol/mo':>8}{'you':>6}{'clk':>5}{'+$/mo':>7}  {'flag':<6}{'price':>8}  example product")

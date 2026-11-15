@@ -105,3 +105,10 @@ def test_box_matches_chest():
         for x in product_seeds(n):
             seeds.setdefault(x, set()).add(i)
     assert match_products("wooden toy box", seeds, []) == {0}
+
+
+def test_age_numbers_pick_the_right_category():
+    from scripts.product_demand import owner_page
+    cats = {1: {"name": "Montessori Toys For 1 Year Old", "active": True, "url_key": "montessori-toys-for-1-year-olds"},
+            2: {"name": "Montessori Toys For 2 Year Olds", "active": True, "url_key": "montessori-toys-2-year-olds"}}
+    assert owner_page([], [], cats, {}, "montessori toys for 2 year olds")[0] == "/montessori-toys-2-year-olds.html"
