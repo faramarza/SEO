@@ -455,6 +455,10 @@ def _from_winnable(winnable, out):
 
 def _from_decay(decay, out):
     for r in ((decay or {}).get("decaying") or [])[:4]:
+        # A drop from 10 to 5 clicks is noise, not decay: below ~20 clicks at
+        # peak, week-to-week swings look like a 50% "loss" by chance alone.
+        if (r.get("peak_clicks") or 0) < 20:
+            continue
         steps = [
             f"This page fell from {r.get('peak_clicks')} to {r.get('current_clicks')} clicks.",
             f"Likely cause: {r.get('cause','')}.",

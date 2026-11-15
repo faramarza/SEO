@@ -17,3 +17,11 @@ def test_apply_demotes_and_drops():
     kept, dropped = apply(tasks, recent={})
     assert [t["url"] for t in kept] == ["https://x/a-book.html", "https://x/sensory-toys.html"]
     assert kept[0]["lever_score"] == 25 and len(dropped) == 1
+
+
+def test_small_decay_is_noise():
+    from src.analysis.action_plan import _from_decay
+    out = []
+    _from_decay({"decaying": [{"url": "https://x/toy-chest.html", "peak_clicks": 10, "current_clicks": 5},
+                              {"url": "https://x/name-trains.html", "peak_clicks": 80, "current_clicks": 40}]}, out)
+    assert [t["url"] for t in out] == ["https://x/name-trains.html"]
