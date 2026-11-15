@@ -215,6 +215,17 @@ def load_catalog(mc):
     return cats, products
 
 
+# DataForSEO rejects the WHOLE request if one keyword has a symbol ("god loves you!
+# personalized book" from Search Console), so only plain words, digits, spaces and
+# ' - & . are sent; anything else is skipped.
+_VALID_KW = re.compile(r"^[a-z0-9][a-z0-9 '&.\-]*$")
+
+
+def valid_keyword(k):
+    k = (k or "").lower().strip()
+    return 2 < len(k) <= 80 and len(k.split()) <= 10 and bool(_VALID_KW.match(k))
+
+
 def search_volumes(keywords):
     """{keyword: {volume, cpc, competition}} via DataForSEO Keywords Data (Google Ads),
     up to 1000 keywords per request."""
@@ -223,7 +234,7 @@ def search_volumes(keywords):
     if not dfs.is_configured():
         sys.exit("DataForSEO not configured (DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD in .env).")
     out = {}
-    kws = [k for k in dict.fromkeys(keywords) if 2 < len(k) <= 80 and len(k.split()) <= 10]
+    kws = [k for k in dict.fromkeys(keywords) if valid_keyword(k)]
     for i in range(0, len(kws), 1000):
         body = [{"keywords": kws[i:i + 1000], "location_code": dfs.LOCATION_CODE,
                  "language_code": dfs.LANGUAGE_CODE}]

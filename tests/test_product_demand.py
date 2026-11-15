@@ -239,3 +239,10 @@ def test_rival_brand_and_franchise():
     assert not rival_brand("personalized books for kids", ["iseeme", "guidecraft"])
     assert OFF_TOPIC.search("infant toy story costume") and OFF_TOPIC.search("infant toy story")
     assert line_of("", "pretend play toys") == "Toys and other"
+
+
+def test_symbols_never_reach_dataforseo():
+    from scripts.line_demand import valid_keyword
+    assert not valid_keyword("god loves you! personalized book")
+    assert not valid_keyword("name train (wooden)")
+    assert valid_keyword("name train") and valid_keyword("kids rug 5x7") and valid_keyword("children's books")
