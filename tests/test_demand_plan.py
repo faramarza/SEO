@@ -60,3 +60,12 @@ def test_natural_phrase_and_subcategory_url():
     cats = {1: {"name": "Large Classroom Rugs", "active": True, "url_key": "large-classroom-rugs",
                 "url_path": "classroom-rugs/large-classroom-rugs"}}
     assert owner_page([], [], cats, {}, "large classroom rugs")[0] == "/classroom-rugs/large-classroom-rugs.html"
+
+
+def test_aio_step():
+    from scripts.product_demand import aio_step
+    assert aio_step([]) == ""
+    assert "no AI summary" in aio_step([{"search": "classroom rug", "present": False, "cited": False, "who": []}])
+    s = aio_step([{"search": "montessori toys", "present": True, "cited": False, "who": ["montessorigeneration.com"]}])
+    assert "montessorigeneration.com" in s and "FAQ" in s
+    assert "already quotes" in aio_step([{"search": "x", "present": True, "cited": True, "who": []}])

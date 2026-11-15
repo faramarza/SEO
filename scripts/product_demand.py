@@ -473,6 +473,43 @@ def find_link_sources(posts, page_url, search, n=3):
     return out[:n]
 
 
+def aio_check(searches, n=2):
+    """Does Google show an AI Overview for the page's top searches, and does it quote
+    you? Uses DataForSEO (cached, daily cap). [] when unavailable."""
+    try:
+        from src.data_sources import dataforseo_client as dfs
+    except Exception:
+        return []
+    out = []
+    for x in searches[:n]:
+        r = dfs.fetch_aio_citation(x["search"], "alphabet-trains.com") or {}
+        if not r.get("available"):
+            continue
+        out.append({"search": x["search"], "present": bool(r.get("ai_overview_present")),
+                    "cited": bool(r.get("own_cited")),
+                    "who": (r.get("competitors_cited") or [])[:3]})
+    return out
+
+
+def aio_step(aio):
+    """One plain step from the AI Overview check. Pure."""
+    shown = [a for a in aio if a["present"]]
+    if not aio:
+        return ""
+    if not shown:
+        return "AI Overview: Google shows no AI summary for these searches, so nothing to do there."
+    missing = [a for a in shown if not a["cited"]]
+    if not missing:
+        return ("AI Overview: Google's AI summary already quotes your page for \"" +
+                shown[0]["search"] + "\". Keep that wording when you edit the page.")
+    a = missing[0]
+    who = ", ".join(a["who"]) if a["who"] else "other sites"
+    return (f"AI Overview: Google shows an AI summary for \"{a['search']}\" and quotes {who}, not you. "
+            f"Near the top of the page, add 2-3 short sentences that plainly answer what the "
+            f"searcher wants (what it is, sizes, ages, who it's for), and 2-3 FAQ questions with "
+            f"one-sentence answers. The AI quotes pages that state facts plainly.")
+
+
 def how_steps(g, posts):
     """Numbered, idiot-proof steps for one page task."""
     top = g.get("phrase") or g["searches"][0]["search"]
@@ -553,7 +590,11 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
                     w.writerow([products[i]["sku"], f"alphabetstore/{g['searches'][0]['search'].title()}"])
             g["import_file"] = f"docs/imports/{path.name}"
         g["phrase"] = natural_phrase(g["searches"])
+        g["aio"] = aio_check(g["searches"])
         g["how"] = how_steps(g, posts or [])
+        step = aio_step(g["aio"])
+        if step:
+            g["how"].append(step)
         g.pop("_idx", None)
     return [g for g in plan if g.get("action") != "skip"]
 
