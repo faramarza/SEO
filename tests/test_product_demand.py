@@ -156,3 +156,13 @@ def test_aio_asks_google_to_wait_and_ignores_old_cache(monkeypatch):
     assert dfs.get_cached("montessori toys") is None
     import inspect
     assert '"load_async_ai_overview": True' in inspect.getsource(dfs.fetch_aio_citation)
+
+
+def test_train_and_puzzle_noise_dropped():
+    from scripts.product_demand import OFF_TOPIC
+    for junk in ("coal engine train", "track train status", "thomas the tank engine train toy",
+                 "jigsaw puzzle game online", "personalized book embossers", "medical branch block",
+                 "squishy sensory toy"):
+        assert OFF_TOPIC.search(junk), junk
+    for good in ("name train", "wooden name train", "personalized books for kids", "classroom rug"):
+        assert not OFF_TOPIC.search(good), good

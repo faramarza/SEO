@@ -61,7 +61,9 @@ OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass
                        r"ikea|kidkraft|step2|lovevery|amtrak|minecraft|lego|hair|hairstyles?|dress|"
                        r"dresses|dna|lipid|carbohydrate|nucleic|concrete|garage|bundle branch|rbbb|jam level|"
                        r"blind ?box(es)?|blind toy|collectibles?|funko|pop ?mart|squishmallows?|figures?|"
-                       r"anime|adult|adults|1000 piece|500 piece)\b",
+                       r"anime|adult|adults|1000 piece|500 piece|online|status|schedule|tickets?|"
+                       r"thomas|tank engine|coal|steam|model train|embossers?|medical|cardiac|"
+                       r"squishy|fidget|stress)\b",
                        re.I)
 CACHE = ROOT / "data" / "product_demand_cache.json"
 SUGGEST_URL = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live"
@@ -713,7 +715,10 @@ def print_line_check(rows, plan, waiting, per_line=4):
     print("\nLINE CHECK (each product line's biggest buyable searches, and why they are or aren't in the plan)")
     for name in [n for n, _ in LINES] + ["Toys and other"]:
         allr = by_line.get(name, [])
-        good = sorted((r for r in allr if not r.get("flag")), key=lambda r: -r["volume"])[:per_line]
+        # Only searches Google Shopping confirmed as kids' products, or that you already
+        # rank for; unvetted big numbers ("coal engine train") would only mislead.
+        good = sorted((r for r in allr if not r.get("flag") and (r.get("verified") or r.get("you"))),
+                      key=lambda r: (r.get("you") is None, -r["volume"]))[:per_line]
         junk = sum(1 for r in allr if r.get("flag"))
         print(f"  {name}:" + ("" if good else " no buyable searches found")
               + (f"  ({junk} searches ignored: not for kids, cheap, or much cheaper items on Google)"
@@ -724,6 +729,42 @@ def print_line_check(rows, plan, waiting, per_line=4):
                   f"{row_status(r, r['search'] in in_plan, wait.get(r['search']))}")
 
 
+def explain(q, found, seed_products, products, rows, skip, gsc, cache):
+    """Print every filter one search goes through, so 'why isn't X in the plan' has
+    a plain answer."""
+    print(f'\nWHY: "{q}"')
+    print(f"  1. One of the ways to describe your products? {'yes' if q in seed_products else 'no'}")
+    it = found.get(q)
+    print(f"  2. Real search volume: {it['volume']:,}/mo" if it else
+          "  2. Not found as a real search (no volume, or never suggested). Stops here.")
+    if not it:
+        return
+    print(f"  3. Off-topic word?  {'YES: ' + OFF_TOPIC.search(q).group(0) if OFF_TOPIC.search(q) else 'no'}")
+    print(f"  4. Names a product kind + kids intent?  {'yes' if qualified(q) else 'NO, dropped'}")
+    print(f"  5. In your skip list?  {'YES, dropped' if q in skip else 'no'}")
+    idx = match_products(q, seed_products, products)
+    print(f"  6. Matching products: {len(idx)}" + (f" (e.g. {products[min(idx)]['name']})" if idx else ""))
+    mine = gsc.get(q, {})
+    print(f"  7. Your Google position: {mine.get('position', 0):.1f}, clicks {mine.get('clicks', 0)}, "
+          f"impressions {mine.get('impressions', 0)}" if mine else "  7. Your Google position: not ranking")
+    r = next((x for x in rows if x["search"] == q), None)
+    if r:
+        print(f"  8. Price ${r['price']:.2f}, flag {r['flag'] or 'none'}, value at #3 ${r['profit']:,.0f}/mo")
+    med, share = shopping_check(q, cache)
+    if share is None:
+        print("  9. Google Shopping: unavailable")
+    else:
+        print(f"  9. Google Shopping: median ${med or 0:.2f}, kids share {share:.0%} "
+              f"({'DROPPED, under 30%' if share < 0.3 else 'ok'})")
+        for t, pr in (cache.get("shopitems|" + q) or {}).get("items", [])[:8]:
+            print(f"       {'KID ' if KID_WORDS.search(t or '') else '    '}${pr or 0:>7.2f}  {t[:70]}")
+    from src.analysis import task_rules
+    if r:
+        w, why = task_rules.task_verdict(r.get("url") or "", q)
+        print(f" 10. Task rules: {why or 'ok'}")
+    CACHE.write_text(json.dumps(cache))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--top", type=int, default=60)
@@ -731,6 +772,7 @@ def main():
     ap.add_argument("--min-volume", type=int, default=30)
     ap.add_argument("--price-check", type=int, default=150,
                     help="check Google Shopping prices for the top N searches (Serper, cached)")
+    ap.add_argument("--why", help='explain one search step by step, e.g. --why "name train"')
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
@@ -785,6 +827,9 @@ def main():
                      "example": p["name"][:40], "price": round(price, 2),
                      "profit": 0 if flag else profit, "flag": flag, "url": p["url"],
                      "_idx": sorted(idx)})
+    if args.why:
+        explain(args.why.lower().strip(), found, seed_products, products, rows, skip, gsc, cache)
+        return
     rows = collapse_variants(rows)
     rows.sort(key=lambda r: -r["profit"])
     # Google decides: walk down the list, ask Google Shopping what each search shows,
