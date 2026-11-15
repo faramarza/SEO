@@ -58,6 +58,8 @@ def task_verdict(url, query, recent=None):
     """(weight, reason). weight 0 = drop; 0<w<1 = demote; 1 = keep as is."""
     recent = recent if recent is not None else recently_changed()
     path, q = _path(url), (query or "").lower()
+    if url and is_dead_page(url):
+        return 0.0, "closed, discontinued or redirected page"
     if path in recent:
         return 0.0, f"changed {recent[path]}: wait for results"
     if "/shop-by-brands/" in path or any(b in q for b in SUPPLIER_BRANDS):

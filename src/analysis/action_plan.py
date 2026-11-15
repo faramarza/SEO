@@ -66,7 +66,7 @@ CATEGORY_BASE = {
     # merchant (Google free product listings / Shopping) and schema (rich results)
     # are the CTR levers the OPERATOR fully controls — no customer needed, unlike
     # reviews — so they're weighted up to surface above low-odds meta tweaks.
-    "merchant": 14, "schema": 11, "brand": 8, "geo": 6,
+    "merchant": 0, "schema": 3, "brand": 8, "geo": 6,
     "decay": 6, "winnable": 6, "demand": 6, "orphan": 5, "striking": 5, "reviews": 4,
     "content": 4, "pruning": 3,
 }
@@ -194,9 +194,14 @@ def _from_ctr(ctr, out):
         steps = [f"Current title: {r.get('current_title') or '(fetch the page first)'}."]
         steps += [f"Why it's under-clicked: {rz}" for rz in reasons]
         if title_missing:
-            steps.append(f"Rewrite the <title> so it clearly contains “{r.get('query','')}” "
-                         f"(what searchers type) and leads with one concrete draw — age, "
-                         f"material, free shipping, or a number if it's a list.")
+            steps.append(f"Rewrite the meta title as one plain phrase that leads with "
+                         f"“{r.get('query','')}” (what searchers type). No | or - separators and "
+                         f"no tails like \"Free Shipping\" or the store name (Google drops those). "
+                         f"Under 60 characters. Use the same words in the H1.")
+            steps.append("WHERE: category = Catalog > Categories > the category; product = Catalog > "
+                         "Products > the product. Scope: alphabettrains > Search Engine Optimization > "
+                         "Meta Title (untick \"Use Default Value\" if ticked). Save, then on the server "
+                         "bin/magento cache:flush, and tell Claude \"check\".")
         else:
             steps.append("Your title already targets this query, so the only lever left is "
                          "the meta description. Honest heads-up: Google rewrites descriptions "
@@ -597,11 +602,11 @@ def _from_content_gap(cg, out, max_items=12):
         if role.startswith("pillar"):
             spokes = a.get("links_to_spokes") or []
             if spokes:
-                steps.append("Link DOWN from this hub to each supporting article: "
+                steps.append("From this main page, add a link to each related article: "
                              + ", ".join(spokes[:10]) + ".")
         else:
-            steps.append(f"Link UP to your pillar page (“{a.get('links_to_pillar', '')}”) "
-                         "with descriptive anchor text.")
+            steps.append(f"Add a link from this article to the main page on the topic "
+                         f"(“{a.get('links_to_pillar', '')}”), using words that describe that page.")
         steps.append("Link to the matching products, add FAQ schema, publish, and request "
                      "indexing in Search Console.")
         benefit = (f"Competitors rank for “{pk}” (~{a.get('total_volume', 0):,} searches/mo) "
@@ -721,7 +726,10 @@ def _from_interlinks(interlinks, out):
 
 
 def _from_orphans(oc, out):
+    from src.analysis.task_rules import is_dead_page
     for r in ((oc or {}).get("orphans") or [])[:5]:
+        if is_dead_page(r.get("url", ""), r.get("title", "")):
+            continue   # closed/redirected pages have no links on purpose
         link_from = r.get("link_from") or []
         steps = [f"This page has {r.get('impressions',0):,} impressions but ZERO internal inbound links, so it can't rank well or be discovered."]
         if link_from:
@@ -729,10 +737,14 @@ def _from_orphans(oc, out):
             steps += [f"• {lf.get('title', lf.get('url',''))} ({lf.get('url','')})" for lf in link_from[:5]]
         else:
             steps.append("Link it from a relevant category/nav or a related article (no strong topical match was found automatically).")
-        steps.append("Use anchor text that describes THIS page; place links inside content, not nav/footer.")
+        steps.append("Make the clickable words describe THIS page (what people search), and put the "
+                     "link inside the page text, not the menu or footer. In Magento: open the page "
+                     "(blog post = blog admin; category = Catalog > Categories > Content > Description), "
+                     "switch to HTML view, wrap the words in <a href=\"/the-page.html\">...</a>, Save, "
+                     "flush the cache.")
         out.append(_task(
             "orphan", r.get("url",""),
-            "Rescue an orphan page (has demand, no internal links)",
+            "Link to a page nothing else links to (it has searches, but no links from your other pages)",
             steps, (f"This page has {r.get('impressions',0):,} impressions of demand but no internal "
                     f"links, so it can't rank well or be discovered — a few contextual links unlock it."),
             0, r.get("impressions", 0),
@@ -742,7 +754,14 @@ def _from_orphans(oc, out):
 
 
 def _from_pruning(pruning, out):
+    from src.analysis.task_rules import is_dead_page
     for r in (pruning or [])[:4]:
+        u = r.get("url", "") or ""
+        # Only blog posts may be pruned. Product/category pages, and the TAG /
+        # "discontinued" pages kept on purpose for their backlinks and redirects,
+        # are never deletion candidates.
+        if "/blog/" not in u or is_dead_page(u, r.get("title", "")):
+            continue
         disp = r.get("disposition", "prune")
         tgt = r.get("redirect_target") or {}
         if disp == "merge_redirect":
@@ -1135,8 +1154,9 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
     if interlinks:
         _from_interlinks(interlinks, out)
     dup_losers = set()
-    if links_info:
-        _from_outreach(links_info, striking, out)
+    # Link outreach removed (2026-11-15): serp_diagnosis showed site authority is NOT
+    # the gap (718 referring domains vs a 599 competitor median) and paid link work
+    # didn't pay. _from_outreach is kept for reference but no longer fed in.
     if results:
         dup_losers = _from_duplicates(results, out) or set()
     if ctr:
@@ -1147,8 +1167,8 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
         _from_reviews(reviews, out)
     if rich:
         _from_rich(rich, out)
-    if brand_merchant:
-        _from_merchant(brand_merchant, out)
+    # Merchant "feed-ready" tasks removed: they read page HTML, but the real Merchant
+    # Center feed shows 1,050 approved products (only 2 TAG not). False alarms.
     if striking:
         _from_striking(striking, out)
     if winnable:
