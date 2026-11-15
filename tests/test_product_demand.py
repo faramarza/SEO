@@ -64,8 +64,28 @@ def test_shopping_check_kid_share(monkeypatch):
     monkeypatch.setattr(pd, "_shopping_items", lambda q: [("Bundle branch block ECG poster", 20.0),
                                                            ("Cardiology chart", 15.0),
                                                            ("Kids wooden blocks set", 30.0)])
-    med, share = pd.shopping_check("bundle branch block", {})
-    assert med == 20.0 and abs(share - 1 / 3) < 0.01
+    med, share, upper = pd.shopping_check("bundle branch block", {})
+    assert med == 20.0 and upper == 30.0 and abs(share - 1 / 3) < 0.01
+
+
+def test_name_train_listings_count_as_kids():
+    from scripts.product_demand import kid_item
+    for t in ("Name Trains in Bright Colors", "Nametrain Clear Finish", "Letter Name Train",
+              "Engine & Caboose Wooden Name Train"):
+        assert kid_item(t, "name trains"), t
+    assert not kid_item("Bundle branch block ECG poster", "bundle branch block")
+
+
+def test_letter_cars_dont_make_name_trains_pricey(monkeypatch):
+    import scripts.product_demand as pd
+    items = [("Letter Name Train", 6.99), ("Nametrain Clear Finish", 7.0), ("Name Train Letter Cars", 8.99),
+             ("Name Train 2020 Engine", 10.15), ("Personalized Montessori Wooden Toy", 16.92),
+             ("Personalized Wooden Name Train", 38.99), ("Name Trains in Bright Colors", 44.95),
+             ("AmishToyBox Wooden Name Train", 49.5), ("Name Trains with Track", 54.95),
+             ("NameTrain: 8 Letter Name", 67.5)]
+    monkeypatch.setattr(pd, "_shopping_items", lambda q: items)
+    med, share, upper = pd.shopping_check("name train", {})
+    assert share == 1.0 and pd.price_flag(49.99, upper) == ""
 
 
 def test_collectibles_and_science_noise_dropped():

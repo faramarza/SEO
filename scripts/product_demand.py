@@ -247,10 +247,27 @@ def shopping_check(query, cache):
         if items is None:
             return None, None
         cache["shopitems|" + query] = {"t": time.time(), "items": items}
-    prices = [p for _, p in items if p]
-    med = sorted(prices)[len(prices) // 2] if prices else None
-    share = (sum(1 for t, _ in items if KID_WORDS.search(t or "")) / len(items)) if items else None
-    return med, share
+    prices = sorted(p for _, p in items if p)
+    med = prices[len(prices) // 2] if prices else None
+    # Upper quartile: cheap parts (single letter cars at $7) drag the median down,
+    # so compare your price with what complete products cost.
+    upper = prices[(len(prices) * 3) // 4] if prices else None
+    share = (sum(1 for t, _ in items if kid_item(t, query)) / len(items)) if items else None
+    return med, share, upper
+
+
+def kid_item(title, query):
+    """A Shopping result is a kids' product if its title says so, or if the search
+    itself is a kids' search ('name train', 'montessori ...') and the title is that
+    same product ('Name Trains in Bright Colors'). Pure."""
+    if KID_WORDS.search(title or ""):
+        return True
+    if not _has(query, INTENT):
+        return False
+    want = {match_key(w) for w in query.lower().split()}
+    have = {match_key(w) for w in re.findall(r"[a-z]+", (title or "").lower())}
+    have |= {match_key(w) for w in re.findall(r"[a-z]+", re.sub(r"(?i)name(?=[a-z])", "name ", title or "").lower())}
+    return want <= have
 
 
 def _shopping_items(query):
@@ -729,7 +746,7 @@ def print_line_check(rows, plan, waiting, per_line=4):
                   f"{row_status(r, r['search'] in in_plan, wait.get(r['search']))}")
 
 
-def explain(q, found, seed_products, products, rows, skip, gsc, cache):
+def explain(q, found, seed_products, products, rows, skip, gsc, cache, conv=0.0):
     """Print every filter one search goes through, so 'why isn't X in the plan' has
     a plain answer."""
     print(f'\nWHY: "{q}"')
@@ -749,15 +766,19 @@ def explain(q, found, seed_products, products, rows, skip, gsc, cache):
           f"impressions {mine.get('impressions', 0)}" if mine else "  7. Your Google position: not ranking")
     r = next((x for x in rows if x["search"] == q), None)
     if r:
-        print(f"  8. Price ${r['price']:.2f}, flag {r['flag'] or 'none'}, value at #3 ${r['profit']:,.0f}/mo")
-    med, share = shopping_check(q, cache)
+        extra = r["volume"] * (0.10 - (mine.get("clicks", 0) / mine["impressions"] if mine.get("impressions") else 0))
+        print(f"  8. Price ${r['price']:.2f}, flag {r['flag'] or 'none'}. At #3: about {max(extra, 0):,.0f} more "
+              f"clicks/mo x {conv:.2%} organic conversion x ${r['price']:.2f} x margin = ${r['profit']:,.0f}/mo")
+    med, share, upper = shopping_check(q, cache)
     if share is None:
         print("  9. Google Shopping: unavailable")
     else:
-        print(f"  9. Google Shopping: median ${med or 0:.2f}, kids share {share:.0%} "
-              f"({'DROPPED, under 30%' if share < 0.3 else 'ok'})")
+        pf = price_flag(r["price"], upper) if r else ""
+        print(f"  9. Google Shopping: median ${med or 0:.2f}, complete products about ${upper or 0:.2f}, "
+              f"kids share {share:.0%} ({'DROPPED, under 30%' if share < 0.3 else 'ok'})"
+              + (f", PRICEY vs your ${r['price']:.2f}" if pf else ""))
         for t, pr in (cache.get("shopitems|" + q) or {}).get("items", [])[:8]:
-            print(f"       {'KID ' if KID_WORDS.search(t or '') else '    '}${pr or 0:>7.2f}  {t[:70]}")
+            print(f"       {'KID ' if kid_item(t, q) else '    '}${pr or 0:>7.2f}  {t[:70]}")
     from src.analysis import task_rules
     if r:
         w, why = task_rules.task_verdict(r.get("url") or "", q)
@@ -828,7 +849,7 @@ def main():
                      "profit": 0 if flag else profit, "flag": flag, "url": p["url"],
                      "_idx": sorted(idx)})
     if args.why:
-        explain(args.why.lower().strip(), found, seed_products, products, rows, skip, gsc, cache)
+        explain(args.why.lower().strip(), found, seed_products, products, rows, skip, gsc, cache, conv)
         return
     rows = collapse_variants(rows)
     rows.sort(key=lambda r: -r["profit"])
@@ -841,13 +862,13 @@ def main():
             break
         if r["flag"]:
             continue
-        med, share = shopping_check(r["search"], cache)
+        med, share, upper = shopping_check(r["search"], cache)
         checks += 1
-        r["shop_median"], r["kid_share"] = med, share
+        r["shop_median"], r["kid_share"], r["shop_upper"] = med, share, upper
         if share is not None and share < 0.3:
             r["flag"], r["profit"] = "NOTKIDS", 0
             continue
-        if price_flag(r["price"], med):
+        if price_flag(r["price"], upper):
             r["flag"], r["profit"] = "PRICEY", 0
         r["verified"] = share is not None
         verified.append(r)
@@ -899,7 +920,7 @@ def main():
             print(f"{'':>30}AI Overview: not checked (DataForSEO unavailable or daily cap reached)")
     print("you = your Google position (Search Console, 90 days). +$/mo = profit at #3 at your "
           "conversion and margin. CHEAP = shoppers want the cheap version; INFO = readers, not buyers;\n"
-          "PRICEY = Google Shopping shows this for under 40% of your price (shoppers expect a cheaper item).")
+          "PRICEY = complete products on Google Shopping cost under 40% of your price (shoppers expect a cheaper item).")
 
 
 if __name__ == "__main__":
