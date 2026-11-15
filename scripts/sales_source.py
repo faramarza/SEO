@@ -6,7 +6,9 @@ Compared with the N days before.
 
     /var/www/seo/venv/bin/python scripts/sales_source.py                 (name trains, 7 days)
     ... --line "Rugs" --days 14
-    ... --list            (also print every order with its source)
+    ... --line All        (every order, any product)
+    ... --list            (also print every order: source, ad campaign, status, products)
+    ... --all-statuses    (include canceled orders, e.g. TAG orders you canceled)
 
 "not seen by GA4" = an order with no matching GA4 purchase (ad/cookie blockers,
 declined consent, phone or admin orders). Read-only.
@@ -25,6 +27,7 @@ from scripts.sales_by_line import _load_dotenv, line_of  # noqa: E402
 _load_dotenv()
 
 NOT_SEEN = "not seen by GA4"
+CAMPAIGN = {}   # transaction id -> ad campaign name (Google Ads orders)
 
 
 def label(source_medium):
@@ -56,21 +59,25 @@ def by_source(orders, ga4):
     return sorted(((k, v[0], round(v[1], 2)) for k, v in agg.items()), key=lambda x: (-x[1], -x[2]))
 
 
-def fetch_line_orders(mc, start, end_excl, line):
-    """[{number, date, revenue}] of orders holding at least one item of the line."""
+def fetch_line_orders(mc, start, end_excl, line, exclude_canceled=True):
+    """[{number, date, revenue, status, products}] of orders holding at least one item
+    of the line ('All' = every order)."""
     page, out = 1, []
     while True:
-        q = mc._orders_date_query(start, end_excl, exclude_canceled=True, page_size=100, current_page=page)
+        q = mc._orders_date_query(start, end_excl, exclude_canceled=exclude_canceled, page_size=100,
+                                  current_page=page)
         data = mc._req("GET", q) or {}
         orders = data.get("items") or []
         for o in orders:
             rev = sum(float(it.get("base_row_total") or it.get("row_total") or 0)
                       - float(it.get("base_discount_amount") or 0)
                       for it in o.get("items") or []
-                      if not it.get("parent_item_id") and line_of(it.get("name")) == line)
+                      if not it.get("parent_item_id") and (line == "All" or line_of(it.get("name")) == line))
             if rev > 0:
                 out.append({"number": o.get("increment_id"), "date": (o.get("created_at") or "")[:10],
-                            "revenue": round(rev, 2)})
+                            "revenue": round(rev, 2), "status": o.get("status") or "",
+                            "products": "; ".join((it.get("name") or "")[:40] for it in o.get("items") or []
+                                                  if not it.get("parent_item_id"))})
         if not orders or page * 100 >= int(data.get("total_count") or 0):
             return out
         page += 1
@@ -90,12 +97,16 @@ def ga4_sources(start, end):
         resp = client.run_report(RunReportRequest(
             property=f"properties/{cfg['property_id']}",
             date_ranges=[DateRange(start_date=start.isoformat(), end_date=end.isoformat())],
-            dimensions=[Dimension(name="transactionId"), Dimension(name="sessionSourceMedium")],
+            dimensions=[Dimension(name="transactionId"), Dimension(name="sessionSourceMedium"),
+                        Dimension(name="sessionCampaignName")],
             metrics=[Metric(name="purchaseRevenue")], limit=10000, offset=offset))
         for r in resp.rows:
             tid, sm = r.dimension_values[0].value, r.dimension_values[1].value
             if tid and tid != "(not set)":
                 out.setdefault(tid, sm)
+                camp = r.dimension_values[2].value
+                if camp and camp not in ("(not set)", "(organic)", "(direct)", "(referral)"):
+                    CAMPAIGN.setdefault(tid, camp)
         offset += len(resp.rows)
         if not resp.rows or offset >= resp.row_count:
             return out
@@ -106,6 +117,7 @@ def main():
     ap.add_argument("--line", default="Name trains")
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--all-statuses", action="store_true")
     args = ap.parse_args()
     from src.data_sources.magento_client import MagentoClient
     mc = MagentoClient()
@@ -115,7 +127,7 @@ def main():
     cur_start, prev_start = today - timedelta(days=args.days), today - timedelta(days=2 * args.days)
     ga4 = ga4_sources(prev_start, today)
     for name, a, b in (("LAST", cur_start, today + timedelta(days=1)), ("BEFORE THAT", prev_start, cur_start)):
-        orders = fetch_line_orders(mc, a, b, args.line)
+        orders = fetch_line_orders(mc, a, b, args.line, exclude_canceled=not args.all_statuses)
         total = sum(o["revenue"] for o in orders)
         print(f"\n{args.line}, {name} {args.days} days ({a} to {b - timedelta(days=1)}): "
               f"{len(orders)} orders, ${total:,.2f}")
@@ -123,8 +135,15 @@ def main():
             print(f"   {n:>4} orders  ${rev:>9,.2f}   {src}")
         if args.list:
             for o in orders:
-                print(f"        #{o['number']}  {o['date']}  ${o['revenue']:,.2f}  {label(ga4.get(str(o['number'])))}")
-    allo = fetch_line_orders(mc, prev_start, today + timedelta(days=1), args.line)
+                n = str(o["number"])
+                camp = f" [campaign: {CAMPAIGN[n]}]" if n in CAMPAIGN else ""
+                print(f"        #{n}  {o['date']}  ${o['revenue']:,.2f}  {o['status']:<10} "
+                      f"{label(ga4.get(n))}{camp}\n              {o['products']}")
+        camps = collections.Counter(CAMPAIGN[str(o["number"])] for o in orders if str(o["number"]) in CAMPAIGN)
+        for c, n in camps.most_common():
+            print(f"   Google Ads campaign {c}: {n} order(s)")
+    allo = fetch_line_orders(mc, prev_start, today + timedelta(days=1), args.line,
+                             exclude_canceled=not args.all_statuses)
     unmatched = [o for o in allo if str(o["number"]) not in ga4]
     if allo and ga4 and len(unmatched) > 0.8 * len(allo):
         print("\nWARNING: almost no orders matched a GA4 purchase. GA4's transaction IDs may not be "
