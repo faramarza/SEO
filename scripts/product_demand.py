@@ -70,7 +70,8 @@ OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass
                        r"blind ?box(es)?|blind toy|collectibles?|funko|pop ?mart|squishmallows?|figures?|"
                        r"anime|adult|adults|1000 piece|500 piece|online|status|schedule|tickets?|"
                        r"thomas|tank engine|coal|steam|model train|embossers?|medical|cardiac|"
-                       r"squishy|fidget|stress)\b",
+                       r"squishy|fidget|stress|toy story|disney|pixar|marvel|paw patrol|bluey|cocomelon|"
+                       r"frozen|barbie|pokemon|star wars|sesame|peppa|costumes?|halloween)\b",
                        re.I)
 # Gift searches: people shopping FOR a child without naming the product ("personalized
 # toddler gifts", "first birthday gift"). They belong to the personalized products.
@@ -89,6 +90,12 @@ GIFT_OFF = re.compile(r"\b(cards?|baskets?|wrap|wrapping|bags?|boxes|box|registr
                       r"girlfriend|teachers?|coworkers?|boss|adults?|parents|nurse|shower|"
                       r"delivery|near me|anniversary|wedding|retirement|graduation|valentines?|"
                       r"employees?|clients?|couples?|friends?|sister|brother|grandparents?|grandma|grandpa)\b", re.I)
+
+
+def rival_brand(q, rivals):
+    """'i see me personalized book' is a search for iseeme.com: unwinnable. Pure."""
+    flat = re.sub(r"[^a-z]", "", q.lower())
+    return any(r and len(r) > 4 and r in flat for r in rivals)
 
 
 def gift_search(keyword):
@@ -189,6 +196,10 @@ def product_seeds(name, categories=()):
             seeds.add(f"{q} {k}")
     for c in categories:
         c = re.sub(r"\s+", " ", (c or "").lower()).strip()
+        # A stool in "Wooden Name Puzzles" must not take the puzzle searches.
+        ck = head_kind(c)
+        if ck and ck not in ("toy",) and ck != match_key(kind):
+            continue
         if 3 < len(c) <= 40 and not re.search(r"brand|sale|best|new|featured|shop", c):
             seeds.add(c)
     return {x for x in seeds if len(x.split()) >= 2 and qualified(x) or (len(x.split()) >= 2 and _has(x, KINDS) and len(x.split()) >= 3)}
@@ -582,10 +593,10 @@ LINES = (("Name trains", re.compile(r"train", re.I)),
 
 
 def line_of(url, search=""):
-    """Which product line a page/search belongs to. Pure."""
+    """Which product line a search belongs to: its own words first, then the page. Pure."""
     if gift_search(search or ""):
         return "Gifts"
-    for text in (url or "", search or ""):
+    for text in (search or "", url or ""):
         for name, pat in LINES:
             if pat.search(text):
                 return name
@@ -602,7 +613,7 @@ def vet_rows(rows, check, top=60, budget=150, per_line=5, line_tries=15):
     by_line = defaultdict(list)
     for r in rows:
         if not r.get("flag"):
-            by_line[line_of(r.get("url"), r["search"])].append(r)
+            by_line[line_of("", r["search"])].append(r)
     done = set()
     for rs in by_line.values():
         passed = tried = 0
@@ -778,7 +789,7 @@ def print_line_check(rows, plan, waiting, per_line=4):
     wait = {x["search"]: g["step"] for g in waiting for x in g["searches"]}
     by_line = defaultdict(list)
     for r in rows:
-        by_line[line_of(r.get("url"), r["search"])].append(r)
+        by_line[line_of("", r["search"])].append(r)
     print("\nLINE CHECK (each product line's biggest buyable searches, and why they are or aren't in the plan)")
     for name in ["Gifts"] + [n for n, _ in LINES] + ["Toys and other"]:
         allr = by_line.get(name, [])
@@ -882,7 +893,9 @@ def main():
     # Searches you already show up for are real demand by definition: look them up too,
     # so a product line never vanishes because no seed happened to produce its search.
     brand = [b.lower() for b in cfg.get("data_sources", {}).get("google_ads", {}).get("brand_terms", [])]
-    own_brand = lambda q: any(b in q.replace("-", " ") or b in q for b in brand)
+    rivals = [d["domain"].split(".")[0].lower() for d in cfg.get("demand_sources", []) if d.get("domain")]
+    own_brand = lambda q: (any(b in q.replace("-", " ") or b in q for b in brand)
+                           or rival_brand(q, rivals))
     proven = [q for q, d in gsc.items() if (d.get("impressions") or 0) >= 100 and not own_brand(q)
               and (qualified(q) or gift_search(q)) and not OFF_TOPIC.search(q)]
     vols = search_volumes(list(seed_products) + proven)

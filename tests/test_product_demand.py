@@ -225,3 +225,17 @@ def test_gift_category_owns_gift_searches():
             2: {"name": "Gift Cards", "active": True, "url_key": "gift-cards"}}
     assert named_category("personalized gifts for kids", cats)["url_key"] == "personalized-gifts"
     assert named_category("personalized gifts", {2: cats[2]}) is None
+
+
+def test_stool_in_puzzle_category_does_not_take_puzzle_searches():
+    s = product_seeds("Name Puzzle Stool - Flower Themed", ["Wooden Name Puzzles", "Personalized Step Stools"])
+    assert "wooden name puzzles" not in s and "personalized step stools" in s
+    assert "montessori toys" in product_seeds("Guidecraft Nest and Stack Shapes Toy", ["Montessori Toys"])
+
+
+def test_rival_brand_and_franchise():
+    from scripts.product_demand import rival_brand, OFF_TOPIC, line_of
+    assert rival_brand("i see me personalized book", ["iseeme", "guidecraft"])
+    assert not rival_brand("personalized books for kids", ["iseeme", "guidecraft"])
+    assert OFF_TOPIC.search("infant toy story costume") and OFF_TOPIC.search("infant toy story")
+    assert line_of("", "pretend play toys") == "Toys and other"

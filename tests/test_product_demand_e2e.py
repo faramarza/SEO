@@ -24,7 +24,8 @@ PRODUCTS = [
 ]
 VOLUMES = {"name train": 720, "classroom rug": 14800, "personalized toddler gifts": 2400,
            "personalized books for kids": 8100, "wooden train table": 9900,
-           "alphabet trains": 500, "gifts for 40 year old": 5000, "name train necklace": 3000}
+           "alphabet trains": 500, "gifts for 40 year old": 5000, "name train necklace": 3000,
+           "i see me personalized book": 4400}
 SHOP = {  # what Google Shopping shows
     "name train": [("Name Trains in Bright Colors", 44.95), ("Letter Name Train", 6.99),
                    ("Personalized Wooden Name Train", 38.99), ("Nametrain Clear Finish", 7.0)],
@@ -77,7 +78,8 @@ def test_every_line_shows_up_and_junk_never_does(monkeypatch, tmp_path, capsys):
     assert "classroom rug" in line_check
     # junk and adults are never listed anywhere
     assert "dropped 1 that Google shows as not for kids" in out
-    for bad in ("wooden train table", "gifts for 40 year old", "alphabet trains", "name train necklace"):
+    for bad in ("wooden train table", "gifts for 40 year old", "alphabet trains", "name train necklace",
+                "i see me personalized book"):
         assert bad not in out.split("All ")[0].split("example product")[1], bad
         assert bad not in line_check, bad
     pages = {g["page"] or "NEW" for g in plan["pages"]}
