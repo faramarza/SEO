@@ -188,7 +188,9 @@ def load_catalog(mc):
     cats = {}
     for c in (mc._req("GET", "/categories/list?searchCriteria[pageSize]=3000") or {}).get("items") or []:
         cats[int(c["id"])] = {"name": c.get("name", ""), "active": bool(c.get("is_active", True)),
-                              "url_key": mc._attr(c, "url_key")}
+                              "url_key": mc._attr(c, "url_key"),
+                              # subcategories live under their parent: classroom-rugs/large-classroom-rugs
+                              "url_path": mc._attr(c, "url_path") or mc._attr(c, "url_key")}
     meta = mc.product_attributes_meta()
     man_opts = (meta.get("manufacturer") or {}).get("options", {})
     products, seen = [], set()

@@ -52,3 +52,11 @@ def test_how_steps_are_concrete():
     r = how_steps({"action": "retitle", "kind": "product", "page_name": "Personalized Toy Chest", "sku": "HW-Toy-Chest",
                    "searches": [{"search": "wooden toy chest", "volume": 3600}]}, [])
     assert "HW-Toy-Chest" in r[0] and "Meta Title" in r[1]
+
+
+def test_natural_phrase_and_subcategory_url():
+    from scripts.product_demand import natural_phrase, owner_page
+    assert natural_phrase([{"search": "classroom rug large"}, {"search": "large classroom carpet"}]) == "large classroom carpet"
+    cats = {1: {"name": "Large Classroom Rugs", "active": True, "url_key": "large-classroom-rugs",
+                "url_path": "classroom-rugs/large-classroom-rugs"}}
+    assert owner_page([], [], cats, {}, "large classroom rugs")[0] == "/classroom-rugs/large-classroom-rugs.html"

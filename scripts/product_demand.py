@@ -359,7 +359,7 @@ def owner_page(idx, products, cats, cat_sizes, search=""):
     matched products; else None (new page)."""
     named = named_category(search, cats) if search else None
     if named:
-        return f"/{named['url_key']}.html", named["name"], "category"
+        return f"/{named.get('url_path') or named['url_key']}.html", named["name"], "category"
     idx = list(idx)
     if len(idx) == 1:
         p = products[idx[0]]
@@ -379,13 +379,22 @@ def owner_page(idx, products, cats, cat_sizes, search=""):
                 best = (key, c)
     if best:
         cat = cats[best[1]]
-        return f"/{cat['url_key']}.html", cat["name"], "category"
+        return f"/{cat.get('url_path') or cat['url_key']}.html", cat["name"], "category"
     return None, None, "new"
 
 
-def page_action(searches, title, h1):
+def natural_phrase(searches):
+    """The best-formed way to say a group's search: one that ends in what the product
+    is ('large classroom carpet', not 'classroom rug large'). Pure."""
+    for x in searches:
+        if head_kind(x["search"]) and match_key(x["search"].split()[-1]) == head_kind(x["search"]):
+            return x["search"]
+    return searches[0]["search"]
+
+
+def page_action(searches, title, h1, phrase=None):
     """What to do for one page, from its live title/H1 and its searches. Pure."""
-    top = searches[0]
+    top = dict(searches[0], search=phrase or searches[0]["search"])
     covered = norm_tokens(top["search"]) <= norm_tokens(f"{title} {h1}")
     ranked = [x for x in searches if x.get("you")]
     best_pos = min((x["you"] for x in ranked), default=None)
@@ -401,12 +410,16 @@ def page_action(searches, title, h1):
 
 
 def live_title_h1(url):
+    """(title, h1), or (None, None) if the page can't be fetched or is a 404."""
     import requests
     try:
-        s = requests.get("https://alphabet-trains.com" + url, timeout=25,
-                         headers={"User-Agent": "Mozilla/5.0 (product demand)"}).text
+        r = requests.get("https://alphabet-trains.com" + url, timeout=25,
+                         headers={"User-Agent": "Mozilla/5.0 (product demand)"})
+        s = r.text
+        if r.status_code != 200 or "page was not found" in s.lower()[:3000]:
+            return None, None
     except Exception:
-        return "", ""
+        return None, None
     g = lambda pat: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", (re.search(pat, s, re.S | re.I) or [None, ""])[1])).strip()
     return g(r"<title>(.*?)</title>"), g(r"<h1[^>]*>(.*?)</h1>")
 
@@ -462,7 +475,7 @@ def find_link_sources(posts, page_url, search, n=3):
 
 def how_steps(g, posts):
     """Numbered, idiot-proof steps for one page task."""
-    top = g["searches"][0]["search"]
+    top = g.get("phrase") or g["searches"][0]["search"]
     if g["action"] == "new_page":
         return [
             f"Catalog > Categories > select the parent (e.g. Classroom Rugs or Montessori Toys) > "
@@ -520,8 +533,11 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
                          f"with the matching products (like the Preschool & Daycare Rugs page).")
         else:
             title, h1 = live_title_h1(g["page"])
+            if title is None:
+                g["action"], g["step"] = "skip", f"Could not open {g['page']} (not found): no task."
+                continue
             g["title"], g["h1"] = title, h1
-            g["action"], g["step"] = page_action(g["searches"], title, h1)
+            g["action"], g["step"] = page_action(g["searches"], title, h1, natural_phrase(g["searches"]))
         g["value"] = round(g["value"], 2)
         if g["kind"] == "product":
             hit = next((p for p in products if p["url"] == g["page"]), None)
@@ -536,9 +552,10 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
                 for i in idx:
                     w.writerow([products[i]["sku"], f"alphabetstore/{g['searches'][0]['search'].title()}"])
             g["import_file"] = f"docs/imports/{path.name}"
+        g["phrase"] = natural_phrase(g["searches"])
         g["how"] = how_steps(g, posts or [])
         g.pop("_idx", None)
-    return plan
+    return [g for g in plan if g.get("action") != "skip"]
 
 
 def variant_key(r):

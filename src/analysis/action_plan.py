@@ -374,7 +374,7 @@ def _from_product_demand(out, path=None, max_age_days=45):
         s = g.get("searches") or []
         if not s:
             continue
-        top = s[0]
+        top = dict(s[0], search=g.get("phrase") or s[0]["search"])
         lines = [f"• \"{x['search']}\": {x['volume']:,}/mo" + (f", you #{x['you']:.0f}" if x.get("you") else ", you're not showing")
                  for x in s[:6]]
         how = g.get("how") or []
