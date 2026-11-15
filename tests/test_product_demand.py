@@ -84,3 +84,24 @@ def test_toy_chest_matches_the_chest_not_every_toy():
             seeds.setdefault(x, set()).add(i)
     assert "toy chest" in seeds
     assert match_products("wooden toy chest", seeds, []) == {0}
+
+
+def test_owner_is_the_category_named_in_the_search():
+    from scripts.product_demand import owner_page
+    cats = {1: {"name": "Montessori Toys", "active": True, "url_key": "montessori-toys"},
+            2: {"name": "Sorting Toys", "active": True, "url_key": "sorting-toys"},
+            3: {"name": "Classroom Rugs", "active": True, "url_key": "classroom-rugs"},
+            4: {"name": "Shop by Brand", "active": True, "url_key": "brands"}}
+    prods = [{"url": "/stacker.html", "name": "Montessori Shape Stacker", "cats": [2]}]
+    assert owner_page([0], prods, cats, {}, "montessori educational toy")[0] == "/montessori-toys.html"
+    assert owner_page([0], prods, cats, {}, "montessori toys")[0] == "/montessori-toys.html"
+    assert owner_page([0], prods, cats, {}, "classroom carpet")[0] == "/classroom-rugs.html"
+
+
+def test_box_matches_chest():
+    from scripts.product_demand import product_seeds, match_products
+    seeds = {}
+    for i, n in enumerate(["Personalized Toy Chest", "Guidecraft Texo 100 pc set Wooden Toy"]):
+        for x in product_seeds(n):
+            seeds.setdefault(x, set()).add(i)
+    assert match_products("wooden toy box", seeds, []) == {0}

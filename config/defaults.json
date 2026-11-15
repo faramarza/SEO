@@ -53,6 +53,8 @@
     "product_families": ["name trains", "personalized name puzzles", "personalized step stools", "personalized baby books", "personalized baby gifts", "personalized toys", "montessori toys", "classroom rugs", "kids furniture"]
   },
   "demand_sources_note": "Sites whose Google rankings define demand for the catalog: makers (brand-filtered; their unmatched searches are products you could add) and category stores ('*': only searches that match a product you sell are used, so their other merchandise never appears). Used by scripts/demand_map.py --all.",
+  "demand_skip_note": "Searches Frank ruled out for the product demand plan (wrong intent or no matching product). Add to this list; scripts/product_demand.py skips them.",
+  "demand_skip": ["boxes toy", "baby book", "montessori shelf"],
   "demand_sources": [
     {"domain": "guidecraft.com", "brand": "guide craft"},
     {"domain": "whitneybros.com", "brand": "whitney"},

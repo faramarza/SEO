@@ -73,12 +73,22 @@ def name_words(name):
     return [w for w in words if w not in NOISE and len(w) > 1]
 
 
+MATCH_SYN = {"carpet": "rug", "box": "chest", "boxe": "chest", "childrens": "kids", "children": "kids",
+             "child": "kids", "kid": "kids", "personalised": "personalized"}
+
+
 def plural_key(s):
     return " ".join(w[:-1] if w.endswith("s") and len(w) > 3 else w for w in s.split())
 
 
+def match_key(s):
+    """Plural- and synonym-insensitive form: 'classroom carpets' == 'classroom rug',
+    'wooden toy box' == 'wooden toy chest'."""
+    return " ".join(MATCH_SYN.get(w, w) for w in plural_key(s.lower()).split())
+
+
 # What a product IS. A search must name one of these to count.
-KINDS = ("rug", "carpet", "mat", "mirror", "train", "puzzle", "stool", "table", "chair", "cart",
+KINDS = ("rug", "carpet", "mat", "mirror", "box", "train", "puzzle", "stool", "table", "chair", "cart",
          "shelf", "bookshelf", "bookcase", "cabinet", "block", "blocks", "book", "storybook", "easel",
          "bench", "sorter", "stacker", "tower", "truck", "car", "kitchen", "house", "playhouse",
          "cube", "locker", "cubby", "display", "rack", "chest", "lightbox", "light table",
@@ -186,8 +196,8 @@ def expand(seed, cache):
 
 def head_kind(text):
     """The LAST product-kind word in a phrase: 'wooden toy chest' -> chest."""
-    kinds = {plural_key(k) for k in KINDS if " " not in k}
-    words = [plural_key(w) for w in re.findall(r"[a-z]+", (text or "").lower())]
+    kinds = {match_key(k) for k in KINDS if " " not in k}
+    words = [match_key(w) for w in re.findall(r"[a-z]+", (text or "").lower())]
     for w in reversed(words):
         if w in kinds:
             return w
@@ -198,9 +208,9 @@ def match_products(keyword, seed_products, products):
     """Products a search belongs to: those whose seeds appear inside it. Seeds
     naming the same thing the search ends on win ('wooden toy chest' belongs to
     toy chests, not to every 'wooden toy'); then the longest seed wins."""
-    k = f" {plural_key(keyword)} "
+    k = f" {match_key(keyword)} "
     head = head_kind(keyword)
-    cands = [(seed, idx) for seed, idx in seed_products.items() if f" {plural_key(seed)} " in k]
+    cands = [(seed, idx) for seed, idx in seed_products.items() if f" {match_key(seed)} " in k]
     same = [(s_, i) for s_, i in cands if head_kind(s_) == head]
     cands = same or cands
     best, best_len = set(), 0
@@ -327,9 +337,28 @@ def norm_tokens(text):
             if w not in STOP_T}
 
 
-def owner_page(idx, products, cats, cat_sizes):
-    """Which page should own a search: a single product's page, the most specific
-    active category holding >= half the matched products, else None (new page)."""
+def named_category(search, cats):
+    """The active category whose whole name is inside the search ('montessori toys'
+    -> Montessori Toys, 'classroom carpet' -> Classroom Rugs). Longest name wins."""
+    st = norm_tokens(search)
+    best = None
+    for c in cats.values():
+        name = c.get("name", "")
+        if not c.get("active") or not c.get("url_key") or SKIP_CAT.search(name):
+            continue
+        ct = norm_tokens(name)
+        if ct and ct <= st and (best is None or len(ct) > len(norm_tokens(best["name"]))):
+            best = c
+    return best
+
+
+def owner_page(idx, products, cats, cat_sizes, search=""):
+    """Which page should own a search: a category named in the search; else a single
+    product's page; else the most specific active category holding >= half the
+    matched products; else None (new page)."""
+    named = named_category(search, cats) if search else None
+    if named:
+        return f"/{named['url_key']}.html", named["name"], "category"
     idx = list(idx)
     if len(idx) == 1:
         p = products[idx[0]]
@@ -391,7 +420,7 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25):
     for r in rows:
         if r.get("flag") or not r.get("verified") or r.get("profit", 0) < min_profit:
             continue
-        url, name, kind = owner_page(r.get("_idx") or [], products, cats, cat_sizes)
+        url, name, kind = owner_page(r.get("_idx") or [], products, cats, cat_sizes, r["search"])
         key = url or ("NEW:" + r["search"])
         g = groups.setdefault(key, {"page": url, "page_name": name or r["search"].title(),
                                     "kind": kind, "searches": [], "value": 0.0})
@@ -447,6 +476,7 @@ def main():
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
+    skip = {x.lower().strip() for x in cfg.get("demand_skip", []) if isinstance(x, str)}
     from scripts.line_demand import _magento
     mc = _magento()
     cats, products = load_catalog(mc)
@@ -478,7 +508,7 @@ def main():
     conv, _, _ = organic_conversion(cfg)
     rows = []
     for kw, it in found.items():
-        if OFF_TOPIC.search(kw) or not qualified(kw):
+        if OFF_TOPIC.search(kw) or not qualified(kw) or kw in skip:
             continue
         idx = match_products(kw, seed_products, products)
         if not idx:
