@@ -377,7 +377,9 @@ def _from_product_demand(out, path=None, max_age_days=45):
         top = s[0]
         lines = [f"• \"{x['search']}\": {x['volume']:,}/mo" + (f", you #{x['you']:.0f}" if x.get("you") else ", you're not showing")
                  for x in s[:6]]
-        steps = [g.get("step", "")] + ["Searches this page should win:"] + lines
+        how = g.get("how") or []
+        steps = [g.get("step", "")] + ([f"HOW, step by step:"] + [f"{i}. {h}" for i, h in enumerate(how, 1)]
+                                       if how else []) + ["Searches this page should win:"] + lines
         if g.get("title"):
             steps.insert(1, f"Current title: \"{g['title']}\"")
         name = g.get("page_name") or top["search"]

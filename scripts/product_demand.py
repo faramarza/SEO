@@ -410,7 +410,89 @@ def live_title_h1(url):
     return g(r"<title>(.*?)</title>"), g(r"<h1[^>]*>(.*?)</h1>")
 
 
-def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25):
+
+# ---------------------------------------------------------------- step-by-step "how"
+def suggest_title(search, page_name=""):
+    """A plain, ready-to-paste meta title leading with the search (no separators)."""
+    t = " ".join(w.capitalize() if w not in STOP_T else w for w in search.split())
+    extras = [w for w in re.findall(r"[A-Za-z']+", page_name or "")
+              if w.lower() in ("personalized", "wooden", "montessori", "classroom", "kids")
+              and w.lower() not in search.lower()]
+    if extras:
+        cand = f"{extras[0].capitalize()} {t}"
+        if len(cand) <= 60:
+            t = cand
+    for tail in (" for Kids",):   # never invent claims like "Made in USA"
+        if len(t + tail) <= 60 and not re.search(r"kids|classroom|toddler|baby", t, re.I):
+            return t + tail
+    return t[:60]
+
+
+def admin_path(kind, name, sku=""):
+    if kind == "category":
+        return (f"Catalog > Categories > \"{name}\" (Scope: alphabettrains) > Search Engine Optimization")
+    return (f"Catalog > Products > search \"{sku or name}\" > open it (Scope: alphabettrains) > "
+            f"Search Engine Optimization")
+
+
+def find_link_sources(posts, page_url, search, n=3):
+    """Blog posts that talk about the topic and don't link to the page yet, with the
+    exact sentence to find and what to paste. Pure (posts = [{name, url_key, content}])."""
+    words = [w for w in norm_tokens(search) if len(w) > 3] or list(norm_tokens(search))
+    out = []
+    for p in posts:
+        html = p.get("content") or ""
+        if page_url and page_url in html:
+            continue
+        text = re.sub(r"\s+", " ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html))
+        sents = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if 40 < len(x.strip()) < 260]
+        best = None
+        for sn in sents:
+            hits = sum(1 for w in words if w in norm_tokens(sn))
+            if hits and (best is None or hits > best[0]):
+                best = (hits, sn)
+        if best:
+            out.append({"post": p.get("name", ""), "slug": p.get("url_key", ""), "hits": best[0],
+                        "find": best[1][-90:],
+                        "paste": f' See our <a href="{page_url}">{search}</a>.'})
+    out.sort(key=lambda x: -x["hits"])
+    return out[:n]
+
+
+def how_steps(g, posts):
+    """Numbered, idiot-proof steps for one page task."""
+    top = g["searches"][0]["search"]
+    if g["action"] == "new_page":
+        return [
+            f"Catalog > Categories > select the parent (e.g. Classroom Rugs or Montessori Toys) > "
+            f"Add Subcategory. Category Name: \"{top.title()}\". Enable: Yes. Include in Menu: Yes. Anchor: Yes.",
+            f"Search Engine Optimization: URL Key \"{re.sub(r'[^a-z0-9]+', '-', top)}\", "
+            f"Meta Title \"{suggest_title(top)}\".",
+            f"Save. Then import {g.get('import_file', 'the product file')} (System > Data Transfer > Import, "
+            f"Products, Add/Update) to fill it with the matching products.",
+            "On the server: bin/magento indexer:reindex && bin/magento cache:flush, then tell Claude \"check\".",
+        ]
+    if g["action"] == "retitle":
+        return [
+            admin_path(g["kind"], g.get("page_name", ""), g.get("sku", "")) + ".",
+            f"Meta Title: replace with  {suggest_title(top, g.get('page_name', ''))}",
+            "If \"Use Default Value\" is ticked next to Meta Title, untick it first. Save.",
+            "On the server: bin/magento cache:flush, then tell Claude \"check\".",
+        ]
+    steps = []
+    srcs = find_link_sources(posts, g.get("page") or "", top)
+    if not srcs:
+        return ["No blog post discusses this yet. Tell Claude \"find link spots for " + top +
+                "\" and it will search categories and CMS blocks instead."]
+    for i, s_ in enumerate(srcs, 1):
+        steps.append(f"Link {i}: blog post \"{s_['post']}\" (/blog/{s_['slug']}). Open it in the blog admin, "
+                     f"switch to HTML view, find the sentence ending: \"...{s_['find']}\"  and paste right "
+                     f"after it:  {s_['paste']}")
+    steps.append("Save each post, then on the server: bin/magento cache:flush, and tell Claude \"check\".")
+    return steps
+
+
+def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=None):
     """Group the good searches by the page that should own them, with one action each."""
     cat_sizes = defaultdict(int)
     for p in products:
@@ -423,7 +505,8 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25):
         url, name, kind = owner_page(r.get("_idx") or [], products, cats, cat_sizes, r["search"])
         key = url or ("NEW:" + r["search"])
         g = groups.setdefault(key, {"page": url, "page_name": name or r["search"].title(),
-                                    "kind": kind, "searches": [], "value": 0.0})
+                                    "kind": kind, "searches": [], "value": 0.0, "_idx": []})
+        g["_idx"] = sorted(set(g["_idx"]) | set(r.get("_idx") or []))
         g["searches"].append({"search": r["search"], "volume": r["volume"], "you": r.get("you"),
                               "variants": r.get("variants", 1)})
         g["value"] += r.get("profit", 0)
@@ -439,6 +522,21 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25):
             g["title"], g["h1"] = title, h1
             g["action"], g["step"] = page_action(g["searches"], title, h1)
         g["value"] = round(g["value"], 2)
+        if g["kind"] == "product":
+            hit = next((p for p in products if p["url"] == g["page"]), None)
+            g["sku"] = hit["sku"] if hit else ""
+        if g["action"] == "new_page":
+            slug = re.sub(r"[^a-z0-9]+", "_", g["searches"][0]["search"])
+            path = ROOT / "docs" / "imports" / f"new_page_{slug}.csv"
+            idx = g.get("_idx") or []
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["sku", "categories"])
+                for i in idx:
+                    w.writerow([products[i]["sku"], f"alphabetstore/{g['searches'][0]['search'].title()}"])
+            g["import_file"] = f"docs/imports/{path.name}"
+        g["how"] = how_steps(g, posts or [])
+        g.pop("_idx", None)
     return plan
 
 
@@ -569,7 +667,13 @@ def main():
         w.writeheader()
         w.writerows([{k: v for k, v in r.items() if k != "_idx"} for r in rows])
     print(f"\nAll {len(rows)} searches -> {out}")
-    plan = build_page_plan(rows, products, cats)
+    try:
+        from scripts.link_sources import list_posts
+        posts = list_posts(mc)
+    except Exception as e:
+        print(f"(blog posts unavailable for link suggestions: {e})")
+        posts = []
+    plan = build_page_plan(rows, products, cats, posts=posts)
     (ROOT / "data" / "product_demand_plan.json").write_text(json.dumps(
         {"generated": datetime.now(timezone.utc).isoformat(), "pages": plan}, indent=1))
     print(f"\nPAGE PLAN ({len(plan)} pages) -> data/product_demand_plan.json, also on Governor's Start Here")
