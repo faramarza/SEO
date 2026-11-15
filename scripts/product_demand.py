@@ -57,7 +57,9 @@ OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass
                        r"foldable|fold|picnic|legs?|topper|floating|patio|office|bedroom|tv|"
                        r"kitchen cabinets?|cabinets? in kitchen|kitchen shelf|high ?chair|bouncer|"
                        r"swing|gaming|electronic|ipad|samsung|amazon fire|recliner|outdoor furniture|"
-                       r"baby chair|infant chair|baby seat|infant seat)\b",
+                       r"baby chair|infant chair|baby seat|infant seat|pottery barn|melissa|doug|lakeshore|"
+                       r"ikea|kidkraft|step2|lovevery|amtrak|minecraft|lego|hair|hairstyles?|dress|"
+                       r"dresses|dna|lipid|carbohydrate|nucleic|concrete|garage|bundle branch|rbbb|jam level)\b",
                        re.I)
 CACHE = ROOT / "data" / "product_demand_cache.json"
 SUGGEST_URL = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live"
@@ -192,6 +194,56 @@ def match_products(keyword, seed_products, products):
 
 
 # ---------------------------------------------------------------- price fit
+KID_WORDS = re.compile(r"\b(kids?|child|children'?s?|toddlers?|baby|babies|infants?|montessori|"
+                       r"classroom|preschool|daycare|school|nursery|toys?|educational|learning|"
+                       r"girls?|boys?|playroom|play|teacher|stem|alphabet|abc|personali[sz]ed)\b", re.I)
+
+
+def shopping_check(query, cache):
+    """(median price, share of products that are for kids/classrooms) from what
+    Google Shopping shows for the search. Google decides what a search means:
+    'bundle branch block' shows medical items, 'color block hair' hair products.
+    (None, None) when unavailable. Cached 30 days."""
+    hit = cache.get("shop2|" + query)
+    if hit and (time.time() - hit.get("t", 0)) < 30 * 86400:
+        return hit.get("median"), hit.get("kid_share")
+    items = _shopping_items(query)
+    if items is None:
+        return None, None
+    prices = [p for _, p in items if p]
+    med = sorted(prices)[len(prices) // 2] if prices else None
+    share = (sum(1 for t, _ in items if KID_WORDS.search(t or "")) / len(items)) if items else None
+    cache["shop2|" + query] = {"t": time.time(), "median": med, "kid_share": share}
+    return med, share
+
+
+def _shopping_items(query):
+    import os
+    key = os.environ.get("SERPER_API_KEY")
+    if not key:
+        SHOP_STATUS["error"] = "SERPER_API_KEY not set"
+        return None
+    import requests
+    try:
+        r = requests.post("https://google.serper.dev/shopping", timeout=30,
+                          headers={"X-API-KEY": key, "Content-Type": "application/json"},
+                          json={"q": query, "gl": "us", "num": 20})
+        SHOP_STATUS["checked"] += 1
+        if r.status_code != 200:
+            SHOP_STATUS["error"] = f"Serper shopping HTTP {r.status_code}: {r.text[:120]}"
+            return None
+        out = []
+        for it in (r.json().get("shopping") or []):
+            m = re.search(r"([\d,]+\.?\d*)", str(it.get("price") or ""))
+            out.append((it.get("title") or "", float(m.group(1).replace(",", "")) if m else None))
+        if out:
+            SHOP_STATUS["priced"] += 1
+        return out
+    except Exception as e:
+        SHOP_STATUS["error"] = f"Serper shopping failed: {e}"
+        return None
+
+
 def shopping_median(query, cache):
     """Median price Google Shopping shows for a search (Serper, cached 30 days).
     None when unavailable. Used to flag searches where shoppers expect far less."""
@@ -267,7 +319,7 @@ def main():
     ap.add_argument("--top", type=int, default=60)
     ap.add_argument("--expand", type=int, default=80)
     ap.add_argument("--min-volume", type=int, default=30)
-    ap.add_argument("--price-check", type=int, default=60,
+    ap.add_argument("--price-check", type=int, default=150,
                     help="check Google Shopping prices for the top N searches (Serper, cached)")
     args = ap.parse_args()
 
@@ -323,21 +375,36 @@ def main():
                      "profit": 0 if flag else profit, "flag": flag, "url": p["url"]})
     rows = collapse_variants(rows)
     rows.sort(key=lambda r: -r["profit"])
-    # Price fit for the top rows: shoppers expecting a $60 version won't buy a $1,377 one.
-    for r in rows[:args.price_check]:
+    # Google decides: walk down the list, ask Google Shopping what each search shows,
+    # keep only searches where most products are for kids/classrooms, and flag
+    # PRICEY ones. Stop once `top` searches are verified or the budget is spent.
+    verified, checks = [], 0
+    for r in rows:
+        if len(verified) >= args.top or checks >= args.price_check:
+            break
         if r["flag"]:
             continue
-        med = shopping_median(r["search"], cache)
-        r["shop_median"] = med
+        med, share = shopping_check(r["search"], cache)
+        checks += 1
+        r["shop_median"], r["kid_share"] = med, share
+        if share is not None and share < 0.3:
+            r["flag"], r["profit"] = "NOTKIDS", 0
+            continue
         if price_flag(r["price"], med):
             r["flag"], r["profit"] = "PRICEY", 0
+        r["verified"] = share is not None
+        verified.append(r)
     CACHE.write_text(json.dumps(cache))
     rows.sort(key=lambda r: -r["profit"])
     print(f"price check: {SHOP_STATUS['checked']} searches looked up, {SHOP_STATUS['priced']} had "
-          f"Shopping prices" + (f"  [PROBLEM: {SHOP_STATUS['error']}]" if SHOP_STATUS["error"] else ""))
+          f"Shopping results; dropped {sum(1 for r in rows if r['flag'] == 'NOTKIDS')} that Google shows "
+          f"as not for kids, {sum(1 for r in rows if r['flag'] == 'PRICEY')} PRICEY" + (f"  [PROBLEM: {SHOP_STATUS['error']}]" if SHOP_STATUS["error"] else ""))
 
     print(f"\n{'search':<38}{'vol/mo':>8}{'you':>6}{'clk':>5}{'+$/mo':>7}  {'flag':<6}{'price':>8}  example product")
-    for r in rows[:args.top]:
+    show = [r for r in rows if r.get("verified")] or rows
+    if not any(r.get("verified") for r in rows):
+        print("(Google Shopping check unavailable: showing UNVERIFIED searches)")
+    for r in show[:args.top]:
         you = f"{r['you']:.0f}" if r["you"] else "-"
         print(f"{r['search'][:37]:<38}{r['volume']:>8,}{you:>6}{r['clicks']:>5}{r['profit']:>7,.0f}  "
               f"{r['flag']:<6}{r['price']:>8.2f}  {r['example']} (+{r['products'] - 1})"

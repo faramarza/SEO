@@ -57,3 +57,12 @@ def test_collapse_variants():
     assert len(out) == 2
     big = [r for r in out if r["volume"] == 14800][0]
     assert big["variants"] == 3 and big["search"] == "classroom rugs and carpets"
+
+
+def test_shopping_check_kid_share(monkeypatch):
+    import scripts.product_demand as pd
+    monkeypatch.setattr(pd, "_shopping_items", lambda q: [("Bundle branch block ECG poster", 20.0),
+                                                           ("Cardiology chart", 15.0),
+                                                           ("Kids wooden blocks set", 30.0)])
+    med, share = pd.shopping_check("bundle branch block", {})
+    assert med == 20.0 and abs(share - 1 / 3) < 0.01
