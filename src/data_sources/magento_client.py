@@ -527,9 +527,54 @@ class MagentoClient:
         if len(items) != 1:
             return None
         c = items[0]
+        sc = self.scoped_description("category", c.get("id"))
         return {"entity_type": "category", "category_id": c.get("id"),
                 "name": c.get("name", ""),
-                "description": self._attr(c, "description")}
+                # the text the STORE shows (its own copy if it has one), never the
+                # global text by mistake: merging into the wrong one would wipe
+                # store-only wording on save.
+                "description": sc["store"] if sc else self._attr(c, "description"),
+                "has_store_copy": bool(sc and sc["override"])}
+
+    # ---- Scope-aware description writes ------------------------------------
+    def store_scope(self):
+        """The storefront's store-view code (e.g. alphabettrains)."""
+        return next((x for x in self.write_scopes() if x != "all"), "all")
+
+    def _entity_path(self, kind, key):
+        if kind == "category":
+            return f"/categories/{int(key)}"
+        return "/products/" + str(key).replace("/", "%2F").replace(" ", "%20")
+
+    def scoped_description(self, kind, key):
+        """{'store': text the storefront shows, 'global': All Store Views text,
+        'override': True if the store view has its OWN copy}. None on error."""
+        try:
+            path = self._entity_path(kind, key)
+            store = self._attr(self._req("GET", path, scope=self.store_scope()) or {}, "description") or ""
+            glob = self._attr(self._req("GET", path, scope="all") or {}, "description") or ""
+        except MagentoError:
+            return None
+        return {"store": store, "global": glob, "override": store != glob}
+
+    def write_description_scoped(self, kind, key, new_description, payload):
+        """Save where it belongs: no store-view copy -> All Store Views (keeps ONE
+        version, so later edits at either scope show); store copy exists -> the
+        store view (the version the site shows). Then read back what the store
+        shows; if the change isn't there, also save at the store view.
+        Returns the scope(s) written."""
+        sc = self.scoped_description(kind, key)
+        path = self._entity_path(kind, key)
+        store = self.store_scope()
+        if sc and not sc["override"]:
+            self._req("PUT", path, payload, scope="all")
+            after = self.scoped_description(kind, key)
+            if after and after["store"] == new_description:
+                return ["all"]
+            self._req("PUT", path, payload, scope=store)
+            return ["all", store]
+        self._req("PUT", path, payload, scope=store)
+        return [store]
 
     def update_category_description(self, category_id, new_description):
         """Write ONLY the category description. Guarded so no other field rides
@@ -537,7 +582,7 @@ class MagentoClient:
         payload = {"category": {"custom_attributes": [
             {"attribute_code": "description", "value": new_description}]}}
         _assert_description_only(payload)
-        return self._write(f"/categories/{int(category_id)}", payload)
+        return self.write_description_scoped("category", category_id, new_description, payload)
 
     def get_product_description(self, url: str):
         """Resolve a storefront URL to its PRODUCT and return
@@ -553,9 +598,11 @@ class MagentoClient:
         if len(items) != 1:
             return None
         p = items[0]
+        sc = self.scoped_description("product", p.get("sku", ""))
         return {"entity_type": "product", "sku": p.get("sku", ""),
                 "name": p.get("name", ""),
-                "description": self._attr(p, "description"),
+                "description": sc["store"] if sc else self._attr(p, "description"),
+                "has_store_copy": bool(sc and sc["override"]),
                 "attribute_set_id": p.get("attribute_set_id"),
                 "type_id": p.get("type_id")}
 
@@ -574,8 +621,14 @@ class MagentoClient:
             payload["product"]["type_id"] = type_id
             echoes["type_id"] = type_id
         _assert_product_description_only(payload, path_sku=sku, echoes=echoes)
-        safe_sku = sku.replace("/", "%2F").replace(" ", "%20")
-        return self._write(f"/products/{safe_sku}", payload)
+        try:
+            return self.write_description_scoped("product", sku, new_description, payload)
+        except MagentoError as e:
+            # Store-view product saves can hit a Magento core bug ("unable to be
+            # saved"). Never fall back to the global copy when the store has its
+            # own: that change would be invisible. Say so instead.
+            raise MagentoError(f"{e}. The change was NOT saved; add this link by hand at "
+                               f"Scope {self.store_scope()}.")
 
     # ---- Blog POST content (Mirasvit Blog MX) — own strict, reversible path ----
     # Mirasvit's REST routing differs across versions: Blog MX uses
