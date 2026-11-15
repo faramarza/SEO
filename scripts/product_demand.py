@@ -64,34 +64,69 @@ def name_words(name):
     return [w for w in words if w not in NOISE and len(w) > 1]
 
 
+def plural_key(s):
+    return " ".join(w[:-1] if w.endswith("s") and len(w) > 3 else w for w in s.split())
+
+
+# What a product IS. A search must name one of these to count.
+KINDS = ("rug", "carpet", "mat", "mirror", "train", "puzzle", "stool", "table", "chair", "cart",
+         "shelf", "bookshelf", "bookcase", "cabinet", "block", "blocks", "book", "storybook", "easel",
+         "bench", "sorter", "stacker", "tower", "truck", "car", "kitchen", "house", "playhouse",
+         "cube", "locker", "cubby", "display", "rack", "chest", "tablet", "lightbox", "light table",
+         "toy", "toys", "game", "sensory table", "drum", "tracker", "board", "rocker")
+# Proof the searcher shops for a child or a classroom (else "usa map", "tow truck").
+INTENT = ("montessori", "baby", "infant", "toddler", "kid", "kids", "child", "children", "childrens",
+          "classroom", "preschool", "daycare", "school", "nursery", "teacher", "wooden", "wood",
+          "personalized", "personalised", "name", "toy", "toys", "tummy", "sensory", "learning",
+          "educational", "play", "playroom", "alphabet", "abc", "letter", "circle time", "seating",
+          "stem", "girls", "boys")
+
+
+def _has(text, words):
+    t = f" {plural_key(text.lower())} "
+    return any(f" {plural_key(w)} " in t for w in words)
+
+
+def kind_of(name, categories=()):
+    """The noun saying what the product is, from its name, else its categories."""
+    for text in [name, *categories]:
+        words = [plural_key(w) for w in re.findall(r"[a-z]+", (text or "").lower())]
+        for w in reversed(words):
+            if w in {plural_key(k) for k in KINDS}:
+                return w
+    return None
+
+
+def qualified(keyword):
+    """A search counts only if it names a product kind AND shows child/classroom intent."""
+    return _has(keyword, KINDS) and _has(keyword, INTENT)
+
+
 def product_seeds(name, categories=()):
-    """All reasonable ways to describe one product, e.g. 'Montessori Tummy Time
-    Mirror' -> tummy time mirror, time mirror(dropped), montessori mirror, baby
-    mirror, kids mirror, ... Pure, unit-tested."""
-    w = [x for x in name_words(name) if x not in BRAND_WORDS or x in QUALIFIERS]
-    core = [x for x in w if x not in QUALIFIERS]
+    """Ways to describe one product, always ending in what it IS:
+    'Carpet for kids USA Map 8ft x 12ft' -> usa map rug, map rug, kids rug,
+    classroom rug... ; 'Montessori Tummy Time Mirror' -> tummy time mirror,
+    montessori mirror, baby mirror... Pure, unit-tested."""
+    kind = kind_of(name, categories)
+    if not kind:
+        return set()
+    kinds = {kind, "rug"} if kind == "carpet" else {kind}
+    w = [x for x in name_words(name) if (x not in BRAND_WORDS or x in QUALIFIERS)
+         and plural_key(x) != kind]
+    desc = [x for x in w if x not in QUALIFIERS and x not in {plural_key(k) for k in KINDS}]
     seeds = set()
-    if core:
-        head = core[-1]
-        if len(core) >= 2:
-            seeds.add(" ".join(core[-2:]))
-        if len(core) >= 3:
-            seeds.add(" ".join(core[-3:]))
-        # the bare noun ("mirror", "table") is NOT a seed: it drags in bathroom
-        # mirrors and dining tables. It only counts with a qualifier.
+    for k in kinds:
+        if desc:
+            seeds.add(f"{desc[-1]} {k}")
+            if len(desc) >= 2:
+                seeds.add(f"{desc[-2]} {desc[-1]} {k}")
         for q in QUALIFIERS:
-            seeds.add(f"{q} {head}")
-            if len(core) >= 2:
-                seeds.add(f"{q} {' '.join(core[-2:])}")
+            seeds.add(f"{q} {k}")
     for c in categories:
         c = re.sub(r"\s+", " ", (c or "").lower()).strip()
         if 3 < len(c) <= 40 and not re.search(r"brand|sale|best|new|featured|shop", c):
             seeds.add(c)
-    return {s for s in seeds if len(s) > 3 and len(s.split()) >= 2 and s.split()[-1] not in NOISE}
-
-
-def plural_key(s):
-    return " ".join(w[:-1] if w.endswith("s") and len(w) > 3 else w for w in s.split())
+    return {x for x in seeds if len(x.split()) >= 2 and qualified(x) or (len(x.split()) >= 2 and _has(x, KINDS) and len(x.split()) >= 3)}
 
 
 # ---------------------------------------------------------------- expansion
@@ -145,12 +180,49 @@ def match_products(keyword, seed_products, products):
     return best
 
 
+# ---------------------------------------------------------------- price fit
+def shopping_median(query, cache):
+    """Median price Google Shopping shows for a search (Serper, cached 30 days).
+    None when unavailable. Used to flag searches where shoppers expect far less."""
+    import os
+    key = os.environ.get("SERPER_API_KEY")
+    hit = cache.get("shop|" + query)
+    if hit and (time.time() - hit.get("t", 0)) < 30 * 86400:
+        return hit.get("median")
+    if not key:
+        return None
+    import requests
+    try:
+        r = requests.post("https://google.serper.dev/shopping", timeout=30,
+                          headers={"X-API-KEY": key, "Content-Type": "application/json"},
+                          json={"q": query, "gl": "us", "num": 20})
+        prices = []
+        for it in (r.json().get("shopping") or []):
+            m = re.search(r"([\d,]+\.?\d*)", str(it.get("price") or ""))
+            if m:
+                prices.append(float(m.group(1).replace(",", "")))
+    except Exception:
+        return None
+    med = sorted(prices)[len(prices) // 2] if prices else None
+    cache["shop|" + query] = {"t": time.time(), "median": med}
+    return med
+
+
+def price_flag(my_price, median, ratio=2.5):
+    """'PRICEY' when you charge more than `ratio` x what shoppers see. Pure."""
+    if not median or not my_price:
+        return ""
+    return "PRICEY" if my_price > ratio * median else ""
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--top", type=int, default=60)
     ap.add_argument("--expand", type=int, default=80)
     ap.add_argument("--min-volume", type=int, default=30)
+    ap.add_argument("--price-check", type=int, default=40,
+                    help="check Google Shopping prices for the top N searches (Serper, cached)")
     args = ap.parse_args()
 
     cfg = json.loads((ROOT / "config" / "defaults.json").read_text())
@@ -185,7 +257,7 @@ def main():
     conv, _, _ = organic_conversion(cfg)
     rows = []
     for kw, it in found.items():
-        if OFF_TOPIC.search(kw):
+        if OFF_TOPIC.search(kw) or not qualified(kw):
             continue
         idx = match_products(kw, seed_products, products)
         if not idx:
@@ -204,6 +276,16 @@ def main():
                      "example": p["name"][:40], "price": round(price, 2),
                      "profit": 0 if flag else profit, "flag": flag, "url": p["url"]})
     rows.sort(key=lambda r: -r["profit"])
+    # Price fit for the top rows: shoppers expecting a $60 version won't buy a $1,377 one.
+    for r in rows[:args.price_check]:
+        if r["flag"]:
+            continue
+        med = shopping_median(r["search"], cache)
+        r["shop_median"] = med
+        if price_flag(r["price"], med):
+            r["flag"], r["profit"] = "PRICEY", 0
+    CACHE.write_text(json.dumps(cache))
+    rows.sort(key=lambda r: -r["profit"])
 
     print(f"\n{'search':<38}{'vol/mo':>8}{'you':>6}{'clk':>5}{'+$/mo':>7}  {'flag':<6}{'price':>8}  example product")
     for r in rows[:args.top]:
@@ -212,12 +294,13 @@ def main():
               f"{r['flag']:<6}{r['price']:>8.2f}  {r['example']} (+{r['products'] - 1})")
     out = ROOT / "data" / "product_demand.csv"
     with open(out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["search"])
+        w = csv.DictWriter(f, fieldnames=sorted({k for r in rows for k in r}) if rows else ["search"])
         w.writeheader()
         w.writerows(rows)
     print(f"\nAll {len(rows)} searches -> {out}")
     print("you = your Google position (Search Console, 90 days). +$/mo = profit at #3 at your "
-          "conversion and margin. CHEAP = shoppers want the cheap version; INFO = readers, not buyers.")
+          "conversion and margin. CHEAP = shoppers want the cheap version; INFO = readers, not buyers;\n"
+          "PRICEY = Google Shopping shows this for under 40% of your price (shoppers expect a cheaper item).")
 
 
 if __name__ == "__main__":

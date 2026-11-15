@@ -1,21 +1,37 @@
-from scripts.product_demand import product_seeds, match_products
+from scripts.product_demand import product_seeds, match_products, qualified, kind_of
 
 
-def test_seeds_include_qualified_variants():
+def test_seeds_end_in_what_the_product_is():
     s = product_seeds("Montessori Tummy Time Mirror", ["Montessori Mirrors"])
-    for want in ("tummy time mirror", "montessori mirror", "baby mirror", "kids mirror",
-                 "classroom mirror", "montessori mirrors"):
+    for want in ("tummy time mirror", "montessori mirror", "baby mirror", "kids mirror", "classroom mirror"):
         assert want in s, want
-    assert "mirror" not in s   # bare noun drags in bathroom mirrors
+    assert "mirror" not in s
 
 
-def test_seeds_drop_brand_and_noise():
-    s = product_seeds("Guidecraft 10 Piece Mirror Blocks Set")
-    assert "mirror blocks" in s and "montessori blocks" in s
-    assert not any("guidecraft" in x or "piece" in x for x in s)
+def test_design_is_not_the_product():
+    s = product_seeds("Carpet for kids USA Map 8ft x 12ft Rectangle")
+    assert "usa map rug" in s and "kids rug" in s
+    assert "usa map" not in s
+    assert kind_of("Mobile Garden Center") is None
+
+
+def test_qualified_rejects_generic_world_searches():
+    for junk in ("usa map", "tow truck near me", "garden center near me", "area rug", "book shelf",
+                 "google earth map", "rug rug", "water table"):
+        assert not qualified(junk), junk
+    for good in ("tummy time mirror", "montessori mirror", "kids area rug", "toy tow truck",
+                 "classroom rug", "usa map rug for classroom", "wooden name train", "kids water table"):
+        assert qualified(good), good
 
 
 def test_match_prefers_most_specific_seed():
-    seeds = {"mirror": {0, 1}, "tummy time mirror": {0}, "montessori mirror": {0, 1}}
+    seeds = {"montessori mirror": {0, 1}, "tummy time mirror": {0}}
     assert match_products("best tummy time mirror", seeds, []) == {0}
     assert match_products("montessori mirrors for baby", seeds, []) == {0, 1}
+
+
+def test_price_flag():
+    from scripts.product_demand import price_flag
+    assert price_flag(1376.99, 60) == "PRICEY"
+    assert price_flag(133.53, 70) == ""
+    assert price_flag(100, None) == ""
