@@ -42,7 +42,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from scripts.line_demand import _load_dotenv, load_catalog, search_volumes, value  # noqa: E402
+from scripts.line_demand import _load_dotenv, load_catalog, search_volumes, valid_keyword, value  # noqa: E402
 from scripts.demand_map import product_margin, organic_conversion, load_gsc_queries, is_informational  # noqa: E402
 
 _load_dotenv()
@@ -71,7 +71,9 @@ OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass
                        r"anime|adult|adults|1000 piece|500 piece|online|status|schedule|tickets?|"
                        r"thomas|tank engine|coal|steam|model train|embossers?|medical|cardiac|"
                        r"squishy|fidget|stress|toy story|disney|pixar|marvel|paw patrol|bluey|cocomelon|"
-                       r"frozen|barbie|pokemon|star wars|sesame|peppa|costumes?|halloween)\b",
+                       r"frozen|barbie|pokemon|star wars|sesame|peppa|costumes?|halloween|"
+                       r"little tikes|fisher ?price|vtech|hape|playmobil|skip hop|green toys|b\. ?toys|"
+                       r"battat|janod|djeco|grimms?|delta children|hey bear|leapfrog|crayola|radio flyer)\b",
                        re.I)
 # Gift searches: people shopping FOR a child without naming the product ("personalized
 # toddler gifts", "first birthday gift"). They belong to the personalized products.
@@ -261,6 +263,15 @@ def match_products(keyword, seed_products, products):
     head = head_kind(keyword)
     cands = [(seed, idx) for seed, idx in seed_products.items() if f" {match_key(seed)} " in k]
     same = [(s_, i) for s_, i in cands if head_kind(s_) == head]
+    if head and not same:
+        # "name puzzle stool": no stool seed fits, but puzzle seeds do. Never hand a
+        # stool search to puzzles; use products of the searched kind whose name has
+        # every word of the search, or none at all.
+        want = norm_tokens(keyword) - norm_tokens(" ".join(QUALIFIERS) + " for")
+        hits = {i for i, p in enumerate(products or [])
+                if match_key(kind_of(p.get("name", "")) or "") == head
+                and want <= norm_tokens(p.get("name", ""))}
+        return hits
     cands = same or cands
     best, best_len = set(), 0
     for seed, idx in cands:
@@ -343,6 +354,47 @@ def _shopping_items(query):
     except Exception as e:
         SHOP_STATUS["error"] = f"Serper shopping failed: {e}"
         return None
+
+
+INTENT_URL = "https://api.dataforseo.com/v3/dataforseo_labs/google/search_intent/live"
+
+
+def search_intents(keywords, cache):
+    """{keyword: (label, probability)} from DataForSEO Labs search intent (cached 30
+    days; one request per 1000). Empty dict when unavailable."""
+    out, todo = {}, []
+    for k in keywords:
+        hit = cache.get("intent|" + k)
+        if hit and (time.time() - hit.get("t", 0)) < 30 * 86400:
+            out[k] = tuple(hit["v"])
+        else:
+            todo.append(k)
+    if not todo:
+        return out
+    try:
+        import httpx
+        from src.data_sources import dataforseo_client as dfs
+        for i in range(0, len(todo), 1000):
+            r = httpx.post(INTENT_URL, headers={"Authorization": f"Basic {dfs._auth_token()}",
+                                                "Content-Type": "application/json"},
+                           json=[{"keywords": todo[i:i + 1000], "language_code": "en"}], timeout=120.0)
+            task = (r.json().get("tasks") or [{}])[0]
+            if (task.get("status_code") or 0) >= 40000:
+                print(f"(search intent unavailable: {task.get('status_message')})")
+                return out
+            for it in ((task.get("result") or [{}])[0] or {}).get("items") or []:
+                ki = it.get("keyword_intent") or {}
+                v = (ki.get("label") or "", float(ki.get("probability") or 0))
+                out[(it.get("keyword") or "").lower()] = v
+                cache["intent|" + (it.get("keyword") or "").lower()] = {"t": time.time(), "v": list(v)}
+    except Exception as e:
+        print(f"(search intent unavailable: {e})")
+    return out
+
+
+def navigational(intent):
+    """True when Google reads the search as looking for one business or site. Pure."""
+    return bool(intent) and intent[0] == "navigational" and intent[1] >= 0.5
 
 
 SHOP_STATUS = {"checked": 0, "priced": 0, "cached": 0, "error": ""}
@@ -666,8 +718,25 @@ def gift_picks(idx, products, per_line=8):
     return out
 
 
-def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=None):
-    """Group the good searches by the page that should own them, with one action each."""
+def ranking_owner(search, rank_pages, products, cats):
+    """(url, name, kind) of YOUR page that Google already shows for the search (most
+    impressions, not a blog post), or None. Pure."""
+    url = rank_pages.get(search)
+    if not url or "/blog" in url:
+        return None
+    for c in cats.values():
+        if c.get("active") and f"/{c.get('url_path') or c.get('url_key')}.html" == url:
+            return url, c["name"], "category"
+    for p in products:
+        if p["url"] == url:
+            return url, p["name"], "product"
+    return None
+
+
+def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=None, rank_pages=None):
+    """Group the good searches by the page that should own them, with one action each.
+    Owner: a category named in the search; else the page Google already ranks for it;
+    else the matched products' page or category; else a new page."""
     cat_sizes = defaultdict(int)
     for p in products:
         for c in p.get("cats", []):
@@ -679,8 +748,10 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
         # A gift search belongs to a gift page named for it, not to whichever line has
         # the most personalized products (books would win every time).
         gift = gift_search(r["search"])
-        url, name, kind = owner_page([] if gift else (r.get("_idx") or []), products, cats, cat_sizes,
-                                     r["search"])
+        owner = None if named_category(r["search"], cats) else ranking_owner(
+            r["search"], rank_pages or {}, products, cats)
+        url, name, kind = owner or owner_page([] if gift else (r.get("_idx") or []), products, cats,
+                                              cat_sizes, r["search"])
         # New pages: all gift searches share one gift page; others group by their words.
         key = url or ("NEW:gifts" if gift else "NEW:" + " ".join(sorted(norm_tokens(r["search"]))))
         g = groups.setdefault(key, {"page": url, "page_name": name or r["search"].title(),
@@ -767,7 +838,8 @@ def collapse_variants(rows):
 def row_status(r, in_plan, waiting_why, min_profit=10.0):
     """Why a search is or isn't in the plan, in plain words. Pure."""
     meaning = {"CHEAP": "shoppers want the cheap version", "INFO": "readers, not buyers",
-               "NOTKIDS": "Google shows mostly non-kids products", "PRICEY": "Google shows much cheaper items"}
+               "NOTKIDS": "Google shows mostly non-kids products", "PRICEY": "Google shows much cheaper items",
+               "NAV": "people are looking for one business or site"}
     if r.get("flag"):
         return "left out: " + meaning.get(r["flag"], r["flag"])
     if waiting_why:
@@ -808,6 +880,24 @@ def print_line_check(rows, plan, waiting, per_line=4):
 
 
 OWNER_CTX = {}
+
+
+def load_rank_pages(cfg, days=90):
+    """{search: your page with the most impressions for it} from Search Console."""
+    try:
+        from src.data_sources.gsc_client import GSCClient
+        g = cfg["data_sources"]["gsc"]
+        rows = GSCClient(site_url=g["property_url"],
+                         credentials_path=str(ROOT / g["credentials_path"])).get_query_page_rows(days=days)
+    except Exception as e:
+        print(f"(Search Console pages unavailable: {e})")
+        return {}
+    best = {}
+    for r in rows:
+        q, pg = (r.get("query") or "").lower(), re.sub(r"^https?://[^/]+", "", r.get("page") or "")
+        if pg.endswith(".html") and (q not in best or r["impressions"] > best[q][1]):
+            best[q] = (pg.split("?")[0], r["impressions"])
+    return {q: v[0] for q, v in best.items()}
 
 
 def explain(q, found, seed_products, products, rows, skip, gsc, cache, conv=0.0):
@@ -918,6 +1008,7 @@ def main():
     CACHE.write_text(json.dumps(cache))
 
     conv, _, _ = organic_conversion(cfg)
+    rank_pages = load_rank_pages(cfg)
     rows = []
     for kw, it in found.items():
         gift = gift_search(kw)
@@ -958,6 +1049,10 @@ def main():
         r["verified"] = share is not None and not r["flag"]
         return r["verified"]
 
+    intents = search_intents([r["search"] for r in rows if not r["flag"] and valid_keyword(r["search"])], cache)
+    for r in rows:
+        if not r["flag"] and navigational(intents.get(r["search"])):
+            r["flag"], r["profit"] = "NAV", 0
     vet_rows(rows, vet, top=args.top, budget=args.price_check)
     CACHE.write_text(json.dumps(cache))
     rows.sort(key=lambda r: -r["profit"])
@@ -988,7 +1083,7 @@ def main():
     except Exception as e:
         print(f"(blog posts unavailable for link suggestions: {e})")
         posts = []
-    plan, waiting = build_page_plan(rows, products, cats, posts=posts)
+    plan, waiting = build_page_plan(rows, products, cats, posts=posts, rank_pages=rank_pages)
     (ROOT / "data" / "product_demand_plan.json").write_text(json.dumps(
         {"generated": datetime.now(timezone.utc).isoformat(), "pages": plan, "waiting": waiting},
         indent=1))
