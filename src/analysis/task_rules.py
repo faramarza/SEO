@@ -62,7 +62,7 @@ def task_verdict(url, query, recent=None):
         return 0.0, "closed, discontinued or redirected page"
     if path in recent:
         return 0.0, f"changed {recent[path]}: wait for results"
-    if "/shop-by-brands/" in path or any(b in q for b in SUPPLIER_BRANDS):
+    if "/shop-by-brands/" in path or any(re.search(r"\b" + re.escape(b) + r"\b", q) for b in SUPPLIER_BRANDS):
         return 0.0, "supplier brand search: the maker holds #1"
     for pat, w in LINE_WEIGHTS:
         if pat.search(path) or pat.search(q):

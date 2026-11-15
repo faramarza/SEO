@@ -64,7 +64,7 @@ OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass
                        r"foldable|fold|picnic|legs?|topper|floating|patio|office|bedroom|tv|"
                        r"kitchen cabinets?|cabinets? in kitchen|kitchen shelf|high ?chair|bouncer|"
                        r"swing|gaming|electronic|ipad|samsung|amazon fire|recliner|outdoor furniture|"
-                       r"baby chair|infant chair|baby seat|infant seat|pottery barn|melissa|doug|lakeshore|"
+                       r"baby chair|infant chair|baby seat|infant seat|chairs? (for )?(an )?(infant|baby)|pottery barn|melissa|doug|lakeshore|"
                        r"ikea|kidkraft|step2|lovevery|amtrak|minecraft|lego|hair|hairstyles?|dress|"
                        r"dresses|dna|lipid|carbohydrate|nucleic|concrete|garage|bundle branch|rbbb|jam level|"
                        r"blind ?box(es)?|blind toy|collectibles?|funko|pop ?mart|squishmallows?|figures?|"
@@ -722,7 +722,8 @@ def ranking_owner(search, rank_pages, products, cats):
     """(url, name, kind) of YOUR page that Google already shows for the search (most
     impressions, not a blog post), or None. Pure."""
     url = rank_pages.get(search)
-    if not url or "/blog" in url:
+    # Blog posts and brand pages are never the page to optimize for a product search.
+    if not url or "/blog" in url or "/shop-by-brands/" in url or "brand" in url:
         return None
     for c in cats.values():
         if c.get("active") and f"/{c.get('url_path') or c.get('url_key')}.html" == url:
@@ -939,8 +940,11 @@ def explain(q, found, seed_products, products, rows, skip, gsc, cache, conv=0.0)
     from src.analysis import task_rules
     if r:
         cats, cat_sizes = OWNER_CTX.get("cats", {}), OWNER_CTX.get("cat_sizes", {})
-        url, name, _ = owner_page([] if gift_search(q) else (r.get("_idx") or []), products, cats,
-                                  cat_sizes, q)
+        owner = None if named_category(q, cats) else ranking_owner(q, OWNER_CTX.get("rank", {}), products, cats)
+        url, name, _ = owner or owner_page([] if gift_search(q) else (r.get("_idx") or []), products, cats,
+                                           cat_sizes, q)
+        print(f"     Google shows your page {OWNER_CTX.get('rank', {}).get(q) or '(none)'} for it; "
+              f"Google's reading of the search: {search_intents([q], cache).get(q) or 'unknown'}")
         w, why = task_rules.task_verdict(url or "", q)
         print(f" 10. Page that should own it: {url or 'NEW PAGE'}; task rules: {why or 'ok'}")
     CACHE.write_text(json.dumps(cache))
@@ -1009,6 +1013,7 @@ def main():
 
     conv, _, _ = organic_conversion(cfg)
     rank_pages = load_rank_pages(cfg)
+    OWNER_CTX["rank"] = rank_pages
     rows = []
     for kw, it in found.items():
         gift = gift_search(kw)

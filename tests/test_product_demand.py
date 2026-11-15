@@ -246,3 +246,15 @@ def test_symbols_never_reach_dataforseo():
     assert not valid_keyword("god loves you! personalized book")
     assert not valid_keyword("name train (wooden)")
     assert valid_keyword("name train") and valid_keyword("kids rug 5x7") and valid_keyword("children's books")
+
+
+def test_brand_pages_never_own_and_brands_match_whole_words():
+    from scripts.product_demand import ranking_owner, OFF_TOPIC
+    from src.analysis.task_rules import task_verdict
+    cats = {1: {"name": "My Very Own", "active": True, "url_key": "shop-by-brands/my-very-own",
+                "url_path": "shop-by-brands/my-very-own"}}
+    assert ranking_owner("personalized christmas book", {"personalized christmas book":
+                         "/shop-by-brands/my-very-own.html"}, [], cats) is None
+    assert task_verdict("/shape-sorters.html", "shape sorter", {})[0] > 0
+    assert OFF_TOPIC.search("chair infant") and OFF_TOPIC.search("rocking chair infant")
+    assert not OFF_TOPIC.search("kids chair")
