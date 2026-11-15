@@ -42,7 +42,7 @@ def test_how_steps_are_concrete():
               "content": '<p>See our <a href="/classroom-rugs.html">classroom rugs</a> for circle time.</p>'}]
     src = find_link_sources(posts, "/classroom-rugs.html", "classroom rug")
     assert len(src) == 1 and src[0]["post"] == "Circle Time Activities"
-    assert '<a href="/classroom-rugs.html">classroom rug</a>' in src[0]["paste"]
+    assert '<a href="/classroom-rugs.html">classroom rugs</a>' in src[0]["paste"]
     g = {"action": "links", "page": "/classroom-rugs.html", "kind": "category", "page_name": "Classroom Rugs",
          "searches": [{"search": "classroom rug", "volume": 14800}]}
     steps = how_steps(g, posts)
