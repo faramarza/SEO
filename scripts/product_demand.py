@@ -313,6 +313,106 @@ def price_flag(my_price, median, ratio=2.5):
 
 
 # ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- page plan
+SKIP_CAT = re.compile(r"brand|bestseller|best seller|sale|new|clearance|featured|top selling|"
+                      r"latest|gift|shop by|default|alphabetstore", re.I)
+SYN = {"rugs": "rug", "carpets": "rug", "carpet": "rug", "personalised": "personalized",
+       "toys": "toy", "box": "chest", "boxes": "chest", "chests": "chest", "childrens": "kids",
+       "children": "kids", "child": "kids", "kid": "kids"}
+STOP_T = {"and", "for", "the", "of", "a", "with", "in", "to"}
+
+
+def norm_tokens(text):
+    return {SYN.get(w, plural_key(w)) for w in re.findall(r"[a-z]+", (text or "").lower())
+            if w not in STOP_T}
+
+
+def owner_page(idx, products, cats, cat_sizes):
+    """Which page should own a search: a single product's page, the most specific
+    active category holding >= half the matched products, else None (new page)."""
+    idx = list(idx)
+    if len(idx) == 1:
+        p = products[idx[0]]
+        return p["url"], p["name"], "product"
+    counts = defaultdict(int)
+    for i in idx:
+        for c in products[i].get("cats", []):
+            counts[c] += 1
+    best = None
+    for c, n in counts.items():
+        cat = cats.get(c) or {}
+        if not cat.get("active") or not cat.get("url_key") or SKIP_CAT.search(cat.get("name", "")):
+            continue
+        if n / len(idx) >= 0.5:
+            key = (cat_sizes.get(c, 9999), -n)
+            if best is None or key < best[0]:
+                best = (key, c)
+    if best:
+        cat = cats[best[1]]
+        return f"/{cat['url_key']}.html", cat["name"], "category"
+    return None, None, "new"
+
+
+def page_action(searches, title, h1):
+    """What to do for one page, from its live title/H1 and its searches. Pure."""
+    top = searches[0]
+    covered = norm_tokens(top["search"]) <= norm_tokens(f"{title} {h1}")
+    ranked = [x for x in searches if x.get("you")]
+    best_pos = min((x["you"] for x in ranked), default=None)
+    if not covered:
+        return "retitle", (f"Title and H1 don't say \"{top['search']}\". Rewrite the meta title as one "
+                           f"plain phrase leading with it (no | or - separators, under 60 chars) and "
+                           f"use it in the H1 and first sentence.")
+    if best_pos and best_pos <= 20:
+        return "links", (f"Title already covers \"{top['search']}\" and you're at #{best_pos:.0f}: add "
+                         f"2-3 internal links with that anchor from related blog posts and categories.")
+    return "content", (f"Title covers \"{top['search']}\" but Google doesn't show you yet: add a short "
+                       f"intro paragraph using the searches below, plus 2-3 internal links.")
+
+
+def live_title_h1(url):
+    import requests
+    try:
+        s = requests.get("https://alphabet-trains.com" + url, timeout=25,
+                         headers={"User-Agent": "Mozilla/5.0 (product demand)"}).text
+    except Exception:
+        return "", ""
+    g = lambda pat: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", (re.search(pat, s, re.S | re.I) or [None, ""])[1])).strip()
+    return g(r"<title>(.*?)</title>"), g(r"<h1[^>]*>(.*?)</h1>")
+
+
+def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25):
+    """Group the good searches by the page that should own them, with one action each."""
+    cat_sizes = defaultdict(int)
+    for p in products:
+        for c in p.get("cats", []):
+            cat_sizes[c] += 1
+    groups = {}
+    for r in rows:
+        if r.get("flag") or not r.get("verified") or r.get("profit", 0) < min_profit:
+            continue
+        url, name, kind = owner_page(r.get("_idx") or [], products, cats, cat_sizes)
+        key = url or ("NEW:" + r["search"])
+        g = groups.setdefault(key, {"page": url, "page_name": name or r["search"].title(),
+                                    "kind": kind, "searches": [], "value": 0.0})
+        g["searches"].append({"search": r["search"], "volume": r["volume"], "you": r.get("you"),
+                              "variants": r.get("variants", 1)})
+        g["value"] += r.get("profit", 0)
+    plan = sorted(groups.values(), key=lambda g: -g["value"])[:max_pages]
+    for g in plan:
+        g["searches"].sort(key=lambda x: -x["volume"])
+        if g["kind"] == "new":
+            g["action"] = "new_page"
+            g["step"] = (f"No page targets \"{g['searches'][0]['search']}\". Create a category page for it "
+                         f"with the matching products (like the Preschool & Daycare Rugs page).")
+        else:
+            title, h1 = live_title_h1(g["page"])
+            g["title"], g["h1"] = title, h1
+            g["action"], g["step"] = page_action(g["searches"], title, h1)
+        g["value"] = round(g["value"], 2)
+    return plan
+
+
 def variant_key(r):
     """Same search typed differently ('classroom carpet rugs', 'classrooms carpet') ->
     one key: identical volume + same word set (plural-insensitive). Pure."""
@@ -395,7 +495,8 @@ def main():
                      "you": round(mine["position"], 1) if mine.get("position") else None,
                      "clicks": mine.get("clicks", 0), "products": len(prods),
                      "example": p["name"][:40], "price": round(price, 2),
-                     "profit": 0 if flag else profit, "flag": flag, "url": p["url"]})
+                     "profit": 0 if flag else profit, "flag": flag, "url": p["url"],
+                     "_idx": sorted(idx)})
     rows = collapse_variants(rows)
     rows.sort(key=lambda r: -r["profit"])
     # Google decides: walk down the list, ask Google Shopping what each search shows,
@@ -434,10 +535,18 @@ def main():
               + (f"  [{r['variants']} ways typed]" if r.get("variants", 1) > 1 else ""))
     out = ROOT / "data" / "product_demand.csv"
     with open(out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=sorted({k for r in rows for k in r}) if rows else ["search"])
+        w = csv.DictWriter(f, fieldnames=sorted({k for r in rows for k in r if k != "_idx"}) if rows else ["search"])
         w.writeheader()
-        w.writerows(rows)
+        w.writerows([{k: v for k, v in r.items() if k != "_idx"} for r in rows])
     print(f"\nAll {len(rows)} searches -> {out}")
+    plan = build_page_plan(rows, products, cats)
+    (ROOT / "data" / "product_demand_plan.json").write_text(json.dumps(
+        {"generated": datetime.now(timezone.utc).isoformat(), "pages": plan}, indent=1))
+    print(f"\nPAGE PLAN ({len(plan)} pages) -> data/product_demand_plan.json, also on Governor's Start Here")
+    for g in plan[:15]:
+        top = ", ".join(f"{x['search']} ({x['volume']:,}" + (f", #{x['you']:.0f})" if x.get("you") else ")")
+                        for x in g["searches"][:3])
+        print(f"  ${g['value']:>6,.0f}/mo  {g['action']:<9} {(g['page'] or 'NEW PAGE')[:45]:<46} {top}")
     print("you = your Google position (Search Console, 90 days). +$/mo = profit at #3 at your "
           "conversion and margin. CHEAP = shoppers want the cheap version; INFO = readers, not buyers;\n"
           "PRICEY = Google Shopping shows this for under 40% of your price (shoppers expect a cheaper item).")

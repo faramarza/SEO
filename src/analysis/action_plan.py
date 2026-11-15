@@ -34,6 +34,7 @@ TIME_TO_IMPACT = {
     "geo":       (28, "3–6 weeks"),
     "brand":     (21, "2–4 weeks"),
     "winnable":  (28, "3–6 weeks"),
+    "demand":    (35, "4–6 weeks"),
     "links":     (60, "6–10 weeks"),
     "consolidation": (21, "2–4 weeks"),
 }
@@ -46,6 +47,7 @@ EFFORT = {
     "pruning": "Quick (review + act)", "content": "Large (write an article)",
     "geo": "Medium (a few hours)", "brand": "Medium (~1 hour)",
     "winnable": "Medium (~1 hour)",
+    "demand": "Quick to Medium (20 min to 2 hours)",
     "links": "Medium (send prepared emails)",
     "consolidation": "Quick (~1 hour, one redirect rule)",
 }
@@ -54,7 +56,7 @@ EFFORT = {
 EFFORT_HOURS = {
     "ctr": 0.35, "schema": 0.5, "merchant": 0.5, "orphan": 0.35, "pruning": 0.5,
     "reviews": 1.0, "brand": 1.0, "striking": 1.0, "geo": 3.0, "cro": 3.0,
-    "decay": 3.0, "content": 8.0, "winnable": 1.0,
+    "decay": 3.0, "content": 8.0, "winnable": 1.0, "demand": 1.0,
     "links": 1.5, "consolidation": 1.0,
 }
 # Baseline impact (in $-equivalent points) for foundational tasks that have no
@@ -65,7 +67,7 @@ CATEGORY_BASE = {
     # are the CTR levers the OPERATOR fully controls — no customer needed, unlike
     # reviews — so they're weighted up to surface above low-odds meta tweaks.
     "merchant": 14, "schema": 11, "brand": 8, "geo": 6,
-    "decay": 6, "winnable": 6, "orphan": 5, "striking": 5, "reviews": 4,
+    "decay": 6, "winnable": 6, "demand": 6, "orphan": 5, "striking": 5, "reviews": 4,
     "content": 4, "pruning": 3,
 }
 
@@ -351,6 +353,50 @@ def _from_striking(striking, out):
             {"type": "query_position", "url": r.get("url",""), "query": r.get("query","")},
             {"position": r.get("position", 0)},
             r.get("asset_type","other"), r.get("query","")))
+
+
+def _from_product_demand(out, path=None, max_age_days=45):
+    """Pages from scripts/product_demand.py: searches people make for products you
+    sell (Google-verified kids/classroom intent, price-checked), grouped by the page
+    that should own them, each with one concrete action."""
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    from pathlib import Path as _P
+    path = _P(path) if path else _P(__file__).resolve().parents[2] / "data" / "product_demand_plan.json"
+    try:
+        data = _json.loads(path.read_text())
+        age = (_dt.now(_tz.utc) - _dt.fromisoformat(data["generated"])).days
+    except Exception:
+        return
+    if age > max_age_days:
+        return
+    for g in data.get("pages") or []:
+        s = g.get("searches") or []
+        if not s:
+            continue
+        top = s[0]
+        lines = [f"• \"{x['search']}\": {x['volume']:,}/mo" + (f", you #{x['you']:.0f}" if x.get("you") else ", you're not showing")
+                 for x in s[:6]]
+        steps = [g.get("step", "")] + ["Searches this page should win:"] + lines
+        if g.get("title"):
+            steps.insert(1, f"Current title: \"{g['title']}\"")
+        name = g.get("page_name") or top["search"]
+        title = {"new_page": f"New page: {name}",
+                 "retitle": f"Retitle {name} for \"{top['search']}\"",
+                 "links": f"Link to {name} for \"{top['search']}\""}.get(
+                     g.get("action"), f"Strengthen {name} for \"{top['search']}\"")
+        url = g.get("page") or ""
+        out.append(_task(
+            "demand", url, title, steps,
+            f"Real searches for products you sell (about {sum(x['volume'] for x in s):,}/mo), "
+            f"checked on Google Shopping for kids/classroom intent and price fit. Worth about "
+            f"${g.get('value', 0):,.0f}/mo in profit at position 3.",
+            g.get("value", 0), sum(x["volume"] for x in s),
+            {"type": "query_position", "url": url, "query": top["search"]},
+            {"position": top.get("you")}, "category" if g.get("kind") == "category" else "product",
+            dedup_extra=top["search"]))
+        out[-1]["metric"]["query"] = top["search"]
+        out[-1]["primary_keyword"] = top["search"]
 
 
 def _from_winnable(winnable, out):
@@ -1101,6 +1147,8 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
         _from_striking(striking, out)
     if winnable:
         _from_winnable(winnable, out)
+    # Product-led demand (scripts/product_demand.py): always read if fresh.
+    _from_product_demand(out)
     if decay:
         _from_decay(decay, out)
     if content:
