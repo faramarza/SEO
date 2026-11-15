@@ -538,6 +538,24 @@ def admin_path(kind, name, sku=""):
             f"Search Engine Optimization")
 
 
+def description_renders(cat):
+    """False when the theme shows a CMS block instead of the Description (Classroom
+    Rugs: 'Static block and products'), so a link there would be invisible. Pure."""
+    return not cat.get("landing_page") and (cat.get("display_mode") or "PRODUCTS") == "PRODUCTS"
+
+
+def link_sources_from(posts, cats, page_url):
+    """Blog posts and category descriptions to look for link spots in. Pure."""
+    out = [dict(p, kind="post") for p in posts]
+    for cid, c in cats.items():
+        url = f"/{c.get('url_path') or c.get('url_key')}.html"
+        if (c.get("active") and c.get("description") and url != page_url and description_renders(c)
+                and not SKIP_CAT.search(c.get("name", ""))):
+            out.append({"kind": "category", "id": cid, "name": c["name"], "url_key": c.get("url_key"),
+                        "content": c["description"], "scope": scope_for(c)})
+    return out
+
+
 def find_link_sources(posts, page_url, search, n=3):
     """Blog posts that talk about the topic and don't link to the page yet, with the
     exact sentence to find and what to paste. Pure (posts = [{name, url_key, content}])."""
@@ -556,6 +574,7 @@ def find_link_sources(posts, page_url, search, n=3):
                 best = (hits, sn)
         if best:
             out.append({"post": p.get("name", ""), "slug": p.get("url_key", ""), "hits": best[0],
+                        "kind": p.get("kind", "post"), "id": p.get("id"), "scope": p.get("scope", ""),
                         "find": best[1][-90:],
                         "paste": f' See our <a href="{page_url}">{search}</a>.'})
     out.sort(key=lambda x: -x["hits"])
@@ -599,6 +618,22 @@ def aio_step(aio):
             f"one-sentence answers. The AI quotes pages that state facts plainly.")
 
 
+def intro_paragraph(phrase, prods):
+    """A plain intro using only catalog facts: count, brands, price range. Pure."""
+    if not prods:
+        return ""
+    brands = sorted({(p.get("brand") or "").strip() for p in prods if (p.get("brand") or "").strip()})
+    lo, hi = min(p["price"] for p in prods), max(p["price"] for p in prods)
+    if len(prods) == 1:
+        p = prods[0]
+        return (f"<p>The {p['name']}" + (f" by {brands[0]}" if brands else "") +
+                f" is a {phrase}, ${p['price']:,.2f}.</p>")
+    by = (" from " + (", ".join(brands[:-1]) + " and " + brands[-1] if len(brands) > 1 else brands[0])
+          if brands and len(brands) <= 4 else "")
+    return (f"<p>Shop {len(prods)} {phrase if phrase.endswith('s') else phrase + 's'}{by}, "
+            f"priced from ${lo:,.2f} to ${hi:,.2f}.</p>")
+
+
 def how_steps(g, posts):
     """Numbered, idiot-proof steps for one page task."""
     top = g.get("phrase") or g["searches"][0]["search"]
@@ -610,25 +645,37 @@ def how_steps(g, posts):
             f"Meta Title \"{suggest_title(top)}\".",
             f"Save. Then import {g.get('import_file', 'the product file')} (System > Data Transfer > Import, "
             f"Products, Add/Update) to fill it with the matching products.",
-            "On the server: bin/magento indexer:reindex && bin/magento cache:flush, then tell Claude \"check\".",
+            "On the server: bin/magento indexer:reindex && bin/magento cache:flush. Governor checks the page on its next run.",
         ]
     if g["action"] == "retitle":
         return [
             admin_path(g["kind"], g.get("page_name", ""), g.get("sku", "")) + ".",
             f"Meta Title: replace with  {suggest_title(top, g.get('page_name', ''))}",
             "If \"Use Default Value\" is ticked next to Meta Title, untick it first. Save.",
-            "On the server: bin/magento cache:flush, then tell Claude \"check\".",
+            "On the server: bin/magento cache:flush. Governor checks the page on its next run.",
         ]
     steps = []
+    if g["action"] == "content" and g.get("intro"):
+        if g["kind"] == "category":
+            where = f"Catalog > Categories > \"{g.get('page_name', '')}\" ({g.get('scope') or scope_for(None)}) > Content > Description"
+        else:
+            where = (f"Catalog > Products > search \"{g.get('sku') or g.get('page_name', '')}\" > open it "
+                     f"({scope_for(None)}) > Content > Description")
+        steps.append(f"{where}. Click Show / Hide Editor, paste this as the very first line, and Save: {g['intro']}")
     srcs = find_link_sources(posts, g.get("page") or "", top)
-    if not srcs:
-        return ["No blog post discusses this yet. Tell Claude \"find link spots for " + top +
-                "\" and it will search categories and CMS blocks instead."]
     for i, s_ in enumerate(srcs, 1):
-        steps.append(f"Link {i}: blog post \"{s_['post']}\" (/blog/{s_['slug']}). Open it in the blog admin, "
-                     f"switch to HTML view, find the sentence ending: \"...{s_['find']}\"  and paste right "
-                     f"after it:  {s_['paste']}")
-    steps.append("Save each post, then on the server: bin/magento cache:flush, and tell Claude \"check\".")
+        if s_.get("kind") == "category":
+            steps.append(f"Link {i}: Catalog > Categories > \"{s_['post']}\" ({s_['scope']}) > "
+                         f"Content > Description > Show / Hide Editor. Find the sentence ending: "
+                         f"\"...{s_['find']}\"  and paste right after it:  {s_['paste']}")
+        else:
+            steps.append(f"Link {i}: blog post \"{s_['post']}\" (/blog/{s_['slug']}). Open it in the blog "
+                         f"admin, switch to HTML view, find the sentence ending: \"...{s_['find']}\"  and "
+                         f"paste right after it:  {s_['paste']}")
+    if not steps:
+        return ["No other page on your site mentions this topic yet, so there is nothing to link from "
+                "and no step to do here. Skip this task."]
+    steps.append("Save, then on the server: bin/magento cache:flush. Governor checks the page on its next run.")
     return steps
 
 
@@ -803,8 +850,13 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
                     w.writerow([products[i]["sku"], f"alphabetstore/{g['searches'][0]['search'].title()}"])
             g["import_file"] = f"docs/imports/{path.name}"
         g["phrase"] = natural_phrase(g["searches"])
+        if g["action"] == "content":
+            g["intro"] = intro_paragraph(g["phrase"], [products[i] for i in (g.get("_idx") or [])])
+            own = next((c for c in cats.values() if f"/{c.get('url_path') or c.get('url_key')}.html" == g["page"]), None)
+            if own is not None and own.get("store_copy") is not None:
+                g["scope"] = scope_for(own)
         g["aio"] = aio_check(g["searches"])
-        g["how"] = how_steps(g, posts or [])
+        g["how"] = how_steps(g, link_sources_from(posts or [], cats, g.get("page")))
         step = aio_step(g["aio"])
         if step:
             g["how"].append(step)
@@ -881,6 +933,28 @@ def print_line_check(rows, plan, waiting, per_line=4):
 
 
 OWNER_CTX = {}
+
+
+def read_store_descriptions(mc, cats):
+    """Replace each category's description with what YOUR store view shows, and note
+    whether the store view has its own copy (decides which Scope to edit in)."""
+    for cid, c in cats.items():
+        if not (c.get("active") and c.get("description")):
+            continue
+        try:
+            sc = mc.scoped_description("category", cid)
+        except Exception:
+            sc = None
+        if sc:
+            c["description"], c["store_copy"] = sc["store"], sc["override"]
+
+
+def scope_for(cat):
+    """Edit where the store's text lives: its own store-view copy, or All Store Views. Pure."""
+    if cat is None or cat.get("store_copy") is None:
+        return ("Scope: alphabettrains. If \"Use Default Value\" is ticked under Description, "
+                "switch Scope to All Store Views and edit there instead")
+    return "Scope: alphabettrains" if cat["store_copy"] else "Scope: All Store Views (this page has one shared copy)"
 
 
 def load_rank_pages(cfg, days=90):
@@ -1088,6 +1162,7 @@ def main():
     except Exception as e:
         print(f"(blog posts unavailable for link suggestions: {e})")
         posts = []
+    read_store_descriptions(mc, cats)
     plan, waiting = build_page_plan(rows, products, cats, posts=posts, rank_pages=rank_pages)
     (ROOT / "data" / "product_demand_plan.json").write_text(json.dumps(
         {"generated": datetime.now(timezone.utc).isoformat(), "pages": plan, "waiting": waiting},

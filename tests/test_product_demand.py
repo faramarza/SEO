@@ -258,3 +258,24 @@ def test_brand_pages_never_own_and_brands_match_whole_words():
     assert task_verdict("/shape-sorters.html", "shape sorter", {})[0] > 0
     assert OFF_TOPIC.search("chair infant") and OFF_TOPIC.search("rocking chair infant")
     assert not OFF_TOPIC.search("kids chair")
+
+
+def test_every_task_is_complete_without_claude():
+    from scripts.product_demand import how_steps, intro_paragraph, link_sources_from
+    prods = [{"name": "Bentwood Chair", "price": 89.0, "brand": "Whitney Brothers"},
+             {"name": "Live Edge Chair", "price": 279.77, "brand": "Guidecraft"}]
+    intro = intro_paragraph("kids chair", prods)
+    assert intro == "<p>Shop 2 kids chairs from Guidecraft and Whitney Brothers, priced from $89.00 to $279.77.</p>"
+    cats = {1: {"name": "Classroom Furniture", "active": True, "url_key": "classroom-furniture",
+                "description": "<p>Our classroom furniture includes sturdy kids chair sets for every room.</p>",
+                "display_mode": "PRODUCTS", "store_copy": False},
+            2: {"name": "Classroom Rugs", "active": True, "url_key": "classroom-rugs",
+                "description": "<p>Kids chair talk that never renders on the page at all.</p>",
+                "display_mode": "PRODUCTS_AND_PAGE", "landing_page": "12"}}
+    g = {"action": "content", "kind": "category", "page": "/kids-chairs.html", "page_name": "Kids Chairs",
+         "searches": [{"search": "kids chair", "volume": 27100}], "phrase": "kids chair", "intro": intro,
+         "scope": "Scope: All Store Views (this page has one shared copy)"}
+    steps = " ".join(how_steps(g, link_sources_from([], cats, "/kids-chairs.html")))
+    assert "Claude" not in steps
+    assert intro in steps and "Classroom Furniture" in steps and "Classroom Rugs" not in steps
+    assert "All Store Views" in steps

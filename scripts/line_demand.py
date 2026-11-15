@@ -190,7 +190,11 @@ def load_catalog(mc):
         cats[int(c["id"])] = {"name": c.get("name", ""), "active": bool(c.get("is_active", True)),
                               "url_key": mc._attr(c, "url_key"),
                               # subcategories live under their parent: classroom-rugs/large-classroom-rugs
-                              "url_path": mc._attr(c, "url_path") or mc._attr(c, "url_key")}
+                              "url_path": mc._attr(c, "url_path") or mc._attr(c, "url_key"),
+                              # for in-text link spots and intro paragraphs (product_demand)
+                              "description": mc._attr(c, "description") or "",
+                              "display_mode": mc._attr(c, "display_mode") or "",
+                              "landing_page": mc._attr(c, "landing_page") or ""}
     meta = mc.product_attributes_meta()
     man_opts = (meta.get("manufacturer") or {}).get("options", {})
     products, seen = [], set()

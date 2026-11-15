@@ -104,6 +104,8 @@ def test_every_line_shows_up_and_junk_never_does(monkeypatch, tmp_path, capsys):
                 "i see me personalized book"):
         assert bad not in out.split("All ")[0].split("example product")[1], bad
         assert bad not in line_check, bad
+    for g in plan["pages"]:   # every task is complete on its own
+        assert g["how"] and "Claude" not in " ".join(g["how"]), g["how"]
     pages = {g["page"] or "NEW" for g in plan["pages"]}
     assert "/classroom-rugs.html" in pages
 
