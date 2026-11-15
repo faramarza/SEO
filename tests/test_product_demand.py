@@ -145,12 +145,16 @@ def test_lines():
     assert line_of("/regular-personalized-name-stool.html", "name puzzle stool") == "Stools"
 
 
-def test_price_check_reaches_every_line():
-    from scripts.product_demand import check_order
+def test_vetting_reaches_every_line_past_junk():
+    from scripts.product_demand import vet_rows
+    junk = [{"search": f"track train junk {i}", "url": "/5-letter-name-train.html", "profit": 500 - i}
+            for i in range(6)]
+    good = {"search": "name train", "url": "/5-letter-name-train.html", "profit": 7}
     rugs = [{"search": f"classroom rug {i}", "url": "/r.html", "profit": 900 - i} for i in range(80)]
-    trains = [{"search": "name train", "url": "/5-letter-name-train.html", "profit": 40}]
-    order = check_order(rugs + trains, per_line=5)
-    assert order.index(trains[0]) < 10
+    rows = rugs + junk + [good]
+    seen = []
+    vet_rows(rows, lambda r: seen.append(r["search"]) or "junk" not in r["search"], top=10, budget=40)
+    assert "name train" in seen
 
 
 def test_plan_keeps_room_for_each_line():
@@ -205,3 +209,19 @@ def test_gift_page_picks_each_line_without_stools():
                 {"url": "/regular-personalized-name-stool.html", "name": "Name Puzzle Stool", "price": 90},
                 {"url": "/pirate-book.html", "name": "Pirate Tale Personalized Storybook", "price": 37}]
     assert sorted(gift_picks([0, 1, 2], products)) == [0, 2]
+
+
+def test_gift_rules_reject_adults():
+    from scripts.product_demand import gift_search
+    for bad in ("gifts for 40 year old", "first anniversary gift", "1st anniversary gifts",
+                "wedding gifts", "graduation gifts for kids friends"):
+        assert not gift_search(bad), bad
+    assert gift_search("gifts for 10 year old girl") and gift_search("gifts for 18 month old")
+
+
+def test_gift_category_owns_gift_searches():
+    from scripts.product_demand import named_category
+    cats = {1: {"name": "Personalized Gifts", "active": True, "url_key": "personalized-gifts"},
+            2: {"name": "Gift Cards", "active": True, "url_key": "gift-cards"}}
+    assert named_category("personalized gifts for kids", cats)["url_key"] == "personalized-gifts"
+    assert named_category("personalized gifts", {2: cats[2]}) is None

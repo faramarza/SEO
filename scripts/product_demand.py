@@ -17,9 +17,16 @@ HOW
   3. Monthly US volume for every seed (one bulk request), keep the real ones.
   4. The top seeds are EXPANDED: every real search that contains them, with volume
      (DataForSEO Labs keyword suggestions, cached 30 days).
-  5. Each search gets: your Google position (Search Console), the page that should
-     own it, the product price, its value at #3, and a CHEAP-INTENT flag when the
-     searcher clearly wants a cheap version (diy, cheap, printable, ...).
+  5. Searches you already show up for in Search Console are added too (proven demand),
+     plus gift searches for the personalized products. Your own brand is left out.
+  6. Each search gets: your Google position, the page that should own it, the product
+     price and its value at #3. CHEAP and INFO searches are set aside.
+  7. GOOGLE DECIDES: every search that is listed or planned was looked up on Google
+     Shopping. Under 30% kids' products -> dropped; complete products much cheaper
+     than yours -> PRICEY. Each product line is checked first, so no line is skipped.
+     Unvetted searches are never listed.
+  8. Page plan, grouped by owning page, at most 4 per line first; pages changed in the
+     last 6 weeks wait. --why "search" shows every step for one search.
 Writes data/product_demand.csv. Read-only.
 """
 import argparse
@@ -75,11 +82,13 @@ GIFT_SEEDS = ("personalized gifts for kids", "personalized baby gifts", "persona
 GIFT_WORD = re.compile(r"\b(gifts?|presents?)\b", re.I)
 GIFT_FOR_CHILD = re.compile(r"\b(kids?|child|children'?s?|toddlers?|baby|babies|infants?|newborns?|boys?|"
                             r"girls?|grand(son|daughter|child|children|kids?)s?|nephew|niece|"
-                            r"birthday|christening|baptism|\d+ ?(year|yr|month)s?[- ]?old|1st|first)\b", re.I)
+                            r"birthday|christening|baptism|([1-9]|1[0-2]) ?(year|yr)s?[- ]?old|\d+ ?months?[- ]?old|"
+                            r"1st birthday|first birthday|first christmas|1st christmas)\b", re.I)
 GIFT_OFF = re.compile(r"\b(cards?|baskets?|wrap|wrapping|bags?|boxes|box|registry|cash|money|"
                       r"mom|moms|mother|dad|dads|father|men|women|him|her|husband|wife|boyfriend|"
                       r"girlfriend|teachers?|coworkers?|boss|adults?|parents|nurse|shower|"
-                      r"delivery|near me|ideas? for (mom|dad|her|him))\b", re.I)
+                      r"delivery|near me|anniversary|wedding|retirement|graduation|valentines?|"
+                      r"employees?|clients?|couples?|friends?|sister|brother|grandparents?|grandma|grandpa)\b", re.I)
 
 
 def gift_search(keyword):
@@ -325,41 +334,6 @@ def _shopping_items(query):
         return None
 
 
-def shopping_median(query, cache):
-    """Median price Google Shopping shows for a search (Serper, cached 30 days).
-    None when unavailable. Used to flag searches where shoppers expect far less."""
-    import os
-    key = os.environ.get("SERPER_API_KEY")
-    hit = cache.get("shop|" + query)
-    if hit and (time.time() - hit.get("t", 0)) < 30 * 86400:
-        return hit.get("median")
-    if not key:
-        SHOP_STATUS["error"] = "SERPER_API_KEY not set"
-        return None
-    import requests
-    try:
-        r = requests.post("https://google.serper.dev/shopping", timeout=30,
-                          headers={"X-API-KEY": key, "Content-Type": "application/json"},
-                          json={"q": query, "gl": "us", "num": 20})
-        SHOP_STATUS["checked"] += 1
-        if r.status_code != 200:
-            SHOP_STATUS["error"] = f"Serper shopping HTTP {r.status_code}: {r.text[:120]}"
-            return None
-        prices = []
-        for it in (r.json().get("shopping") or []):
-            m = re.search(r"([\d,]+\.?\d*)", str(it.get("price") or ""))
-            if m:
-                prices.append(float(m.group(1).replace(",", "")))
-    except Exception as e:
-        SHOP_STATUS["error"] = f"Serper shopping failed: {e}"
-        return None
-    if prices:
-        SHOP_STATUS["priced"] += 1
-    med = sorted(prices)[len(prices) // 2] if prices else None
-    cache["shop|" + query] = {"t": time.time(), "median": med}
-    return med
-
-
 SHOP_STATUS = {"checked": 0, "priced": 0, "cached": 0, "error": ""}
 
 
@@ -387,12 +361,17 @@ def norm_tokens(text):
 
 def named_category(search, cats):
     """The active category whose whole name is inside the search ('montessori toys'
-    -> Montessori Toys, 'classroom carpet' -> Classroom Rugs). Longest name wins."""
+    -> Montessori Toys, 'classroom carpet' -> Classroom Rugs). Longest name wins.
+    Gift categories are skipped, except for gift searches."""
     st = norm_tokens(search)
+    gift = gift_search(search)
     best = None
     for c in cats.values():
         name = c.get("name", "")
-        if not c.get("active") or not c.get("url_key") or SKIP_CAT.search(name):
+        if not c.get("active") or not c.get("url_key"):
+            continue
+        if SKIP_CAT.search(name) and not (gift and re.search(r"gift", name, re.I)
+                                          and not re.search(r"card|certificate", name, re.I)):
             continue
         ct = norm_tokens(name)
         if ct and ct <= st and (best is None or len(ct) > len(norm_tokens(best["name"]))):
@@ -613,17 +592,37 @@ def line_of(url, search=""):
     return "Toys and other"
 
 
-def check_order(rows, per_line=5):
-    """Order for the Google Shopping check: each line's best few first, then the rest
-    by profit, so lower-priced lines (name trains) are checked too. Pure."""
-    first, seen = [], defaultdict(int)
+def vet_rows(rows, check, top=60, budget=150, per_line=5, line_tries=15):
+    """Google Shopping vetting. `check(r)` looks one search up and returns True when it
+    passes. Each product line first: walk its searches by value until `per_line` pass
+    (or `line_tries` tried), so junk at the top of a line can't hide its real
+    searches; then the rest by value, until `top` pass or `budget` lookups are spent.
+    Returns the number of lookups. Pure apart from `check`."""
+    checks, passed_total = 0, 0
+    by_line = defaultdict(list)
     for r in rows:
-        ln = line_of(r.get("url"), r["search"])
-        if not r.get("flag") and seen[ln] < per_line:
-            seen[ln] += 1
-            first.append(r)
-    ids = {id(r) for r in first}
-    return first + [r for r in rows if id(r) not in ids]
+        if not r.get("flag"):
+            by_line[line_of(r.get("url"), r["search"])].append(r)
+    done = set()
+    for rs in by_line.values():
+        passed = tried = 0
+        for r in rs:
+            if passed >= per_line or tried >= line_tries or checks >= budget:
+                break
+            tried += 1
+            checks += 1
+            done.add(id(r))
+            ok = bool(check(r))
+            passed += ok
+            passed_total += ok
+    for r in rows:
+        if passed_total >= top or checks >= budget:
+            break
+        if r.get("flag") or id(r) in done:
+            continue
+        checks += 1
+        passed_total += bool(check(r))
+    return checks
 
 
 def balanced(groups, max_pages=25, per_line=4):
@@ -671,7 +670,8 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
         gift = gift_search(r["search"])
         url, name, kind = owner_page([] if gift else (r.get("_idx") or []), products, cats, cat_sizes,
                                      r["search"])
-        key = url or ("NEW:" + r["search"])
+        # New pages: all gift searches share one gift page; others group by their words.
+        key = url or ("NEW:gifts" if gift else "NEW:" + " ".join(sorted(norm_tokens(r["search"]))))
         g = groups.setdefault(key, {"page": url, "page_name": name or r["search"].title(),
                                     "kind": kind, "searches": [], "value": 0.0, "_idx": []})
         g["_idx"] = sorted(set(g["_idx"]) | set(r.get("_idx") or []))
@@ -796,6 +796,9 @@ def print_line_check(rows, plan, waiting, per_line=4):
                   f"{row_status(r, r['search'] in in_plan, wait.get(r['search']))}")
 
 
+OWNER_CTX = {}
+
+
 def explain(q, found, seed_products, products, rows, skip, gsc, cache, conv=0.0):
     """Print every filter one search goes through, so 'why isn't X in the plan' has
     a plain answer."""
@@ -834,8 +837,11 @@ def explain(q, found, seed_products, products, rows, skip, gsc, cache, conv=0.0)
             print(f"       {'KID ' if kid_item(t, q) else '    '}${pr or 0:>7.2f}  {t[:70]}")
     from src.analysis import task_rules
     if r:
-        w, why = task_rules.task_verdict(r.get("url") or "", q)
-        print(f" 10. Task rules: {why or 'ok'}")
+        cats, cat_sizes = OWNER_CTX.get("cats", {}), OWNER_CTX.get("cat_sizes", {})
+        url, name, _ = owner_page([] if gift_search(q) else (r.get("_idx") or []), products, cats,
+                                  cat_sizes, q)
+        w, why = task_rules.task_verdict(url or "", q)
+        print(f" 10. Page that should own it: {url or 'NEW PAGE'}; task rules: {why or 'ok'}")
     CACHE.write_text(json.dumps(cache))
 
 
@@ -854,27 +860,42 @@ def main():
     from scripts.line_demand import _magento
     mc = _magento()
     cats, products = load_catalog(mc)
+    sizes = defaultdict(int)
+    for p in products:
+        for c in p.get("cats", []):
+            sizes[c] += 1
+    OWNER_CTX.update(cats=cats, cat_sizes=sizes)
     seed_products = defaultdict(set)
     gift_idx = set()
     for i, p in enumerate(products):
         names = [cats.get(c, {}).get("name", "") for c in p.get("cats", []) if cats.get(c, {}).get("active")]
         for s in product_seeds(p["name"], names):
             seed_products[s].add(i)
-        if is_personalized(p, names):
+        if is_personalized(p, names) and line_of(p["url"], p["name"]) != "Stools" \
+                and not re.search(r"coat rack", p["name"], re.I):   # on hold: 2-3 month lead time
             gift_idx.add(i)
     for g in GIFT_SEEDS:
         seed_products[g] |= gift_idx
     print(f"{len(products)} sellable products -> {len(seed_products)} ways to describe them")
 
-    vols = search_volumes(list(seed_products))
+    gsc = load_gsc_queries(cfg)
+    # Searches you already show up for are real demand by definition: look them up too,
+    # so a product line never vanishes because no seed happened to produce its search.
+    brand = [b.lower() for b in cfg.get("data_sources", {}).get("google_ads", {}).get("brand_terms", [])]
+    own_brand = lambda q: any(b in q.replace("-", " ") or b in q for b in brand)
+    proven = [q for q, d in gsc.items() if (d.get("impressions") or 0) >= 100 and not own_brand(q)
+              and (qualified(q) or gift_search(q)) and not OFF_TOPIC.search(q)]
+    vols = search_volumes(list(seed_products) + proven)
     real = sorted(((s, vols.get(s, {}).get("volume", 0)) for s in seed_products),
                   key=lambda x: -x[1])
     real = [(s, v) for s, v in real if v >= args.min_volume]
+    real_proven = [(q, vols.get(q, {}).get("volume", 0)) for q in proven
+                   if vols.get(q, {}).get("volume", 0) >= args.min_volume]
     print(f"{len(real)} of them are real searches (>= {args.min_volume}/mo); expanding the top {args.expand}")
 
     cache = _cache()
     found = {}
-    for s, v in real:
+    for s, v in real + real_proven:
         found[s] = {"keyword": s, "volume": v, "cpc": vols.get(s, {}).get("cpc", 0)}
     for s, _ in real[:args.expand]:
         for it in expand(s, cache):
@@ -883,12 +904,11 @@ def main():
     CACHE.parent.mkdir(exist_ok=True)
     CACHE.write_text(json.dumps(cache))
 
-    gsc = load_gsc_queries(cfg)
     conv, _, _ = organic_conversion(cfg)
     rows = []
     for kw, it in found.items():
         gift = gift_search(kw)
-        if kw in skip or not gift and (OFF_TOPIC.search(kw) or not qualified(kw)):
+        if kw in skip or own_brand(kw) or not gift and (OFF_TOPIC.search(kw) or not qualified(kw)):
             continue
         idx = set(gift_idx) if gift else match_products(kw, seed_products, products)
         if not idx:
@@ -915,22 +935,17 @@ def main():
     # Google decides: walk down the list, ask Google Shopping what each search shows,
     # keep only searches where most products are for kids/classrooms, and flag
     # PRICEY ones. Stop once `top` searches are verified or the budget is spent.
-    verified, checks = [], 0
-    for r in check_order(rows):
-        if len(verified) >= args.top or checks >= args.price_check:
-            break
-        if r["flag"]:
-            continue
+    def vet(r):
         med, share, upper = shopping_check(r["search"], cache)
-        checks += 1
         r["shop_median"], r["kid_share"], r["shop_upper"] = med, share, upper
         if share is not None and share < 0.3:
             r["flag"], r["profit"] = "NOTKIDS", 0
-            continue
-        if price_flag(r["price"], upper):
+        elif price_flag(r["price"], upper):
             r["flag"], r["profit"] = "PRICEY", 0
-        r["verified"] = share is not None
-        verified.append(r)
+        r["verified"] = share is not None and not r["flag"]
+        return r["verified"]
+
+    vet_rows(rows, vet, top=args.top, budget=args.price_check)
     CACHE.write_text(json.dumps(cache))
     rows.sort(key=lambda r: -r["profit"])
     print(f"price check: {SHOP_STATUS['checked']} looked up on Google Shopping now, "
@@ -938,9 +953,11 @@ def main():
           f"as not for kids, {sum(1 for r in rows if r['flag'] == 'PRICEY')} PRICEY" + (f"  [PROBLEM: {SHOP_STATUS['error']}]" if SHOP_STATUS["error"] else ""))
 
     print(f"\n{'search':<38}{'vol/mo':>8}{'you':>6}{'clk':>5}{'+$/mo':>7}  {'flag':<6}{'price':>8}  example product")
-    show = [r for r in rows if r.get("verified")] or rows
-    if not any(r.get("verified") for r in rows):
-        print("(Google Shopping check unavailable: showing UNVERIFIED searches)")
+    # Everything Google Shopping looked at and found to be for kids (PRICEY included,
+    # so you see where price is the problem). Unvetted searches are never listed.
+    show = [r for r in rows if r.get("kid_share") is not None and r["flag"] != "NOTKIDS"]
+    if not show:
+        print("(Google Shopping check unavailable: nothing could be verified, see PROBLEM above)")
     for r in show[:args.top]:
         you = f"{r['you']:.0f}" if r["you"] else "-"
         print(f"{r['search'][:37]:<38}{r['volume']:>8,}{you:>6}{r['clicks']:>5}{r['profit']:>7,.0f}  "
