@@ -53,7 +53,12 @@ BRAND_WORDS = {"guidecraft", "guide", "craft", "whitney", "brothers", "maple", "
 CHEAP_INTENT = re.compile(r"\b(cheap|diy|how to make|printable|free|dollar|ikea|amazon|walmart|"
                           r"target|used|second ?hand|plans?|pattern)\b", re.I)
 OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass|wall decor|"
-                       r"tattoo|meme|lyrics|song|movie|game ?of)\b", re.I)
+                       r"tattoo|meme|lyrics|song|movie|game ?of|dining|coffee|console|folding|"
+                       r"foldable|fold|picnic|legs?|topper|floating|patio|office|bedroom|tv|"
+                       r"kitchen cabinets?|cabinets? in kitchen|kitchen shelf|high ?chair|bouncer|"
+                       r"swing|gaming|electronic|ipad|samsung|amazon fire|recliner|outdoor furniture|"
+                       r"baby chair|infant chair|baby seat|infant seat)\b",
+                       re.I)
 CACHE = ROOT / "data" / "product_demand_cache.json"
 SUGGEST_URL = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live"
 
@@ -72,11 +77,11 @@ def plural_key(s):
 KINDS = ("rug", "carpet", "mat", "mirror", "train", "puzzle", "stool", "table", "chair", "cart",
          "shelf", "bookshelf", "bookcase", "cabinet", "block", "blocks", "book", "storybook", "easel",
          "bench", "sorter", "stacker", "tower", "truck", "car", "kitchen", "house", "playhouse",
-         "cube", "locker", "cubby", "display", "rack", "chest", "tablet", "lightbox", "light table",
+         "cube", "locker", "cubby", "display", "rack", "chest", "lightbox", "light table",
          "toy", "toys", "game", "sensory table", "drum", "tracker", "board", "rocker")
 # Proof the searcher shops for a child or a classroom (else "usa map", "tow truck").
 INTENT = ("montessori", "baby", "infant", "toddler", "kid", "kids", "child", "children", "childrens",
-          "classroom", "preschool", "daycare", "school", "nursery", "teacher", "wooden", "wood",
+          "classroom", "preschool", "daycare", "school", "nursery", "teacher",
           "personalized", "personalised", "name", "toy", "toys", "tummy", "sensory", "learning",
           "educational", "play", "playroom", "alphabet", "abc", "letter", "circle time", "seating",
           "stem", "girls", "boys")
@@ -97,9 +102,15 @@ def kind_of(name, categories=()):
     return None
 
 
+# Kinds that are children's products by themselves ("wooden blocks", "name train").
+KID_KINDS = ("block", "blocks", "puzzle", "toy", "toys", "sorter", "stacker", "playhouse", "tracker",
+             "train", "storybook", "easel")
+
+
 def qualified(keyword):
-    """A search counts only if it names a product kind AND shows child/classroom intent."""
-    return _has(keyword, KINDS) and _has(keyword, INTENT)
+    """A search counts only if it names a product kind AND shows child/classroom
+    intent (or the kind is a children's product by itself)."""
+    return _has(keyword, KINDS) and (_has(keyword, INTENT) or _has(keyword, KID_KINDS))
 
 
 def product_seeds(name, categories=()):
@@ -190,22 +201,33 @@ def shopping_median(query, cache):
     if hit and (time.time() - hit.get("t", 0)) < 30 * 86400:
         return hit.get("median")
     if not key:
+        SHOP_STATUS["error"] = "SERPER_API_KEY not set"
         return None
     import requests
     try:
         r = requests.post("https://google.serper.dev/shopping", timeout=30,
                           headers={"X-API-KEY": key, "Content-Type": "application/json"},
                           json={"q": query, "gl": "us", "num": 20})
+        SHOP_STATUS["checked"] += 1
+        if r.status_code != 200:
+            SHOP_STATUS["error"] = f"Serper shopping HTTP {r.status_code}: {r.text[:120]}"
+            return None
         prices = []
         for it in (r.json().get("shopping") or []):
             m = re.search(r"([\d,]+\.?\d*)", str(it.get("price") or ""))
             if m:
                 prices.append(float(m.group(1).replace(",", "")))
-    except Exception:
+    except Exception as e:
+        SHOP_STATUS["error"] = f"Serper shopping failed: {e}"
         return None
+    if prices:
+        SHOP_STATUS["priced"] += 1
     med = sorted(prices)[len(prices) // 2] if prices else None
     cache["shop|" + query] = {"t": time.time(), "median": med}
     return med
+
+
+SHOP_STATUS = {"checked": 0, "priced": 0, "error": ""}
 
 
 def price_flag(my_price, median, ratio=2.5):
@@ -216,12 +238,36 @@ def price_flag(my_price, median, ratio=2.5):
 
 
 # ---------------------------------------------------------------- main
+def variant_key(r):
+    """Same search typed differently ('classroom carpet rugs', 'classrooms carpet') ->
+    one key: identical volume + same word set (plural-insensitive). Pure."""
+    words = frozenset(plural_key(w) for w in re.findall(r"[a-z]+", r["search"])
+                      if w not in {"and", "for", "the", "of", "in", "with"})
+    return (r["volume"], words)
+
+
+def collapse_variants(rows):
+    groups = {}
+    for r in rows:
+        k = variant_key(r)
+        cur = groups.get(k)
+        if cur is None:
+            groups[k] = dict(r, variants=1)
+        else:
+            cur["variants"] += 1
+            if (r.get("you") or 999) < (cur.get("you") or 999) or len(r["search"]) < len(cur["search"]) \
+                    and not cur.get("you"):
+                keep = cur["variants"]
+                groups[k] = dict(r, variants=keep)
+    return list(groups.values())
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--top", type=int, default=60)
     ap.add_argument("--expand", type=int, default=80)
     ap.add_argument("--min-volume", type=int, default=30)
-    ap.add_argument("--price-check", type=int, default=40,
+    ap.add_argument("--price-check", type=int, default=60,
                     help="check Google Shopping prices for the top N searches (Serper, cached)")
     args = ap.parse_args()
 
@@ -263,9 +309,9 @@ def main():
         if not idx:
             continue
         prods = [products[i] for i in idx]
-        p = max(prods, key=lambda x: x["price"])
         mine = gsc.get(kw, {})
         price = sorted(x["price"] for x in prods)[len(prods) // 2]
+        p = min(prods, key=lambda x: abs(x["price"] - price))
         margin = product_margin(p, cfg)
         _, profit = value(it["volume"], mine.get("position"), mine.get("clicks", 0),
                           mine.get("impressions", 0), conv, price, margin)
@@ -275,6 +321,7 @@ def main():
                      "clicks": mine.get("clicks", 0), "products": len(prods),
                      "example": p["name"][:40], "price": round(price, 2),
                      "profit": 0 if flag else profit, "flag": flag, "url": p["url"]})
+    rows = collapse_variants(rows)
     rows.sort(key=lambda r: -r["profit"])
     # Price fit for the top rows: shoppers expecting a $60 version won't buy a $1,377 one.
     for r in rows[:args.price_check]:
@@ -286,12 +333,15 @@ def main():
             r["flag"], r["profit"] = "PRICEY", 0
     CACHE.write_text(json.dumps(cache))
     rows.sort(key=lambda r: -r["profit"])
+    print(f"price check: {SHOP_STATUS['checked']} searches looked up, {SHOP_STATUS['priced']} had "
+          f"Shopping prices" + (f"  [PROBLEM: {SHOP_STATUS['error']}]" if SHOP_STATUS["error"] else ""))
 
     print(f"\n{'search':<38}{'vol/mo':>8}{'you':>6}{'clk':>5}{'+$/mo':>7}  {'flag':<6}{'price':>8}  example product")
     for r in rows[:args.top]:
         you = f"{r['you']:.0f}" if r["you"] else "-"
         print(f"{r['search'][:37]:<38}{r['volume']:>8,}{you:>6}{r['clicks']:>5}{r['profit']:>7,.0f}  "
-              f"{r['flag']:<6}{r['price']:>8.2f}  {r['example']} (+{r['products'] - 1})")
+              f"{r['flag']:<6}{r['price']:>8.2f}  {r['example']} (+{r['products'] - 1})"
+              + (f"  [{r['variants']} ways typed]" if r.get("variants", 1) > 1 else ""))
     out = ROOT / "data" / "product_demand.csv"
     with open(out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=sorted({k for r in rows for k in r}) if rows else ["search"])

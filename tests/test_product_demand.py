@@ -17,10 +17,12 @@ def test_design_is_not_the_product():
 
 def test_qualified_rejects_generic_world_searches():
     for junk in ("usa map", "tow truck near me", "garden center near me", "area rug", "book shelf",
-                 "google earth map", "rug rug", "water table"):
+                 "google earth map", "rug rug", "water table", "wooden table", "wooden bench",
+                 "wooden cabinet"):
         assert not qualified(junk), junk
     for good in ("tummy time mirror", "montessori mirror", "kids area rug", "toy tow truck",
-                 "classroom rug", "usa map rug for classroom", "wooden name train", "kids water table"):
+                 "classroom rug", "usa map rug for classroom", "wooden name train", "kids water table",
+                 "wooden blocks"):
         assert qualified(good), good
 
 
@@ -35,3 +37,23 @@ def test_price_flag():
     assert price_flag(1376.99, 60) == "PRICEY"
     assert price_flag(133.53, 70) == ""
     assert price_flag(100, None) == ""
+
+
+def test_off_topic_adult_furniture():
+    from scripts.product_demand import OFF_TOPIC
+    for junk in ("coffee wooden table", "kids table legs", "wooden cabinet in kitchen", "baby high chair",
+                 "kids tablet samsung", "folding toddler table"):
+        assert OFF_TOPIC.search(junk), junk
+    assert not OFF_TOPIC.search("toddler table and chairs")
+
+
+def test_collapse_variants():
+    from scripts.product_demand import collapse_variants
+    rows = [{"search": "classroom carpet rugs", "volume": 14800, "you": None},
+            {"search": "classroom rugs and carpets", "volume": 14800, "you": 39},
+            {"search": "classrooms carpet rug", "volume": 14800, "you": None},
+            {"search": "kids rug", "volume": 12100, "you": None}]
+    out = collapse_variants(rows)
+    assert len(out) == 2
+    big = [r for r in out if r["volume"] == 14800][0]
+    assert big["variants"] == 3 and big["search"] == "classroom rugs and carpets"
