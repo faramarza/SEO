@@ -4990,7 +4990,18 @@ def api_ads_recommendations():
     config = load_config()
     campaigns, error = _fetch_ads_campaigns(config)
     break_even = config.get("business_context", {}).get("break_even_roas", 4.0)
-    recs = recommend_paid_actions(campaigns, break_even_roas=break_even)
+    from src.analysis import paid_search as _ps
+
+    def _line_break_even(c):
+        # Each campaign is judged on ITS line's margin (name trains 5.3, rugs ~3.0),
+        # the same break-even the Paid Search page uses; unknown line -> the default.
+        line = _ps.line_for(c.get("name") or c.get("campaign_name") or "", "", config)
+        if not line:
+            return None
+        margin, _ = _ps.margin_for(line, config)
+        return _ps.break_even_roas(margin, _ps._card_fee(config))
+
+    recs = recommend_paid_actions(campaigns, break_even_roas=break_even, break_even_for=_line_break_even)
     allow_writes = config.get("data_sources", {}).get("google_ads", {}).get("allow_writes", False)
     return jsonify({
         "recommendations": recs,

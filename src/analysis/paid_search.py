@@ -116,6 +116,15 @@ def line_for(campaign: str, landing_url: str, config: dict) -> Optional[str]:
             for pat in (spec.get("url_patterns") or []):
                 if _norm(pat) and _norm(pat) in url:
                     return line
+    # Campaign names say "PMax Name Trains", not "name-train": match the same
+    # patterns with spaces, ignoring plurals.
+    words = " " + re.sub(r"[^a-z0-9]+", " ", camp) + " "
+    if words.strip():
+        for line, spec in _product_lines(config).items():
+            for pat in (spec.get("url_patterns") or []):
+                ptn = re.sub(r"[^a-z0-9]+", " ", _norm(pat)).strip()
+                if ptn and re.search(r"\b" + re.escape(ptn) + r"s?\b", words):
+                    return line
     return None
 
 

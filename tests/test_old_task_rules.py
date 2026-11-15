@@ -38,3 +38,24 @@ def test_clean_anchor():
     assert clean_anchor("Montessori Furniture for Child-Sized Independence", "Kids Furniture", "spoke_to_hub") == "kids furniture"
     assert clean_anchor("Playroom Furniture – Perfect for Fun, Organization, and Creativity", "kids furniture", "hub_to_spoke") == "playroom furniture"
     assert len(clean_anchor("Best Montessori Toys for Two Year Olds Who Love to Build", "", "x").split()) <= 5
+
+
+def test_budget_advice_uses_each_campaigns_own_break_even():
+    from src.data_sources.ads_manager import recommend_paid_actions
+    camp = [{"campaign_id": 1, "name": "Name Trains Search-2026", "status": "ENABLED",
+             "cost": 200, "conversions": 5, "roas": 4.5}]
+    flat = recommend_paid_actions(camp, break_even_roas=4.0)
+    assert flat and "scale up" in flat[0]["rationale"]
+    own = recommend_paid_actions(camp, break_even_roas=4.0, break_even_for=lambda c: 5.3)
+    assert not any(r.get("params", {}).get("direction") == "increase" for r in own)
+
+
+def test_campaign_names_map_to_their_line():
+    import json
+    from pathlib import Path
+    from src.analysis.paid_search import line_for
+    cfg = json.loads((Path(__file__).resolve().parent.parent / "config" / "defaults.json").read_text())
+    assert line_for("PMax Name Trains", "", cfg) == "name_trains"
+    assert line_for("PMAX - Montessori Toys", "", cfg) == "montessori"
+    assert line_for("Carpets PMax", "", cfg) == "carpets"
+    assert line_for("Brand Search", "", cfg) is None

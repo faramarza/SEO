@@ -21,11 +21,14 @@ def recommend_paid_actions(
     min_spend_pause: float = 25.0,
     min_spend_roas: float = 50.0,
     budget_step_pct: float = 20.0,
+    break_even_for=None,
 ) -> list[dict]:
     """Propose governed paid actions from campaign performance.
 
     campaigns: list of dicts with campaign_id, name, type, status, cost,
                conversions, conversion_value, roas.
+    break_even_for: optional function(campaign) -> that campaign's own break-even
+    ROAS (from its product line's margin); falls back to break_even_roas.
     Returns a list of proposals (no side effects).
     """
     recs = []
@@ -36,6 +39,7 @@ def recommend_paid_actions(
         conv = c.get("conversions", 0) or 0
         roas = c.get("roas", 0) or 0
         name = c.get("name") or c.get("campaign_name") or c.get("campaign_id")
+        be = (break_even_for(c) if break_even_for else None) or break_even_roas
 
         # 1. Zero-converting spenders. CRITICAL: 0 tracked conversions can mean
         #    broken conversion tracking, NOT zero sales — recommending a hard PAUSE
@@ -67,17 +71,17 @@ def recommend_paid_actions(
         # wastes spend — a profitable campaign already at ~95% IS can't grow.
         lost_budget = c.get("lost_is_budget")  # 0..1, or None if unknown
         imp_share = c.get("impression_share")  # 0..1, or None if unknown
-        if roas >= break_even_roas * 0.9:
+        if roas >= be * 0.9:
             budget_throttled = (lost_budget is None) or (lost_budget >= 0.10)
             if budget_throttled:
-                near = "" if roas >= break_even_roas else " (near break-even)"
+                near = "" if roas >= be else " (near break-even)"
                 is_note = (f" Losing {lost_budget*100:.0f}% of impressions to budget — headroom to scale."
                            if lost_budget else "")
                 recs.append({
                     "type": "ADJUST_BUDGET",
                     "campaign_id": str(c.get("campaign_id")),
                     "campaign_name": name,
-                    "rationale": f"ROAS {roas:.1f}x vs break-even {break_even_roas:.1f}x{near} — best performer, scale up.{is_note}",
+                    "rationale": f"ROAS {roas:.1f}x vs break-even {be:.1f}x{near} — best performer, scale up.{is_note}",
                     "risk": "medium",
                     "params": {"direction": "increase", "step_pct": budget_step_pct},
                 })
@@ -94,12 +98,12 @@ def recommend_paid_actions(
                     "params": {},
                 })
         # 3. Trim clear losers (well below break-even, but converting)
-        elif 0 < roas < break_even_roas * 0.6:
+        elif 0 < roas < be * 0.6:
             recs.append({
                 "type": "ADJUST_BUDGET",
                 "campaign_id": str(c.get("campaign_id")),
                 "campaign_name": name,
-                "rationale": f"ROAS {roas:.1f}x well below break-even {break_even_roas:.1f}x — trim spend.",
+                "rationale": f"ROAS {roas:.1f}x well below break-even {be:.1f}x — trim spend.",
                 "risk": "low",
                 "params": {"direction": "decrease", "step_pct": budget_step_pct},
             })

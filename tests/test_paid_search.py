@@ -188,7 +188,8 @@ def test_campaign_losing_when_below_break_even():
            "conversions": 1, "conversion_value": 300.0}]  # ROAS 3.0 < 8.33
     res = campaign_profit(kw, CFG, ga4_cpc=None)
     c = res["campaigns"][0]
-    assert c["product_line"] is None and c["margin_assumed"] is True   # default margin
+    # The campaign name says Montessori, so it is judged on the Montessori margin.
+    assert c["product_line"] == "montessori" and c["margin_assumed"] is False
     assert c["verdict"] == "losing"
     assert res["reconciliation"] is None   # no GA4 -> no recon, honestly absent
 
