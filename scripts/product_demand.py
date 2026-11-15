@@ -556,10 +556,24 @@ def link_sources_from(posts, cats, page_url):
     return out
 
 
-def find_link_sources(posts, page_url, search, n=3):
+def plural_phrase(p):
+    """'playroom rug' -> 'playroom rugs', 'toy box' -> 'toy boxes' (for "See our ..."). Pure."""
+    w = p.split()
+    if not w or w[-1].endswith("s") or not head_kind(w[-1]):
+        return p
+    w[-1] += "es" if re.search(r"(x|ch|sh)$", w[-1]) else "s"
+    return " ".join(w)
+
+
+def find_link_sources(posts, page_url, search, n=3, anchors=None):
     """Blog posts that talk about the topic and don't link to the page yet, with the
     exact sentence to find and what to paste. Pure (posts = [{name, url_key, content}])."""
     words = [w for w in norm_tokens(search) if len(w) > 3] or list(norm_tokens(search))
+    # The sentence must talk about the PRODUCT (rug/carpet, chest/box...), not just
+    # share a word like "playroom": a carpets link after a sentence about puzzles reads
+    # wrong to shoppers and to Google.
+    hk = head_kind(search)
+    must = {SYN.get(hk, plural_key(hk))} if hk else set()
     out = []
     for p in posts:
         html = p.get("content") or ""
@@ -569,7 +583,10 @@ def find_link_sources(posts, page_url, search, n=3):
         sents = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if 40 < len(x.strip()) < 260]
         best = None
         for sn in sents:
-            hits = sum(1 for w in words if w in norm_tokens(sn))
+            st = norm_tokens(sn)
+            if must and not (must & st):
+                continue
+            hits = sum(1 for w in words if w in st)
             if hits and (best is None or hits > best[0]):
                 best = (hits, sn)
         if best:
@@ -578,7 +595,13 @@ def find_link_sources(posts, page_url, search, n=3):
                         "find": best[1][-90:],
                         "paste": f' See our <a href="{page_url}">{search}</a>.'})
     out.sort(key=lambda x: -x["hits"])
-    return out[:n]
+    out = out[:n]
+    # Vary the link text over the searches this page should win ("playroom carpets",
+    # "playroom rugs"), so each gets a link and the anchors don't all look the same.
+    for i, x in enumerate(out):
+        a = plural_phrase((anchors or [search])[i % len(anchors or [search])])
+        x["paste"] = f' See our <a href="{page_url}">{a}</a>.'
+    return out
 
 
 def aio_check(searches, n=2):
@@ -662,7 +685,13 @@ def how_steps(g, posts):
             where = (f"Catalog > Products > search \"{g.get('sku') or g.get('page_name', '')}\" > open it "
                      f"({scope_for(None)}) > Content > Description")
         steps.append(f"{where}. Click Show / Hide Editor, paste this as the very first line, and Save: {g['intro']}")
-    srcs = find_link_sources(posts, g.get("page") or "", top)
+    anchors, seen = [], set()
+    for x in [{"search": top}] + list(g.get("searches") or []):
+        k = frozenset(norm_tokens(x["search"]))
+        if k not in seen:
+            seen.add(k)
+            anchors.append(x["search"])
+    srcs = find_link_sources(posts, g.get("page") or "", top, anchors=anchors[:3])
     for i, s_ in enumerate(srcs, 1):
         if s_.get("kind") == "category":
             steps.append(f"Link {i}: Catalog > Categories > \"{s_['post']}\" ({s_['scope']}) > "
