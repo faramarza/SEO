@@ -740,6 +740,13 @@ def main():
         top = ", ".join(f"{x['search']} ({x['volume']:,}" + (f", #{x['you']:.0f})" if x.get("you") else ")")
                         for x in g["searches"][:3])
         print(f"  ${g['value']:>6,.0f}/mo  {g['action']:<9} {(g['page'] or 'NEW PAGE')[:45]:<46} {top}")
+        for a in g.get("aio") or []:
+            state = ("no AI summary" if not a["present"] else
+                     "AI summary QUOTES YOU" if a["cited"] else
+                     "AI summary quotes " + (", ".join(a["who"]) or "others") + ", not you")
+            print(f"{'':>30}AI Overview for \"{a['search']}\": {state}")
+        if g.get("aio") == []:
+            print(f"{'':>30}AI Overview: not checked (DataForSEO unavailable or daily cap reached)")
     print("you = your Google position (Search Console, 90 days). +$/mo = profit at #3 at your "
           "conversion and margin. CHEAP = shoppers want the cheap version; INFO = readers, not buyers;\n"
           "PRICEY = Google Shopping shows this for under 40% of your price (shoppers expect a cheaper item).")
