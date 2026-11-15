@@ -59,7 +59,9 @@ OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass
                        r"swing|gaming|electronic|ipad|samsung|amazon fire|recliner|outdoor furniture|"
                        r"baby chair|infant chair|baby seat|infant seat|pottery barn|melissa|doug|lakeshore|"
                        r"ikea|kidkraft|step2|lovevery|amtrak|minecraft|lego|hair|hairstyles?|dress|"
-                       r"dresses|dna|lipid|carbohydrate|nucleic|concrete|garage|bundle branch|rbbb|jam level)\b",
+                       r"dresses|dna|lipid|carbohydrate|nucleic|concrete|garage|bundle branch|rbbb|jam level|"
+                       r"blind ?box(es)?|blind toy|collectibles?|funko|pop ?mart|squishmallows?|figures?|"
+                       r"anime|adult|adults|1000 piece|500 piece)\b",
                        re.I)
 CACHE = ROOT / "data" / "product_demand_cache.json"
 SUGGEST_URL = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live"
@@ -194,9 +196,11 @@ def match_products(keyword, seed_products, products):
 
 
 # ---------------------------------------------------------------- price fit
+# "toy" alone is NOT proof: blind boxes, Funko, collectibles all say "toy".
 KID_WORDS = re.compile(r"\b(kids?|child|children'?s?|toddlers?|baby|babies|infants?|montessori|"
-                       r"classroom|preschool|daycare|school|nursery|toys?|educational|learning|"
-                       r"girls?|boys?|playroom|play|teacher|stem|alphabet|abc|personali[sz]ed)\b", re.I)
+                       r"classroom|preschool|daycare|school|nursery|educational|learning|"
+                       r"playroom|teacher|alphabet|abc|personali[sz]ed|ages? \d|\d\+ ?(years?|months?))\b",
+                       re.I)
 
 
 def shopping_check(query, cache):

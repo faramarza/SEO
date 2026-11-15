@@ -66,3 +66,11 @@ def test_shopping_check_kid_share(monkeypatch):
                                                            ("Kids wooden blocks set", 30.0)])
     med, share = pd.shopping_check("bundle branch block", {})
     assert med == 20.0 and abs(share - 1 / 3) < 0.01
+
+
+def test_collectibles_and_science_noise_dropped():
+    from scripts.product_demand import qualified, OFF_TOPIC, KID_WORDS
+    for junk in ("blind toy boxes", "nucleic acid building block", "funko pop toy", "jigsaw puzzle 1000 piece"):
+        assert not (qualified(junk) and not OFF_TOPIC.search(junk)), junk
+    assert not KID_WORDS.search("Pop Mart Labubu Blind Box Toy")
+    assert KID_WORDS.search("Wooden Blocks for Toddlers, Ages 2+")
