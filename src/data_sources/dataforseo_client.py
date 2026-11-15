@@ -102,8 +102,15 @@ def get_remaining_quota() -> int:
     return max(0, DAILY_LIMIT - get_daily_usage())
 
 
+AIO_VERSION = 2
+
+
 def get_cached(query: str) -> Optional[dict]:
     entry = _load_cache().get("queries", {}).get((query or "").lower().strip())
+    # Entries from before AIO_VERSION asked Google without waiting for the AI
+    # Overview to load, so they said "no AI summary" too often: re-check them.
+    if entry and entry.get("aio_v") != AIO_VERSION:
+        return None
     return entry if (entry and _is_fresh(entry)) else None
 
 
@@ -197,6 +204,9 @@ def fetch_aio_citation(query: str, own_domain: str = "") -> Optional[dict]:
         "language_code": LANGUAGE_CODE,
         "device": "desktop",
         "people_also_ask_click_depth": 0,
+        # AI Overviews often load after the page; without this DataForSEO
+        # returns the SERP before the summary appears.
+        "load_async_ai_overview": True,
     }]
     try:
         resp = httpx.post(_ENDPOINT,
@@ -219,12 +229,17 @@ def fetch_aio_citation(query: str, own_domain: str = "") -> Optional[dict]:
         items = result0.get("items") or []
     except (IndexError, AttributeError, TypeError):
         items = []
+        task0 = {}
+    if (task0.get("status_code") or 20000) >= 40000:
+        # A failed lookup is not "no AI summary": report it and don't cache it.
+        return {"available": False, "reason": f"DataForSEO: {task0.get('status_message')}"}
 
     citations = _extract_citations(items, own_domain)
     out = {
         "available": True,
         "query": query,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "aio_v": AIO_VERSION,
         **citations,
     }
 
@@ -296,6 +311,10 @@ def fetch_referring_links(target: str, limit: int = 25) -> dict:
         items = result0.get("items") or []
     except (IndexError, AttributeError, TypeError):
         items = []
+        task0 = {}
+    if (task0.get("status_code") or 20000) >= 40000:
+        # A failed lookup is not "no backlinks": report it and don't cache it.
+        return {"available": False, "reason": f"DataForSEO: {task0.get('status_message')}"}
 
     links = []
     for it in items:

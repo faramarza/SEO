@@ -112,3 +112,45 @@ def test_age_numbers_pick_the_right_category():
     cats = {1: {"name": "Montessori Toys For 1 Year Old", "active": True, "url_key": "montessori-toys-for-1-year-olds"},
             2: {"name": "Montessori Toys For 2 Year Olds", "active": True, "url_key": "montessori-toys-2-year-olds"}}
     assert owner_page([], [], cats, {}, "montessori toys for 2 year olds")[0] == "/montessori-toys-2-year-olds.html"
+
+
+def test_lines():
+    from scripts.product_demand import line_of
+    assert line_of("/5-letter-name-train.html", "name train") == "Name trains"
+    assert line_of("/classroom-rugs.html", "classroom carpet") == "Rugs"
+    assert line_of("", "wooden toy box") == "Furniture"
+    assert line_of("/montessori-toys.html", "montessori toys") == "Montessori"
+    assert line_of("/wooden-name-puzzles.html", "name puzzle") == "Puzzles"
+
+
+def test_price_check_reaches_every_line():
+    from scripts.product_demand import check_order
+    rugs = [{"search": f"classroom rug {i}", "url": "/r.html", "profit": 900 - i} for i in range(80)]
+    trains = [{"search": "name train", "url": "/5-letter-name-train.html", "profit": 40}]
+    order = check_order(rugs + trains, per_line=5)
+    assert order.index(trains[0]) < 10
+
+
+def test_plan_keeps_room_for_each_line():
+    from scripts.product_demand import balanced
+    groups = [{"line": "Rugs", "value": 1000 - i, "page": f"/r{i}"} for i in range(30)]
+    groups.append({"line": "Name trains", "value": 50, "page": "/name-trains.html"})
+    out = balanced(groups, max_pages=10, per_line=4)
+    assert len(out) == 10 and any(g["line"] == "Name trains" for g in out)
+
+
+def test_row_status_explains():
+    from scripts.product_demand import row_status
+    assert "already #2" in row_status({"search": "name train", "profit": 0, "you": 2.0}, False, None)
+    assert row_status({"search": "x", "profit": 50, "verified": True}, True, None) == "IN PLAN"
+    assert row_status({"search": "x", "profit": 50}, False, "changed 2026-11-10: wait for results").startswith("WAIT")
+    assert "cheap" in row_status({"search": "x", "flag": "CHEAP"}, False, None)
+
+
+def test_aio_asks_google_to_wait_and_ignores_old_cache(monkeypatch):
+    from src.data_sources import dataforseo_client as dfs
+    monkeypatch.setattr(dfs, "_load_cache", lambda: {"queries": {"montessori toys": {
+        "available": True, "ai_overview_present": False}}})
+    assert dfs.get_cached("montessori toys") is None
+    import inspect
+    assert '"load_async_ai_overview": True' in inspect.getsource(dfs.fetch_aio_citation)

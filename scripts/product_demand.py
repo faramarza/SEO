@@ -543,6 +543,56 @@ def how_steps(g, posts):
     return steps
 
 
+# Product lines, so one big line (rugs: high price, huge volume) can't crowd the
+# others out of the plan. First match wins, checked against the page URL and the search.
+LINES = (("Name trains", re.compile(r"train", re.I)),
+         ("Puzzles", re.compile(r"puzzle", re.I)),
+         ("Books", re.compile(r"book|story", re.I)),
+         ("Stools", re.compile(r"stool", re.I)),
+         ("Rugs", re.compile(r"rug|carpet|\bmats?\b", re.I)),
+         ("Furniture", re.compile(r"table|chair|shel|bookcase|cabinet|bench|cubb|locker|easel|cart|"
+                                  r"chest|toy[- ]box|rack|storage|furniture|desk", re.I)),
+         ("Montessori", re.compile(r"montessori", re.I)))
+
+
+def line_of(url, search=""):
+    """Which product line a page/search belongs to. Pure."""
+    for text in (url or "", search or ""):
+        for name, pat in LINES:
+            if pat.search(text):
+                return name
+    return "Toys and other"
+
+
+def check_order(rows, per_line=5):
+    """Order for the Google Shopping check: each line's best few first, then the rest
+    by profit, so lower-priced lines (name trains) are checked too. Pure."""
+    first, seen = [], defaultdict(int)
+    for r in rows:
+        ln = line_of(r.get("url"), r["search"])
+        if not r.get("flag") and seen[ln] < per_line:
+            seen[ln] += 1
+            first.append(r)
+    ids = {id(r) for r in first}
+    return first + [r for r in rows if id(r) not in ids]
+
+
+def balanced(groups, max_pages=25, per_line=4):
+    """Best pages by value, at most `per_line` per product line first, then fill. Pure."""
+    ranked = sorted(groups, key=lambda g: -g["value"])
+    out, n = [], defaultdict(int)
+    for g in ranked:
+        if n[g["line"]] < per_line:
+            n[g["line"]] += 1
+            out.append(g)
+    for g in ranked:
+        if len(out) >= max_pages:
+            break
+        if g not in out:
+            out.append(g)
+    return sorted(out[:max_pages], key=lambda g: -g["value"])
+
+
 def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=None):
     """Group the good searches by the page that should own them, with one action each."""
     cat_sizes = defaultdict(int)
@@ -561,9 +611,20 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
         g["searches"].append({"search": r["search"], "volume": r["volume"], "you": r.get("you"),
                               "variants": r.get("variants", 1)})
         g["value"] += r.get("profit", 0)
-    plan = sorted(groups.values(), key=lambda g: -g["value"])[:max_pages]
-    for g in plan:
+    from src.analysis import task_rules
+    recent = task_rules.recently_changed()
+    waiting = []
+    for g in list(groups.values()):
         g["searches"].sort(key=lambda x: -x["volume"])
+        g["line"] = line_of(g["page"], g["searches"][0]["search"])
+        w, why = task_rules.task_verdict(g["page"] or "", g["searches"][0]["search"], recent)
+        if w == 0:
+            g["action"], g["step"] = "wait", why
+            g["value"] = round(g["value"], 2)
+            g.pop("_idx", None)
+            waiting.append(g)
+    plan = balanced([g for g in groups.values() if g.get("action") != "wait"], max_pages)
+    for g in plan:
         if g["kind"] == "new":
             g["action"] = "new_page"
             g["step"] = (f"No page targets \"{g['searches'][0]['search']}\". Create a category page for it "
@@ -596,7 +657,7 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
         if step:
             g["how"].append(step)
         g.pop("_idx", None)
-    return [g for g in plan if g.get("action") != "skip"]
+    return [g for g in plan if g.get("action") != "skip"], waiting
 
 
 def variant_key(r):
@@ -621,6 +682,42 @@ def collapse_variants(rows):
                 keep = cur["variants"]
                 groups[k] = dict(r, variants=keep)
     return list(groups.values())
+
+
+def row_status(r, in_plan, waiting_why, min_profit=10.0):
+    """Why a search is or isn't in the plan, in plain words. Pure."""
+    meaning = {"CHEAP": "shoppers want the cheap version", "INFO": "readers, not buyers",
+               "NOTKIDS": "Google shows mostly non-kids products", "PRICEY": "Google shows much cheaper items"}
+    if r.get("flag"):
+        return "left out: " + meaning.get(r["flag"], r["flag"])
+    if waiting_why:
+        return ("WAIT: page " if waiting_why.startswith("changed") else "left out: ") + waiting_why
+    if in_plan:
+        return "IN PLAN"
+    if r.get("profit", 0) < min_profit:
+        if r.get("you") and r["you"] <= 3:
+            return f"fine: you're already #{r['you']:.0f} and getting the clicks"
+        return "left out: under $10/mo to gain"
+    if not r.get("verified"):
+        return "not price-checked yet (outside this run's check budget)"
+    return "left out: lower value than the pages in the plan"
+
+
+def print_line_check(rows, plan, waiting, per_line=3):
+    """Per product line: its biggest searches and why each is or isn't in the plan."""
+    in_plan = {x["search"] for g in plan for x in g["searches"]}
+    wait = {x["search"]: g["step"] for g in waiting for x in g["searches"]}
+    by_line = defaultdict(list)
+    for r in rows:
+        by_line[line_of(r.get("url"), r["search"])].append(r)
+    print("\nLINE CHECK (each product line's biggest searches, and why they are or aren't in the plan)")
+    for name in [n for n, _ in LINES] + ["Toys and other"]:
+        rs = sorted(by_line.get(name, []), key=lambda r: -r["volume"])[:per_line]
+        print(f"  {name}:" + ("" if rs else " no qualifying searches found"))
+        for r in rs:
+            you = f"#{r['you']:.0f}" if r.get("you") else "not ranked"
+            print(f"      {r['search'][:34]:<35}{r['volume']:>7,}/mo  {you:<11}"
+                  f"{row_status(r, r['search'] in in_plan, wait.get(r['search']))}")
 
 
 def main():
@@ -690,7 +787,7 @@ def main():
     # keep only searches where most products are for kids/classrooms, and flag
     # PRICEY ones. Stop once `top` searches are verified or the budget is spent.
     verified, checks = [], 0
-    for r in rows:
+    for r in check_order(rows):
         if len(verified) >= args.top or checks >= args.price_check:
             break
         if r["flag"]:
@@ -732,14 +829,18 @@ def main():
     except Exception as e:
         print(f"(blog posts unavailable for link suggestions: {e})")
         posts = []
-    plan = build_page_plan(rows, products, cats, posts=posts)
+    plan, waiting = build_page_plan(rows, products, cats, posts=posts)
     (ROOT / "data" / "product_demand_plan.json").write_text(json.dumps(
-        {"generated": datetime.now(timezone.utc).isoformat(), "pages": plan}, indent=1))
-    print(f"\nPAGE PLAN ({len(plan)} pages) -> data/product_demand_plan.json, also on Governor's Start Here")
-    for g in plan[:15]:
+        {"generated": datetime.now(timezone.utc).isoformat(), "pages": plan, "waiting": waiting},
+        indent=1))
+    print_line_check(rows, plan, waiting)
+    print(f"\nPAGE PLAN ({len(plan)} pages, at most 4 per product line first) -> "
+          f"data/product_demand_plan.json, also on Governor's Start Here")
+    for g in plan:
         top = ", ".join(f"{x['search']} ({x['volume']:,}" + (f", #{x['you']:.0f})" if x.get("you") else ")")
                         for x in g["searches"][:3])
-        print(f"  ${g['value']:>6,.0f}/mo  {g['action']:<9} {(g['page'] or 'NEW PAGE')[:45]:<46} {top}")
+        print(f"  ${g['value']:>6,.0f}/mo  {g['line'][:11]:<12}{g['action']:<9} "
+              f"{(g['page'] or 'NEW PAGE')[:45]:<46} {top}")
         for a in g.get("aio") or []:
             state = ("no AI summary" if not a["present"] else
                      "AI summary QUOTES YOU" if a["cited"] else
