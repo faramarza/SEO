@@ -31,3 +31,10 @@ def test_ctr_title_advice_has_no_tails_and_says_where():
                          "impressions": 900}]}, out)
     text = " ".join(out[0]["steps"])
     assert "no tails" in text and "Catalog > " in text and "free shipping, or" not in text
+
+
+def test_clean_anchor():
+    from src.analysis.action_plan import clean_anchor
+    assert clean_anchor("Montessori Furniture for Child-Sized Independence", "Kids Furniture", "spoke_to_hub") == "kids furniture"
+    assert clean_anchor("Playroom Furniture – Perfect for Fun, Organization, and Creativity", "kids furniture", "hub_to_spoke") == "playroom furniture"
+    assert len(clean_anchor("Best Montessori Toys for Two Year Olds Who Love to Build", "", "x").split()) <= 5

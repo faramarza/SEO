@@ -640,6 +640,19 @@ def _from_content_gap(cg, out, max_items=12):
         out.append(t)
 
 
+def clean_anchor(anchor, family, direction):
+    """Link text people would search, not a page's long title. Links to the main
+    category page use the topic ('kids furniture'); others use the page name cut
+    at any dash/colon/pipe, at most 5 words. Pure."""
+    if direction == "spoke_to_hub" and family:
+        return family.strip().lower()
+    a = re.split(r"\s[–|:-]\s|:|\|", anchor or "")[0].strip()
+    words = a.split()
+    if len(words) > 5:
+        a = " ".join(words[:5])
+    return a.lower()
+
+
 def _from_interlinks(interlinks, out):
     """The Topic Map's interlink plan as ONE task per TOPIC CLUSTER, each showing
     only the top few highest-impact links to add RIGHT NOW (orphan rescues first,
@@ -671,7 +684,7 @@ def _from_interlinks(interlinks, out):
             by_fam.setdefault(fam, []).append({
                 "source_url": g.get("source_url", ""),
                 "source_title": g.get("source_title") or g.get("source_url") or "this page",
-                "url": tgt, "anchor": anc,
+                "url": tgt, "anchor": clean_anchor(anc, fam, l.get("direction", "")),
                 "direction": l.get("direction", ""),
                 "fixes_orphan": bool(l.get("fixes_orphan")), "demand": dem})
     for fam, links in by_fam.items():
