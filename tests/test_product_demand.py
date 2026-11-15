@@ -74,3 +74,13 @@ def test_collectibles_and_science_noise_dropped():
         assert not (qualified(junk) and not OFF_TOPIC.search(junk)), junk
     assert not KID_WORDS.search("Pop Mart Labubu Blind Box Toy")
     assert KID_WORDS.search("Wooden Blocks for Toddlers, Ages 2+")
+
+
+def test_toy_chest_matches_the_chest_not_every_toy():
+    from scripts.product_demand import product_seeds, match_products
+    seeds = {}
+    for i, name in enumerate(["Personalized Toy Chest", "Guidecraft Texo 100 pc set Wooden Toy"]):
+        for x in product_seeds(name):
+            seeds.setdefault(x, set()).add(i)
+    assert "toy chest" in seeds
+    assert match_products("wooden toy chest", seeds, []) == {0}

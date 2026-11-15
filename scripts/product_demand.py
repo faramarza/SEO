@@ -128,7 +128,9 @@ def product_seeds(name, categories=()):
     kinds = {kind, "rug"} if kind == "carpet" else {kind}
     w = [x for x in name_words(name) if (x not in BRAND_WORDS or x in QUALIFIERS)
          and plural_key(x) != kind]
-    desc = [x for x in w if x not in QUALIFIERS and x not in {plural_key(k) for k in KINDS}]
+    # "toy" may describe ("toy chest"); other kind words may not.
+    desc = [x for x in w if x not in QUALIFIERS and (x in ("toy", "toys") or
+                                                     x not in {plural_key(k) for k in KINDS})]
     seeds = set()
     for k in kinds:
         if desc:
@@ -182,16 +184,31 @@ def expand(seed, cache):
     return out
 
 
+def head_kind(text):
+    """The LAST product-kind word in a phrase: 'wooden toy chest' -> chest."""
+    kinds = {plural_key(k) for k in KINDS if " " not in k}
+    words = [plural_key(w) for w in re.findall(r"[a-z]+", (text or "").lower())]
+    for w in reversed(words):
+        if w in kinds:
+            return w
+    return None
+
+
 def match_products(keyword, seed_products, products):
-    """Products a search belongs to: those whose seeds appear inside it."""
+    """Products a search belongs to: those whose seeds appear inside it. Seeds
+    naming the same thing the search ends on win ('wooden toy chest' belongs to
+    toy chests, not to every 'wooden toy'); then the longest seed wins."""
     k = f" {plural_key(keyword)} "
+    head = head_kind(keyword)
+    cands = [(seed, idx) for seed, idx in seed_products.items() if f" {plural_key(seed)} " in k]
+    same = [(s_, i) for s_, i in cands if head_kind(s_) == head]
+    cands = same or cands
     best, best_len = set(), 0
-    for seed, idx in seed_products.items():
-        if f" {plural_key(seed)} " in k and len(seed) >= best_len:
-            if len(seed) > best_len:
-                best = set()
+    for seed, idx in cands:
+        if len(seed) > best_len:
+            best, best_len = set(idx), len(seed)
+        elif len(seed) == best_len:
             best |= idx
-            best_len = len(seed)
     return best
 
 
