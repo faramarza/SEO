@@ -15528,6 +15528,12 @@ def api_interlink_weave_preview():
             if matched:
                 mode = "inline"
                 inline_n += 1
+        # No existing phrase and no AI suggestion: offer a plain sentence instead of
+        # silently dropping to the Related box. The operator still approves it.
+        if mode == "box" and not suggestions and anchor and not li.url_already_linked(current, u):
+            a = anchor.lower()
+            suggestions = [{"sentence": f"See all our {a}.", "anchor": a},
+                           {"sentence": f"Browse our full range of {a}.", "anchor": a}]
         if mode == "box" and suggestions and not li.url_already_linked(current, u):
             mode = "suggest"
             sugg_n += 1
