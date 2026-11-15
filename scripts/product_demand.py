@@ -207,17 +207,19 @@ def shopping_check(query, cache):
     """(median price, share of products that are for kids/classrooms) from what
     Google Shopping shows for the search. Google decides what a search means:
     'bundle branch block' shows medical items, 'color block hair' hair products.
-    (None, None) when unavailable. Cached 30 days."""
-    hit = cache.get("shop2|" + query)
+    Raw titles/prices are cached 30 days, so a better kids-rule never needs a
+    paid re-lookup. (None, None) when unavailable."""
+    hit = cache.get("shopitems|" + query)
     if hit and (time.time() - hit.get("t", 0)) < 30 * 86400:
-        return hit.get("median"), hit.get("kid_share")
-    items = _shopping_items(query)
-    if items is None:
-        return None, None
+        items = [tuple(x) for x in hit["items"]]
+    else:
+        items = _shopping_items(query)
+        if items is None:
+            return None, None
+        cache["shopitems|" + query] = {"t": time.time(), "items": items}
     prices = [p for _, p in items if p]
     med = sorted(prices)[len(prices) // 2] if prices else None
     share = (sum(1 for t, _ in items if KID_WORDS.search(t or "")) / len(items)) if items else None
-    cache["shop2|" + query] = {"t": time.time(), "median": med, "kid_share": share}
     return med, share
 
 
