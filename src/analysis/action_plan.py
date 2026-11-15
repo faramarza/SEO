@@ -1126,6 +1126,9 @@ def build_action_plan(ctr=None, cro=None, reviews=None, rich=None,
     # schema count, a page already at #1) and anything the operator can't measure
     # or realistically action. The list should be only real, practical work.
     out = [t for t in out if not t.get("minor")]
+    # Frank's standing rules (recent changes, supplier brands, lines on hold).
+    from src.analysis import task_rules
+    out, _dropped = task_rules.apply(out)
     # DEDUPE across feeds: the same topic used to appear 2-3 times as different task
     # types — e.g. "push X onto page 1 (#11)" AND "write a page for X (you have
     # none)", which is self-contradictory. Collapse tasks that target the same
