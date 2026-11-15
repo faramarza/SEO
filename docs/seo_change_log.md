@@ -69,6 +69,14 @@ date, or a second maker).
 - 2026-11-09: RECOMMENDED pausing Google Ads campaigns "Name Trains Search-2026" and
   "PMAX - Carpets for Kids" (0 ROAS over Oct 1 - Nov 9); not yet confirmed done.
   Re-evaluate the two remaining PMAX campaigns around 2026-11-30.
+- 2026-11-15: Google Ads (done by Frank): "Name Trains PMAX-Real" target ROAS 400% -> 530%
+  (name train break-even) and daily budget $8 -> $15. "Montessori Toys PMAX" unchanged
+  ($5/day, left running for the holidays). Why: real orders (scripts/sales_source.py,
+  Nov 8-15) showed Montessori PMAX sold 0 Montessori toys in 14 days; its credited sales
+  were 3 name train orders ($185.71) and 1 refunded TAG order. Real ROAS: Montessori PMAX
+  3.97 (all name trains), Name Trains PMAX 1.56, both 2.61 on $107.11 spend.
+  Checks: Nov 22 (spend vs real sales), Nov 30 (pause Name Trains PMAX if both together
+  under 3), Dec 16 (pause Name Trains PMAX, Montessori PMAX to $3/day or pause).
 
 ## Title policy (2026-11-10, from scripts/title_rewrite_check.py on the top 30 pages)
 Plain titles: 21 pages, Google kept 57%. Separator titles: 9 pages, kept 22%. What Google drops is the
