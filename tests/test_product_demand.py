@@ -186,3 +186,22 @@ def test_train_and_puzzle_noise_dropped():
         assert OFF_TOPIC.search(junk), junk
     for good in ("name train", "wooden name train", "personalized books for kids", "classroom rug"):
         assert not OFF_TOPIC.search(good), good
+
+
+def test_gift_searches():
+    from scripts.product_demand import gift_search, line_of
+    for good in ("personalized toddler gifts", "first birthday gift", "gifts for 2 year old boy",
+                 "baby gifts", "personalized christmas gifts for kids", "gifts for grandchildren"):
+        assert gift_search(good), good
+    for bad in ("gift card", "gift basket for mom", "personalized gifts for her", "teacher gifts",
+                "gift wrap", "personalized gifts for men", "gift box"):
+        assert not gift_search(bad), bad
+    assert line_of("/5-letter-name-train.html", "personalized toddler gifts") == "Gifts"
+
+
+def test_gift_page_picks_each_line_without_stools():
+    from scripts.product_demand import gift_picks
+    products = [{"url": "/5-letter-name-train.html", "name": "5 Letter Name Train", "price": 50},
+                {"url": "/regular-personalized-name-stool.html", "name": "Name Puzzle Stool", "price": 90},
+                {"url": "/pirate-book.html", "name": "Pirate Tale Personalized Storybook", "price": 37}]
+    assert sorted(gift_picks([0, 1, 2], products)) == [0, 2]

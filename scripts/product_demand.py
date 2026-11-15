@@ -65,6 +65,33 @@ OFF_TOPIC = re.compile(r"\b(car ?seat|car|bathroom|makeup|vanity|selfie|sunglass
                        r"thomas|tank engine|coal|steam|model train|embossers?|medical|cardiac|"
                        r"squishy|fidget|stress)\b",
                        re.I)
+# Gift searches: people shopping FOR a child without naming the product ("personalized
+# toddler gifts", "first birthday gift"). They belong to the personalized products.
+GIFT_SEEDS = ("personalized gifts for kids", "personalized baby gifts", "personalized toddler gifts",
+              "first birthday gift", "1st birthday gifts", "gifts for 1 year old", "gifts for 2 year old",
+              "gifts for 3 year old", "toddler gifts", "baby gifts", "name gifts for kids",
+              "personalized christmas gifts for kids", "baptism gifts", "new baby gifts",
+              "gifts for grandchildren", "personalized gifts for grandchildren")
+GIFT_WORD = re.compile(r"\b(gifts?|presents?)\b", re.I)
+GIFT_FOR_CHILD = re.compile(r"\b(kids?|child|children'?s?|toddlers?|baby|babies|infants?|newborns?|boys?|"
+                            r"girls?|grand(son|daughter|child|children|kids?)s?|nephew|niece|"
+                            r"birthday|christening|baptism|\d+ ?(year|yr|month)s?[- ]?old|1st|first)\b", re.I)
+GIFT_OFF = re.compile(r"\b(cards?|baskets?|wrap|wrapping|bags?|boxes|box|registry|cash|money|"
+                      r"mom|moms|mother|dad|dads|father|men|women|him|her|husband|wife|boyfriend|"
+                      r"girlfriend|teachers?|coworkers?|boss|adults?|parents|nurse|shower|"
+                      r"delivery|near me|ideas? for (mom|dad|her|him))\b", re.I)
+
+
+def gift_search(keyword):
+    """A search for a gift for a child, not for an adult and not gift wrap. Pure."""
+    return bool(GIFT_WORD.search(keyword) and GIFT_FOR_CHILD.search(keyword)
+                and not GIFT_OFF.search(keyword) and not OFF_TOPIC.search(keyword))
+
+
+def is_personalized(product, cat_names=()):
+    return bool(re.search(r"personali[sz]ed|\bname\b", " ".join([product.get("name", ""), *cat_names]), re.I))
+
+
 CACHE = ROOT / "data" / "product_demand_cache.json"
 SUGGEST_URL = "https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live"
 
@@ -228,7 +255,8 @@ def match_products(keyword, seed_products, products):
 # "toy" alone is NOT proof: blind boxes, Funko, collectibles all say "toy".
 KID_WORDS = re.compile(r"\b(kids?|child|children'?s?|toddlers?|baby|babies|infants?|montessori|"
                        r"classroom|preschool|daycare|school|nursery|educational|learning|"
-                       r"playroom|teacher|alphabet|abc|personali[sz]ed|ages? \d|\d\+ ?(years?|months?))\b",
+                       r"playroom|teacher|alphabet|abc|personali[sz]ed|ages? \d|\d\+ ?(years?|months?)|"
+                       r"\d+ ?(year|yr|month)s?[- ]?old|newborn|boys?|girls?|birthday|grand(son|daughter|kids?))\b",
                        re.I)
 
 
@@ -576,6 +604,8 @@ LINES = (("Name trains", re.compile(r"train", re.I)),
 
 def line_of(url, search=""):
     """Which product line a page/search belongs to. Pure."""
+    if gift_search(search or ""):
+        return "Gifts"
     for text in (url or "", search or ""):
         for name, pat in LINES:
             if pat.search(text):
@@ -612,6 +642,20 @@ def balanced(groups, max_pages=25, per_line=4):
     return sorted(out[:max_pages], key=lambda g: -g["value"])
 
 
+def gift_picks(idx, products, per_line=8):
+    """For a new gift page: up to `per_line` products from each personalized line,
+    cheapest first, leaving out lines on hold (stools: 2-3 month lead time). Pure."""
+    by = defaultdict(list)
+    for i in idx:
+        ln = line_of(products[i]["url"], products[i]["name"])
+        if ln != "Stools" and not re.search(r"coat rack|tag toys", products[i]["name"], re.I):
+            by[ln].append(i)
+    out = []
+    for ln in sorted(by):
+        out += sorted(by[ln], key=lambda i: products[i]["price"])[:per_line]
+    return out
+
+
 def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=None):
     """Group the good searches by the page that should own them, with one action each."""
     cat_sizes = defaultdict(int)
@@ -622,7 +666,11 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
     for r in rows:
         if r.get("flag") or not r.get("verified") or r.get("profit", 0) < min_profit:
             continue
-        url, name, kind = owner_page(r.get("_idx") or [], products, cats, cat_sizes, r["search"])
+        # A gift search belongs to a gift page named for it, not to whichever line has
+        # the most personalized products (books would win every time).
+        gift = gift_search(r["search"])
+        url, name, kind = owner_page([] if gift else (r.get("_idx") or []), products, cats, cat_sizes,
+                                     r["search"])
         key = url or ("NEW:" + r["search"])
         g = groups.setdefault(key, {"page": url, "page_name": name or r["search"].title(),
                                     "kind": kind, "searches": [], "value": 0.0, "_idx": []})
@@ -663,6 +711,8 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
             slug = re.sub(r"[^a-z0-9]+", "_", g["searches"][0]["search"])
             path = ROOT / "docs" / "imports" / f"new_page_{slug}.csv"
             idx = g.get("_idx") or []
+            if gift_search(g["searches"][0]["search"]):
+                idx = gift_picks(idx, products)
             with open(path, "w", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["sku", "categories"])
@@ -730,7 +780,7 @@ def print_line_check(rows, plan, waiting, per_line=4):
     for r in rows:
         by_line[line_of(r.get("url"), r["search"])].append(r)
     print("\nLINE CHECK (each product line's biggest buyable searches, and why they are or aren't in the plan)")
-    for name in [n for n, _ in LINES] + ["Toys and other"]:
+    for name in ["Gifts"] + [n for n, _ in LINES] + ["Toys and other"]:
         allr = by_line.get(name, [])
         # Only searches Google Shopping confirmed as kids' products, or that you already
         # rank for; unvetted big numbers ("coal engine train") would only mislead.
@@ -757,9 +807,12 @@ def explain(q, found, seed_products, products, rows, skip, gsc, cache, conv=0.0)
     if not it:
         return
     print(f"  3. Off-topic word?  {'YES: ' + OFF_TOPIC.search(q).group(0) if OFF_TOPIC.search(q) else 'no'}")
-    print(f"  4. Names a product kind + kids intent?  {'yes' if qualified(q) else 'NO, dropped'}")
+    print(f"  4. Names a product kind + kids intent?  {'yes' if qualified(q) else 'no'}; "
+          f"gift for a child?  {'yes' if gift_search(q) else 'no'}"
+          + ("" if qualified(q) or gift_search(q) else "  -> DROPPED"))
     print(f"  5. In your skip list?  {'YES, dropped' if q in skip else 'no'}")
-    idx = match_products(q, seed_products, products)
+    idx = (set().union(*[seed_products[g] for g in GIFT_SEEDS]) if gift_search(q)
+           else match_products(q, seed_products, products))
     print(f"  6. Matching products: {len(idx)}" + (f" (e.g. {products[min(idx)]['name']})" if idx else ""))
     mine = gsc.get(q, {})
     print(f"  7. Your Google position: {mine.get('position', 0):.1f}, clicks {mine.get('clicks', 0)}, "
@@ -802,10 +855,15 @@ def main():
     mc = _magento()
     cats, products = load_catalog(mc)
     seed_products = defaultdict(set)
+    gift_idx = set()
     for i, p in enumerate(products):
         names = [cats.get(c, {}).get("name", "") for c in p.get("cats", []) if cats.get(c, {}).get("active")]
         for s in product_seeds(p["name"], names):
             seed_products[s].add(i)
+        if is_personalized(p, names):
+            gift_idx.add(i)
+    for g in GIFT_SEEDS:
+        seed_products[g] |= gift_idx
     print(f"{len(products)} sellable products -> {len(seed_products)} ways to describe them")
 
     vols = search_volumes(list(seed_products))
@@ -829,9 +887,10 @@ def main():
     conv, _, _ = organic_conversion(cfg)
     rows = []
     for kw, it in found.items():
-        if OFF_TOPIC.search(kw) or not qualified(kw) or kw in skip:
+        gift = gift_search(kw)
+        if kw in skip or not gift and (OFF_TOPIC.search(kw) or not qualified(kw)):
             continue
-        idx = match_products(kw, seed_products, products)
+        idx = set(gift_idx) if gift else match_products(kw, seed_products, products)
         if not idx:
             continue
         prods = [products[i] for i in idx]
