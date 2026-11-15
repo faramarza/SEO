@@ -981,6 +981,15 @@ async function dnInterlinkRevert(urls, btn){
         try{ const r=await (await fetch('/api/interlink/revert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_url:u})})).json(); if(r.success) ok++; }catch(e){}
     }
     dnToast(ok?'Reverted — page restored':'Revert failed', !ok);
+    const panel = btn ? btn.closest('.dn-note') : null;
+    if(panel && ok){
+        // Replace the "Done" panel so the screen matches what happened.
+        panel.style.background='#f8fafc'; panel.style.borderColor='#cbd5e1'; panel.style.color='#334155';
+        panel.innerHTML=`↩︎ <b>Undone.</b> ${ok} page${ok!==1?'s':''} restored exactly as before (nothing from this task is left on ${ok!==1?'them':'it'}).
+            <p style="font-size:12.5px;margin:7px 0 0;">Still see the links on the live page? That’s page cache: Magento → <b>System → Cache Management → Flush Magento Cache</b>.
+            You can now add the links again (button above) or by hand.</p>`;
+        return;
+    }
     if(btn){ btn.disabled=false; btn.textContent='↩︎ Undo'; }
 }
 
