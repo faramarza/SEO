@@ -121,6 +121,8 @@ def test_lines():
     assert line_of("", "wooden toy box") == "Furniture"
     assert line_of("/montessori-toys.html", "montessori toys") == "Montessori"
     assert line_of("/wooden-name-puzzles.html", "name puzzle") == "Puzzles"
+    assert line_of("/wall-mounted-book-shelf.html", "classroom shelf") == "Furniture"
+    assert line_of("/regular-personalized-name-stool.html", "name puzzle stool") == "Stools"
 
 
 def test_price_check_reaches_every_line():

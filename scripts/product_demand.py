@@ -546,12 +546,12 @@ def how_steps(g, posts):
 # Product lines, so one big line (rugs: high price, huge volume) can't crowd the
 # others out of the plan. First match wins, checked against the page URL and the search.
 LINES = (("Name trains", re.compile(r"train", re.I)),
-         ("Puzzles", re.compile(r"puzzle", re.I)),
-         ("Books", re.compile(r"book|story", re.I)),
          ("Stools", re.compile(r"stool", re.I)),
+         ("Puzzles", re.compile(r"puzzle", re.I)),
          ("Rugs", re.compile(r"rug|carpet|\bmats?\b", re.I)),
          ("Furniture", re.compile(r"table|chair|shel|bookcase|cabinet|bench|cubb|locker|easel|cart|"
                                   r"chest|toy[- ]box|rack|storage|furniture|desk", re.I)),
+         ("Books", re.compile(r"book|story", re.I)),
          ("Montessori", re.compile(r"montessori", re.I)))
 
 
@@ -703,18 +703,22 @@ def row_status(r, in_plan, waiting_why, min_profit=10.0):
     return "left out: lower value than the pages in the plan"
 
 
-def print_line_check(rows, plan, waiting, per_line=3):
+def print_line_check(rows, plan, waiting, per_line=4):
     """Per product line: its biggest searches and why each is or isn't in the plan."""
     in_plan = {x["search"] for g in plan for x in g["searches"]}
     wait = {x["search"]: g["step"] for g in waiting for x in g["searches"]}
     by_line = defaultdict(list)
     for r in rows:
         by_line[line_of(r.get("url"), r["search"])].append(r)
-    print("\nLINE CHECK (each product line's biggest searches, and why they are or aren't in the plan)")
+    print("\nLINE CHECK (each product line's biggest buyable searches, and why they are or aren't in the plan)")
     for name in [n for n, _ in LINES] + ["Toys and other"]:
-        rs = sorted(by_line.get(name, []), key=lambda r: -r["volume"])[:per_line]
-        print(f"  {name}:" + ("" if rs else " no qualifying searches found"))
-        for r in rs:
+        allr = by_line.get(name, [])
+        good = sorted((r for r in allr if not r.get("flag")), key=lambda r: -r["volume"])[:per_line]
+        junk = sum(1 for r in allr if r.get("flag"))
+        print(f"  {name}:" + ("" if good else " no buyable searches found")
+              + (f"  ({junk} searches ignored: not for kids, cheap, or much cheaper items on Google)"
+                 if junk else ""))
+        for r in good:
             you = f"#{r['you']:.0f}" if r.get("you") else "not ranked"
             print(f"      {r['search'][:34]:<35}{r['volume']:>7,}/mo  {you:<11}"
                   f"{row_status(r, r['search'] in in_plan, wait.get(r['search']))}")
