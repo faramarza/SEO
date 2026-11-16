@@ -15515,23 +15515,33 @@ def api_demand_apply_links():
     from src.analysis.demand_links import insert_at_paragraph_end
     from src.data_sources.magento_client import MagentoError
     links = (request.get_json(silent=True) or {}).get("links") or []
+    if not links:
+        return jsonify({"error": "No links reached the server (the task has none). Rebuild the plan."}), 400
     results = []
     for l in links:
+        try:
+            results.append(_demand_apply_one(l))
+        except Exception as e:   # one page failing must not hide the others
+            results.append({"name": l.get("name") or "", "ok": False, "why": f"{type(e).__name__}: {e}"})
+    return jsonify({"success": any(r["ok"] for r in results), "results": results})
+
+
+def _demand_apply_one(l):
+    from src.analysis.demand_links import insert_at_paragraph_end
+    from src.data_sources.magento_client import MagentoError
+    if True:
         url, name = (l.get("url") or "").strip(), l.get("name") or ""
         mc, ent, reason = _il_resolve_category(url, "blog" if "/blog/" in url else "")
         if reason:
-            results.append({"name": name, "ok": False, "why": reason})
-            continue
+            return {"name": name, "ok": False, "why": reason}
         current = ent.get("description") or ""
         target = re.search(r'href="([^"]+)"', l.get("paste") or "")
         if target and target.group(1) in current:
-            results.append({"name": name, "ok": True, "why": "already links there", "url": url})
-            continue
+            return {"name": name, "ok": True, "why": "already links there", "url": url}
         new = insert_at_paragraph_end(current, l.get("find") or "", l.get("paste") or "")
         if new is None:
-            results.append({"name": name, "ok": False,
-                            "why": "the paragraph changed or already has a link; skipped (nothing written)"})
-            continue
+            return {"name": name, "ok": False,
+                    "why": "the paragraph changed or already has a link; skipped (nothing written)"}
         cid = _il_entity_cid(ent)
         store = _il_writes_load()
         if cid not in store:
@@ -15541,8 +15551,7 @@ def api_demand_apply_links():
         try:
             ent["_write_desc"](new)
         except MagentoError as e:
-            results.append({"name": name, "ok": False, "why": f"Magento write failed: {e}"})
-            continue
+            return {"name": name, "ok": False, "why": f"Magento write failed: {e}"}
         _il_writes_save(store)
         confirmed = False
         try:
@@ -15550,8 +15559,7 @@ def api_demand_apply_links():
             confirmed = bool(again and target and target.group(1) in (again.get("description") or ""))
         except Exception:
             pass
-        results.append({"name": name, "ok": True, "confirmed": confirmed, "url": url})
-    return jsonify({"success": any(r["ok"] for r in results), "results": results})
+        return {"name": name, "ok": True, "confirmed": confirmed, "url": url}
 
 
 @app.route("/api/interlink/weave-preview", methods=["POST"])

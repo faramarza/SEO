@@ -521,7 +521,8 @@ function activeCard(t, pos, total){
             ${prog}`;
     } else if(cat==='demand' && (t.demand_links||[]).length){
         const n=t.demand_links.length;
-        doBlock = `<button class="pb-task-btn" onclick='dnDemandApply(${JSON.stringify(t.demand_links).replace(/'/g,"&#39;")},"${domId}",this)'>✨ Add ${n===1?'this link':'these '+n+' links'} for me</button>
+        DN_DEMAND_LINKS[domId]=t.demand_links;   // passed by reference, never squeezed into HTML
+        doBlock = `<button class="pb-task-btn" onclick="dnDemandApply('${domId}',this)">✨ Add ${n===1?'this link':'these '+n+' links'} for me</button>
             <p style="font-size:12.5px;color:var(--text-muted);margin:6px 0 0;">Governor adds each link at the end of the right paragraph, checks it saved, and you can Undo.</p>
             <div id="${domId}" style="margin-top:10px;"></div>
             <details style="margin-top:10px;"><summary style="cursor:pointer;color:var(--text-muted);font-size:13px;">…or do it by hand</summary>
@@ -981,12 +982,21 @@ async function dnInterlinkWeaveApply(key, domId, btn){
     }
 }
 
-async function dnDemandApply(links, domId, btn){
+const DN_DEMAND_LINKS={};
+async function dnDemandApply(domId, btn){
+    const links=DN_DEMAND_LINKS[domId]||[];
     if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
     const el=document.getElementById(domId);
-    let r;
-    try{ r=await (await fetch('/api/demand/apply-links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({links})})).json(); }
-    catch(e){ r={results:[]}; }
+    let r, err='';
+    try{
+        const resp=await fetch('/api/demand/apply-links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({links})});
+        const txt=await resp.text();
+        try{ r=JSON.parse(txt); }catch(e){ err=`Server error ${resp.status}: ${txt.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,300)}`; }
+        if(r && r.error) err=r.error;
+    }catch(e){ err='Could not reach Governor: '+e; }
+    r=r||{results:[]};
+    if(err && el){ el.innerHTML=`<div class="dn-note" style="padding:10px;border:1px solid #fecaca;background:#fef2f2;border-radius:8px;">⚠️ ${esc(err)}<br><span style="font-size:12.5px;">Send this message to Claude.</span></div>`;
+        if(btn){ btn.disabled=false; btn.textContent='Try again'; } return; }
     const rows=(r.results||[]).map(x=>`<div>${x.ok?'✅':'⚠️'} <b>${esc(x.name)}</b>: ${x.ok?(x.why?esc(x.why):(x.confirmed?'added and checked':'added')):esc(x.why||'failed')}</div>`).join('');
     const done=(r.results||[]).filter(x=>x.ok && !x.why).map(x=>x.url);
     if(el) el.innerHTML=`<div class="dn-note" style="padding:10px;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px;">${rows||'Nothing was added.'}
