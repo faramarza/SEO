@@ -588,6 +588,10 @@ def find_link_sources(posts, page_url, search, n=3, anchors=None):
         if page_url and page_url in html:
             continue
         import html as _h
+        # Promo boxes (a paragraph followed by a "Shop ..." button) already sell
+        # something else: never add a second link there.
+        html = re.sub(r'(?is)<p[^>]*>(?:(?!</p>).)*</p>\s*<a[^>]*class="[^"]*(?:cta|button|btn)[^"]*"[^>]*>.*?</a>',
+                      " ", html)
         text = _h.unescape(re.sub(r"\s+", " ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html)))
         sents = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if 40 < len(x.strip()) < 260]
         best = None

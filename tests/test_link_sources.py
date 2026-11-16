@@ -41,3 +41,12 @@ def test_plural_phrase():
     assert plural_phrase("wooden toy box") == "wooden toy boxes"
     assert plural_phrase("playroom carpets") == "playroom carpets"
     assert plural_phrase("montessori educational toy") == "montessori educational toys"
+
+
+def test_never_links_from_a_promo_box():
+    from scripts.product_demand import find_link_sources
+    posts = [{"name": "Dance Games", "url_key": "dance", "content":
+              '<p style="color:#666">Our <strong>Circle Time Rugs</strong> are built for group activities&mdash;soft, '
+              'durable, and sized for classrooms and playrooms alike.</p>\n  <a class="cta-button" '
+              'href="https://alphabet-trains.com/circle-time-rugs.html">Shop Circle Time Rugs</a>'}]
+    assert find_link_sources(posts, "/playroom-carpets.html", "playroom carpets") == []
