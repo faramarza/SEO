@@ -777,8 +777,10 @@ def how_steps(g, posts):
             anchors.append(x["search"])
     srcs = find_link_sources(posts, g.get("page") or "", top, anchors=anchors[:3])
     # For Governor's "Add these links for me" button: where, after what, what to add.
-    g["links"] = [{"url": x["url"], "name": x["post"], "find": x["find"], "paste": x["paste"].strip()}
-                  for x in srcs]
+    # Only when EVERY spot is a category: Magento's blog API won't save a post's
+    # text on its own (Nov 16: "Post name is required"), so blog spots stay by hand.
+    g["links"] = ([{"url": x["url"], "name": x["post"], "find": x["find"], "paste": x["paste"].strip()}
+                   for x in srcs] if srcs and all(x.get("kind") == "category" for x in srcs) else [])
     for i, s_ in enumerate(srcs, 1):
         head = f"Link {i} of {len(srcs)}. " if len(srcs) > 1 else ""
         if s_.get("kind") == "category":
