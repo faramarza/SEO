@@ -15,3 +15,14 @@ def test_refuses_when_unsafe():
     assert insert_at_paragraph_end('<p>Has a <a href="/x">link</a> and ends here.</p>', "ends here.", PASTE) is None
     assert insert_at_paragraph_end("<p>Twice end.</p><p>Twice end.</p>", "Twice end.", PASTE) is None
     assert insert_at_paragraph_end("<p>Text.</p>", "not there", PASTE) is None
+
+
+def test_blog_post_id_from_post_id_field(monkeypatch):
+    from src.data_sources.magento_client import MagentoClient
+    mc = MagentoClient.__new__(MagentoClient)
+    monkeypatch.setattr(MagentoClient, "_blog_search",
+                        lambda self, lp, slug: [{"post_id": 42, "url_key": slug, "name": "P", "content": "<p>x</p>"}])
+    p = mc.find_blog_post_by_url("/blog/montessori-activities-by-age")
+    assert p["entity_id"] == 42
+    monkeypatch.setattr(MagentoClient, "_blog_search", lambda self, lp, slug: [{"url_key": slug, "name": "P"}])
+    assert mc.find_blog_post_by_url("/blog/x") is None

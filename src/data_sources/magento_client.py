@@ -678,7 +678,10 @@ class MagentoClient:
             if len(items) != 1:
                 return None                  # route exists; 0/2+ → refuse to guess
             p = items[0]
-            return {"entity_type": "blog_post", "entity_id": p.get("entity_id"),
+            pid = p.get("entity_id") or p.get("post_id") or p.get("id")   # Blog MX lists use post_id
+            if pid in (None, ""):
+                return None   # can't address the post: never guess a write target
+            return {"entity_type": "blog_post", "entity_id": pid,
                     "url_key": p.get("url_key", ""), "name": p.get("name", ""),
                     "content": p.get("content", "") or "", "_base": item_path, "_raw": p}
         if not saw_route:
