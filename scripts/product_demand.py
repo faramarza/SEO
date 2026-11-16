@@ -706,30 +706,52 @@ def intro_paragraph(phrase, prods):
     return f"<p>Shop {len(prods)} {plural_phrase(phrase)}{by}.</p>"   # no prices: they change
 
 
+def open_line(kind, name, sku="", scope="alphabettrains"):
+    """The one 'Open:' line for any page. Pure."""
+    if kind == "category":
+        return f'Open: Catalog > Categories > "{name}" (Scope: {scope})'
+    if kind == "post":
+        return f'Open: blog admin > Posts > "{name}", and switch the content to HTML view'
+    if sku:
+        return f'Open: Catalog > Products > type {sku} in the search box > open "{name}" (Scope: {scope})'
+    return f'Open: Catalog > Products > search "{name}" > open it (Scope: {scope})'
+
+
+DONE_LINE = 'Done: run bin/magento cache:flush, then click "I did it".'
+
+
 def how_steps(g, posts):
-    """Numbered, idiot-proof steps for one page task."""
+    """Every task in the same simple pattern: Open, Go to, Find, Paste, Save.
+    One short line each. [] when there is nothing concrete to do."""
     top = g.get("phrase") or g["searches"][0]["search"]
+    name = g.get("page_name", "")
     if g["action"] == "new_page":
         return [
-            f"Catalog > Categories > select the parent (e.g. Classroom Rugs or Montessori Toys) > "
-            f"Add Subcategory. Category Name: \"{top.title()}\". Enable: Yes. Include in Menu: Yes. Anchor: Yes.",
-            f"Search Engine Optimization: URL Key \"{re.sub(r'[^a-z0-9]+', '-', top)}\", "
-            f"Meta Title \"{suggest_title(top)}\".",
-            f"Save. Then import {g.get('import_file', 'the product file')} (System > Data Transfer > Import, "
-            f"Products, Add/Update) to fill it with the matching products.",
-            "On the server: bin/magento indexer:reindex && bin/magento cache:flush. Governor checks the page on its next run.",
+            "Open: Catalog > Categories > click the parent category > Add Subcategory",
+            f'Category Name: {top.title()}. Enable Category: Yes. Include in Menu: Yes.',
+            f"Go to: Search Engine Optimization. URL Key: {re.sub(r'[^a-z0-9]+', '-', top)}. "
+            f"Meta Title: {suggest_title(top)}",
+            "Save.",
+            f"Open: System > Data Transfer > Import. Entity Type: Products. Import Behavior: Add/Update. "
+            f"Select File: {g.get('import_file', '')}. Click Check Data, then Import.",
+            'Done: run bin/magento indexer:reindex && bin/magento cache:flush, then click "I did it".',
         ]
     if g["action"] == "retitle":
         return [
-            admin_path(g["kind"], g.get("page_name", ""), g.get("sku", "")) + ".",
-            f"Meta Title: replace with  {suggest_title(top, g.get('page_name', ''))}",
-            "If \"Use Default Value\" is ticked next to Meta Title, untick it first. Save.",
-            "On the server: bin/magento cache:flush. Governor checks the page on its next run.",
+            open_line(g["kind"], name, g.get("sku", "")),
+            "Go to: Search Engine Optimization",
+            f'Meta Title: if "Use Default Value" is ticked, untick it. Replace the text with: '
+            f"{suggest_title(top, name)}",
+            "Save.",
+            DONE_LINE,
         ]
     steps = []
     if g["action"] == "content" and g.get("intro") and g["kind"] == "category":
-        where = f"Catalog > Categories > \"{g.get('page_name', '')}\" ({g.get('scope') or scope_for(None)}) > Content > Description"
-        steps.append(f"{where}. Click Show / Hide Editor, paste this as the very first line, and Save: {g['intro']}")
+        scope = "All Store Views" if "All Store Views" in (g.get("scope") or "") else "alphabettrains"
+        steps += [open_line("category", name, scope=scope),
+                  "Go to: Content > Description > Show / Hide Editor",
+                  f"Paste at the very top: {g['intro']}",
+                  "Save."]
     anchors, seen = [], set()
     for x in [{"search": top}] + list(g.get("searches") or []):
         k = frozenset(norm_tokens(x["search"]))
@@ -738,17 +760,19 @@ def how_steps(g, posts):
             anchors.append(x["search"])
     srcs = find_link_sources(posts, g.get("page") or "", top, anchors=anchors[:3])
     for i, s_ in enumerate(srcs, 1):
-        scope = "All Store Views" if "All Store Views" in (s_.get("scope") or "") else "alphabettrains"
+        head = f"Link {i} of {len(srcs)}. " if len(srcs) > 1 else ""
         if s_.get("kind") == "category":
-            where = (f"Category \"{s_['post']}\" (Catalog > Categories, Scope: {scope}) > "
-                     f"Content > Description > Show / Hide Editor")
+            scope = "All Store Views" if "All Store Views" in (s_.get("scope") or "") else "alphabettrains"
+            steps += [head + open_line("category", s_["post"], scope=scope),
+                      "Go to: Content > Description > Show / Hide Editor"]
         else:
-            where = f"Blog post \"{s_['post']}\" (blog admin, HTML view)"
-        steps.append(f"{where}. Search for  {s_['find']}  (the end of a paragraph) and paste right after "
-                     f"it, before the </p>:{s_['paste']}")
+            steps.append(head + open_line("post", s_["post"]))
+        steps += [f"Find (Ctrl+F): {s_['find']}",
+                  f"Paste right after it (type one space first): {s_['paste'].strip()}",
+                  "Save."]
     if not steps:
         return []   # nothing concrete to do: the plan drops this page
-    steps.append("Save, run bin/magento cache:flush, then click \"I did it\".")
+    steps.append(DONE_LINE)
     return steps
 
 

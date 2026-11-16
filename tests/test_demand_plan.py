@@ -46,12 +46,17 @@ def test_how_steps_are_concrete():
     g = {"action": "links", "page": "/classroom-rugs.html", "kind": "category", "page_name": "Classroom Rugs",
          "searches": [{"search": "classroom rug", "volume": 14800}]}
     steps = how_steps(g, posts)
-    assert "Circle Time Activities" in steps[0] and "paste" in steps[0]
+    assert steps[0].startswith("Open:") and "Circle Time Activities" in steps[0]
+    assert steps[1].startswith("Find (Ctrl+F): ") and steps[2].startswith("Paste right after it (type one space first): <a") or \
+        steps[2].startswith("Paste right after it (type one space first): See our")
+    assert steps[3] == "Save." and steps[-1].startswith("Done:")
+    assert all(len(x) < 220 for x in steps)   # one short line each
     t = suggest_title("wooden toy chest", "Personalized Toy Chest")
     assert t.startswith("Personalized Wooden Toy Chest") and "|" not in t and len(t) <= 60
     r = how_steps({"action": "retitle", "kind": "product", "page_name": "Personalized Toy Chest", "sku": "HW-Toy-Chest",
                    "searches": [{"search": "wooden toy chest", "volume": 3600}]}, [])
-    assert "HW-Toy-Chest" in r[0] and "Meta Title" in r[1]
+    assert r[0].startswith("Open:") and "HW-Toy-Chest" in r[0] and r[1] == "Go to: Search Engine Optimization"
+    assert r[2].startswith("Meta Title:") and r[3] == "Save."
 
 
 def test_natural_phrase_and_subcategory_url():
