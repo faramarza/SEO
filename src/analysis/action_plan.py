@@ -380,13 +380,8 @@ def _from_product_demand(out, path=None, max_age_days=45):
         if not s:
             continue
         top = dict(s[0], search=g.get("phrase") or s[0]["search"])
-        lines = [f"• \"{x['search']}\": {x['volume']:,}/mo" + (f", you #{x['you']:.0f}" if x.get("you") else ", you're not showing")
-                 for x in s[:6]]
-        how = g.get("how") or []
-        steps = [g.get("step", "")] + ([f"HOW, step by step:"] + [f"{i}. {h}" for i, h in enumerate(how, 1)]
-                                       if how else []) + ["Searches this page should win:"] + lines
-        if g.get("title"):
-            steps.insert(1, f"Current title: \"{g['title']}\"")
+        # The card shows only what to do. The searches go in the "why" line.
+        steps = list(g.get("how") or []) or [g.get("step", "")]
         name = g.get("page_name") or top["search"]
         title = {"new_page": f"New page: {name}",
                  "retitle": f"Retitle {name} for \"{top['search']}\"",
@@ -395,9 +390,8 @@ def _from_product_demand(out, path=None, max_age_days=45):
         url = g.get("page") or ""
         out.append(_task(
             "demand", url, title, steps,
-            f"Real searches for products you sell (about {sum(x['volume'] for x in s):,}/mo), "
-            f"checked on Google Shopping for kids/classroom intent and price fit. Worth about "
-            f"${g.get('value', 0):,.0f}/mo in profit at position 3.",
+            "; ".join(f"\"{x['search']}\" {x['volume']:,}/mo" + (f" (you #{x['you']:.0f})" if x.get("you") else "")
+                      for x in s[:3]) + f". About ${g.get('value', 0):,.0f}/mo profit at #3.",
             g.get("value", 0), sum(x["volume"] for x in s),
             {"type": "query_position", "url": url, "query": top["search"]},
             {"position": top.get("you")}, "category" if g.get("kind") == "category" else "product",

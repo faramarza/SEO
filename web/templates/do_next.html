@@ -407,7 +407,7 @@ function renderPlan(plan, extra){
         const fcat=(focus.category||'').toLowerCase();
         if(fcat==='links') dnAutoOutreach(focus);
         else if(DN_AUTODELIV.has(fcat)) dnAutoDeliv(focus);
-        dnLoadAiTake(focus);                     // Governor's AI second opinion
+        if(fcat!=='demand') dnLoadAiTake(focus); // demand tasks are already exact steps
     }
     lpAnnotate();
 }

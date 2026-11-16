@@ -65,7 +65,7 @@ def test_natural_phrase_and_subcategory_url():
 def test_aio_step():
     from scripts.product_demand import aio_step
     assert aio_step([]) == ""
-    assert "no AI summary" in aio_step([{"search": "classroom rug", "present": False, "cited": False, "who": []}])
+    assert aio_step([{"search": "classroom rug", "present": False, "cited": False, "who": []}]) == ""  # nothing to do, say nothing
     s = aio_step([{"search": "montessori toys", "present": True, "cited": False, "who": ["montessorigeneration.com"]}])
     assert "montessorigeneration.com" in s and "FAQ" in s
     assert "already quotes" in aio_step([{"search": "x", "present": True, "cited": True, "who": []}])

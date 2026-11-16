@@ -556,6 +556,14 @@ def link_sources_from(posts, cats, page_url):
     return out
 
 
+def short_tail(sentence, n=45):
+    """The last few words of a sentence, enough to find it with Ctrl+F. Pure."""
+    if len(sentence) <= n:
+        return sentence
+    cut = sentence[-n:]
+    return cut[cut.find(" ") + 1:] if " " in cut else cut
+
+
 def plural_phrase(p):
     """'playroom rug' -> 'playroom rugs', 'toy box' -> 'toy boxes' (for "See our ..."). Pure."""
     w = p.split()
@@ -579,7 +587,8 @@ def find_link_sources(posts, page_url, search, n=3, anchors=None):
         html = p.get("content") or ""
         if page_url and page_url in html:
             continue
-        text = re.sub(r"\s+", " ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html))
+        import html as _h
+        text = _h.unescape(re.sub(r"\s+", " ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html)))
         sents = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if 40 < len(x.strip()) < 260]
         best = None
         for sn in sents:
@@ -592,7 +601,7 @@ def find_link_sources(posts, page_url, search, n=3, anchors=None):
         if best:
             out.append({"post": p.get("name", ""), "slug": p.get("url_key", ""), "hits": best[0],
                         "kind": p.get("kind", "post"), "id": p.get("id"), "scope": p.get("scope", ""),
-                        "find": best[1][-90:],
+                        "find": short_tail(best[1]),
                         "paste": f' See our <a href="{page_url}">{search}</a>.'})
     out.sort(key=lambda x: -x["hits"])
     out = out[:n]
@@ -628,7 +637,7 @@ def aio_step(aio):
     if not aio:
         return ""
     if not shown:
-        return "AI Overview: Google shows no AI summary for these searches, so nothing to do there."
+        return ""   # nothing to do: say nothing
     missing = [a for a in shown if not a["cited"]]
     if not missing:
         return ("AI Overview: Google's AI summary already quotes your page for \"" +
@@ -693,18 +702,17 @@ def how_steps(g, posts):
             anchors.append(x["search"])
     srcs = find_link_sources(posts, g.get("page") or "", top, anchors=anchors[:3])
     for i, s_ in enumerate(srcs, 1):
+        scope = "All Store Views" if "All Store Views" in (s_.get("scope") or "") else "alphabettrains"
         if s_.get("kind") == "category":
-            steps.append(f"Link {i}: Catalog > Categories > \"{s_['post']}\" ({s_['scope']}) > "
-                         f"Content > Description > Show / Hide Editor. Find the sentence ending: "
-                         f"\"...{s_['find']}\"  and paste right after it:  {s_['paste']}")
+            where = (f"Category \"{s_['post']}\" (Catalog > Categories, Scope: {scope}) > "
+                     f"Content > Description > Show / Hide Editor")
         else:
-            steps.append(f"Link {i}: blog post \"{s_['post']}\" (/blog/{s_['slug']}). Open it in the blog "
-                         f"admin, switch to HTML view, find the sentence ending: \"...{s_['find']}\"  and "
-                         f"paste right after it:  {s_['paste']}")
+            where = f"Blog post \"{s_['post']}\" (blog admin, HTML view)"
+        steps.append(f"{where}. After \"...{s_['find']}\" paste:{s_['paste']}")
     if not steps:
         return ["No other page on your site mentions this topic yet, so there is nothing to link from "
                 "and no step to do here. Skip this task."]
-    steps.append("Save, then on the server: bin/magento cache:flush. Governor checks the page on its next run.")
+    steps.append("Save, run bin/magento cache:flush, then click \"I did it\".")
     return steps
 
 
