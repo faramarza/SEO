@@ -23,6 +23,8 @@ PRODUCTS = [
     {"sku": "NT5", "name": "5 Letter Name Train", "price": 49.99, "url": "/5-letter-name-train.html", "cats": [1]},
     {"sku": "NT7", "name": "7 Letter Name Train", "price": 59.99, "url": "/7-letter-name-train.html", "cats": [1]},
     {"sku": "R1", "name": "Carpets for Kids Reading Rug 6x9", "price": 361.95, "url": "/reading-rug.html", "cats": [2]},
+    {"sku": "R2", "name": "Carpets for Kids Rainbow Seating Rug", "price": 420.0, "url": "/rainbow-rug.html", "cats": [2]},
+    {"sku": "R3", "name": "Carpets for Kids Alphabet Circle Rug", "price": 380.0, "url": "/circle-rug.html", "cats": [2]},
     {"sku": "B1", "name": "Pirate Tale Personalized Storybook", "price": 37.99, "url": "/pirate.html", "cats": [3]},
     {"sku": "S1", "name": "Personalized Name Puzzle Stool", "price": 150.99, "url": "/stool.html", "cats": [4]},
     {"sku": "P1", "name": "Personalized Wooden Name Puzzle", "price": 34.95, "url": "/name-puzzle.html", "cats": [5]},

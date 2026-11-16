@@ -422,16 +422,22 @@ def norm_tokens(text):
             if w not in STOP_T}
 
 
-def named_category(search, cats):
+MIN_CATEGORY_PRODUCTS = 3   # a category with fewer sellable products is a dead page
+
+
+def named_category(search, cats, cat_sizes=None):
     """The active category whose whole name is inside the search ('montessori toys'
     -> Montessori Toys, 'classroom carpet' -> Classroom Rugs). Longest name wins.
     Gift categories are skipped, except for gift searches."""
     st = norm_tokens(search)
     gift = gift_search(search)
     best = None
-    for c in cats.values():
+    for cid, c in cats.items():
         name = c.get("name", "")
         if not c.get("active") or not c.get("url_key"):
+            continue
+        # A leftover category (its brand went away, like Toy Boxes) can't own a search.
+        if cat_sizes and cat_sizes.get(cid, 0) < MIN_CATEGORY_PRODUCTS:
             continue
         if SKIP_CAT.search(name) and not (gift and re.search(r"gift", name, re.I)
                                           and not re.search(r"card|certificate", name, re.I)):
@@ -446,7 +452,7 @@ def owner_page(idx, products, cats, cat_sizes, search=""):
     """Which page should own a search: a category named in the search; else a single
     product's page; else the most specific active category holding >= half the
     matched products; else None (new page)."""
-    named = named_category(search, cats) if search else None
+    named = named_category(search, cats, cat_sizes) if search else None
     if named:
         return f"/{named.get('url_path') or named['url_key']}.html", named["name"], "category"
     idx = list(idx)
@@ -838,15 +844,17 @@ def gift_picks(idx, products, per_line=8):
     return out
 
 
-def ranking_owner(search, rank_pages, products, cats):
+def ranking_owner(search, rank_pages, products, cats, cat_sizes=None):
     """(url, name, kind) of YOUR page that Google already shows for the search (most
     impressions, not a blog post), or None. Pure."""
     url = rank_pages.get(search)
     # Blog posts and brand pages are never the page to optimize for a product search.
     if not url or "/blog" in url or "/shop-by-brands/" in url or "brand" in url:
         return None
-    for c in cats.values():
+    for cid, c in cats.items():
         if c.get("active") and f"/{c.get('url_path') or c.get('url_key')}.html" == url:
+            if cat_sizes and cat_sizes.get(cid, 0) < MIN_CATEGORY_PRODUCTS:
+                return None
             return url, c["name"], "category"
     for p in products:
         if p["url"] == url:
@@ -869,8 +877,8 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
         # A gift search belongs to a gift page named for it, not to whichever line has
         # the most personalized products (books would win every time).
         gift = gift_search(r["search"])
-        owner = None if named_category(r["search"], cats) else ranking_owner(
-            r["search"], rank_pages or {}, products, cats)
+        owner = None if named_category(r["search"], cats, cat_sizes) else ranking_owner(
+            r["search"], rank_pages or {}, products, cats, cat_sizes)
         url, name, kind = owner or owner_page([] if gift else (r.get("_idx") or []), products, cats,
                                               cat_sizes, r["search"])
         # New pages: all gift searches share one gift page; others group by their words.
@@ -1087,7 +1095,8 @@ def explain(q, found, seed_products, products, rows, skip, gsc, cache, conv=0.0)
     from src.analysis import task_rules
     if r:
         cats, cat_sizes = OWNER_CTX.get("cats", {}), OWNER_CTX.get("cat_sizes", {})
-        owner = None if named_category(q, cats) else ranking_owner(q, OWNER_CTX.get("rank", {}), products, cats)
+        owner = None if named_category(q, cats, cat_sizes) else ranking_owner(
+            q, OWNER_CTX.get("rank", {}), products, cats, cat_sizes)
         url, name, _ = owner or owner_page([] if gift_search(q) else (r.get("_idx") or []), products, cats,
                                            cat_sizes, q)
         print(f"     Google shows your page {OWNER_CTX.get('rank', {}).get(q) or '(none)'} for it; "

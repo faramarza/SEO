@@ -279,3 +279,13 @@ def test_every_task_is_complete_without_claude():
     assert "Claude" not in steps
     assert intro in steps and "Classroom Furniture" in steps and "Classroom Rugs" not in steps
     assert "All Store Views" in steps
+
+
+def test_leftover_category_does_not_own_searches():
+    from scripts.product_demand import owner_page
+    cats = {1: {"name": "Toy Boxes", "active": True, "url_key": "toy-boxes"},
+            2: {"name": "Kids Furniture", "active": True, "url_key": "kids-furniture"}}
+    prods = [{"url": "/wooden-personalized-toy-chest.html", "name": "Wooden Personalized Toy Chest", "cats": [1, 2]}]
+    # Toy Boxes holds 1 sellable product: the product page owns "wooden toy box".
+    assert owner_page([0], prods, cats, {1: 1, 2: 40}, "wooden toy box")[0] == "/wooden-personalized-toy-chest.html"
+    assert owner_page([0], prods, cats, {1: 12, 2: 40}, "wooden toy box")[0] == "/toy-boxes.html"
