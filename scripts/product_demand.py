@@ -422,6 +422,22 @@ def norm_tokens(text):
             if w not in STOP_T}
 
 
+def category_sizes(products, cats):
+    """Sellable products per category, counting its subcategories too (Montessori
+    Toys holds its products in 'Montessori Toys for 2 Year Olds' etc.). Pure."""
+    sizes = defaultdict(int)
+    for p in products:
+        seen = set()
+        for c in p.get("cats", []):
+            seen.add(c)
+            for a in str((cats.get(c) or {}).get("path") or "").split("/"):
+                if a.isdigit() and int(a) in cats:
+                    seen.add(int(a))
+        for c in seen:
+            sizes[c] += 1
+    return sizes
+
+
 MIN_CATEGORY_PRODUCTS = 3   # a category with fewer sellable products is a dead page
 
 
@@ -884,10 +900,7 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
     """Group the good searches by the page that should own them, with one action each.
     Owner: a category named in the search; else the page Google already ranks for it;
     else the matched products' page or category; else a new page."""
-    cat_sizes = defaultdict(int)
-    for p in products:
-        for c in p.get("cats", []):
-            cat_sizes[c] += 1
+    cat_sizes = category_sizes(products, cats)
     groups = {}
     for r in rows:
         if r.get("flag") or not r.get("verified") or r.get("profit", 0) < min_profit:
@@ -1140,11 +1153,7 @@ def main():
     from scripts.line_demand import _magento
     mc = _magento()
     cats, products = load_catalog(mc)
-    sizes = defaultdict(int)
-    for p in products:
-        for c in p.get("cats", []):
-            sizes[c] += 1
-    OWNER_CTX.update(cats=cats, cat_sizes=sizes)
+    OWNER_CTX.update(cats=cats, cat_sizes=category_sizes(products, cats))
     seed_products = defaultdict(set)
     gift_idx = set()
     for i, p in enumerate(products):

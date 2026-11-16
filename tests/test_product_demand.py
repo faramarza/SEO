@@ -296,3 +296,14 @@ def test_product_task_names_the_exact_product():
     from scripts.product_demand import admin_path
     a = admin_path("product", "Baby Animals Border Nursery Rug", "5854")
     assert "Baby Animals Border Nursery Rug" in a and "SKU 5854" in a and "type 5854" in a
+
+
+def test_parent_category_counts_its_subcategories():
+    from scripts.product_demand import category_sizes, owner_page
+    cats = {10: {"name": "Montessori Toys", "active": True, "url_key": "montessori-toys", "path": "1/2/10"},
+            11: {"name": "Montessori Toys For 2 Year Olds", "active": True, "url_key": "m2", "path": "1/2/10/11"},
+            12: {"name": "Sorting Toys", "active": True, "url_key": "sorting-toys", "path": "1/2/12"}}
+    prods = [{"url": f"/p{i}.html", "name": "Shape Sorter Toy", "cats": [11, 12]} for i in range(5)]
+    sizes = category_sizes(prods, cats)
+    assert sizes[10] == 5 and sizes[11] == 5
+    assert owner_page(list(range(5)), prods, cats, sizes, "montessori educational toy")[0] == "/montessori-toys.html"
