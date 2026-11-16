@@ -12,9 +12,10 @@ Rules:
   - A 0-qty item with an Availability Date is noted ("back 12/21/2026");
     1/0/1900 means "no date".
   - The report's title line and "Page -1 of 1" footer are ignored.
-The report lists Whitney's whole line (about 500 SKUs); your store carries only
-part of it. Import with Validation Strategy "Skip error entries" so Magento
-skips the SKUs you don't carry instead of blocking the import.
+The report lists Whitney's whole line (about 500 SKUs); the store carries only
+part of it, and Magento blocks an import with more than 10 unknown SKUs. Pass
+--store-export with your Magento product export (System > Data Transfer > Export,
+Products) to keep only SKUs the store has.
 """
 import argparse
 import csv
@@ -67,8 +68,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("report")
     ap.add_argument("--out", default="whitney_inventory_import.csv")
+    ap.add_argument("--store-export", default=None, help="Magento product export CSV (keeps only its SKUs)")
     args = ap.parse_args()
     rows = build(read_report(args.report))
+    if args.store_export:
+        csv.field_size_limit(10 ** 9)
+        with open(args.store_export, newline="", encoding="utf-8", errors="replace") as f:
+            keep = {(r.get("sku") or "").strip() for r in csv.DictReader(f)}
+        print(f"{sum(1 for r in rows if r['sku'] not in keep)} Whitney SKUs you don't carry left out")
+        rows = [r for r in rows if r["sku"] in keep]
     with open(args.out, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["sku", "qty", "is_in_stock"])
