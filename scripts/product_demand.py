@@ -540,8 +540,10 @@ def suggest_title(search, page_name=""):
 def admin_path(kind, name, sku=""):
     if kind == "category":
         return (f"Catalog > Categories > \"{name}\" (Scope: alphabettrains) > Search Engine Optimization")
-    return (f"Catalog > Products > search \"{sku or name}\" > open it (Scope: alphabettrains) > "
-            f"Search Engine Optimization")
+    return (f"Product \"{name}\" (SKU {sku}): Catalog > Products > type {sku} in the search box > "
+            f"open the row with SKU {sku} (Scope: alphabettrains) > Search Engine Optimization"
+            if sku else f"Product \"{name}\": Catalog > Products > search the name > open it "
+            f"(Scope: alphabettrains) > Search Engine Optimization")
 
 
 def description_renders(cat):
@@ -698,13 +700,10 @@ def intro_paragraph(phrase, prods):
     brands = sorted({(p.get("brand") or "").strip() for p in prods if (p.get("brand") or "").strip()})
     lo, hi = min(p["price"] for p in prods), max(p["price"] for p in prods)
     if len(prods) == 1:
-        p = prods[0]
-        return (f"<p>The {p['name']}" + (f" by {brands[0]}" if brands else "") +
-                f" is a {phrase}, ${p['price']:,.2f}.</p>")
+        return ""   # one product: a sentence on its own page won't win a broad search
     by = (" from " + (", ".join(brands[:-1]) + " and " + brands[-1] if len(brands) > 1 else brands[0])
           if brands and len(brands) <= 4 else "")
-    return (f"<p>Shop {len(prods)} {phrase if phrase.endswith('s') else phrase + 's'}{by}, "
-            f"priced from ${lo:,.2f} to ${hi:,.2f}.</p>")
+    return f"<p>Shop {len(prods)} {plural_phrase(phrase)}{by}.</p>"   # no prices: they change
 
 
 def how_steps(g, posts):
@@ -728,12 +727,8 @@ def how_steps(g, posts):
             "On the server: bin/magento cache:flush. Governor checks the page on its next run.",
         ]
     steps = []
-    if g["action"] == "content" and g.get("intro"):
-        if g["kind"] == "category":
-            where = f"Catalog > Categories > \"{g.get('page_name', '')}\" ({g.get('scope') or scope_for(None)}) > Content > Description"
-        else:
-            where = (f"Catalog > Products > search \"{g.get('sku') or g.get('page_name', '')}\" > open it "
-                     f"({scope_for(None)}) > Content > Description")
+    if g["action"] == "content" and g.get("intro") and g["kind"] == "category":
+        where = f"Catalog > Categories > \"{g.get('page_name', '')}\" ({g.get('scope') or scope_for(None)}) > Content > Description"
         steps.append(f"{where}. Click Show / Hide Editor, paste this as the very first line, and Save: {g['intro']}")
     anchors, seen = [], set()
     for x in [{"search": top}] + list(g.get("searches") or []):
@@ -752,8 +747,7 @@ def how_steps(g, posts):
         steps.append(f"{where}. Search for  {s_['find']}  (the end of a paragraph) and paste right after "
                      f"it, before the </p>:{s_['paste']}")
     if not steps:
-        return ["No other page on your site mentions this topic yet, so there is nothing to link from "
-                "and no step to do here. Skip this task."]
+        return []   # nothing concrete to do: the plan drops this page
     steps.append("Save, run bin/magento cache:flush, then click \"I did it\".")
     return steps
 
@@ -942,7 +936,8 @@ def build_page_plan(rows, products, cats, min_profit=10.0, max_pages=25, posts=N
         if step:
             g["how"].append(step)
         g.pop("_idx", None)
-    return [g for g in plan if g.get("action") != "skip"], waiting
+    # A task with no concrete step is not a task.
+    return [g for g in plan if g.get("action") != "skip" and g.get("how")], waiting
 
 
 def variant_key(r):

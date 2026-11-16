@@ -265,7 +265,8 @@ def test_every_task_is_complete_without_claude():
     prods = [{"name": "Bentwood Chair", "price": 89.0, "brand": "Whitney Brothers"},
              {"name": "Live Edge Chair", "price": 279.77, "brand": "Guidecraft"}]
     intro = intro_paragraph("kids chair", prods)
-    assert intro == "<p>Shop 2 kids chairs from Guidecraft and Whitney Brothers, priced from $89.00 to $279.77.</p>"
+    assert intro == "<p>Shop 2 kids chairs from Guidecraft and Whitney Brothers.</p>"   # no prices
+    assert intro_paragraph("nursery rug", prods[:1]) == ""   # never a made-up line on one product
     cats = {1: {"name": "Classroom Furniture", "active": True, "url_key": "classroom-furniture",
                 "description": "<p>Our classroom furniture includes sturdy kids chair sets for every room.</p>",
                 "display_mode": "PRODUCTS", "store_copy": False},
@@ -289,3 +290,9 @@ def test_leftover_category_does_not_own_searches():
     # Toy Boxes holds 1 sellable product: the product page owns "wooden toy box".
     assert owner_page([0], prods, cats, {1: 1, 2: 40}, "wooden toy box")[0] == "/wooden-personalized-toy-chest.html"
     assert owner_page([0], prods, cats, {1: 12, 2: 40}, "wooden toy box")[0] == "/toy-boxes.html"
+
+
+def test_product_task_names_the_exact_product():
+    from scripts.product_demand import admin_path
+    a = admin_path("product", "Baby Animals Border Nursery Rug", "5854")
+    assert "Baby Animals Border Nursery Rug" in a and "SKU 5854" in a and "type 5854" in a
