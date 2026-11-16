@@ -15506,6 +15506,54 @@ def api_interlink_revert():
     return jsonify({"success": True, "page_name": cat.get("name", "")})
 
 
+@app.route("/api/demand/apply-links", methods=["POST"])
+def api_demand_apply_links():
+    """Add a demand task's links: each one at the end of its paragraph, on the page
+    text the store shows, at the page's own Scope. Original kept for Undo (same
+    store as the interlink tool, so /api/interlink/revert restores it). Every page is
+    read back to confirm the link is there."""
+    from src.analysis.demand_links import insert_at_paragraph_end
+    from src.data_sources.magento_client import MagentoError
+    links = (request.get_json(silent=True) or {}).get("links") or []
+    results = []
+    for l in links:
+        url, name = (l.get("url") or "").strip(), l.get("name") or ""
+        mc, ent, reason = _il_resolve_category(url, "blog" if "/blog/" in url else "")
+        if reason:
+            results.append({"name": name, "ok": False, "why": reason})
+            continue
+        current = ent.get("description") or ""
+        target = re.search(r'href="([^"]+)"', l.get("paste") or "")
+        if target and target.group(1) in current:
+            results.append({"name": name, "ok": True, "why": "already links there", "url": url})
+            continue
+        new = insert_at_paragraph_end(current, l.get("find") or "", l.get("paste") or "")
+        if new is None:
+            results.append({"name": name, "ok": False,
+                            "why": "the paragraph changed or already has a link; skipped (nothing written)"})
+            continue
+        cid = _il_entity_cid(ent)
+        store = _il_writes_load()
+        if cid not in store:
+            store[cid] = {"source_url": url, "page_name": ent.get("name", ""),
+                          "original_description": current,
+                          "first_applied_at": datetime.now().isoformat(timespec="seconds")}
+        try:
+            ent["_write_desc"](new)
+        except MagentoError as e:
+            results.append({"name": name, "ok": False, "why": f"Magento write failed: {e}"})
+            continue
+        _il_writes_save(store)
+        confirmed = False
+        try:
+            _m, again, _r = _il_resolve_category(url, "blog" if "/blog/" in url else "")
+            confirmed = bool(again and target and target.group(1) in (again.get("description") or ""))
+        except Exception:
+            pass
+        results.append({"name": name, "ok": True, "confirmed": confirmed, "url": url})
+    return jsonify({"success": any(r["ok"] for r in results), "results": results})
+
+
 @app.route("/api/interlink/weave-preview", methods=["POST"])
 def api_interlink_weave_preview():
     """Preview the CONTEXTUAL (in-prose) version. For each chosen link the server

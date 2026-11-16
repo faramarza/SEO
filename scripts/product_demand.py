@@ -576,7 +576,7 @@ def link_sources_from(posts, cats, page_url):
         if (c.get("active") and c.get("description") and url != page_url and description_renders(c)
                 and not SKIP_CAT.search(c.get("name", ""))):
             out.append({"kind": "category", "id": cid, "name": c["name"], "url_key": c.get("url_key"),
-                        "content": c["description"], "scope": scope_for(c)})
+                        "url": url, "content": c["description"], "scope": scope_for(c)})
     return out
 
 
@@ -662,6 +662,7 @@ def find_link_sources(posts, page_url, search, n=3, anchors=None):
         if best:
             out.append({"post": p.get("name", ""), "slug": p.get("url_key", ""), "hits": best[0],
                         "kind": p.get("kind", "post"), "id": p.get("id"), "scope": p.get("scope", ""),
+                        "url": p.get("url") or f"/blog/{p.get('url_key', '')}",
                         "find": best[1]})
     out.sort(key=lambda x: -x["hits"])
     out = out[:n]
@@ -775,6 +776,9 @@ def how_steps(g, posts):
             seen.add(k)
             anchors.append(x["search"])
     srcs = find_link_sources(posts, g.get("page") or "", top, anchors=anchors[:3])
+    # For Governor's "Add these links for me" button: where, after what, what to add.
+    g["links"] = [{"url": x["url"], "name": x["post"], "find": x["find"], "paste": x["paste"].strip()}
+                  for x in srcs]
     for i, s_ in enumerate(srcs, 1):
         head = f"Link {i} of {len(srcs)}. " if len(srcs) > 1 else ""
         if s_.get("kind") == "category":

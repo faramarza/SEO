@@ -519,6 +519,13 @@ function activeCard(t, pos, total){
             <div style="margin-top:6px;">${pagesHtml}
             <p style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">Open each page in <b>Catalog → Categories</b> (or <b>Content → Pages</b>), add the link(s) in the body, Save, flush cache, then hit DONE.</p></div></details>
             ${prog}`;
+    } else if(cat==='demand' && (t.demand_links||[]).length){
+        const n=t.demand_links.length;
+        doBlock = `<button class="pb-task-btn" onclick='dnDemandApply(${JSON.stringify(t.demand_links).replace(/'/g,"&#39;")},"${domId}",this)'>✨ Add ${n===1?'this link':'these '+n+' links'} for me</button>
+            <p style="font-size:12.5px;color:var(--text-muted);margin:6px 0 0;">Governor adds each link at the end of the right paragraph, checks it saved, and you can Undo.</p>
+            <div id="${domId}" style="margin-top:10px;"></div>
+            <details style="margin-top:10px;"><summary style="cursor:pointer;color:var(--text-muted);font-size:13px;">…or do it by hand</summary>
+            <div style="line-height:1.6;margin-top:6px;">${(t.steps||[]).map(s=>`<div style="margin:4px 0;">• ${esc(s)}</div>`).join('')}</div></details>`;
     } else if(cat==='winnable'||cat==='striking'||cat==='orphan'){
         doBlock = `<div style="line-height:1.6;">${(t.steps||[]).map(s=>`<div style="margin:4px 0;">• ${esc(s)}</div>`).join('')}</div>`;
     } else if(DN_AUTODELIV.has(cat)){
@@ -972,6 +979,20 @@ async function dnInterlinkWeaveApply(key, domId, btn){
     } else {
         box.innerHTML=`<div class="dn-note" style="background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:9px 11px;border-radius:7px;">Couldn’t add the links: ${esc(failed[0]||'unknown error')}. Try “Add to Magento” (Related box) instead.</div>`;
     }
+}
+
+async function dnDemandApply(links, domId, btn){
+    if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
+    const el=document.getElementById(domId);
+    let r;
+    try{ r=await (await fetch('/api/demand/apply-links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({links})})).json(); }
+    catch(e){ r={results:[]}; }
+    const rows=(r.results||[]).map(x=>`<div>${x.ok?'✅':'⚠️'} <b>${esc(x.name)}</b>: ${x.ok?(x.why?esc(x.why):(x.confirmed?'added and checked':'added')):esc(x.why||'failed')}</div>`).join('');
+    const done=(r.results||[]).filter(x=>x.ok && !x.why).map(x=>x.url);
+    if(el) el.innerHTML=`<div class="dn-note" style="padding:10px;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px;">${rows||'Nothing was added.'}
+        ${done.length?`<p style="font-size:12.5px;margin:8px 0 0;">Now run <b>bin/magento cache:flush</b> on the server, then click “I did it”.</p>
+        <button class="dn-skip" style="margin-top:6px;" onclick='dnInterlinkRevert(${JSON.stringify(done)},this)'>↩︎ Undo</button>`:''}</div>`;
+    if(btn){ btn.textContent=done.length?'Done':'Try again'; btn.disabled=!!done.length; }
 }
 
 async function dnInterlinkRevert(urls, btn){

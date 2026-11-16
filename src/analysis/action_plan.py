@@ -398,6 +398,8 @@ def _from_product_demand(out, path=None, max_age_days=45):
             dedup_extra=top["search"]))
         out[-1]["metric"]["query"] = top["search"]
         out[-1]["primary_keyword"] = top["search"]
+        if g.get("links"):
+            out[-1]["demand_links"] = g["links"]   # Governor can add these itself
 
 
 def _from_winnable(winnable, out):
