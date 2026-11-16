@@ -50,3 +50,18 @@ def test_never_links_from_a_promo_box():
               'durable, and sized for classrooms and playrooms alike.</p>\n  <a class="cta-button" '
               'href="https://alphabet-trains.com/circle-time-rugs.html">Shop Circle Time Rugs</a>'}]
     assert find_link_sources(posts, "/playroom-carpets.html", "playroom carpets") == []
+
+
+def test_paragraph_rules_exactly():
+    from scripts.product_demand import paragraph_spots, find_link_sources
+    html = ('<p>This rug paragraph already has a <a href="/x.html">link</a> in it, so it is skipped.</p>'
+            '<p>Our <strong>Circle Time Rugs</strong> are soft&mdash;and sized for classrooms and playrooms alike.</p>'
+            '<a class="cta-button" href="/circle-time-rugs.html">Shop</a>'
+            '<p>A soft playroom rug gives toddlers a <em>warm</em> place to sit &amp; play every day.</p>')
+    spots = paragraph_spots(html)
+    assert len(spots) == 1
+    text, find = spots[0]
+    assert find in html and "<" not in find          # Ctrl+F in HTML view finds it
+    assert find.endswith("play every day.")
+    out = find_link_sources([{"name": "P", "content": html}], "/playroom-carpets.html", "playroom carpets")
+    assert len(out) == 1 and out[0]["find"] == find

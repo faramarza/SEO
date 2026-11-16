@@ -573,44 +573,75 @@ def plural_phrase(p):
     return " ".join(w)
 
 
+_BLOCK = re.compile(r"(?is)<(p|li)\b[^>]*>(.*?)</\1>")
+_BUTTON_AFTER = re.compile(r'(?is)^\s*(?:</?div[^>]*>\s*)*<a[^>]*class="[^"]*(?:cta|button|btn)', )
+
+
+def paragraph_spots(html):
+    """Paragraphs a link may be added to, in page order: [(text, find)].
+    Rules, one paragraph at a time:
+      - it already has a link -> skip (never two links side by side)
+      - a "Shop ..." button follows it (promo box) -> skip
+      - otherwise the link goes at the END of the paragraph, and `find` is its last
+        few words exactly as they appear in HTML view (checked), so Ctrl+F finds it.
+    Content with no <p>/<li> at all is treated as one paragraph. Pure."""
+    import html as _h
+    blocks = [(m.group(2), m.end()) for m in _BLOCK.finditer(html or "")]
+    if not blocks and html and "<a" not in html.lower():
+        blocks = [(html, len(html))]
+    out = []
+    for inner, end in blocks:
+        if re.search(r"(?i)<a\b", inner) or _BUTTON_AFTER.match(html[end:end + 400]):
+            continue
+        text = _h.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", inner))).strip()
+        if len(text) < 40:
+            continue
+        # Last words as written in the code (entities like &mdash; kept), with no tag
+        # in between, so the owner can search for them in HTML view.
+        raw = re.sub(r"\s+", " ", inner).strip()
+        tail = re.split(r"<[^>]+>", raw)[-1].strip() or ""
+        words = tail.split()
+        find = ""
+        for k in (6, 5, 4, 3, 2):
+            if len(words) >= k:
+                cand = " ".join(words[-k:])
+                if cand in re.sub(r"\s+", " ", inner):
+                    find = cand
+                    break
+        if find:
+            out.append((text, find))
+    return out
+
+
 def find_link_sources(posts, page_url, search, n=3, anchors=None):
-    """Blog posts that talk about the topic and don't link to the page yet, with the
-    exact sentence to find and what to paste. Pure (posts = [{name, url_key, content}])."""
+    """Blog posts and category descriptions with a paragraph that talks about the
+    product and has no link yet: where to put the link and what to paste.
+    One spot per post/category, best match first. Pure."""
     words = [w for w in norm_tokens(search) if len(w) > 3] or list(norm_tokens(search))
-    # The sentence must talk about the PRODUCT (rug/carpet, chest/box...), not just
-    # share a word like "playroom": a carpets link after a sentence about puzzles reads
-    # wrong to shoppers and to Google.
+    # The paragraph must talk about the PRODUCT (rug/carpet, chest/box...), not just
+    # share a word like "playroom".
     hk = head_kind(search)
     must = {SYN.get(hk, plural_key(hk))} if hk else set()
     out = []
     for p in posts:
         html = p.get("content") or ""
         if page_url and page_url in html:
-            continue
-        import html as _h
-        # Promo boxes (a paragraph followed by a "Shop ..." button) already sell
-        # something else: never add a second link there.
-        html = re.sub(r'(?is)<p[^>]*>(?:(?!</p>).)*</p>\s*<a[^>]*class="[^"]*(?:cta|button|btn)[^"]*"[^>]*>.*?</a>',
-                      " ", html)
-        text = _h.unescape(re.sub(r"\s+", " ", re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>|<[^>]+>", " ", html)))
-        sents = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if 40 < len(x.strip()) < 260]
+            continue   # already links to the page
         best = None
-        for sn in sents:
-            st = norm_tokens(sn)
+        for text, find in paragraph_spots(html):
+            st = norm_tokens(text)
             if must and not (must & st):
                 continue
             hits = sum(1 for w in words if w in st)
             if hits and (best is None or hits > best[0]):
-                best = (hits, sn)
+                best = (hits, find)
         if best:
             out.append({"post": p.get("name", ""), "slug": p.get("url_key", ""), "hits": best[0],
                         "kind": p.get("kind", "post"), "id": p.get("id"), "scope": p.get("scope", ""),
-                        "find": short_tail(best[1]),
-                        "paste": f' See our <a href="{page_url}">{search}</a>.'})
+                        "find": best[1]})
     out.sort(key=lambda x: -x["hits"])
     out = out[:n]
-    # Vary the link text over the searches this page should win ("playroom carpets",
-    # "playroom rugs"), so each gets a link and the anchors don't all look the same.
+    # Vary the link text over the searches this page should win.
     for i, x in enumerate(out):
         a = plural_phrase((anchors or [search])[i % len(anchors or [search])])
         x["paste"] = f' See our <a href="{page_url}">{a}</a>.'
@@ -712,7 +743,8 @@ def how_steps(g, posts):
                      f"Content > Description > Show / Hide Editor")
         else:
             where = f"Blog post \"{s_['post']}\" (blog admin, HTML view)"
-        steps.append(f"{where}. After \"...{s_['find']}\" paste:{s_['paste']}")
+        steps.append(f"{where}. Search for  {s_['find']}  (the end of a paragraph) and paste right after "
+                     f"it, before the </p>:{s_['paste']}")
     if not steps:
         return ["No other page on your site mentions this topic yet, so there is nothing to link from "
                 "and no step to do here. Skip this task."]
