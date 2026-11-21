@@ -14,3 +14,12 @@
 - The developer asks to be messaged before files on the live site are changed. Code changes (modules,
   templates) go through the developer; admin settings, imports and Klaviyo are Frank's.
 - Governor (173.255.241.200, /var/www/seo) is a separate server and talks to Magento only via the REST API.
+
+## Name trains (facts from Frank, do not second-guess)
+- The listed price (e.g. 3 letters $29.99) is for the LETTERS ONLY. Engine and caboose are options the
+  customer picks and pays extra for. Never add them to the base cost.
+- Maple Landmark cost: every car $3.60 (special cars like Noah's Ark/Circus/Classic $3.70), $5 drop-ship
+  handling fee per order, shipping about $8 per order ($7-9, not on their invoices). Not made to order.
+- Plain train profit after the 3% card fee is about $5 to $9 (3 to 6 letters). Prices are fine.
+- Before any pricing alarm or recommendation: check what the price includes, then check real orders
+  (scripts/order_profit.py) and invoices. No fire drills from assumptions.
