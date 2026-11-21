@@ -148,8 +148,8 @@ def main():
               + (f"{m:>4.0f}%" if m is not None else "   - ") + f"   {k}")
 
     print("\nBY PRODUCT LINE (by the order's largest item)")
-    for t in summarize(live, lambda r: line_of(max(r["items"], key=lambda i: i["revenue"])["name"])
-                       if r["items"] else "Other"):
+    for t in summarize(live, lambda r: "Refunded (card fee kept by the bank)" if r["basis"] == "refunded" else
+                       (line_of(max(r["items"], key=lambda i: i["revenue"])["name"]) if r["items"] else "Other")):
         row(t)
     if sources:
         print("\nBY WHERE THE CUSTOMER CAME FROM (GA4; compare 'Google Ads' with your ad spend)")

@@ -45,7 +45,7 @@ LINES = [  # (line, words in the product name) - first match wins
     ("Name trains", ("name train", "nametrain", "letter train", "alphabet train")),
     ("Name puzzle stools", ("stool",)),
     ("Name puzzles", ("name puzzle",)),
-    ("Personalized books", ("personalized book", "story book", "storybook", "board book",
+    ("Personalized books", ("personalized book", "baby book", "story book", "storybook", "board book",
                             "personalized story", "book and ")),
     ("Blankets", ("blanket",)),
     ("Rugs", ("rug", "carpet")),
