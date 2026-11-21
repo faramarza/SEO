@@ -22,6 +22,34 @@ WHITNEY_SKU = re.compile(r"^(WB|CH|CR|WR|WS|WX)\d|^140-", re.I)
 GUIDECRAFT_SKU = re.compile(r"^G\d", re.I)
 
 
+def addon_cost(options: list, table: dict) -> tuple[float, list]:
+    """Cost of a name train's chosen add-ons from Maple Landmark invoice prices.
+    options: ["Add Track: 3 Straight Pieces", "Extra Car: Noah's Ark", ...] (the text
+    the customer chose). Returns (cost, [options that could not be priced]). Pure."""
+    cost, unknown = 0.0, []
+    for o in options or []:
+        t = (o or "").lower()
+        val = t.split(":", 1)[-1]
+        if re.search(r"\b(none|no thanks|no)\b", val) or not val.strip():
+            continue
+        n = int(m.group(1)) if (m := re.search(r"(\d+)", val)) else 1
+        if "oval" in t:
+            cost += table["oval"]
+        elif "wall" in t and "mount" in t:
+            cost += table["wall mount"]
+        elif "track" in t:
+            cost += table["track"] * n
+        elif re.search(r"classic|rainbow", t) and re.search(r"engine|caboose", t):
+            cost += table["special engine or caboose"] * n
+        elif re.search(r"noah|circus|wagon|animal|extra car|add.{0,10}car", t):
+            cost += table["special car"] * n
+        elif re.search(r"\b(bright|pastel|primary|natural|color|colour|name|letters?)\b", t):
+            continue   # style choices and the name itself: no extra cost
+        else:
+            unknown.append(o)
+    return round(cost, 2), unknown
+
+
 def item_cost(item: dict, cfg: dict, carpets: dict) -> tuple[float, str]:
     """(cost incl. vendor shipping, basis) for one order line. `item` has sku, name,
     revenue (line revenue after discount) and qty. Pure."""
@@ -33,8 +61,14 @@ def item_cost(item: dict, cfg: dict, carpets: dict) -> tuple[float, str]:
     letters = re.search(r"(\d+)\s*letter", name)
     if ml and letters and re.search(r"name ?train|nametra|letter train", name):
         cars = int(letters.group(1)) + int(ml.get("extra_cars", 2))   # + engine and caboose
-        return (round(qty * ml["per_car"] * cars, 2),
-                f"exact (Maple Landmark: {cars} cars x ${ml['per_car']:.2f})")
+        add, unknown = addon_cost(item.get("options") or [], ml.get("addons") or {})
+        txt = f"{cars} cars x ${ml['per_car']:.2f}" + (f" + add-ons ${add:.2f}" if add else "")
+        if unknown:
+            return (round(qty * (ml["per_car"] * cars + add), 2),
+                    f"estimated (Maple Landmark: {txt}; not priced: {'; '.join(unknown)[:60]})")
+        return round(qty * (ml["per_car"] * cars + add), 2), f"exact (Maple Landmark: {txt})"
+    if ml and re.search(r"wall mount", name):
+        return round(qty * ml.get("addons", {}).get("wall mount", 12.15), 2), "exact (Maple Landmark wall mount)"
 
     c = carpets.get(sku)
     if c and c.get("cost") is not None:

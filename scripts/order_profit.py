@@ -45,6 +45,37 @@ def load_awin(path):
     return out
 
 
+_OPT_CACHE = {}
+
+
+def chosen_options(mc, sku, item):
+    """The customer's chosen custom options as "Title: Value" text. Magento's order
+    API gives only ids, so titles come from GET /products/{sku}/options (cached)."""
+    sel = (((item.get("product_option") or {}).get("extension_attributes") or {}).get("custom_options") or [])
+    if not sel:
+        return []
+    if sku not in _OPT_CACHE:
+        try:
+            _OPT_CACHE[sku] = mc._req("GET", "/products/" + str(sku).replace("/", "%2F") + "/options") or []
+        except Exception:
+            _OPT_CACHE[sku] = []
+    defs = {str(o.get("option_id")): o for o in _OPT_CACHE[sku]}
+    out = []
+    for s_ in sel:
+        d = defs.get(str(s_.get("option_id")))
+        if not d:
+            out.append(f"option {s_.get('option_id')}: {s_.get('option_value')}")
+            continue
+        vals = {str(v.get("option_type_id")): v.get("title", "") for v in d.get("values") or []}
+        raw = str(s_.get("option_value") or "")
+        if d.get("type") in ("field", "area"):
+            out.append(f"{d.get('title', '')}: (typed text)")
+            continue
+        for v in [x for x in raw.split(",") if x]:
+            out.append(f"{d.get('title', '')}: {vals.get(v, v)}")
+    return out
+
+
 def fetch_orders(mc, start, end_excl):
     page, out = 1, []
     while True:
@@ -52,6 +83,7 @@ def fetch_orders(mc, start, end_excl):
                                                      page_size=100, current_page=page)) or {}
         for o in data.get("items") or []:
             items = [{"sku": it.get("sku", ""), "name": it.get("name", ""),
+                      "options": chosen_options(mc, it.get("sku", ""), it),
                       "qty": float(it.get("qty_ordered") or 0),
                       "revenue": float(it.get("base_row_total") or 0) - float(it.get("base_discount_amount") or 0)}
                      for it in o.get("items") or [] if not it.get("parent_item_id")]
@@ -128,8 +160,10 @@ def main():
         for r in sorted(live, key=lambda x: x["date"]):
             print(f"  #{r['number']} {r['date']} {r['status']:<10} paid ${r['revenue']:>8,.2f}  "
                   f"profit ${r['contribution']:>8,.2f}  [{r['basis']}] {r.get('note', '')}")
-            for l in r["lines"]:
+            for l, it in zip(r["lines"], r["items"]):
                 print(f"        {l['name'][:45]:<46} ${l['revenue']:>8,.2f}  cost ${l['cost']:>8,.2f}  {l['basis']}")
+                if it.get("options"):
+                    print(f"            options: {'; '.join(it['options'])[:150]}")
     print("\nNot included: advertising (compare per source above), returns not yet refunded in Magento.")
 
 

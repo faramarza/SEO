@@ -28,9 +28,9 @@ def test_name_train_exact_from_maple_landmark_costs():
     # two trains in one order: one drop-ship fee and shipping
     o2 = dict(o, charged=79.98, items=o["items"] * 2)
     assert order_profit(o2, CFG, {}, {})["cost"] == round(2 * 7 * 3.60 + 13.00, 2)
-    # add-ons without a letter count fall back to the line margin
-    o3 = dict(o, items=[{"sku": "wm", "name": "NameTrain Wall Mount for 8 Cars", "qty": 1, "revenue": 20}])
-    assert order_profit(o3, CFG, {}, {})["basis"] == "estimated"
+    # the wall mount sold on its own is priced from the invoice ($12.15)
+    o3 = dict(o, items=[{"sku": "wm", "name": "NameTrain Wall Mount for 8 Cars", "qty": 1, "revenue": 36.99}])
+    assert order_profit(o3, CFG, {}, {})["lines"][0]["cost"] == 12.15
 
 
 def test_refunded_tag_order_costs_the_card_fee():
@@ -58,3 +58,21 @@ def test_summarize():
     rows = summarize([{"revenue": 100, "contribution": 20, "k": "a"}, {"revenue": 50, "contribution": -5, "k": "b"},
                       {"revenue": 100, "contribution": 30, "k": "a"}], lambda r: r["k"])
     assert rows[0] == ("a", 2, 200, 50, 25.0)
+
+
+def test_addons_priced_from_maple_landmark_invoices():
+    from src.analysis.order_profit import addon_cost
+    table = CFG["paid_search"]["vendor_costs"]["maple_landmark"]["addons"]
+    assert addon_cost(["Add Track: 3 Straight Pieces"], table) == (6.6, [])
+    assert addon_cost(["Track Set: Oval Track Set", "Engine: Classic Engine", "Caboose: Classic Caboose"], table) == (23.35, [])
+    assert addon_cost(["Extra Cars: Noah's Ark", "Color: Bright", "Name: (typed text)"], table) == (3.7, [])
+    assert addon_cost(["Gift Wrap: Yes"], table) == (0.0, ["Gift Wrap: Yes"])
+
+
+def test_order_2000010210_with_oval_track_is_costed_like_the_invoice():
+    o = {"number": "2000010210", "status": "complete", "charged": 99.48,
+         "items": [{"sku": "5-letter", "name": "5 Letter Maple Landmark Alphabet Name Train", "qty": 1, "revenue": 99.48,
+                    "options": ["Track: Oval Track Set", "Engine: Classic Engine", "Caboose: Classic Caboose"]}]}
+    r = order_profit(o, CFG, {}, {})
+    assert r["cost"] == round(7 * 3.60 + 23.15 + 0.20 + 13.00, 2)
+    assert r["basis"] == "exact"
