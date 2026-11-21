@@ -54,12 +54,14 @@ def addon_cost(options: list, table: dict) -> tuple[float, int, list]:
         if label.strip() in ("engine", "caboose") or re.search(r"\b(engine|caboose)\b", label):
             if none:
                 cars -= 1
-            elif re.search(r"noah|circus|classic|rainbow|wagon|ark|animal", val):
+            elif re.search(r"noah|circus|classic|rainbow|wagon|ark|animal|santa", val):
                 cost += table["special engine or caboose"]
             continue                                   # a color: part of the train
         if none:
             continue
-        if "oval" in label or "oval" in val:
+        if "sign" in label or "sign" in val:
+            cost += table.get("street signs", 4.60)
+        elif "oval" in label or "oval" in val:
             cost += table["oval"]
         elif "wall" in (label + val) and "mount" in (label + val):
             cost += table["wall mount"]

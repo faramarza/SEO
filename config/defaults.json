@@ -99,7 +99,7 @@
     },
     "vendor_costs": {
       "maple_landmark": {"per_car": 3.60, "extra_cars": 2, "per_order": 13.00,
-        "addons": {"oval": 23.15, "wall mount": 12.15, "track": 2.20, "special car": 3.70, "special engine or caboose": 0.10},
+        "addons": {"oval": 23.15, "wall mount": 12.15, "track": 2.20, "special car": 3.70, "special engine or caboose": 0.10, "street signs": 4.60},
         "addons_source": "Maple Landmark invoices 136707-136974 (Nov 11-19, 2026): NT Track 8in Straight $2.20 each, NT Oval Track Set $23.15, NT Wall Mount Trk+Brkt $12.15, Noah's Ark / Circus Wagon $3.70, Classic or Rainbow engine/caboose $3.70 (+$0.10 over a $3.60 car).",
         "source": "Frank 2026-11-21: every car $3.60 (letters, engine and caboose: a 5-letter train is 7 cars); per order $5 drop-ship fee + about $8 shipping ($7-9)."}
     },
