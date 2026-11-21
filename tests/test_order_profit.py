@@ -17,12 +17,20 @@ def test_rug_order_with_awin_commission():
     assert r["contribution"] == round(481.95 - 314.76 - 14.46 - 48.20, 2)
 
 
-def test_name_train_estimated_from_line_margin():
-    o = {"number": "1", "status": "complete", "charged": 49.99,
-         "items": [{"sku": "5-letter", "name": "5 Letter Maple Landmark Alphabet Name Train", "qty": 1, "revenue": 49.99}]}
+def test_name_train_exact_from_maple_landmark_costs():
+    o = {"number": "1", "status": "complete", "charged": 39.99,
+         "items": [{"sku": "5-letter", "name": "5 Letter Maple Landmark Alphabet Name Train", "qty": 1, "revenue": 39.99}]}
     r = order_profit(o, CFG, {}, {})
-    assert r["basis"] == "estimated"
-    assert r["contribution"] == round(49.99 * 0.22 - 0.03 * 49.99, 2)
+    assert r["basis"] == "exact"
+    cost = 5 * 3.60 + 8.49 + 5.00          # = 31.49, matches the Nov 10 reprice model (21.2% at $39.99)
+    assert r["cost"] == round(cost, 2)
+    assert r["contribution"] == round(39.99 - cost - round(0.03 * 39.99, 2), 2)
+    # two trains in one order: one drop-ship fee
+    o2 = dict(o, charged=79.98, items=o["items"] * 2)
+    assert order_profit(o2, CFG, {}, {})["cost"] == round(2 * (5 * 3.60 + 8.49) + 5.00, 2)
+    # add-ons without a letter count fall back to the line margin
+    o3 = dict(o, items=[{"sku": "wm", "name": "NameTrain Wall Mount for 8 Cars", "qty": 1, "revenue": 20}])
+    assert order_profit(o3, CFG, {}, {})["basis"] == "estimated"
 
 
 def test_refunded_tag_order_costs_the_card_fee():
