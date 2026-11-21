@@ -22,32 +22,56 @@ WHITNEY_SKU = re.compile(r"^(WB|CH|CR|WR|WS|WX)\d|^140-", re.I)
 GUIDECRAFT_SKU = re.compile(r"^G\d", re.I)
 
 
-def addon_cost(options: list, table: dict) -> tuple[float, list]:
-    """Cost of a name train's chosen add-ons from Maple Landmark invoice prices.
-    options: ["Add Track: 3 Straight Pieces", "Extra Car: Noah's Ark", ...] (the text
-    the customer chose). Returns (cost, [options that could not be priced]). Pure."""
-    cost, unknown = 0.0, []
+_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+
+
+def _count(label, value):
+    """How many pieces: "Three 8\" Straight Tracks" -> 3; label "3 X 8\" ..." with Yes -> 3.
+    The 8 in 8\" is a length, never a count. Pure."""
+    for w, n in _WORDS.items():
+        if re.search(rf"\b{w}\b", value):
+            return n
+    m = re.search(r"(\d+)\s*x\b", label) or re.search(r"(\d+)\s*x\b", value) \
+        or re.search(r"\b(\d+)\b(?!\s*(\"|in|inch))", value)
+    return int(m.group(1)) if m else 1
+
+
+def addon_cost(options: list, table: dict) -> tuple[float, int, list]:
+    """What a name train's chosen options add, checked against Maple Landmark invoices
+    136707-136974. Returns (extra $, change in car count, [options not priced]):
+      Engine/Caboose: a color = included; None = one car fewer; Noah's Ark, Circus,
+        Classic, Rainbow = a $3.70 special car instead of a $3.60 one (+$0.10);
+      Tracks: $2.20 each, count from the words or the "3 X" in the label;
+      Oval track set $23.15; wall mount $12.15;
+      typed text, colors, spacer none, special instructions: no cost. Pure."""
+    cost, cars, unknown = 0.0, 0, []
     for o in options or []:
-        t = (o or "").lower()
-        val = t.split(":", 1)[-1]
-        if re.search(r"\b(none|no thanks|no)\b", val) or not val.strip():
+        label, _, val = (o or "").lower().partition(":")
+        val = val.strip()
+        if "(typed text)" in val or "instruction" in label or "name to spell" in label:
             continue
-        n = int(m.group(1)) if (m := re.search(r"(\d+)", val)) else 1
-        if "oval" in t:
+        none = re.fullmatch(r"(none|no|n|no thanks)?", val) is not None
+        if label.strip() in ("engine", "caboose") or re.search(r"\b(engine|caboose)\b", label):
+            if none:
+                cars -= 1
+            elif re.search(r"noah|circus|classic|rainbow|wagon|ark|animal", val):
+                cost += table["special engine or caboose"]
+            continue                                   # a color: part of the train
+        if none:
+            continue
+        if "oval" in label or "oval" in val:
             cost += table["oval"]
-        elif "wall" in t and "mount" in t:
+        elif "wall" in (label + val) and "mount" in (label + val):
             cost += table["wall mount"]
-        elif "track" in t:
-            cost += table["track"] * n
-        elif re.search(r"classic|rainbow", t) and re.search(r"engine|caboose", t):
-            cost += table["special engine or caboose"] * n
-        elif re.search(r"noah|circus|wagon|animal|extra car|add.{0,10}car", t):
-            cost += table["special car"] * n
-        elif re.search(r"\b(bright|pastel|primary|natural|color|colour|name|letters?)\b", t):
-            continue   # style choices and the name itself: no extra cost
+        elif "track" in label or "track" in val:
+            cost += table["track"] * _count(label, val)
+        elif re.search(r"noah|circus|wagon|animal|extra car", label + " " + val):
+            cost += table["special car"] * _count(label, val)
+        elif re.search(r"^(color|colour)$", label.strip()) or re.search(r"\b(bright|pastel|primary)\b", val):
+            continue
         else:
             unknown.append(o)
-    return round(cost, 2), unknown
+    return round(cost, 2), cars, unknown
 
 
 def item_cost(item: dict, cfg: dict, carpets: dict) -> tuple[float, str]:
@@ -60,8 +84,8 @@ def item_cost(item: dict, cfg: dict, carpets: dict) -> tuple[float, str]:
     ml = (ps.get("vendor_costs") or {}).get("maple_landmark")
     letters = re.search(r"(\d+)\s*letter", name)
     if ml and letters and re.search(r"name ?train|nametra|letter train", name):
-        cars = int(letters.group(1)) + int(ml.get("extra_cars", 2))   # + engine and caboose
-        add, unknown = addon_cost(item.get("options") or [], ml.get("addons") or {})
+        add, car_change, unknown = addon_cost(item.get("options") or [], ml.get("addons") or {})
+        cars = int(letters.group(1)) + int(ml.get("extra_cars", 2)) + car_change   # + engine and caboose
         txt = f"{cars} cars x ${ml['per_car']:.2f}" + (f" + add-ons ${add:.2f}" if add else "")
         if unknown:
             return (round(qty * (ml["per_car"] * cars + add), 2),
@@ -125,7 +149,7 @@ def order_profit(order: dict, cfg: dict, carpets: dict, commissions: dict) -> di
     if any(GUIDECRAFT_SKU.match(str(i.get("sku") or "")) for i in items):
         cost += GUIDECRAFT_DS_FEE
     ml = (((cfg or {}).get("paid_search") or {}).get("vendor_costs") or {}).get("maple_landmark")
-    if ml and any(l["basis"].startswith("exact (Maple Landmark") for l in lines):
+    if ml and any("Maple Landmark" in l["basis"] for l in lines):
         cost += float(ml.get("per_order", 0))   # drop-ship fee + shipping, once per order
     card = round(fee_rate * float(order.get("charged") or revenue), 2)
     commission = float(commissions.get(str(order.get("number")), 0.0))

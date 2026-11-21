@@ -60,19 +60,35 @@ def test_summarize():
     assert rows[0] == ("a", 2, 200, 50, 25.0)
 
 
-def test_addons_priced_from_maple_landmark_invoices():
-    from src.analysis.order_profit import addon_cost
-    table = CFG["paid_search"]["vendor_costs"]["maple_landmark"]["addons"]
-    assert addon_cost(["Add Track: 3 Straight Pieces"], table) == (6.6, [])
-    assert addon_cost(["Track Set: Oval Track Set", "Engine: Classic Engine", "Caboose: Classic Caboose"], table) == (23.35, [])
-    assert addon_cost(["Extra Cars: Noah's Ark", "Color: Bright", "Name: (typed text)"], table) == (3.7, [])
-    assert addon_cost(["Gift Wrap: Yes"], table) == (0.0, ["Gift Wrap: Yes"])
+def _train(n_letters, options, revenue=60.0):
+    o = {"number": "x", "status": "complete", "charged": revenue,
+         "items": [{"sku": "t", "name": f"{n_letters} Letter Maple Landmark Name Train", "qty": 1,
+                    "revenue": revenue, "options": options}]}
+    return order_profit(o, CFG, {}, {})
 
 
-def test_order_2000010210_with_oval_track_is_costed_like_the_invoice():
-    o = {"number": "2000010210", "status": "complete", "charged": 99.48,
-         "items": [{"sku": "5-letter", "name": "5 Letter Maple Landmark Alphabet Name Train", "qty": 1, "revenue": 99.48,
-                    "options": ["Track: Oval Track Set", "Engine: Classic Engine", "Caboose: Classic Caboose"]}]}
-    r = order_profit(o, CFG, {}, {})
-    assert r["cost"] == round(7 * 3.60 + 23.15 + 0.20 + 13.00, 2)
-    assert r["basis"] == "exact"
+def test_every_train_matches_its_maple_landmark_invoice():
+    """Car costs from invoices 136707-136974 (the $13 per order is added on top)."""
+    cases = {  # order: (letters, options, invoice car/add-on total)
+        "2000010181": (6, ["Color: Pastel", "Engine: Noah's Ark", "Caboose: Circus",
+                           "Tracks (each track fits 3 cars): Three 8\" Straight Tracks", "Spacer: N"], 35.60),
+        "2000010182": (4, ["Color: Primary", "Engine: Gray Pastel", "Caboose: Red", "2 X 8\" Straight Tracks: No",
+                           "Spacer: None"], 21.60),
+        "2000010193": (5, ["Engine: None", "Caboose: None", "3 X 8\" Straight Tracks: None"], 18.00),
+        "2000010214": (4, ["Engine: Gray Pastel", "Caboose: None", "2 X 8\" Straight Tracks: No"], 18.00),
+        "2000010212": (7, ["Engine: Noah's Ark", "Caboose: None", "3 X 8\" Straight Tracks: No"], 28.90),
+        "2000010209": (8, ["Engine: Classic", "Caboose: Pink Pastel", "Special Instructions - Requests: (typed text)"], 36.10),
+        "2000010208": (4, ["Engine: Black", "Caboose: Red", "2 X 8\" Straight Tracks: Yes"], 26.00),
+        "2000010195": (5, ["Engine: Classic", "Caboose: Circus", "3 X 8\" Straight Tracks: Yes"], 32.00),
+        "2000010224": (6, ["Engine: Black", "Caboose: Red", "Tracks (each track fits 3 cars): Three 8\" Straight Tracks",
+                           "Spacer: None"], 35.40),
+    }
+    for order, (n, opts, invoice) in cases.items():
+        r = _train(n, opts)
+        assert r["basis"] == "exact", (order, r["lines"])
+        assert r["cost"] == round(invoice + 13.00, 2), (order, r["cost"], invoice)
+
+
+def test_unpriced_option_still_charges_the_per_order_cost():
+    r = _train(5, ["Engine: Black", "Gift Box: Deluxe"])
+    assert r["basis"] == "estimated" and r["cost"] == round(7 * 3.60 + 13.00, 2)

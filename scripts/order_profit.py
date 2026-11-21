@@ -64,7 +64,7 @@ def chosen_options(mc, sku, item):
     for s_ in sel:
         d = defs.get(str(s_.get("option_id")))
         if not d:
-            out.append(f"option {s_.get('option_id')}: {s_.get('option_value')}")
+            out.append(f"option {s_.get('option_id')}: (no longer on the product)")
             continue
         vals = {str(v.get("option_type_id")): v.get("title", "") for v in d.get("values") or []}
         raw = str(s_.get("option_value") or "")
