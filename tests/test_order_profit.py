@@ -22,12 +22,12 @@ def test_name_train_exact_from_maple_landmark_costs():
          "items": [{"sku": "5-letter", "name": "5 Letter Maple Landmark Alphabet Name Train", "qty": 1, "revenue": 39.99}]}
     r = order_profit(o, CFG, {}, {})
     assert r["basis"] == "exact"
-    cost = 5 * 3.60 + 8.49 + 5.00          # = 31.49, matches the Nov 10 reprice model (21.2% at $39.99)
+    cost = 7 * 3.60 + 13.00                # 5 letters + engine + caboose, + drop-ship and shipping
     assert r["cost"] == round(cost, 2)
     assert r["contribution"] == round(39.99 - cost - round(0.03 * 39.99, 2), 2)
-    # two trains in one order: one drop-ship fee
+    # two trains in one order: one drop-ship fee and shipping
     o2 = dict(o, charged=79.98, items=o["items"] * 2)
-    assert order_profit(o2, CFG, {}, {})["cost"] == round(2 * (5 * 3.60 + 8.49) + 5.00, 2)
+    assert order_profit(o2, CFG, {}, {})["cost"] == round(2 * 7 * 3.60 + 13.00, 2)
     # add-ons without a letter count fall back to the line margin
     o3 = dict(o, items=[{"sku": "wm", "name": "NameTrain Wall Mount for 8 Cars", "qty": 1, "revenue": 20}])
     assert order_profit(o3, CFG, {}, {})["basis"] == "estimated"

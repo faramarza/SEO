@@ -32,9 +32,9 @@ def item_cost(item: dict, cfg: dict, carpets: dict) -> tuple[float, str]:
     ml = (ps.get("vendor_costs") or {}).get("maple_landmark")
     letters = re.search(r"(\d+)\s*letter", name)
     if ml and letters and re.search(r"name ?train|nametra|letter train", name):
-        n = int(letters.group(1))
-        return (round(qty * (ml["per_letter"] * n + ml["per_train"]), 2),
-                f"exact (Maple Landmark: {n} letters x ${ml['per_letter']:.2f} + ${ml['per_train']:.2f})")
+        cars = int(letters.group(1)) + int(ml.get("extra_cars", 2))   # + engine and caboose
+        return (round(qty * ml["per_car"] * cars, 2),
+                f"exact (Maple Landmark: {cars} cars x ${ml['per_car']:.2f})")
 
     c = carpets.get(sku)
     if c and c.get("cost") is not None:
@@ -92,7 +92,7 @@ def order_profit(order: dict, cfg: dict, carpets: dict, commissions: dict) -> di
         cost += GUIDECRAFT_DS_FEE
     ml = (((cfg or {}).get("paid_search") or {}).get("vendor_costs") or {}).get("maple_landmark")
     if ml and any(l["basis"].startswith("exact (Maple Landmark") for l in lines):
-        cost += float(ml.get("per_order", 0))   # one drop-ship fee per order
+        cost += float(ml.get("per_order", 0))   # drop-ship fee + shipping, once per order
     card = round(fee_rate * float(order.get("charged") or revenue), 2)
     commission = float(commissions.get(str(order.get("number")), 0.0))
     if full_refund:
