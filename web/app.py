@@ -1083,6 +1083,45 @@ def grow_sales():
     return render_template("grow_sales.html")
 
 
+@app.route("/money")
+def money_page():
+    """Money This Week: profit, ads against spend, Awin approvals due, stale data."""
+    return render_template("money.html")
+
+
+@app.route("/api/money")
+def api_money():
+    p = DATA_PATH / "money_report.json"
+    if not p.exists():
+        return jsonify({"missing": True})
+    return jsonify(json.loads(p.read_text()))
+
+
+@app.route("/api/money/rebuild", methods=["POST"])
+def api_money_rebuild():
+    try:
+        from scripts.money_report import build
+        return jsonify(build())
+    except Exception as e:
+        return jsonify({"error": f"Could not build the report: {e}"}), 500
+
+
+@app.route("/api/money/awin", methods=["POST"])
+def api_money_awin():
+    """Save the Awin transactions export (CSV) for the report. Read by Governor only."""
+    f = request.files.get("file")
+    if not f or not f.filename.lower().endswith(".csv"):
+        return jsonify({"error": "Choose the Awin transactions export (.csv)."}), 400
+    raw = f.read()
+    head = raw[:2000].decode("utf-8-sig", errors="replace")
+    if "commission_status" not in head or "extra" not in head:
+        return jsonify({"error": "That doesn't look like an Awin transactions export."}), 400
+    d = DATA_PATH / "money"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "awin_latest.csv").write_bytes(raw)
+    return jsonify({"success": True})
+
+
 @app.route("/stock-update")
 def stock_update_page():
     """Upload a vendor stock file, preview what changes, apply with one click, undo."""

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Money This Week{% endblock %}
+{% block header %}💵 Money This Week{% endblock %}
+
+{% block content %}
+<style>
+.mw{max-width:980px;}
+.mw-card{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:16px 18px;margin:12px 0;}
+.mw-h{font-size:16px;font-weight:800;margin:0 0 8px;}
+.mw-big{font-size:26px;font-weight:800;}
+.mw-sub{font-size:13px;color:#6b7280;}
+.mw-row{display:flex;gap:28px;flex-wrap:wrap;}
+.mw-bad{color:#b91c1c;font-weight:700;} .mw-good{color:#047857;font-weight:700;}
+table.mw-t{width:100%;border-collapse:collapse;font-size:13px;}
+table.mw-t th{text-align:left;font-size:11px;text-transform:uppercase;color:#6b7280;padding:6px 8px;border-bottom:1px solid #e5e7eb;}
+table.mw-t td{padding:6px 8px;border-bottom:1px solid #f1f1f3;}
+.mw-btn{font-size:13px;font-weight:700;padding:7px 14px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;}
+.mw-note{font-size:13px;padding:9px 12px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;margin:6px 0;}
+.tag{display:inline-block;font-size:11px;font-weight:800;border-radius:999px;padding:1px 9px;}
+.tag.APPROVE{background:#ecfdf5;color:#047857;} .tag.DECLINE{background:#fef2f2;color:#b91c1c;}
+.tag.WAIT{background:#f3f4f6;color:#374151;} .tag.CHECK{background:#fffbeb;color:#92400e;}
+</style>
+<div class="mw" id="mw">Loading…</div>
+
+<script>
+function e(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const $=n=>'$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function render(r){
+  const el=document.getElementById('mw');
+  if(r.missing){ el.innerHTML=`<div class="mw-card">No report yet. <button class="mw-btn" onclick="rebuild(this)">Build it now</button> (takes about a minute)</div>`+awinBox(); return; }
+  if(r.error){ el.innerHTML=`<div class="mw-card mw-bad">⚠️ ${e(r.error)}</div>`; return; }
+  const t=r.this_week, p=r.last_week, a=r.ads;
+  const diff=t.profit-p.profit;
+  const ads = a.spend==null ? `<div class="mw-sub">Ad spend unavailable this week (see notes).</div>`
+    : `<div class="mw-row">
+        <div><div class="mw-sub">Ad orders' profit (before ads)</div><div class="mw-big">${$(a.profit_before_ads)}</div><div class="mw-sub">${a.orders} orders, ${$(a.revenue)} paid</div></div>
+        <div><div class="mw-sub">Ads cost</div><div class="mw-big">${$(a.spend)}</div><div class="mw-sub">real ROAS ${a.roas??'-'}</div></div>
+        <div><div class="mw-sub">Ads net</div><div class="mw-big ${a.net<0?'mw-bad':'mw-good'}">${a.net<0?'−':''}${$(Math.abs(a.net))}</div>
+          <div class="mw-sub">${a.net<0?'the ads cost more than their orders earned':'the ads paid for themselves'}</div></div></div>
+       <div class="mw-sub" style="margin-top:6px">Counts only orders GA4 can trace to Google Ads; GA4 misses some orders, so treat it as a floor.</div>`;
+  const lines=(r.by_line||[]).map(x=>`<tr><td>${e(x.line)}</td><td>${x.orders}</td><td>${$(x.revenue)}</td><td>${$(x.profit)}</td><td>${x.margin_pct==null?'-':Math.round(x.margin_pct)+'%'}</td></tr>`).join('');
+  const aw=(r.awin||[]).map(x=>`<tr><td><span class="tag ${x.action}">${x.action}</span></td><td>${e(x.order)}</td><td>${e(x.transaction_id)}</td><td>${e(x.publisher)}</td><td>${$(x.sale)}</td><td>${$(x.commission)}</td><td>${e(x.why)}</td></tr>`).join('');
+  el.innerHTML=`
+  <div class="mw-sub">Week ${e(r.week[0])} to ${e(r.week[1])} · built ${e(r.built)} · <button class="mw-btn" onclick="rebuild(this)">Rebuild now</button></div>
+  ${(r.stale||[]).map(s=>`<div class="mw-note">⏰ ${e(s)}</div>`).join('')}
+  <div class="mw-card"><div class="mw-h">1. Profit this week (before ads)</div>
+    <div class="mw-row"><div><div class="mw-big">${$(t.profit)}</div><div class="mw-sub">${t.orders} orders, ${$(t.revenue)} paid${t.margin_pct!=null?', '+Math.round(t.margin_pct)+'% kept':''}</div></div>
+    <div><div class="mw-sub">Last week</div><div style="font-size:18px;font-weight:700">${$(p.profit)}</div>
+      <div class="${diff<0?'mw-bad':'mw-good'}">${diff<0?'▼':'▲'} ${$(Math.abs(diff))}</div></div></div>
+    <table class="mw-t" style="margin-top:10px"><tr><th>Line</th><th>Orders</th><th>Paid</th><th>Profit</th><th>Kept</th></tr>${lines}</table></div>
+  <div class="mw-card"><div class="mw-h">2. Google Ads: did they pay this week?</div>${ads}</div>
+  <div class="mw-card"><div class="mw-h">3. Awin: what to do with pending commissions</div>
+    ${aw?`<table class="mw-t"><tr><th>Do</th><th>Order</th><th>Awin ID</th><th>Publisher</th><th>Sale</th><th>Commission</th><th>Why</th></tr>${aw}</table>
+     <div class="mw-sub" style="margin-top:6px">Do it in Awin: Commission > Validate Pending Transactions, tick Approve or Decline, click Apply. Awin export from ${e(r.awin_file_date||'-')}.</div>`
+     :'<div class="mw-sub">Nothing pending, or no Awin export uploaded yet.</div>'}
+    ${awinBox()}</div>
+  ${(r.notes||[]).length?`<div class="mw-card"><div class="mw-h">Notes</div>${r.notes.map(n=>`<div class="mw-sub">• ${e(n)}</div>`).join('')}</div>`:''}`;
+}
+function awinBox(){return `<div style="margin-top:10px;font-size:13px">Upload the latest Awin transactions export (Reports > Transactions > export CSV):
+  <input type="file" id="aw-file" accept=".csv"> <button class="mw-btn" onclick="uploadAwin(this)">Upload</button></div>`;}
+async function load(){ let r; try{ r=await (await fetch('/api/money')).json(); }catch(x){ r={error:''+x}; } render(r); }
+async function rebuild(b){ b.disabled=true; b.textContent='Building… (about a minute)';
+  let r; try{ r=await (await fetch('/api/money/rebuild',{method:'POST'})).json(); }catch(x){ r={error:''+x}; } render(r); }
+async function uploadAwin(b){ const f=document.getElementById('aw-file').files[0]; if(!f) return;
+  const fd=new FormData(); fd.append('file',f); b.disabled=true; b.textContent='Uploading…';
+  let r; try{ r=await (await fetch('/api/money/awin',{method:'POST',body:fd})).json(); }catch(x){ r={error:''+x}; }
+  if(r.error){ alert(r.error); b.disabled=false; b.textContent='Upload'; return; }
+  b.textContent='Uploaded, rebuilding…'; rebuild(b); }
+load();
+</script>
+{% endblock %}
