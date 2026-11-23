@@ -61,6 +61,13 @@ function render(r){
       <td>${e((g.pages||[]).join(', '))}</td><td>${e(g.change)}</td><td>${e(g.why)}</td></tr>`).join('')}</table>
       <div class="mw-sub" style="margin-top:6px">Graded by Google position for the target searches: 28 days before each change vs the last 28 days.</div>`
      :'<div class="mw-sub">Changes are graded automatically once their check date passes (first ones Dec 21 to 26).</div>'}</div>
+  <div class="mw-card"><div class="mw-h">5. What Governor has learned</div>
+    ${Object.keys(r.learned||{}).length?`<table class="mw-t"><tr><th>Kind of change</th><th>Worked</th><th>Didn't</th><th>Unclear</th><th>Success rate</th><th>Effect on ranking</th></tr>
+      ${Object.entries(r.learned).map(([k,v])=>`<tr><td>${e({intro_faq:'Intro + FAQ',retitle:'New title',links:'Internal links',new_page:'New page',assortment:'Products added',other:'Other'}[k]||k)}</td>
+        <td>${v.worked}</td><td>${v.not}</td><td>${v.unclear}</td><td>${Math.round(v.rate*100)}%</td>
+        <td class="${v.factor>1?'mw-good':v.factor<1?'mw-bad':''}">${v.factor>1?'ranked higher':v.factor<1?'ranked lower':'no change'} (x${v.factor})</td></tr>`).join('')}</table>
+      <div class="mw-sub" style="margin-top:6px">Starts neutral and moves with each graded change, so one result can't swing it. Start Here and Page Content use these to decide what comes first.</div>`
+     :'<div class="mw-sub">Nothing learned yet: the first results are graded Dec 21 to 26.</div>'}</div>
   ${(r.notes||[]).length?`<div class="mw-card"><div class="mw-h">Notes</div>${r.notes.map(n=>`<div class="mw-sub">• ${e(n)}</div>`).join('')}</div>`:''}`;
 }
 function awinBox(){return `<div style="margin-top:10px;font-size:13px">Upload the latest Awin transactions export (Reports > Transactions > export CSV):

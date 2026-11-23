@@ -398,6 +398,7 @@ def _from_product_demand(out, path=None, max_age_days=45):
             dedup_extra=top["search"]))
         out[-1]["metric"]["query"] = top["search"]
         out[-1]["primary_keyword"] = top["search"]
+        out[-1]["action_type"] = g.get("action")
         if g.get("links"):
             out[-1]["demand_links"] = g["links"]   # Governor can add these itself
 
@@ -1033,6 +1034,15 @@ def _score_task(t):
     # you can apply today rank above a slow, uncertain outreach campaign.
     if cat == "links":
         t["lever_score"] = round(t["lever_score"] * 0.2, 1)
+    # LEARNING: what kinds of change have actually worked on this store (graded
+    # 6 weeks after each change). 1.0 until there is evidence.
+    from src.analysis import learning as _learning
+    _lt = _learning.task_type(t)
+    if _lt:
+        _f = _learning.factors().get(_lt, 1.0)
+        if _f != 1.0:
+            t["learned_factor"] = _f
+            t["lever_score"] = round(t["lever_score"] * _f, 1)
     # A striking/winnable task whose ONLY remaining lever is EXTERNAL backlinks is
     # really link-building — the slow, hard, human-relationship lever, and (for
     # this store) not even the effective one. It must not sit at #1 badged

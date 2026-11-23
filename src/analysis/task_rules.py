@@ -53,7 +53,7 @@ def recently_changed(within_days=42, log_path=None):
             for c in _json.loads(gov.read_text()):
                 d = datetime.strptime(c["date"], "%Y-%m-%d").date()
                 if (date.today() - d).days <= within_days:
-                    for p in c.get("pages") or []:
+                    for p in (c.get("pages") or []) + ((c.get("control") or {}).get("pages") or []):
                         out.setdefault(p, c["date"])
         except (OSError, ValueError, KeyError, TypeError):
             pass

@@ -137,10 +137,14 @@ def remove(current: str) -> str:
 
 
 def pick_targets(plan_pages: list, done: set, limit: int = 2) -> list:
+    # (each page's value is weighted by how well that kind of change has worked here)
     """This week's pages: highest value first, gift and new pages as guides, skip pages
     already given content (`done`). Pure."""
+    from src.analysis.learning import factors
+    f = factors()
+    kind = lambda g: "new_page" if g.get("action") == "new_page" else "intro_faq"
     out = []
-    for g in sorted(plan_pages, key=lambda x: -(x.get("value") or 0)):
+    for g in sorted(plan_pages, key=lambda x: -(x.get("value") or 0) * f.get(kind(x), 1.0)):
         key = g.get("page") or "NEW:" + g["searches"][0]["search"]
         if key in done:
             continue

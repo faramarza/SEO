@@ -43,6 +43,7 @@ function card(d){
     : `<span class="pc-sub">${e(d.status)}</span>`;
   return `<div class="pc-card" id="pc-${d.id}"><div class="pc-h">${e(d.page_name)} · for “${e(d.search)}”</div>
     <div class="pc-sub">${where} · ${e(d.template==='guide'?'guide':'intro + FAQ')} · drafted ${e(d.created)}</div>
+    ${d.control?`<div class="pc-sub">Held back for comparison: <b>${e(d.control.pages[0])}</b> (left unchanged for 6 weeks, so the result shows Governor's effect, not the season's).</div>`:''}
     ${(d.fixes||[]).length?`<div class="pc-fix">Governor corrected the AI: ${d.fixes.map(e).join('; ')}</div>`:''}
     <div class="pc-where">Top of the page</div><div class="pc-prev" id="pi-${d.id}">${d.intro_html||'<i>none</i>'}</div>
     <div class="pc-where">Bottom of the page</div><div class="pc-prev" id="pb-${d.id}">${d.body_html||'<i>none</i>'}</div>

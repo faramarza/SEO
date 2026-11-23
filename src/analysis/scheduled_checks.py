@@ -103,3 +103,23 @@ def awin_alert(report: dict):
     txt = "Awin: " + "; ".join(f"{x['action'].lower()} order {x['order']} ({x['publisher']}, ${x['commission']})"
                                for x in items) + ". Commission > Validate Pending Transactions."
     return txt, key
+
+
+def grade_with_control(entry: dict, before: list, after: list, control: dict, days: int = 28) -> dict:
+    """Grade a change against a comparable page Governor left alone over the same
+    window: the verdict is on the DIFFERENCE in position gain, so a December lift
+    for every page is not credited to the change. Pure."""
+    t = grade(entry, before, after, days)
+    if not control or t["verdict"] == "NO DATA" or not t.get("before") or t["before"].get("position") is None \
+            or t["after"].get("position") is None:
+        return t
+    cb = _agg(before, control["pages"], control.get("queries") or [], days)
+    ca = _agg(after, control["pages"], control.get("queries") or [], days)
+    if cb["position"] is None or ca["position"] is None:
+        return dict(t, control="control page had no data; graded on its own")
+    gain_t = t["before"]["position"] - t["after"]["position"]
+    gain_c = cb["position"] - ca["position"]
+    net = round(gain_t - gain_c, 1)
+    verdict = "WORKED" if net >= 2 else "DID NOT WORK" if net <= -2 else "UNCLEAR"
+    return dict(t, verdict=verdict, why=f"{t['why']}; control {control['pages'][0]} moved {gain_c:+.1f}, "
+                f"net effect {net:+.1f} places", control_before=cb, control_after=ca)

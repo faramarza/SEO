@@ -1111,13 +1111,14 @@ def _pc_all():
     return out
 
 
-def _log_governor_change(page, change, queries):
-    """Record an approved change so the 6-week wait and the SEO grading include it."""
+def _log_governor_change(page, change, queries, control=None, kind=None):
+    """Record an approved change (and its held-back control page) so the 6-week wait,
+    the SEO grading and the learning include it."""
     from datetime import timedelta as _td
     log = json.loads(_GOV_CHANGES.read_text()) if _GOV_CHANGES.exists() else []
     today = datetime.now().date()
     log.append({"id": f"G{len(log) + 1}", "date": today.isoformat(), "check": (today + _td(days=42)).isoformat(),
-                "pages": [page], "queries": queries, "change": change})
+                "pages": [page], "queries": queries, "change": change, "type": kind, "control": control})
     _GOV_CHANGES.write_text(json.dumps(log, indent=1))
 
 
@@ -1181,9 +1182,24 @@ def page_content_generate_next(limit=2):
     plan_file = DATA_PATH / "product_demand_plan.json"
     if not plan_file.exists():
         return [{"error": "No demand plan yet (scripts/product_demand.py)."}]
+    from src.analysis.learning import choose_control
     pages = json.loads(plan_file.read_text()).get("pages") or []
-    done = {d["key"] for d in _pc_all() if d.get("status") in ("draft", "applied")}
-    return [_pc_draft_one(t) for t in pick_targets(pages, done, limit)]
+    drafts = _pc_all()
+    done = {d["key"] for d in drafts if d.get("status") in ("draft", "applied")}
+    done |= {(d.get("control") or {}).get("key") for d in drafts if d.get("status") in ("draft", "applied")}
+    candidates = pick_targets(pages, done, limit=50)
+    treated, held, out = candidates[:limit], set(), []
+    for t in treated:
+        ctl = choose_control([c for c in candidates[limit:] if c["key"] not in held], t)
+        if ctl:
+            held.add(ctl["key"])
+        d = _pc_draft_one(t)
+        if ctl and not d.get("error"):
+            d["control"] = {"key": ctl["key"], "pages": [ctl["page"]], "queries": [s["search"] for s in ctl["searches"][:5]],
+                            "page_name": ctl.get("page_name")}
+            _pc_path(d["id"]).write_text(json.dumps(d, indent=1))
+        out.append(d)
+    return out
 
 
 @app.route("/api/page-content/drafts")
@@ -1243,7 +1259,8 @@ def api_pc_approve():
         return jsonify({"error": f"Magento refused it, nothing was changed: {e}"}), 502
     d.update(status="applied", applied=datetime.now().isoformat(timespec="minutes"))
     p.write_text(json.dumps(d, indent=1))
-    _log_governor_change(d["page"], ("new page: " if d["create"] else "intro + FAQ: ") + d["page_name"], d["queries"])
+    _log_governor_change(d["page"], ("new page: " if d["create"] else "intro + FAQ: ") + d["page_name"], d["queries"],
+                         control=d.get("control"), kind="new_page" if d["create"] else "intro_faq")
     return jsonify({"success": True, "page": d["page"], "confirmed": d.get("confirmed", True)})
 
 
@@ -1286,7 +1303,10 @@ def api_money():
     g = DATA_PATH / "seo_grades.json"
     if g.exists():
         try:
-            out["seo_grades"] = sorted(json.loads(g.read_text()).values(), key=lambda x: x.get("graded", ""), reverse=True)
+            grades = json.loads(g.read_text())
+            out["seo_grades"] = sorted(grades.values(), key=lambda x: x.get("graded", ""), reverse=True)
+            from src.analysis.learning import rates
+            out["learned"] = {k: v for k, v in rates(grades).items() if v["graded"]}
         except Exception:
             pass
     return jsonify(out)

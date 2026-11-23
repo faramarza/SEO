@@ -58,7 +58,9 @@ def grade_seo(today, gsc_rows):
         changed = datetime.strptime(e["date"], "%Y-%m-%d").date()
         before = gsc_rows(changed - timedelta(days=28), changed - timedelta(days=1))
         after = gsc_rows(today - timedelta(days=31), today - timedelta(days=4))   # GSC lags ~3 days
-        g = dict(sc.grade(e, before, after), id=e["id"], pages=e["pages"], change=e["change"],
+        from src.analysis.learning import classify
+        res = sc.grade_with_control(e, before, after, e.get("control")) if e.get("control") else sc.grade(e, before, after)
+        g = dict(res, id=e["id"], pages=e["pages"], change=e["change"], type=e.get("type") or classify(e["change"]),
                  graded=today.isoformat())
         graded[e["id"]] = g
         new.append(g)
