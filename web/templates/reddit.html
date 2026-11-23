@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Reddit Helper{% endblock %}
+{% block header %}💬 Reddit Helper{% endblock %}
+
+{% block content %}
+<style>
+.rd{max-width:900px;}
+.rd-card{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:14px 16px;margin:10px 0;}
+.rd-sub{font-size:13px;color:#6b7280;}
+.rd-t{font-size:15px;font-weight:700;margin:2px 0 4px;}
+.rd-btn{font-size:13px;font-weight:700;padding:7px 14px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer;margin-right:6px;}
+.rd-btn.go{background:#16a34a;border-color:#16a34a;color:#fff;}
+textarea.rd-d{width:100%;min-height:110px;font-size:14px;line-height:1.5;margin:8px 0;padding:8px;border:1px solid #e5e7eb;border-radius:8px;}
+.rd-tag{display:inline-block;font-size:11px;font-weight:800;border-radius:999px;padding:1px 8px;background:#f3f4f6;color:#374151;}
+.rd-tag.fit{background:#ecfdf5;color:#047857;}
+</style>
+<div class="rd">
+  <div class="rd-card">
+    <div class="rd-sub">Each week Governor finds new Reddit threads (past 7 days) where your products genuinely fit and drafts a helpful
+      reply. <b>You</b> read it, edit it, and post it from your own account. Governor never posts.
+      Help first; mention the store rarely and honestly.</div>
+    <label style="display:block;margin:10px 0;font-size:14px;">
+      <input type="checkbox" id="rd-mention" onchange="rdMention(this)">
+      <b>Warm-up done:</b> drafts may add one honest line ("I run a small toy shop, so I'm biased") when a product truly fits.
+      Leave this off for your first week or two so your account builds a normal history.</label>
+    <button class="rd-btn go" onclick="rdFind(this)">Find this week's threads</button>
+  </div>
+  <div id="rd-list">Loading…</div>
+</div>
+<script>
+function e(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function post(u,b){ try{ return await (await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})})).json(); }catch(x){ return {error:''+x}; } }
+function card(t){
+  const open = t.status==='new';
+  return `<div class="rd-card" style="${open?'':'opacity:.55'}"><div class="rd-sub">r/${e(t.sub)} · found ${e(t.found)} ·
+      <span class="rd-tag ${t.fits?'fit':''}">${t.fits?'a product fits':'just help'}</span> · ${e(t.status)}</div>
+    <div class="rd-t"><a href="${e(t.url)}" target="_blank">${e(t.title)}</a></div>
+    <div class="rd-sub">${e(t.snippet)}</div>
+    ${open?`<textarea class="rd-d" id="d-${t.id}">${e(t.draft)}</textarea>
+    <button class="rd-btn" onclick="navigator.clipboard.writeText(document.getElementById('d-${t.id}').value)">Copy reply</button>
+    <button class="rd-btn go" onclick="rdMark('${t.id}','posted')">I posted it</button>
+    <button class="rd-btn" onclick="rdMark('${t.id}','skipped')">Skip</button>`:''}</div>`;
+}
+async function load(){
+  let d={threads:[]}; try{ d=await (await fetch('/api/reddit')).json(); }catch(x){}
+  document.getElementById('rd-mention').checked=!!d.mention;
+  const l=d.threads||[];
+  document.getElementById('rd-list').innerHTML = l.length ? l.map(card).join('') : '<div class="rd-card rd-sub">No threads yet. Click “Find this week’s threads”.</div>';
+}
+async function rdFind(b){ b.disabled=true; b.textContent='Searching and drafting… (about a minute)';
+  const r=await post('/api/reddit/find'); b.disabled=false; b.textContent="Find this week's threads";
+  await load();
+  if(r.error||(r.errors||[]).length) document.getElementById('rd-list').insertAdjacentHTML('afterbegin',`<div class="rd-card rd-sub">⚠️ ${e(r.error||r.errors.join('; '))}</div>`);
+  else if(!r.new) document.getElementById('rd-list').insertAdjacentHTML('afterbegin',`<div class="rd-card rd-sub">No new threads this week.</div>`);
+}
+async function rdMark(id,status){ const el=document.getElementById('d-'+id);
+  await post('/api/reddit/mark',{id,status,draft:el?el.value:null}); load(); }
+async function rdMention(cb){ await post('/api/reddit/settings',{mention:cb.checked}); }
+load();
+</script>
+{% endblock %}

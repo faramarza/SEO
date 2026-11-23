@@ -1083,6 +1083,99 @@ def grow_sales():
     return render_template("grow_sales.html")
 
 
+@app.route("/reddit")
+def reddit_page():
+    """Reddit Helper: this week's threads where our products fit, with a draft reply
+    to edit and post by hand. Governor never posts."""
+    return render_template("reddit.html")
+
+
+_RD_FILE = DATA_PATH / "reddit_threads.json"
+
+
+def _rd_load():
+    try:
+        return json.loads(_RD_FILE.read_text())
+    except Exception:
+        return {"mention": False, "threads": []}
+
+
+def _rd_save(d):
+    _RD_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _RD_FILE.write_text(json.dumps(d, indent=1))
+
+
+def _serper_search(q):
+    import os
+    import requests as _rq
+    key = os.environ.get("SERPER_API_KEY")
+    if not key:
+        raise RuntimeError("SERPER_API_KEY not set")
+    r = _rq.post("https://google.serper.dev/search", timeout=30,
+                 headers={"X-API-KEY": key, "Content-Type": "application/json"},
+                 json={"q": q, "gl": "us", "num": 10, "tbs": "qdr:w"})
+    if r.status_code != 200:
+        raise RuntimeError(f"search error {r.status_code}")
+    return r.json()
+
+
+def reddit_find_and_draft(limit=6):
+    """Weekly: find fresh threads and draft replies. Returns (new threads, errors)."""
+    from src.analysis import reddit_helper as rh
+    d = _rd_load()
+    seen = {t["id"] for t in d["threads"]}
+    found, errors = [], []
+    for sub, q, offer in rh.queries():
+        try:
+            found += rh.parse_results(_serper_search(q), sub, offer)
+        except Exception as e:
+            errors.append(f"r/{sub}: {e}")
+    fresh = rh.new_threads(found, seen, limit)
+    cfg = load_config()
+    for t in fresh:
+        out, err = _llm_json(rh.system_prompt(), rh.user_prompt(t, d["mention"]), cfg, max_tokens=500)
+        t["draft"] = rh.clean_reply((out or {}).get("reply", ""), d["mention"]) if not err else ""
+        t["fits"] = bool((out or {}).get("fits"))
+        t["status"], t["found"] = "new", datetime.now().isoformat(timespec="minutes")
+        if err:
+            errors.append(f"draft for {t['url']}: {err}")
+    d["threads"] = fresh + d["threads"][:200]
+    _rd_save(d)
+    return fresh, errors
+
+
+@app.route("/api/reddit")
+def api_reddit():
+    return jsonify(_rd_load())
+
+
+@app.route("/api/reddit/find", methods=["POST"])
+def api_reddit_find():
+    fresh, errors = reddit_find_and_draft()
+    return jsonify({"new": len(fresh), "errors": errors})
+
+
+@app.route("/api/reddit/mark", methods=["POST"])
+def api_reddit_mark():
+    b = request.get_json(silent=True) or {}
+    d = _rd_load()
+    for t in d["threads"]:
+        if t["id"] == b.get("id") and b.get("status") in ("posted", "skipped", "new"):
+            t["status"] = b["status"]
+            if b.get("draft") is not None:
+                t["draft"] = str(b["draft"])[:3000]
+    _rd_save(d)
+    return jsonify({"success": True})
+
+
+@app.route("/api/reddit/settings", methods=["POST"])
+def api_reddit_settings():
+    d = _rd_load()
+    d["mention"] = bool((request.get_json(silent=True) or {}).get("mention"))
+    _rd_save(d)
+    return jsonify({"success": True, "mention": d["mention"]})
+
+
 @app.route("/page-content")
 def page_content_page():
     """Intros, FAQs and gift guides for the pages buyers search for: drafted from the
