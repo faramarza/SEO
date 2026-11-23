@@ -51,3 +51,4 @@ data/.secret_key
 data/*.lock
 data/*.log
 data/*.csv
+data/stock_updates/

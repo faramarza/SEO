@@ -513,6 +513,46 @@ class MagentoClient:
     # its OWN assertion that NOTHING but `description` is ever sent — so the two
     # surfaces can't bleed into each other, and the description write can never
     # touch price/status/url_key/etc.
+    # ---- Stock (Governor's Stock Update page) --------------------------------
+    def get_stock(self, skus, batch=50):
+        """{sku: {"qty", "in_stock", "name", "item_id"}} for the SKUs that exist in the
+        store (unknown SKUs are simply absent). READ-ONLY."""
+        from urllib.parse import quote
+        out, skus = {}, [s for s in dict.fromkeys(skus) if s]
+        for i in range(0, len(skus), batch):
+            part = skus[i:i + batch]
+            q = ("/products?searchCriteria[filterGroups][0][filters][0][field]=sku"
+                 f"&searchCriteria[filterGroups][0][filters][0][value]={quote(','.join(part), safe=',')}"
+                 "&searchCriteria[filterGroups][0][filters][0][conditionType]=in"
+                 f"&searchCriteria[pageSize]={batch}"
+                 "&fields=items[sku,name,extension_attributes[stock_item[item_id,qty,is_in_stock]]]")
+            for p in (self._req("GET", q) or {}).get("items") or []:
+                st = (p.get("extension_attributes") or {}).get("stock_item") or {}
+                out[p.get("sku")] = {"qty": float(st.get("qty") or 0), "in_stock": bool(st.get("is_in_stock")),
+                                     "name": p.get("name", ""), "item_id": st.get("item_id")}
+        return out
+
+    def set_stock(self, items, batch=100):
+        """Write [{sku, qty, in_stock, item_id}] (qty and stock status only, nothing
+        else). Uses the inventory source-items API (default source) when the store
+        has it, else the legacy stock-item API. Returns the method used."""
+        items = list(items)
+        try:
+            for i in range(0, len(items), batch):
+                self._req("POST", "/inventory/source-items", {"sourceItems": [
+                    {"sku": it["sku"], "source_code": "default", "quantity": float(it["qty"]),
+                     "status": 1 if it["in_stock"] else 0} for it in items[i:i + batch]]})
+            return "source-items"
+        except MagentoError as e:
+            if not self._is_no_route(e):
+                raise
+        for it in items:
+            if not it.get("item_id"):
+                raise MagentoError(f"{it['sku']}: no stock item id; nothing written for it")
+            self._req("PUT", "/products/" + str(it["sku"]).replace("/", "%2F") + f"/stockItems/{it['item_id']}",
+                      {"stockItem": {"qty": float(it["qty"]), "is_in_stock": bool(it["in_stock"])}})
+        return "stock-items"
+
     def get_category_description(self, url: str):
         """Resolve a storefront URL to its category and return
         {category_id, name, description} or None (never guesses a write target)."""

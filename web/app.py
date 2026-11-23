@@ -1083,6 +1083,133 @@ def grow_sales():
     return render_template("grow_sales.html")
 
 
+@app.route("/stock-update")
+def stock_update_page():
+    """Upload a vendor stock file, preview what changes, apply with one click, undo."""
+    return render_template("stock_update.html")
+
+
+_STOCK_DIR = DATA_PATH / "stock_updates"
+
+
+def _stock_plan_path(pid):
+    import re as _re
+    if not _re.fullmatch(r"[0-9a-f]{12}", pid or ""):
+        raise ValueError("bad plan id")
+    return _STOCK_DIR / f"{pid}.json"
+
+
+@app.route("/api/stock/preview", methods=["POST"])
+def api_stock_preview():
+    """Parse the uploaded vendor file and compare it with the store. Writes nothing
+    to Magento; saves the plan so Apply uses exactly what was previewed."""
+    import uuid
+    from src.analysis.vendor_stock import VendorFileError, diff, parse
+    from src.data_sources.magento_client import MagentoClient, MagentoError
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "Choose the vendor file first."}), 400
+    raw = f.read()
+    if len(raw) > 10 * 1024 * 1024:
+        return jsonify({"error": "File is over 10 MB."}), 400
+    pid = uuid.uuid4().hex[:12]
+    _STOCK_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = ".xlsx" if f.filename.lower().endswith((".xlsx", ".xlsm")) else ".csv"
+    tmp = _STOCK_DIR / f"{pid}{suffix}"
+    tmp.write_bytes(raw)
+    try:
+        vendor, rows = parse(str(tmp), f.filename)
+    except VendorFileError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Could not read the file: {e}"}), 400
+    mc = MagentoClient()
+    if not mc.configured:
+        return jsonify({"error": "Magento is not connected."}), 400
+    try:
+        current = mc.get_stock([r["sku"] for r in rows])
+    except MagentoError as e:
+        return jsonify({"error": f"Could not read current stock from Magento: {e}"}), 502
+    d = diff(rows, current)
+    for c in d["changes"]:
+        c["item_id"] = current[c["sku"]].get("item_id")
+    plan = {"id": pid, "vendor": vendor, "filename": f.filename,
+            "created": datetime.now().isoformat(timespec="seconds"), "status": "previewed",
+            "rows_in_file": len(rows), **d}
+    _stock_plan_path(pid).write_text(json.dumps(plan, indent=1))
+    return jsonify(plan)
+
+
+def _stock_write(plan, use_new):
+    from src.data_sources.magento_client import MagentoClient
+    mc = MagentoClient()
+    items = [{"sku": c["sku"], "item_id": c.get("item_id"),
+              "qty": c["new_qty"] if use_new else c["old_qty"],
+              "in_stock": c["new_in_stock"] if use_new else c["old_in_stock"]} for c in plan["changes"]]
+    method = mc.set_stock(items) if items else "nothing to write"
+    # Read back from Magento: proof each SKU now holds what we wrote.
+    after = mc.get_stock([i["sku"] for i in items]) if items else {}
+    wrong = [i["sku"] for i in items
+             if i["sku"] not in after or after[i["sku"]]["in_stock"] != bool(i["in_stock"])
+             or abs(after[i["sku"]]["qty"] - float(i["qty"])) > 0.001]
+    return method, wrong
+
+
+@app.route("/api/stock/apply", methods=["POST"])
+def api_stock_apply():
+    from src.data_sources.magento_client import MagentoError
+    pid = (request.get_json(silent=True) or {}).get("id")
+    try:
+        path = _stock_plan_path(pid)
+        plan = json.loads(path.read_text())
+    except Exception:
+        return jsonify({"error": "That preview was not found. Upload the file again."}), 404
+    if plan.get("status") == "applied":
+        return jsonify({"error": "Already applied."}), 400
+    try:
+        method, wrong = _stock_write(plan, use_new=True)
+    except MagentoError as e:
+        return jsonify({"error": f"Magento refused the update, nothing more was written: {e}"}), 502
+    plan.update(status="applied", applied=datetime.now().isoformat(timespec="seconds"),
+                method=method, not_confirmed=wrong)
+    path.write_text(json.dumps(plan, indent=1))
+    return jsonify({"success": True, "changed": len(plan["changes"]), "not_confirmed": wrong})
+
+
+@app.route("/api/stock/undo", methods=["POST"])
+def api_stock_undo():
+    from src.data_sources.magento_client import MagentoError
+    pid = (request.get_json(silent=True) or {}).get("id")
+    try:
+        path = _stock_plan_path(pid)
+        plan = json.loads(path.read_text())
+    except Exception:
+        return jsonify({"error": "Not found."}), 404
+    if plan.get("status") != "applied":
+        return jsonify({"error": "Only an applied update can be undone."}), 400
+    try:
+        method, wrong = _stock_write(plan, use_new=False)
+    except MagentoError as e:
+        return jsonify({"error": f"Magento refused the undo: {e}"}), 502
+    plan.update(status="undone", undone=datetime.now().isoformat(timespec="seconds"), undo_not_confirmed=wrong)
+    path.write_text(json.dumps(plan, indent=1))
+    return jsonify({"success": True, "restored": len(plan["changes"]), "not_confirmed": wrong})
+
+
+@app.route("/api/stock/history")
+def api_stock_history():
+    out = []
+    for p in sorted(_STOCK_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:10] \
+            if _STOCK_DIR.exists() else []:
+        try:
+            d = json.loads(p.read_text())
+            out.append({k: d.get(k) for k in ("id", "vendor", "filename", "created", "status", "out", "back",
+                                               "qty_only", "applied", "undone")})
+        except Exception:
+            pass
+    return jsonify(out)
+
+
 @app.route("/paid-search")
 def paid_search_page():
     """Paid Search — the weekly, READ-ONLY Google Ads report: new keyword candidates,

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Stock Update{% endblock %}
+{% block header %}📦 Stock Update{% endblock %}
+
+{% block content %}
+<style>
+.su-card{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:16px 18px;margin:12px 0;max-width:980px;}
+.su-steps{font-size:14px;line-height:1.7;margin:0 0 10px;padding-left:20px;}
+.su-btn{font-size:14px;font-weight:700;padding:9px 18px;border-radius:8px;border:1px solid #16a34a;background:#16a34a;color:#fff;cursor:pointer;}
+.su-btn.sec{background:#fff;color:#374151;border-color:var(--border,#d1d5db);font-weight:600;}
+.su-btn:disabled{opacity:.5;cursor:default;}
+.su-sum{font-size:15px;margin:6px 0 12px;line-height:1.6;}
+.su-note{font-size:13px;padding:10px 12px;border-radius:8px;margin:10px 0;}
+.su-note.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;}
+.su-note.err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;}
+.su-note.info{background:#f8fafc;border:1px solid #e2e8f0;color:#334155;}
+table.su-t{width:100%;border-collapse:collapse;font-size:13px;}
+table.su-t th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;padding:6px 8px;border-bottom:1px solid #e5e7eb;}
+table.su-t td{padding:6px 8px;border-bottom:1px solid #f1f1f3;}
+.out{color:#b91c1c;font-weight:700;} .back{color:#047857;font-weight:700;}
+</style>
+
+<div class="su-card">
+  <ol class="su-steps">
+    <li>Choose the stock file exactly as the vendor sent it: <b>Guidecraft</b> (CSV), <b>Whitney Brothers</b> (CSV) or <b>Carpets for Kids</b> (Excel).</li>
+    <li>Click <b>Preview</b>. Nothing changes yet: you see only what would change in your store.</li>
+    <li>Click <b>Apply</b>. Governor updates the stock in Magento and checks every item saved. <b>Undo</b> puts it all back.</li>
+  </ol>
+  <input type="file" id="su-file" accept=".csv,.xlsx">
+  <button class="su-btn" id="su-prev" onclick="suPreview()">Preview</button>
+  <div id="su-out"></div>
+</div>
+
+<div class="su-card">
+  <div style="font-weight:700;margin-bottom:6px;">Recent updates</div>
+  <div id="su-hist" style="font-size:13px;">Loading…</div>
+</div>
+
+<script>
+function suEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const VENDOR={guidecraft:'Guidecraft',whitney:'Whitney Brothers',carpets:'Carpets for Kids'};
+let SU=null;
+
+async function suPreview(){
+  const f=document.getElementById('su-file').files[0], out=document.getElementById('su-out');
+  if(!f){out.innerHTML='<div class="su-note err">Choose the vendor file first.</div>';return;}
+  const b=document.getElementById('su-prev'); b.disabled=true; b.textContent='Reading…';
+  const fd=new FormData(); fd.append('file',f);
+  let r; try{ r=await (await fetch('/api/stock/preview',{method:'POST',body:fd})).json(); }catch(e){ r={error:'Could not reach Governor: '+e}; }
+  b.disabled=false; b.textContent='Preview';
+  if(r.error){out.innerHTML=`<div class="su-note err">⚠️ ${suEsc(r.error)}</div>`;return;}
+  SU=r;
+  const n=r.changes.length;
+  const rows=r.changes.map(c=>`<tr><td>${suEsc(c.sku)}</td><td>${suEsc(c.name)}</td>
+     <td class="${c.change.startsWith('goes')?'out':c.change.startsWith('comes')?'back':''}">${suEsc(c.change)}</td>
+     <td style="text-align:right">${c.old_qty} → ${c.new_qty}</td><td style="color:#6b7280">${suEsc(c.note)}</td></tr>`).join('');
+  out.innerHTML=`<div class="su-sum"><b>${VENDOR[r.vendor]||r.vendor}</b> file, ${r.rows_in_file} items.<br>
+    In your store: <span class="out">${r.out} go out of stock</span>, <span class="back">${r.back} come back in stock</span>,
+    ${r.qty_only} quantity changes only, ${r.unchanged} already correct.
+    ${r.not_in_store.length} items in the file aren't in your store and are skipped.</div>
+    ${n?`<button class="su-btn" id="su-apply" onclick="suApply()">Apply ${n} change${n===1?'':'s'} to Magento</button>
+    <div style="max-height:420px;overflow:auto;margin-top:12px;"><table class="su-t"><tr><th>SKU</th><th>Product</th><th>Change</th><th>Qty</th><th>Vendor note</th></tr>${rows}</table></div>`
+    :'<div class="su-note ok">✅ Your store already matches this file. Nothing to do.</div>'}`;
+}
+
+async function suApply(){
+  const b=document.getElementById('su-apply'); b.disabled=true; b.textContent='Updating Magento…';
+  let r; try{ r=await (await fetch('/api/stock/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:SU.id})})).json(); }catch(e){ r={error:'Could not reach Governor: '+e}; }
+  const note=document.createElement('div');
+  if(r.error){ note.className='su-note err'; note.innerHTML='⚠️ '+suEsc(r.error); b.disabled=false; b.textContent='Try again'; }
+  else{
+    note.className='su-note ok';
+    note.innerHTML=`✅ Done: ${r.changed} item${r.changed===1?'':'s'} updated and checked in Magento.`+
+      (r.not_confirmed.length?`<br>⚠️ Not confirmed on read-back: ${suEsc(r.not_confirmed.join(', '))}`:'')+
+      `<br><span style="font-size:12.5px">If a product page still shows the old stock, it's page cache: run <b>bin/magento cache:flush</b>.</span>
+       <br><button class="su-btn sec" style="margin-top:8px" onclick="suUndo('${SU.id}',this)">↩︎ Undo</button>`;
+    b.textContent='Applied';
+  }
+  b.after(note); suHistory();
+}
+
+async function suUndo(id,btn){
+  btn.disabled=true; btn.textContent='Undoing…';
+  let r; try{ r=await (await fetch('/api/stock/undo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})).json(); }catch(e){ r={error:''+e}; }
+  btn.closest('.su-note').innerHTML = r.error ? '⚠️ '+suEsc(r.error)
+    : `↩︎ Undone: ${r.restored} item${r.restored===1?'':'s'} restored to what they were before.`+
+      (r.not_confirmed.length?` Not confirmed: ${suEsc(r.not_confirmed.join(', '))}`:'');
+  suHistory();
+}
+
+async function suHistory(){
+  let h=[]; try{ h=await (await fetch('/api/stock/history')).json(); }catch(e){}
+  document.getElementById('su-hist').innerHTML = h.length ? h.map(x=>`<div>${suEsc(x.created)} · ${VENDOR[x.vendor]||suEsc(x.vendor)} · ${suEsc(x.filename)} · <b>${suEsc(x.status)}</b>
+     (${x.out||0} out, ${x.back||0} back, ${x.qty_only||0} qty)${x.status==='applied'?` <button class="su-btn sec" style="padding:2px 8px;font-size:12px" onclick="suUndo('${suEsc(x.id)}',this)">Undo</button>`:''}</div>`).join('')
+    : 'None yet.';
+}
+suHistory();
+</script>
+{% endblock %}
