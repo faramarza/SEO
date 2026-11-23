@@ -577,23 +577,53 @@ class MagentoClient:
     # ---- Stock (Governor's Stock Update page) --------------------------------
     def get_stock(self, skus, batch=50):
         """{sku: {"qty", "in_stock", "name", "item_id"}} for the SKUs that exist in the
-        store (unknown SKUs are simply absent). READ-ONLY."""
+        store (unknown SKUs are simply absent). READ-ONLY.
+        Some stores don't include stock in the product list, so when it's missing the
+        stock comes from the stock-items list (matched by product id). If stock can't
+        be read at all, "qty" is None rather than a made-up 0."""
         from urllib.parse import quote
         out, skus = {}, [s for s in dict.fromkeys(skus) if s]
+        missing = {}
         for i in range(0, len(skus), batch):
             part = skus[i:i + batch]
             q = ("/products?searchCriteria[filterGroups][0][filters][0][field]=sku"
                  f"&searchCriteria[filterGroups][0][filters][0][value]={quote(','.join(part), safe=',')}"
                  "&searchCriteria[filterGroups][0][filters][0][conditionType]=in"
-                 f"&searchCriteria[pageSize]={batch}"
-                 "&fields=items[sku,name,extension_attributes[stock_item[item_id,qty,is_in_stock]]]")
+                 f"&searchCriteria[pageSize]={batch}")
             for p in (self._req("GET", q) or {}).get("items") or []:
-                st = (p.get("extension_attributes") or {}).get("stock_item") or {}
-                out[p.get("sku")] = {"qty": float(st.get("qty") or 0), "in_stock": bool(st.get("is_in_stock")),
-                                     "name": p.get("name", ""), "item_id": st.get("item_id")}
+                st = (p.get("extension_attributes") or {}).get("stock_item")
+                if st:
+                    out[p.get("sku")] = {"qty": float(st.get("qty") or 0), "in_stock": bool(st.get("is_in_stock")),
+                                         "name": p.get("name", ""), "item_id": st.get("item_id")}
+                else:
+                    missing[p.get("id")] = p
+                    out[p.get("sku")] = {"qty": None, "in_stock": None, "name": p.get("name", ""), "item_id": None}
+        if missing:
+            for st in self.stock_items_by_product(set(missing)).values():
+                prod = missing.get(st.get("product_id"))
+                if prod:
+                    out[prod.get("sku")].update(qty=float(st.get("qty") or 0), in_stock=bool(st.get("is_in_stock")),
+                                                item_id=st.get("item_id"))
         return out
 
-    def set_stock(self, items, batch=100):
+    def stock_items_by_product(self, product_ids, page_size=500):
+        """{product_id: stock item} via the legacy stock list (every item with qty below a
+        huge number = every item). Empty if the store doesn't offer it."""
+        out, page = {}, 1
+        while True:
+            try:
+                r = self._req("GET", f"/stockItems/lowStock?scopeId=0&qty=100000000&pageSize={page_size}&currentPage={page}") or {}
+            except MagentoError:
+                return out
+            items = r.get("items") or []
+            for st in items:
+                if st.get("product_id") in product_ids:
+                    out[st["product_id"]] = st
+            if not items or page * page_size >= int(r.get("total_count") or 0) or len(out) == len(product_ids):
+                return out
+            page += 1
+
+    def set_stock(self, items, batch=100, progress=None):
         """Write [{sku, qty, in_stock}] (qty and stock status only, nothing else).
         Uses the inventory source-items API when the store has it, else the legacy
         stock-item API one SKU at a time (Magento finds the item by SKU; the id in
@@ -610,13 +640,15 @@ class MagentoClient:
             if not self._is_no_route(e):
                 raise                      # nothing was written (the batch is all or nothing)
         written, failed = [], {}
-        for it in items:
+        for n, it in enumerate(items, 1):
             try:
                 self._req("PUT", "/products/" + str(it["sku"]).replace("/", "%2F") + f"/stockItems/{it.get('item_id') or 1}",
                           {"stockItem": {"qty": float(it["qty"]), "is_in_stock": bool(it["in_stock"])}})
                 written.append(it["sku"])
             except MagentoError as e:
                 failed[it["sku"]] = str(e)[:200]
+            if progress and (n % 5 == 0 or n == len(items)):
+                progress(n, len(items), written, failed)
         return {"method": "stock-items", "written": written, "failed": failed}
 
     def get_category_description(self, url: str):

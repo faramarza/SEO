@@ -53,7 +53,7 @@ async function suPreview(){
   const n=r.changes.length;
   const rows=r.changes.map(c=>`<tr><td>${suEsc(c.sku)}</td><td>${suEsc(c.name)}</td>
      <td class="${c.change.startsWith('goes')?'out':c.change.startsWith('comes')?'back':''}">${suEsc(c.change)}</td>
-     <td style="text-align:right">${c.old_qty} → ${c.new_qty}</td><td style="color:#6b7280">${suEsc(c.note)}</td></tr>`).join('');
+     <td style="text-align:right">${c.old_qty==null?'?':c.old_qty} → ${c.new_qty}</td><td style="color:#6b7280">${suEsc(c.note)}</td></tr>`).join('');
   out.innerHTML=`<div class="su-sum"><b>${VENDOR[r.vendor]||r.vendor}</b> file, ${r.rows_in_file} items.<br>
     In your store: <span class="out">${r.out} go out of stock</span>, <span class="back">${r.back} come back in stock</span>,
     ${r.qty_only} quantity changes only, ${r.unchanged} already correct.
@@ -63,31 +63,49 @@ async function suPreview(){
     :'<div class="su-note ok">✅ Your store already matches this file. Nothing to do.</div>'}`;
 }
 
-async function suApply(){
-  const b=document.getElementById('su-apply'); b.disabled=true; b.textContent='Updating Magento…';
-  let r; try{ r=await (await fetch('/api/stock/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:SU.id})})).json(); }catch(e){ r={error:'Could not reach Governor: '+e}; }
-  const note=document.createElement('div');
-  if(r.error){ note.className='su-note err'; note.innerHTML='⚠️ '+suEsc(r.error); b.disabled=false; b.textContent='Try again'; }
-  else{
-    note.className='su-note ok';
-    const fails=Object.entries(r.failed||{});
-    note.innerHTML=`✅ Done: ${r.changed} item${r.changed===1?'':'s'} updated and checked in Magento.`+
-      (fails.length?`<br>⚠️ ${fails.length} item${fails.length===1?'':'s'} Magento refused (not changed): ${suEsc(fails.map(([s,why])=>s).join(', '))}
-        <br><span style="font-size:12px">${suEsc(fails[0][1])}</span>`:'')+
-      (r.not_confirmed.length?`<br>⚠️ Not confirmed on read-back: ${suEsc(r.not_confirmed.join(', '))}`:'')+
-      `<br><span style="font-size:12.5px">If a product page still shows the old stock, it's page cache: run <b>bin/magento cache:flush</b>.</span>
-       <br><button class="su-btn sec" style="margin-top:8px" onclick="suUndo('${SU.id}',this)">↩︎ Undo</button>`;
-    b.textContent='Applied';
+async function suPoll(id, onTick){
+  for(;;){
+    await new Promise(r=>setTimeout(r,2000));
+    let s; try{ s=await (await fetch('/api/stock/status?id='+id)).json(); }catch(e){ continue; }
+    onTick(s);
+    if(s.error || s.stalled || !['applying','undoing'].includes(s.status)) return s;
   }
-  b.after(note); suHistory();
+}
+
+async function suApply(){
+  const b=document.getElementById('su-apply'); b.disabled=true;
+  const note=document.createElement('div'); note.className='su-note info'; b.after(note);
+  let r; try{ r=await (await fetch('/api/stock/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:SU.id})})).json(); }catch(e){ r={error:'Could not reach Governor: '+e}; }
+  if(r.error){ note.className='su-note err'; note.innerHTML='⚠️ '+suEsc(r.error); b.disabled=false; return; }
+  b.textContent='Updating Magento…';
+  const s=await suPoll(SU.id, x=>{ note.innerHTML=`⏳ Updating Magento: <b>${x.done||0} of ${x.total||r.total}</b> items. You can leave this page; it keeps going.`; });
+  suDone(s, note, b);
+}
+
+function suDone(s, note, b){
+  if(s.stalled){ note.className='su-note err'; note.innerHTML='⚠️ It stopped partway (the server restarted?). Upload the same file and Preview again: items already updated show as correct, and Apply finishes the rest.'; return; }
+  if(s.status==='failed'){ note.className='su-note err'; note.innerHTML='⚠️ '+suEsc(s.job_error||'Failed'); if(b){b.disabled=false;b.textContent='Try again';} return; }
+  const fails=Object.entries(s.failed||{});
+  note.className='su-note ok';
+  note.innerHTML=`✅ Done: ${(s.written||[]).length} item${(s.written||[]).length===1?'':'s'} updated and checked in Magento.`+
+    (fails.length?`<br>⚠️ ${fails.length} refused by Magento (not changed): ${suEsc(fails.map(([k])=>k).join(', '))}<br><span style="font-size:12px">${suEsc(fails[0][1])}</span>`:'')+
+    ((s.not_confirmed||[]).length?`<br>⚠️ Read back DIFFERENT from what was written: ${suEsc(s.not_confirmed.join(', '))}`:'')+
+    ((s.unread||[]).length?`<br>ℹ️ ${s.unread.length} item${s.unread.length===1?'':'s'} written, but Magento doesn't let Governor read their stock back. Spot-check one in Magento.`:'')+
+    `<br><span style="font-size:12.5px">If a product page still shows the old stock, it's page cache: run <b>bin/magento cache:flush</b>.</span>
+     <br><button class="su-btn sec" style="margin-top:8px" onclick="suUndo('${s.id}',this)">↩︎ Undo</button>`;
+  if(b) b.textContent='Applied';
+  suHistory();
 }
 
 async function suUndo(id,btn){
   btn.disabled=true; btn.textContent='Undoing…';
   let r; try{ r=await (await fetch('/api/stock/undo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})).json(); }catch(e){ r={error:''+e}; }
-  btn.closest('.su-note').innerHTML = r.error ? '⚠️ '+suEsc(r.error)
-    : `↩︎ Undone: ${r.restored} item${r.restored===1?'':'s'} restored to what they were before.`+
-      (r.not_confirmed.length?` Not confirmed: ${suEsc(r.not_confirmed.join(', '))}`:'');
+  const box=btn.closest('.su-note')||btn.parentElement;
+  if(r.error){ box.innerHTML='⚠️ '+suEsc(r.error); return; }
+  const s=await suPoll(id, x=>{ box.innerHTML=`⏳ Undoing: <b>${x.done||0} of ${x.total||r.total}</b> items…`; });
+  box.innerHTML = s.stalled ? '⚠️ Undo stopped partway; click Undo again in Recent updates.'
+    : `↩︎ Undone: ${s.restored||0} item${s.restored===1?'':'s'} restored to what they were before.`+
+      ((s.undo_not_confirmed||[]).length?` Not confirmed: ${suEsc(s.undo_not_confirmed.join(', '))}`:'');
   suHistory();
 }
 

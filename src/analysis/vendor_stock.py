@@ -65,6 +65,11 @@ def diff(rows: list, current: dict) -> dict:
             not_in_store.append(r["sku"])
             continue
         new_qty, new_in = float(r["qty"]), bool(r["is_in_stock"])
+        if cur.get("qty") is None:          # stock unreadable: write it, but don't guess the old value
+            changes.append({"sku": r["sku"], "name": cur.get("name", ""), "old_qty": None, "new_qty": new_qty,
+                            "old_in_stock": None, "new_in_stock": new_in, "change": "quantity only",
+                            "note": (r.get("note", "") + " (current stock unreadable)").strip()})
+            continue
         old_qty, old_in = float(cur.get("qty") or 0), bool(cur.get("in_stock"))
         if new_qty == old_qty and new_in == old_in:
             same += 1
