@@ -32,6 +32,16 @@ table.su-t td{padding:6px 8px;border-bottom:1px solid #f1f1f3;}
 </div>
 
 <div class="su-card">
+  <div style="font-weight:700;margin-bottom:6px;">Disabled products that pay (Whitney Brothers)</div>
+  <div style="font-size:13.5px;line-height:1.6;margin-bottom:8px;">Governor checks every <b>disabled</b> Whitney product that is <b>in stock</b>:
+    your price minus Whitney's 2026 dealer cost, shipping and the 3% card fee. Products that keep 25% or more are ticked.
+    Click <b>Turn on</b>. <b>Undo</b> turns them off again.</div>
+  <button class="su-btn" id="en-check" onclick="enCheck()">Check disabled products</button>
+  <div id="en-out"></div>
+  <div id="en-hist" style="font-size:13px;margin-top:8px;"></div>
+</div>
+
+<div class="su-card">
   <div style="font-weight:700;margin-bottom:6px;">Recent updates</div>
   <div id="su-hist" style="font-size:13px;">Loading…</div>
 </div>
@@ -116,5 +126,78 @@ async function suHistory(){
     : 'None yet.';
 }
 suHistory();
+
+let EN=null;
+const money=n=>'$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+async function enPoll(id,onTick){
+  for(;;){
+    await new Promise(r=>setTimeout(r,2000));
+    let s; try{ s=await (await fetch('/api/enable/status?id='+id)).json(); }catch(e){ continue; }
+    if(onTick) onTick(s);
+    if(s.error || s.stalled || !['checking','applying','undoing'].includes(s.status)) return s;
+  }
+}
+async function enCheck(){
+  const b=document.getElementById('en-check'), out=document.getElementById('en-out');
+  b.disabled=true; b.textContent='Checking… (about a minute)'; out.innerHTML='';
+  let r; try{ r=await (await fetch('/api/enable/check',{method:'POST'})).json(); }catch(e){ r={error:'Could not reach Governor: '+e}; }
+  if(r.error){ out.innerHTML=`<div class="su-note err">⚠️ ${suEsc(r.error)}</div>`; b.disabled=false; b.textContent='Check disabled products'; return; }
+  const s=await enPoll(r.id);
+  b.disabled=false; b.textContent='Check again';
+  if(s.stalled||s.status==='failed'){ out.innerHTML=`<div class="su-note err">⚠️ ${suEsc(s.job_error||'It stopped partway. Click Check again.')}</div>`; return; }
+  EN=s; enRender();
+}
+function enRow(x,tick){
+  return `<tr><td>${tick?`<input type="checkbox" class="en-cb" value="${suEsc(x.sku)}" checked>`:''}</td><td>${suEsc(x.sku)}</td><td>${suEsc(x.name)}</td>
+    <td>${suEsc(x.via)}</td><td style="text-align:right">${money(x.price)}</td><td style="text-align:right">${money(x.cost)}</td>
+    <td style="text-align:right">${money(x.freight)}</td><td style="text-align:right">${money(x.profit)}</td>
+    <td style="text-align:right" class="${x.margin<0?'out':''}">${x.margin}%</td></tr>`;
+}
+function enRender(){
+  const s=EN, out=document.getElementById('en-out'), on=s.turn_on||[], off=s.keep_off||[];
+  const head='<tr><th></th><th>SKU</th><th>Product</th><th>Ships</th><th>Price</th><th>Cost</th><th>Shipping</th><th>You keep</th><th>Margin</th></tr>';
+  out.innerHTML=`<div class="su-sum">${s.disabled} Whitney products are disabled. ${s.out_of_stock} are out of stock at Whitney (skipped).<br>
+     <span class="back">${on.length} make ${s.min_margin}% or more: turn them on.</span>
+     ${off.length} make less: leave them off (mostly truck items, where the $350 minimum truck charge eats the profit).</div>
+    ${on.length?`<button class="su-btn" id="en-apply" onclick="enApply()">Turn on the ticked products</button>
+    <div style="max-height:420px;overflow:auto;margin-top:12px;"><table class="su-t">${head}${on.map(x=>enRow(x,true)).join('')}</table></div>`
+    :'<div class="su-note ok">✅ No disabled product is worth turning on.</div>'}
+    ${off.length?`<details style="margin-top:10px;font-size:13px"><summary>Show the ${off.length} to leave off</summary>
+      <table class="su-t">${head}${off.map(x=>enRow(x,false)).join('')}</table></details>`:''}`;
+}
+async function enApply(){
+  const skus=[...document.querySelectorAll('.en-cb:checked')].map(c=>c.value), b=document.getElementById('en-apply');
+  b.disabled=true;
+  const note=document.createElement('div'); note.className='su-note info'; b.after(note);
+  let r; try{ r=await (await fetch('/api/enable/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:EN.id,skus})})).json(); }catch(e){ r={error:''+e}; }
+  if(r.error){ note.className='su-note err'; note.innerHTML='⚠️ '+suEsc(r.error); b.disabled=false; return; }
+  b.textContent='Turning on…';
+  const s=await enPoll(EN.id, x=>{ note.innerHTML=`⏳ Turning on: <b>${x.done||0} of ${x.total||r.total}</b>. You can leave this page; it keeps going.`; });
+  if(s.stalled||s.status==='failed'){ note.className='su-note err'; note.innerHTML='⚠️ '+suEsc(s.job_error||'It stopped partway. Click Check again: products already on drop off the list.'); return; }
+  const fails=Object.entries(s.failed||{});
+  note.className='su-note ok';
+  note.innerHTML=`✅ Done: ${(s.written||[]).length} products turned on and checked in Magento.`+
+    (fails.length?`<br>⚠️ ${fails.length} refused by Magento (still off): ${suEsc(fails.map(([k])=>k).join(', '))}<br><span style="font-size:12px">${suEsc(fails[0][1])}</span>`:'')+
+    ((s.not_confirmed||[]).length?`<br>⚠️ Still shows off after saving: ${suEsc(s.not_confirmed.join(', '))}`:'')+
+    `<br><span style="font-size:12.5px">If they don't show on the site yet, it's page cache: run <b>bin/magento cache:flush</b>.</span>
+     <br><button class="su-btn sec" style="margin-top:8px" onclick="enUndo('${s.id}',this)">↩︎ Undo</button>`;
+  b.textContent='Turned on'; enHistory();
+}
+async function enUndo(id,btn){
+  btn.disabled=true; btn.textContent='Undoing…';
+  let r; try{ r=await (await fetch('/api/enable/undo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})).json(); }catch(e){ r={error:''+e}; }
+  const box=btn.closest('.su-note')||btn.parentElement;
+  if(r.error){ box.innerHTML='⚠️ '+suEsc(r.error); return; }
+  const s=await enPoll(id, x=>{ box.innerHTML=`⏳ Turning off: <b>${x.done||0} of ${x.total||r.total}</b>…`; });
+  box.innerHTML = s.stalled ? '⚠️ Undo stopped partway; click Undo again below.'
+    : `↩︎ Undone: ${s.restored||0} products turned off again.`+((s.undo_not_confirmed||[]).length?` Not confirmed: ${suEsc(s.undo_not_confirmed.join(', '))}`:'');
+  enHistory();
+}
+async function enHistory(){
+  let h=[]; try{ h=await (await fetch('/api/enable/history')).json(); }catch(e){}
+  document.getElementById('en-hist').innerHTML = h.map(x=>`<div>${suEsc(x.applied||'')} · turned on ${x.count} · <b>${suEsc(x.status)}</b>
+    ${x.status==='applied'?` <button class="su-btn sec" style="padding:2px 8px;font-size:12px" onclick="enUndo('${suEsc(x.id)}',this)">Undo</button>`:''}</div>`).join('');
+}
+enHistory();
 </script>
 {% endblock %}

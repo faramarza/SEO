@@ -1,0 +1,2630 @@
+{
+"source": "Whitney Brothers 2026 dealer price list (PDF), parsed Nov 2026",
+"items": {
+"WB2720": {
+"name": "outdoorED™ Storage Shelf",
+"via": "Truck",
+"lb": 101,
+"cost": 984.92,
+"retail": 1899.0
+},
+"WB2722": {
+"name": "outdoorED™ Mud Kitchen",
+"via": "Ground",
+"lb": 80,
+"cost": 1068.12,
+"retail": 1999.0
+},
+"WB2723": {
+"name": "outdoorED™ Sensory Table",
+"via": "Ground",
+"lb": 89,
+"cost": 1085.15,
+"retail": 2099.0
+},
+"WB2724": {
+"name": "outdoorED™ Table",
+"via": "Ground",
+"lb": 76,
+"cost": 817.23,
+"retail": 1599.0
+},
+"WB2725": {
+"name": "outdoorED™ Bench",
+"via": "Ground",
+"lb": 40,
+"cost": 446.28,
+"retail": 899.0
+},
+"WB2726": {
+"name": "outdoorED™ Play House Cube",
+"via": "Ground",
+"lb": 64,
+"cost": 961.03,
+"retail": 1799.0
+},
+"WB2727": {
+"name": "outdoorED™ Potion Station",
+"via": "Ground",
+"lb": 52,
+"cost": 715.62,
+"retail": 1399.0
+},
+"WB2728": {
+"name": "outdoorED™ Big And Wide Table",
+"via": "Ground",
+"lb": 91,
+"cost": 1062.79,
+"retail": 1999.0
+},
+"WB2729": {
+"name": "outdoorED™ Boot Rinse Rack",
+"via": "Ground",
+"lb": 44,
+"cost": 732.51,
+"retail": 1399.0
+},
+"WB2730": {
+"name": "outdoorED™ Market Stand",
+"via": "Truck",
+"lb": 105,
+"cost": 1202.74,
+"retail": 2299.0
+},
+"WB2910": {
+"name": "outdoorED™ Table And Two Bench Set",
+"via": "Truck",
+"lb": 147,
+"cost": 1488.71,
+"retail": 2999.0
+},
+"WB0721W": {
+"name": "elevatED™ Infant Changing Cabinet",
+"via": "Truck",
+"lb": 144,
+"cost": 701.46,
+"retail": 1339.0
+},
+"WB0760": {
+"name": "elevatED™ Adjustable LED Light Table",
+"via": "Ground",
+"lb": 61,
+"cost": 316.95,
+"retail": 589.0
+},
+"WB1139": {
+"name": "elevatED™ Combo Tray Storage Cabinet",
+"via": "Truck",
+"lb": 109,
+"cost": 379.32,
+"retail": 699.0
+},
+"WB1914": {
+"name": "elevatED™ Mail And Message Center",
+"via": "Truck",
+"lb": 79,
+"cost": 355.81,
+"retail": 669.0
+},
+"WB1915": {
+"name": "elevatED™ Art Supply Cart",
+"via": "Truck",
+"lb": 139,
+"cost": 498.39,
+"retail": 929.0
+},
+"WB1916": {
+"name": "elevatED™ Discovery Table",
+"via": "Ground",
+"lb": 59,
+"cost": 237.57,
+"retail": 439.0
+},
+"WB1917": {
+"name": "elevatED™ Adjustable Shelf Cabinet 27H",
+"via": "Truck",
+"lb": 81,
+"cost": 242.46,
+"retail": 449.0
+},
+"WB1918": {
+"name": "elevatED™ Adjustable Shelf Cabinet 33H",
+"via": "Truck",
+"lb": 87,
+"cost": 258.66,
+"retail": 479.0
+},
+"WB1920": {
+"name": "elevatED™ Play House Cube - White",
+"via": "Ground",
+"lb": 43,
+"cost": 220.56,
+"retail": 409.0
+},
+"WB1921": {
+"name": "elevatED™ Curve Out Storage Cabinet 27H",
+"via": "Truck",
+"lb": 70,
+"cost": 334.55,
+"retail": 619.0
+},
+"WB1922": {
+"name": "elevatED™ Curve In Storage Cabinet 27H",
+"via": "Truck",
+"lb": 69,
+"cost": 318.06,
+"retail": 589.0
+},
+"WB1923": {
+"name": "elevatED™ Storage Cabinet 27H",
+"via": "Truck",
+"lb": 79,
+"cost": 243.24,
+"retail": 449.0
+},
+"WB1924": {
+"name": "elevatED™ Curve Out Storage Cabinet 33H",
+"via": "Truck",
+"lb": 77,
+"cost": 373.65,
+"retail": 689.0
+},
+"WB1925": {
+"name": "elevatED™ Curve In Storage Cabinet 33H",
+"via": "Truck",
+"lb": 75,
+"cost": 339.66,
+"retail": 629.0
+},
+"WB1929": {
+"name": "elevatED™ Nine Tray Mobile Cabinet",
+"via": "Truck",
+"lb": 124,
+"cost": 436.02,
+"retail": 809.0
+},
+"WB1932": {
+"name": "elevatED™ 12 Tray Mobile Cabinet",
+"via": "Truck",
+"lb": 156,
+"cost": 528.66,
+"retail": 979.0
+},
+"WB1935": {
+"name": "elevatED™ 15 Tray Mobile Cabinet",
+"via": "Truck",
+"lb": 187,
+"cost": 611.26,
+"retail": 1129.0
+},
+"WB1936": {
+"name": "elevatED™ Mobile Book Display",
+"via": "Truck",
+"lb": 69,
+"cost": 288.72,
+"retail": 549.0
+},
+"WB1937": {
+"name": "elevatED™ Mobile Book Storage Island",
+"via": "Truck",
+"lb": 111,
+"cost": 368.74,
+"retail": 699.0
+},
+"WB1947": {
+"name": "elevatED™ Discovery Crawl Thru Cabinet",
+"via": "Ground",
+"lb": 60,
+"cost": 282.93,
+"retail": 529.0
+},
+"WB1950": {
+"name": "elevatED™ Lockable Wall Cabinet",
+"via": "Truck",
+"lb": 151,
+"cost": 509.73,
+"retail": 949.0
+},
+"WB1951": {
+"name": "elevatED™ Five Section Coat Locker",
+"via": "Truck",
+"lb": 135,
+"cost": 373.65,
+"retail": 689.0
+},
+"WB1952": {
+"name": "elevatED™ Cubby And Shelf Cabinet",
+"via": "Truck",
+"lb": 121,
+"cost": 328.29,
+"retail": 609.0
+},
+"WB1953": {
+"name": "elevatED™ 12 Cubby Backpack Storage",
+"via": "Truck",
+"lb": 135,
+"cost": 366.83,
+"retail": 679.0
+},
+"WB1954": {
+"name": "elevatED™ Workstation Cabinet",
+"via": "Truck",
+"lb": 230,
+"cost": 906.63,
+"retail": 1679.0
+},
+"WB1955": {
+"name": "elevatED™ Classroom Organizer",
+"via": "Truck",
+"lb": 198,
+"cost": 620.46,
+"retail": 1179.0
+},
+"WB1956": {
+"name": "elevatED™ Tall And Wide Cabinet",
+"via": "Truck",
+"lb": 216,
+"cost": 736.53,
+"retail": 1369.0
+},
+"WB1963": {
+"name": "elevatED™ Storage Cabinet 33H",
+"via": "Truck",
+"lb": 89,
+"cost": 254.58,
+"retail": 469.0
+},
+"WB1964": {
+"name": "elevatED™ Diaper Supply Cabinet",
+"via": "Truck",
+"lb": 57,
+"cost": 186.54,
+"retail": 349.0
+},
+"WB1965": {
+"name": "elevatED™ Diaper Bag Organizer",
+"via": "Truck",
+"lb": 112,
+"cost": 282.93,
+"retail": 529.0
+},
+"WB1967": {
+"name": "elevatED™ I-See-Me Toddler Mirror Cab.",
+"via": "Ground",
+"lb": 43,
+"cost": 209.22,
+"retail": 389.0
+},
+"WB1970": {
+"name": "elevatED™ Sofa",
+"via": "Ground",
+"lb": 49,
+"cost": 239.16,
+"retail": 449.0
+},
+"WB1971": {
+"name": "elevatED™ Arm Chair",
+"via": "Ground",
+"lb": 30,
+"cost": 169.53,
+"retail": 309.0
+},
+"WB1972": {
+"name": "elevatED™ Community Table",
+"via": "Ground",
+"lb": 38,
+"cost": 169.53,
+"retail": 309.0
+},
+"WB1975": {
+"name": "elevatED™ Mobile Sensory Table",
+"via": "Ground",
+"lb": 79,
+"cost": 312.66,
+"retail": 579.0
+},
+"WB1976": {
+"name": "elevatED™ Kitchen Island Breakfast Bar",
+"via": "Truck",
+"lb": 124,
+"cost": 509.73,
+"retail": 949.0
+},
+"WB1985": {
+"name": "elevatED™ Dress Up Station",
+"via": "Ground",
+"lb": 68,
+"cost": 271.59,
+"retail": 499.0
+},
+"WB1987": {
+"name": "elevatED™ Mobile Big Book Display",
+"via": "Ground",
+"lb": 53,
+"cost": 243.24,
+"retail": 449.0
+},
+"WB1996": {
+"name": "elevatED™ 10 Section Coat Locker",
+"via": "Truck",
+"lb": 186,
+"cost": 582.62,
+"retail": 1089.0
+},
+"WB2920": {
+"name": "elevatED™ Play House Cube And Mat",
+"via": "Ground",
+"lb": 48,
+"cost": 260.25,
+"retail": 479.0
+},
+"WB0109": {
+"name": "Nature View™ Reading Haven",
+"via": "Truck",
+"lb": 85,
+"cost": 593.41,
+"retail": 1109.0
+},
+"WB0247": {
+"name": "Nature View™ Acrylic Back Cabinet 24H",
+"via": "Truck",
+"lb": 51,
+"cost": 253.65,
+"retail": 469.0
+},
+"WB0248": {
+"name": "Nature View™ Acrylic Back Cabinet 30H",
+"via": "Truck",
+"lb": 55,
+"cost": 276.77,
+"retail": 509.0
+},
+"WB0249": {
+"name": "Nature View™ Acrylic Back Cabinet 36H",
+"via": "Truck",
+"lb": 68,
+"cost": 311.43,
+"retail": 579.0
+},
+"WB0258": {
+"name": "Nature View™ Divider Panel Adj Extension",
+"via": "Ground",
+"lb": 13,
+"cost": 107.56,
+"retail": 199.0
+},
+"WB0259": {
+"name": "Nature View™ Divider Panel 24W",
+"via": "Ground",
+"lb": 12,
+"cost": 152.52,
+"retail": 279.0
+},
+"WB0260": {
+"name": "Nature View™ Divider Panel 36W",
+"via": "Ground",
+"lb": 15,
+"cost": 163.86,
+"retail": 299.0
+},
+"WB0261": {
+"name": "Nature View™ Divider Gate",
+"via": "Ground",
+"lb": 42,
+"cost": 311.28,
+"retail": 579.0
+},
+"WB0263": {
+"name": "Nature View™ Divider Archway",
+"via": "Ground",
+"lb": 20,
+"cost": 169.53,
+"retail": 309.0
+},
+"WB0274": {
+"name": "Nature View™ Component Connector",
+"via": "Ground",
+"lb": 8,
+"cost": 35.05,
+"retail": 69.0
+},
+"WB0437": {
+"name": "Nature View™ Curve In Cabinet 24H",
+"via": "Truck",
+"lb": 39,
+"cost": 339.04,
+"retail": 629.0
+},
+"WB0438": {
+"name": "Nature View™ Curve Out Cabinet 24H",
+"via": "Truck",
+"lb": 40,
+"cost": 352.96,
+"retail": 659.0
+},
+"WB0442": {
+"name": "Nature View™ Play House Cube",
+"via": "Ground",
+"lb": 38,
+"cost": 326.11,
+"retail": 599.0
+},
+"WB0452": {
+"name": "Nature View™ Reading Retreat",
+"via": "Ground",
+"lb": 38,
+"cost": 296.41,
+"retail": 549.0
+},
+"WB0504": {
+"name": "Nature View™ Toddler Reading Retreat",
+"via": "Ground",
+"lb": 27,
+"cost": 279.35,
+"retail": 519.0
+},
+"WB0506": {
+"name": "Nature View™ Curve Out Sofa",
+"via": "Truck",
+"lb": 58,
+"cost": 540.64,
+"retail": 1009.0
+},
+"WB0507": {
+"name": "Nature View™ Straight Sofa",
+"via": "Ground",
+"lb": 40,
+"cost": 321.59,
+"retail": 599.0
+},
+"WB0508": {
+"name": "Nature View™ Curve In Sofa",
+"via": "Truck",
+"lb": 51,
+"cost": 496.5,
+"retail": 929.0
+},
+"WB0511": {
+"name": "Nature View™ Play Greenhouse",
+"via": "Truck",
+"lb": 136,
+"cost": 1422.19,
+"retail": 2659.0
+},
+"WB0517": {
+"name": "Nature View™ Curved Divider Panel 24H",
+"via": "Ground",
+"lb": 22,
+"cost": 254.58,
+"retail": 469.0
+},
+"WB0537": {
+"name": "Nature View™ Floor Stand'G Partition 25W",
+"via": "Ground",
+"lb": 22,
+"cost": 189.49,
+"retail": 349.0
+},
+"WB0538": {
+"name": "Nature View™ Floor Stand'G Partition 48W",
+"via": "Ground",
+"lb": 38,
+"cost": 248.89,
+"retail": 469.0
+},
+"WB0551": {
+"name": "Nature View™ Tree Book Shelf",
+"via": "Ground",
+"lb": 36,
+"cost": 378.5,
+"retail": 699.0
+},
+"WB0609": {
+"name": "Nature View™ Curved Divider Panel 36H",
+"via": "Truck",
+"lb": 33,
+"cost": 339.63,
+"retail": 629.0
+},
+"WB0643": {
+"name": "Nature View™ Divider Panel 36H",
+"via": "Ground",
+"lb": 30,
+"cost": 288.6,
+"retail": 539.0
+},
+"WB0647": {
+"name": "Nature View™ Serenity Cabinet 36H",
+"via": "Truck",
+"lb": 68,
+"cost": 332.05,
+"retail": 619.0
+},
+"WB0652": {
+"name": "Nature View™ Serenity Curve-In Cabinet",
+"via": "Truck",
+"lb": 68,
+"cost": 429.97,
+"retail": 799.0
+},
+"WB0654": {
+"name": "Nature View™ Serenity Curve-Out Cabinet",
+"via": "Truck",
+"lb": 68,
+"cost": 457.28,
+"retail": 849.0
+},
+"WB0738": {
+"name": "Nature View™ Radiant LED Light Table",
+"via": "Ground",
+"lb": 42,
+"cost": 683.72,
+"retail": 1279.0
+},
+"WB0764": {
+"name": "Nature View™ Small Stone Wall Bench 10H",
+"via": "Ground",
+"lb": 10,
+"cost": 116.06,
+"retail": 219.0
+},
+"WB0765": {
+"name": "Nature View™ Small Stone Wall Bench 12H",
+"via": "Ground",
+"lb": 13,
+"cost": 121.89,
+"retail": 229.0
+},
+"WB0766": {
+"name": "Nature View™ Small Stone Wall Bench 14H",
+"via": "Ground",
+"lb": 14,
+"cost": 133.55,
+"retail": 249.0
+},
+"WB0856": {
+"name": "Nature View™ Writing Center",
+"via": "Ground",
+"lb": 64,
+"cost": 652.81,
+"retail": 1219.0
+},
+"WB0857": {
+"name": "Nature View™ Window Seat",
+"via": "Ground",
+"lb": 87,
+"cost": 484.07,
+"retail": 899.0
+},
+"WB0861": {
+"name": "Nature View™ Discovery Crawl Thru Center",
+"via": "Ground",
+"lb": 48,
+"cost": 322.87,
+"retail": 599.0
+},
+"WB0882": {
+"name": "Nature View™ Live Edge Log Bench 12H",
+"via": "Ground",
+"lb": 24,
+"cost": 214.89,
+"retail": 399.0
+},
+"WB0883": {
+"name": "Nature View™ Live Edge Rectangle Table 20H",
+"via": "Ground",
+"lb": 53,
+"cost": 440.86,
+"retail": 819.0
+},
+"WB0884": {
+"name": "Nature View™ Live Edge Chair 12H",
+"via": "Ground",
+"lb": 13,
+"cost": 153.85,
+"retail": 289.0
+},
+"WB0886": {
+"name": "Nature View™ Live Edge Small Log Bench 12H",
+"via": "Ground",
+"lb": 13,
+"cost": 158.19,
+"retail": 289.0
+},
+"WB0888": {
+"name": "Nature View™ Live Edge Square Table 20H",
+"via": "Ground",
+"lb": 53,
+"cost": 440.86,
+"retail": 819.0
+},
+"WB0889": {
+"name": "Nature View™ Live Edge Round Table 20H",
+"via": "Ground",
+"lb": 47,
+"cost": 440.86,
+"retail": 819.0
+},
+"WB0897": {
+"name": "Nature View™ Live Edge Bench 12H",
+"via": "Ground",
+"lb": 24,
+"cost": 237.01,
+"retail": 439.0
+},
+"WB0898": {
+"name": "Nature View™ Live Edge Log Bench 10H",
+"via": "Ground",
+"lb": 22,
+"cost": 203.55,
+"retail": 379.0
+},
+"WB0899": {
+"name": "Nature View™ Live Edge Log Bench 14H",
+"via": "Ground",
+"lb": 26,
+"cost": 226.23,
+"retail": 419.0
+},
+"WB0901": {
+"name": "Nature View™ Live Edge Small Log Bench 10H",
+"via": "Ground",
+"lb": 10,
+"cost": 146.85,
+"retail": 269.0
+},
+"WB0904": {
+"name": "Nature View™ Live Edge Small Log Bench 14H",
+"via": "Ground",
+"lb": 14,
+"cost": 169.53,
+"retail": 309.0
+},
+"WB0906": {
+"name": "Nature View™ Live Edge Chair 10H",
+"via": "Ground",
+"lb": 12,
+"cost": 147.91,
+"retail": 279.0
+},
+"WB0907": {
+"name": "Nature View™ Live Edge Chair 14H",
+"via": "Ground",
+"lb": 13,
+"cost": 159.79,
+"retail": 299.0
+},
+"WB0908": {
+"name": "Nature View™ Live Edge Bench 10H",
+"via": "Ground",
+"lb": 24,
+"cost": 225.13,
+"retail": 419.0
+},
+"WB0911": {
+"name": "Nature View™ Live Edge Rectangle Table 18H",
+"via": "Ground",
+"lb": 53,
+"cost": 431.46,
+"retail": 799.0
+},
+"WB0913": {
+"name": "Nature View™ Live Edge Rect. Table 22H",
+"via": "Ground",
+"lb": 54,
+"cost": 451.46,
+"retail": 839.0
+},
+"WB0914": {
+"name": "Nature View™ Live Edge Square Table 18H",
+"via": "Ground",
+"lb": 51,
+"cost": 431.46,
+"retail": 799.0
+},
+"WB0916": {
+"name": "Nature View™ Live Edge Square Table 22H",
+"via": "Ground",
+"lb": 54,
+"cost": 451.46,
+"retail": 839.0
+},
+"WB0917": {
+"name": "Nature View™ Live Edge Bench 14H",
+"via": "Ground",
+"lb": 26,
+"cost": 251.61,
+"retail": 479.0
+},
+"WB0932": {
+"name": "Nature View™ Live Edge Round Table 18H",
+"via": "Ground",
+"lb": 45,
+"cost": 431.46,
+"retail": 799.0
+},
+"WB0933": {
+"name": "Nature View™ Live Edge Round Table 22H",
+"via": "Ground",
+"lb": 48,
+"cost": 451.46,
+"retail": 839.0
+},
+"WB0954": {
+"name": "Nature View™ Stone Wall Bench 10H",
+"via": "Ground",
+"lb": 22,
+"cost": 159.79,
+"retail": 299.0
+},
+"WB0955": {
+"name": "Nature View™ Stone Wall Bench 12H",
+"via": "Ground",
+"lb": 24,
+"cost": 165.73,
+"retail": 309.0
+},
+"WB0956": {
+"name": "Nature View™ Stone Wall Bench 14H",
+"via": "Ground",
+"lb": 26,
+"cost": 177.61,
+"retail": 329.0
+},
+"WB1151": {
+"name": "Nature View™ Play Beach House",
+"via": "Truck",
+"lb": 136,
+"cost": 1426.87,
+"retail": 2669.0
+},
+"WB2125": {
+"name": "Nature View™ Toddler Reading Retreat Set",
+"via": "Ground",
+"lb": 31,
+"cost": 308.51,
+"retail": 579.0
+},
+"WB2190": {
+"name": "Nature View™ Reading Haven And Mat Set",
+"via": "Truck",
+"lb": 97,
+"cost": 652.81,
+"retail": 1219.0
+},
+"WB2432": {
+"name": "Nature View™ Reading Retreat And Mat Set",
+"via": "Ground",
+"lb": 43,
+"cost": 337.99,
+"retail": 629.0
+},
+"WB2452": {
+"name": "Nature View™ Playhouse Cube And Mat Set",
+"via": "Ground",
+"lb": 43,
+"cost": 355.81,
+"retail": 659.0
+},
+"WB2611": {
+"name": "Nature View™ Serenity Pod",
+"via": "Truck",
+"lb": 48,
+"cost": 504.31,
+"retail": 939.0
+},
+"WB2614": {
+"name": "Nature View™ Serenity Table",
+"via": "Ground",
+"lb": 59,
+"cost": 439.33,
+"retail": 1069.0
+},
+"CH0200": {
+"name": "Whitney Plus Porthole Desk",
+"via": "Truck",
+"lb": 87,
+"cost": 566.43,
+"retail": 1049.0
+},
+"CH0281": {
+"name": "Whitney Plus Porthole Play House Cube",
+"via": "Truck",
+"lb": 125,
+"cost": 961.7,
+"retail": 1789.0
+},
+"CH0284": {
+"name": "Whitney Plus Green Tray Storage Cabinet",
+"via": "Truck",
+"lb": 95,
+"cost": 524.3,
+"retail": 979.0
+},
+"CH0287": {
+"name": "Whitney Plus Coat Locker",
+"via": "Truck",
+"lb": 161,
+"cost": 712.21,
+"retail": 1329.0
+},
+"CH0500": {
+"name": "Whitney Plus Art Paper Center",
+"via": "Truck",
+"lb": 103,
+"cost": 534.01,
+"retail": 999.0
+},
+"CH1324N": {
+"name": "Whitney Plus Locking Storage Cabinet",
+"via": "Truck",
+"lb": 75,
+"cost": 413.49,
+"retail": 769.0
+},
+"CH1330G": {
+"name": "Whitney Plus Cabinet - Green",
+"via": "Truck",
+"lb": 68,
+"cost": 312.66,
+"retail": 579.0
+},
+"CH1330N": {
+"name": "Whitney Plus Cabinet - Natural",
+"via": "Truck",
+"lb": 68,
+"cost": 312.66,
+"retail": 579.0
+},
+"CH1330O": {
+"name": "Whitney Plus Cabinet - Orange",
+"via": "Truck",
+"lb": 68,
+"cost": 312.66,
+"retail": 579.0
+},
+"CH1330S": {
+"name": "Whitney Plus Cabinet - Blue",
+"via": "Truck",
+"lb": 68,
+"cost": 312.66,
+"retail": 579.0
+},
+"CH4049": {
+"name": "Whitney Plus Two Tub Sand & Water Table",
+"via": "Truck",
+"lb": 106,
+"cost": 750.56,
+"retail": 1399.0
+},
+"CR2510G": {
+"name": "Whitney Plus 10H Green Chair",
+"via": "Ground",
+"lb": 12,
+"cost": 145.26,
+"retail": 269.0
+},
+"CR2510N": {
+"name": "Whitney Plus 10H Natural Chair",
+"via": "Ground",
+"lb": 12,
+"cost": 145.26,
+"retail": 269.0
+},
+"CR2510O": {
+"name": "Whitney Plus 10H Orange Chair",
+"via": "Ground",
+"lb": 12,
+"cost": 145.26,
+"retail": 269.0
+},
+"CR2510S": {
+"name": "Whitney Plus 10H Scandinavian Blue Chair",
+"via": "Ground",
+"lb": 12,
+"cost": 145.26,
+"retail": 269.0
+},
+"CR2510W": {
+"name": "Whitney Plus 10H White Chair",
+"via": "Ground",
+"lb": 12,
+"cost": 145.26,
+"retail": 269.0
+},
+"CR2512G": {
+"name": "Whitney Plus 12H Green Chair",
+"via": "Ground",
+"lb": 13,
+"cost": 156.06,
+"retail": 289.0
+},
+"CR2512N": {
+"name": "Whitney Plus 12H Natural Chair",
+"via": "Ground",
+"lb": 13,
+"cost": 156.06,
+"retail": 289.0
+},
+"CR2512O": {
+"name": "Whitney Plus 12H Orange Chair",
+"via": "Ground",
+"lb": 13,
+"cost": 156.06,
+"retail": 289.0
+},
+"CR2512S": {
+"name": "Whitney Plus 12H Scandinavian Blue Chair",
+"via": "Ground",
+"lb": 13,
+"cost": 156.06,
+"retail": 289.0
+},
+"CR2512W": {
+"name": "Whitney Plus 12H White Chair",
+"via": "Ground",
+"lb": 13,
+"cost": 156.06,
+"retail": 289.0
+},
+"CR2514G": {
+"name": "Whitney Plus 14H Green Chair",
+"via": "Ground",
+"lb": 14,
+"cost": 162.69,
+"retail": 309.0
+},
+"CR2514N": {
+"name": "Whitney Plus 14H Natural Chair",
+"via": "Ground",
+"lb": 14,
+"cost": 162.69,
+"retail": 309.0
+},
+"CR2514O": {
+"name": "Whitney Plus 14H Orange Chair",
+"via": "Ground",
+"lb": 14,
+"cost": 162.69,
+"retail": 309.0
+},
+"CR2514S": {
+"name": "Whitney Plus 14H Scandinavian Blue Chair",
+"via": "Ground",
+"lb": 14,
+"cost": 162.69,
+"retail": 309.0
+},
+"CR2514W": {
+"name": "Whitney Plus 14H White Chair",
+"via": "Ground",
+"lb": 14,
+"cost": 162.69,
+"retail": 309.0
+},
+"WB0737": {
+"name": "Whitney Plus Radiant LED Light Table",
+"via": "Ground",
+"lb": 69,
+"cost": 708.18,
+"retail": 1309.0
+},
+"WB1980": {
+"name": "Whitney Plus 10H White Bench",
+"via": "Ground",
+"lb": 24,
+"cost": 214.89,
+"retail": 399.0
+},
+"WB1982": {
+"name": "Whitney Plus 12H White Bench",
+"via": "Ground",
+"lb": 25,
+"cost": 220.56,
+"retail": 409.0
+},
+"WB1984": {
+"name": "Whitney Plus 14H White Bench",
+"via": "Ground",
+"lb": 26,
+"cost": 226.23,
+"retail": 419.0
+},
+"WR304718M": {
+"name": "Whitney Plus Rectangle Table - 18H",
+"via": "Ground",
+"lb": 53,
+"cost": 404.46,
+"retail": 789.0
+},
+"WR304720M": {
+"name": "Whitney Plus Rectangle Table - 20H",
+"via": "Ground",
+"lb": 53,
+"cost": 440.9,
+"retail": 829.0
+},
+"WR304722M": {
+"name": "Whitney Plus Rectangle Table - 22H",
+"via": "Ground",
+"lb": 54,
+"cost": 453.0,
+"retail": 849.0
+},
+"WS3518M": {
+"name": "Whitney Plus Square Table - 18H",
+"via": "Ground",
+"lb": 51,
+"cost": 422.76,
+"retail": 789.0
+},
+"WS3520M": {
+"name": "Whitney Plus Square Table - 20H",
+"via": "Ground",
+"lb": 53,
+"cost": 440.9,
+"retail": 829.0
+},
+"WS3522M": {
+"name": "Whitney Plus Square Table - 22H",
+"via": "Ground",
+"lb": 54,
+"cost": 453.0,
+"retail": 849.0
+},
+"WX3518M": {
+"name": "Whitney Plus Round Table - 18H",
+"via": "Ground",
+"lb": 45,
+"cost": 422.76,
+"retail": 789.0
+},
+"WX3520M": {
+"name": "Whitney Plus Round Table - 20H",
+"via": "Ground",
+"lb": 47,
+"cost": 440.9,
+"retail": 829.0
+},
+"WB0035": {
+"name": "Happy Face Mirror",
+"via": "Ground",
+"lb": 3,
+"cost": 46.93,
+"retail": 89.0
+},
+"WB0036": {
+"name": "Sad Face Mirror",
+"via": "Ground",
+"lb": 3,
+"cost": 46.93,
+"retail": 89.0
+},
+"WB0037": {
+"name": "How Do I Feel Today? Mirror",
+"via": "Ground",
+"lb": 3,
+"cost": 46.93,
+"retail": 89.0
+},
+"WB0038": {
+"name": "Surprise And Wonder Mirror",
+"via": "Ground",
+"lb": 3,
+"cost": 46.93,
+"retail": 89.0
+},
+"WB0039": {
+"name": "Angry Face Mirror",
+"via": "Ground",
+"lb": 3,
+"cost": 46.93,
+"retail": 89.0
+},
+"WB0048": {
+"name": "Puppet Tree",
+"via": "Ground",
+"lb": 6,
+"cost": 159.79,
+"retail": 299.0
+},
+"WB0081": {
+"name": "Potty Step",
+"via": "Ground",
+"lb": 11,
+"cost": 90.15,
+"retail": 169.0
+},
+"WB0086": {
+"name": "Step Up - Low Stairs",
+"via": "Ground",
+"lb": 19,
+"cost": 124.17,
+"retail": 229.0
+},
+"WB0088": {
+"name": "Step Up - Tall Stairs",
+"via": "Ground",
+"lb": 33,
+"cost": 203.55,
+"retail": 379.0
+},
+"WB0112": {
+"name": "Five Section Coat Locker",
+"via": "Truck",
+"lb": 99,
+"cost": 441.69,
+"retail": 819.0
+},
+"WB0113": {
+"name": "Dress Up Tree With Pegs",
+"via": "Ground",
+"lb": 8,
+"cost": 84.48,
+"retail": 159.0
+},
+"WB0128": {
+"name": "Four Section Coat Locker",
+"via": "Truck",
+"lb": 85,
+"cost": 390.66,
+"retail": 729.0
+},
+"WB0136": {
+"name": "Deluxe Two Sided Mobile Book Browser",
+"via": "Ground",
+"lb": 56,
+"cost": 271.59,
+"retail": 499.0
+},
+"WB0159": {
+"name": "Round Infant Floor Mirror",
+"via": "Ground",
+"lb": 18,
+"cost": 192.21,
+"retail": 359.0
+},
+"WB0167": {
+"name": "Square Infant Floor Mirror",
+"via": "Ground",
+"lb": 22,
+"cost": 192.21,
+"retail": 359.0
+},
+"WB0169": {
+"name": "Quarter Round Infant Floor Mirror",
+"via": "Ground",
+"lb": 18,
+"cost": 201.37,
+"retail": 379.0
+},
+"WB0176": {
+"name": "Ramp Infant Floor Mirror",
+"via": "Ground",
+"lb": 16,
+"cost": 159.79,
+"retail": 299.0
+},
+"WB0178A": {
+"name": "Bentwood Back Maple Chair 12H",
+"via": "Ground",
+"lb": 7,
+"cost": 112.86,
+"retail": 209.0
+},
+"WB0179": {
+"name": "Round Childrens Table",
+"via": "Ground",
+"lb": 21,
+"cost": 165.79,
+"retail": 309.0
+},
+"WB0180": {
+"name": "Table And Two Chair Set",
+"via": "Ground",
+"lb": 35,
+"cost": 362.28,
+"retail": 659.0
+},
+"WB0181": {
+"name": "Toddler Flower Table And Two Chair Set",
+"via": "Ground",
+"lb": 36,
+"cost": 355.81,
+"retail": 659.0
+},
+"WB0186": {
+"name": "Single Section Coat Locker",
+"via": "Ground",
+"lb": 42,
+"cost": 180.87,
+"retail": 339.0
+},
+"WB0192": {
+"name": "Five Section Seated Coat Locker",
+"via": "Truck",
+"lb": 104,
+"cost": 470.04,
+"retail": 869.0
+},
+"WB0196A": {
+"name": "10 Section Coat Locker",
+"via": "Truck",
+"lb": 145,
+"cost": 523.26,
+"retail": 969.0
+},
+"WB0206": {
+"name": "Low Square Infant Floor Mirror",
+"via": "Ground",
+"lb": 15,
+"cost": 135.51,
+"retail": 249.0
+},
+"WB0207": {
+"name": "Step Infant Floor Mirror",
+"via": "Ground",
+"lb": 21,
+"cost": 192.21,
+"retail": 359.0
+},
+"WB0210": {
+"name": "Play House Cube",
+"via": "Ground",
+"lb": 43,
+"cost": 215.2,
+"retail": 399.0
+},
+"WB0211": {
+"name": "Blue Floor Mat",
+"via": "Ground",
+"lb": 5,
+"cost": 64.75,
+"retail": 119.0
+},
+"WB0212": {
+"name": "Acrylic Sky Top Play House Cube",
+"via": "Ground",
+"lb": 41,
+"cost": 236.32,
+"retail": 439.0
+},
+"WB0215": {
+"name": "Toddler Play House Cube",
+"via": "Ground",
+"lb": 30,
+"cost": 207.31,
+"retail": 389.0
+},
+"WB0216": {
+"name": "Blue Floor Mat",
+"via": "Ground",
+"lb": 4,
+"cost": 58.86,
+"retail": 109.0
+},
+"WB0217": {
+"name": "Toddler Play House Cube And Floor Mat",
+"via": "Ground",
+"lb": 34,
+"cost": 260.77,
+"retail": 489.0
+},
+"WB0220": {
+"name": "Infant Floor Mirror Set",
+"via": "Ground",
+"lb": 110,
+"cost": 981.68,
+"retail": 1829.0
+},
+"WB0221": {
+"name": "Green Floor Mat",
+"via": "Ground",
+"lb": 5,
+"cost": 64.75,
+"retail": 119.0
+},
+"WB0222": {
+"name": "Green Floor Mat",
+"via": "Ground",
+"lb": 4,
+"cost": 58.81,
+"retail": 109.0
+},
+"WB0240R": {
+"name": "Alone Zone",
+"via": "Ground",
+"lb": 74,
+"cost": 368.53,
+"retail": 689.0
+},
+"WB0285R": {
+"name": "Rolling Art Cart",
+"via": "Ground",
+"lb": 78,
+"cost": 350.97,
+"retail": 649.0
+},
+"WB0296": {
+"name": "Eight Section Mobile Book Organizer",
+"via": "Truck",
+"lb": 76,
+"cost": 390.66,
+"retail": 729.0
+},
+"WB0338": {
+"name": "Vertical or Horizontal Mirror W/Stand",
+"via": "Ground",
+"lb": 11,
+"cost": 130.09,
+"retail": 239.0
+},
+"WB0352": {
+"name": "Fold And Roll Storage Cabinet 30H",
+"via": "Truck",
+"lb": 106,
+"cost": 531.62,
+"retail": 999.0
+},
+"WB0353": {
+"name": "Basic Single Storage Shelf Cabinet 30H",
+"via": "Truck",
+"lb": 57,
+"cost": 224.76,
+"retail": 419.0
+},
+"WB0368": {
+"name": "75 Piece Beginner Block Set",
+"via": "Ground",
+"lb": 33,
+"cost": 163.86,
+"retail": 299.0
+},
+"WB0369": {
+"name": "118 Piece Intermediate Block Set",
+"via": "Ground",
+"lb": 59,
+"cost": 285.66,
+"retail": 529.0
+},
+"WB0370": {
+"name": "680 Piece Full Unit Block Set",
+"via": "Truck",
+"lb": 369,
+"cost": 1727.46,
+"retail": 3199.0
+},
+"WB0371": {
+"name": "340 Piece Half Unit Block Set",
+"via": "Ground",
+"lb": 184,
+"cost": 863.46,
+"retail": 1599.0
+},
+"WB0372": {
+"name": "170 Piece Quarter Unit Block Set",
+"via": "Ground",
+"lb": 92,
+"cost": 496.18,
+"retail": 939.0
+},
+"WB0383": {
+"name": "Mobile Book Storage Island",
+"via": "Truck",
+"lb": 77,
+"cost": 322.62,
+"retail": 599.0
+},
+"WB0384": {
+"name": "Mobile Sensory Play Kitchen",
+"via": "Ground",
+"lb": 70,
+"cost": 425.15,
+"retail": 789.0
+},
+"WB0502R": {
+"name": "Two Level Book Carousel",
+"via": "Ground",
+"lb": 46,
+"cost": 265.92,
+"retail": 489.0
+},
+"WB0510": {
+"name": "Small Block Cabinet",
+"via": "Ground",
+"lb": 40,
+"cost": 201.37,
+"retail": 379.0
+},
+"WB0515": {
+"name": "Medium Block Cabinet",
+"via": "Truck",
+"lb": 58,
+"cost": 254.58,
+"retail": 469.0
+},
+"WB0520": {
+"name": "Large Block Cabinet",
+"via": "Truck",
+"lb": 65,
+"cost": 282.54,
+"retail": 529.0
+},
+"WB0533": {
+"name": "Floor Standing Acrylic Partition 48W",
+"via": "Ground",
+"lb": 38,
+"cost": 201.65,
+"retail": 379.0
+},
+"WB0534": {
+"name": "Floor Standing Acrylic Partition 25W",
+"via": "Ground",
+"lb": 22,
+"cost": 161.21,
+"retail": 299.0
+},
+"WB0552": {
+"name": "Fold And Roll Storage Cabinet 24H",
+"via": "Truck",
+"lb": 100,
+"cost": 513.48,
+"retail": 959.0
+},
+"WB0553": {
+"name": "Basic Single Storage Shelf Cabinet 24H",
+"via": "Truck",
+"lb": 51,
+"cost": 190.1,
+"retail": 349.0
+},
+"WB0634": {
+"name": "EZ Access Mobile Changing Cabinet",
+"via": "Ground",
+"lb": 96,
+"cost": 539.46,
+"retail": 999.0
+},
+"WB0648": {
+"name": "EZ Step Up Diaper Changing Cabinet",
+"via": "Truck",
+"lb": 150,
+"cost": 711.56,
+"retail": 1319.0
+},
+"WB0651": {
+"name": "Curve Out Mobile Storage Cabinet",
+"via": "Truck",
+"lb": 43,
+"cost": 323.46,
+"retail": 619.0
+},
+"WB0653": {
+"name": "Straight Back Mobile Storage Cabinet",
+"via": "Truck",
+"lb": 51,
+"cost": 220.56,
+"retail": 409.0
+},
+"WB0655": {
+"name": "Curve In Mobile Storage Cabinet",
+"via": "Truck",
+"lb": 41,
+"cost": 302.35,
+"retail": 569.0
+},
+"WB0688": {
+"name": "EZ Clean Birch Changing Cabinet W/Trays",
+"via": "Truck",
+"lb": 122,
+"cost": 809.46,
+"retail": 1539.0
+},
+"WB0692": {
+"name": "Toddler Acrylic Sky Top Play House Cube",
+"via": "Ground",
+"lb": 22,
+"cost": 215.46,
+"retail": 399.0
+},
+"WB0702": {
+"name": "24 Tray Mobile Tower",
+"via": "Truck",
+"lb": 139,
+"cost": 635.0,
+"retail": 1199.0
+},
+"WB0717": {
+"name": "Superbright LED Tabletop Light Box",
+"via": "Ground",
+"lb": 27,
+"cost": 225.13,
+"retail": 419.0
+},
+"WB0719": {
+"name": "Triangle Mirror Tent",
+"via": "Ground",
+"lb": 30,
+"cost": 225.13,
+"retail": 419.0
+},
+"WB0724": {
+"name": "Superbright LED Light Table",
+"via": "Ground",
+"lb": 37,
+"cost": 314.23,
+"retail": 589.0
+},
+"WB0731": {
+"name": "Superbright LED Creative Cube",
+"via": "Ground",
+"lb": 50,
+"cost": 557.77,
+"retail": 1039.0
+},
+"WB0742": {
+"name": "Superbright LED Large Light Table",
+"via": "Ground",
+"lb": 72,
+"cost": 593.41,
+"retail": 1109.0
+},
+"WB0788": {
+"name": "Superbright LED Creative Cube And Mat",
+"via": "Ground",
+"lb": 55,
+"cost": 593.41,
+"retail": 1109.0
+},
+"WB0809": {
+"name": "Nine Cubby Storage And Teaching Center",
+"via": "Truck",
+"lb": 86,
+"cost": 415.21,
+"retail": 779.0
+},
+"WB0831": {
+"name": "Teachers Hideaway Organization Station",
+"via": "Truck",
+"lb": 378,
+"cost": 1203.55,
+"retail": 2259.0
+},
+"WB0878": {
+"name": "Mobile Art Drying Rack",
+"via": "Ground",
+"lb": 68,
+"cost": 349.82,
+"retail": 669.0
+},
+"WB0880": {
+"name": "Toddler Dress Up Center",
+"via": "Ground",
+"lb": 35,
+"cost": 180.87,
+"retail": 339.0
+},
+"WB0885": {
+"name": "Dress Up Mirror Wardrobe",
+"via": "Ground",
+"lb": 53,
+"cost": 265.92,
+"retail": 489.0
+},
+"WB0909T": {
+"name": "Nine Tray Mobile Storage Cabinet",
+"via": "Truck",
+"lb": 94,
+"cost": 415.21,
+"retail": 779.0
+},
+"WB0912T": {
+"name": "12 Tray Mobile Storage Cabinet",
+"via": "Truck",
+"lb": 120,
+"cost": 534.01,
+"retail": 999.0
+},
+"WB0915T": {
+"name": "15 Tray Mobile Storage Cabinet",
+"via": "Truck",
+"lb": 150,
+"cost": 651.43,
+"retail": 1229.0
+},
+"WB0922": {
+"name": "Warm And Welcoming Fireplace - White",
+"via": "Truck",
+"lb": 57,
+"cost": 413.34,
+"retail": 769.0
+},
+"WB0957": {
+"name": "I-See-Me Toddler Mirror Cabinet",
+"via": "Ground",
+"lb": 33,
+"cost": 213.21,
+"retail": 399.0
+},
+"WB0965": {
+"name": "Deluxe Puppet Theater With Markerboard",
+"via": "Ground",
+"lb": 20,
+"cost": 172.76,
+"retail": 319.0
+},
+"WB0971": {
+"name": "Comfy Reading Center",
+"via": "Ground",
+"lb": 51,
+"cost": 323.46,
+"retail": 599.0
+},
+"WB0984": {
+"name": "Mail And Message Sign-In Center",
+"via": "Ground",
+"lb": 78,
+"cost": 339.63,
+"retail": 629.0
+},
+"WB1037": {
+"name": "Two Sided Book Transportation Center",
+"via": "Truck",
+"lb": 64,
+"cost": 320.17,
+"retail": 599.0
+},
+"WB1056": {
+"name": "Double Row Wall Mounted Coat Rack",
+"via": "Ground",
+"lb": 47,
+"cost": 254.83,
+"retail": 479.0
+},
+"WB1058": {
+"name": "Hexagon Mirror Discovery Center",
+"via": "Ground",
+"lb": 62,
+"cost": 403.33,
+"retail": 749.0
+},
+"WB1140": {
+"name": "Imagination Truck",
+"via": "Truck",
+"lb": 103,
+"cost": 750.56,
+"retail": 1399.0
+},
+"WB1170": {
+"name": "Imagination Boat",
+"via": "Ground",
+"lb": 60,
+"cost": 490.55,
+"retail": 909.0
+},
+"WB1213": {
+"name": "Sky View Sanctuary",
+"via": "Truck",
+"lb": 193,
+"cost": 963.33,
+"retail": 1789.0
+},
+"WB1359": {
+"name": "Construction Site Table",
+"via": "Ground",
+"lb": 34,
+"cost": 285.18,
+"retail": 529.0
+},
+"WB1410": {
+"name": "12 Cubby Storage Cabinet",
+"via": "Truck",
+"lb": 68,
+"cost": 336.83,
+"retail": 659.0
+},
+"WB1414": {
+"name": "Lockable Supply Cabinet",
+"via": "Truck",
+"lb": 79,
+"cost": 413.34,
+"retail": 769.0
+},
+"WB1425": {
+"name": "Medicine/First Aid Wall Mounted Cabinet",
+"via": "Ground",
+"lb": 21,
+"cost": 214.89,
+"retail": 399.0
+},
+"WB1428": {
+"name": "Sand Box For Light Tables",
+"via": "Ground",
+"lb": 7,
+"cost": 88.51,
+"retail": 169.0
+},
+"WB1564": {
+"name": "Communication And Storage Center",
+"via": "Truck",
+"lb": 96,
+"cost": 682.51,
+"retail": 1279.0
+},
+"WB1606": {
+"name": "Big Wide Discovery Table",
+"via": "Ground",
+"lb": 44,
+"cost": 248.89,
+"retail": 469.0
+},
+"WB1678": {
+"name": "STEM Activity Desk With Trays",
+"via": "Ground",
+"lb": 84,
+"cost": 397.39,
+"retail": 739.0
+},
+"WB1712": {
+"name": "Classroom Mobile Communication Station",
+"via": "Truck",
+"lb": 148,
+"cost": 821.58,
+"retail": 1519.0
+},
+"WB1713": {
+"name": "Quiet Space Cubby",
+"via": "Ground",
+"lb": 30,
+"cost": 136.03,
+"retail": 249.0
+},
+"WB1758": {
+"name": "Deluxe Mobile Art Supply Cart",
+"via": "Truck",
+"lb": 108,
+"cost": 512.46,
+"retail": 959.0
+},
+"WB1761": {
+"name": "Preschool Market Stand",
+"via": "Ground",
+"lb": 63,
+"cost": 326.11,
+"retail": 609.0
+},
+"WB1768": {
+"name": "Magnetic Write And Wipe Mobile Cabinet",
+"via": "Truck",
+"lb": 89,
+"cost": 504.31,
+"retail": 939.0
+},
+"WB1775": {
+"name": "Mobile Sensory Table With Trays And Lids",
+"via": "Ground",
+"lb": 55,
+"cost": 305.61,
+"retail": 569.0
+},
+"WB1788": {
+"name": "Toddler Big Book Display",
+"via": "Ground",
+"lb": 38,
+"cost": 203.55,
+"retail": 379.0
+},
+"WB1789": {
+"name": "Acrylic Back Storage Cabinet 30H",
+"via": "Truck",
+"lb": 56,
+"cost": 260.77,
+"retail": 489.0
+},
+"WB1791": {
+"name": "Acrylic Back Storage Cabinet 24H",
+"via": "Truck",
+"lb": 51,
+"cost": 237.01,
+"retail": 439.0
+},
+"WB1797": {
+"name": "Acrylic Back Storage Cabinet 36H",
+"via": "Truck",
+"lb": 67,
+"cost": 308.29,
+"retail": 579.0
+},
+"WB1809": {
+"name": "Teachers Desk W/Trays And Locking Door",
+"via": "Truck",
+"lb": 123,
+"cost": 575.59,
+"retail": 1079.0
+},
+"WB1810": {
+"name": "Teachers Wardrobe With Trays & Locking Door",
+"via": "Truck",
+"lb": 150,
+"cost": 771.61,
+"retail": 1439.0
+},
+"WB1811": {
+"name": "Teachers Rolling Stool With Trays",
+"via": "Ground",
+"lb": 26,
+"cost": 207.31,
+"retail": 389.0
+},
+"WB1816": {
+"name": "Mobile Collaboration Table With Trays",
+"via": "Ground",
+"lb": 46,
+"cost": 271.59,
+"retail": 499.0
+},
+"WB1819": {
+"name": "Teachers Workstation Cabinet",
+"via": "Truck",
+"lb": 164,
+"cost": 890.41,
+"retail": 1669.0
+},
+"WB1821": {
+"name": "Mobile Library Book Cabinet",
+"via": "Truck",
+"lb": 83,
+"cost": 356.64,
+"retail": 659.0
+},
+"WB1835": {
+"name": "Mobile Garden Center",
+"via": "Ground",
+"lb": 66,
+"cost": 282.93,
+"retail": 529.0
+},
+"WB1843": {
+"name": "Mobile Shelf Cabinet 54H",
+"via": "Truck",
+"lb": 113,
+"cost": 453.03,
+"retail": 839.0
+},
+"WB1847": {
+"name": "Discovery Crawl Through Cabinet",
+"via": "Ground",
+"lb": 48,
+"cost": 296.41,
+"retail": 549.0
+},
+"WB1849": {
+"name": "Mobile Shelf Cabinet 48H",
+"via": "Truck",
+"lb": 108,
+"cost": 384.99,
+"retail": 709.0
+},
+"WB1850": {
+"name": "Mobile Shelf Cabinet 42H",
+"via": "Truck",
+"lb": 93,
+"cost": 339.63,
+"retail": 629.0
+},
+"WB1851": {
+"name": "Mobile Shelf Cabinet 30H",
+"via": "Truck",
+"lb": 63,
+"cost": 265.92,
+"retail": 489.0
+},
+"WB1852": {
+"name": "Mobile Shelf Cabinet 24H",
+"via": "Truck",
+"lb": 58,
+"cost": 243.24,
+"retail": 449.0
+},
+"WB1853": {
+"name": "Mobile Shelf Cabinet 36H",
+"via": "Truck",
+"lb": 78,
+"cost": 305.61,
+"retail": 569.0
+},
+"WB1854": {
+"name": "Toddler Sensory Table",
+"via": "Ground",
+"lb": 24,
+"cost": 158.19,
+"retail": 289.0
+},
+"WB1857": {
+"name": "Toddler Flower Table 15H",
+"via": "Ground",
+"lb": 24,
+"cost": 177.66,
+"retail": 329.0
+},
+"WB1858": {
+"name": "Infant-Toddler Book Display",
+"via": "Ground",
+"lb": 14,
+"cost": 109.2,
+"retail": 199.0
+},
+"WB1861": {
+"name": "Toddler Kaleidoscope Play House Cube",
+"via": "Ground",
+"lb": 65,
+"cost": 373.63,
+"retail": 699.0
+},
+"WB1862": {
+"name": "Window Art Easel",
+"via": "Ground",
+"lb": 29,
+"cost": 247.78,
+"retail": 469.0
+},
+"WB1863": {
+"name": "Toddler Adjustable Marker Board Easel",
+"via": "Ground",
+"lb": 17,
+"cost": 174.38,
+"retail": 349.0
+},
+"WB1865": {
+"name": "Base Cabinet For Multi Station Art Center",
+"via": "Ground",
+"lb": 42,
+"cost": 215.46,
+"retail": 399.0
+},
+"WB1868": {
+"name": "Mobile Art Center - Two Station Set",
+"via": "Ground",
+"lb": 59,
+"cost": 385.51,
+"retail": 719.0
+},
+"WB1869": {
+"name": "Mobile Art Center - Four Station Set",
+"via": "Truck",
+"lb": 118,
+"cost": 771.61,
+"retail": 1439.0
+},
+"WB2070": {
+"name": "Let's Play Toddler Kitchen Ensemble - Natural",
+"via": "Ground",
+"lb": 110,
+"cost": 745.91,
+"retail": 1389.0
+},
+"WB2112": {
+"name": "Infant Mirror Stand",
+"via": "Ground",
+"lb": 5,
+"cost": 57.2,
+"retail": 109.0
+},
+"WB2113": {
+"name": "Wall Mounted Book Shelf",
+"via": "Ground",
+"lb": 25,
+"cost": 235.36,
+"retail": 449.0
+},
+"WB2114": {
+"name": "Toddler Step And Ramp",
+"via": "Ground",
+"lb": 30,
+"cost": 207.31,
+"retail": 389.0
+},
+"WB2120": {
+"name": "Play House Cube With Floor Mat Set",
+"via": "Ground",
+"lb": 48,
+"cost": 261.86,
+"retail": 489.0
+},
+"WB2122": {
+"name": "Acrylic Sky Top Playhouse Cube And Mat",
+"via": "Ground",
+"lb": 46,
+"cost": 288.32,
+"retail": 529.0
+},
+"WB2325": {
+"name": "Let's Play Toddler Stove - Natural",
+"via": "Ground",
+"lb": 22,
+"cost": 174.38,
+"retail": 319.0
+},
+"WB2335": {
+"name": "Let's Play Toddler Sink - Natural",
+"via": "Ground",
+"lb": 22,
+"cost": 174.38,
+"retail": 319.0
+},
+"WB2345": {
+"name": "Let's Play Toddler Refrigerator -Natural",
+"via": "Ground",
+"lb": 33,
+"cost": 203.54,
+"retail": 379.0
+},
+"WB2351": {
+"name": "Let's Play Toddler Kitchen Combo - Natural",
+"via": "Ground",
+"lb": 62,
+"cost": 454.31,
+"retail": 849.0
+},
+"WB2365": {
+"name": "Let's Play Toddler Washer/Dryer - Natural",
+"via": "Ground",
+"lb": 33,
+"cost": 203.54,
+"retail": 379.0
+},
+"WB2450": {
+"name": "Nature Shelf",
+"via": "Ground",
+"lb": 26,
+"cost": 248.91,
+"retail": 459.0
+},
+"WB2692": {
+"name": "Toddler Acrylic Sky Top Play Cube And Mat",
+"via": "Ground",
+"lb": 36,
+"cost": 256.02,
+"retail": 479.0
+},
+"WB3251": {
+"name": "Cubby Storage Cabinet With 20 Trays",
+"via": "Truck",
+"lb": 100,
+"cost": 468.67,
+"retail": 879.0
+},
+"WB3252": {
+"name": "20 Tray Fold And Roll Storage Cabinet",
+"via": "Truck",
+"lb": 167,
+"cost": 825.07,
+"retail": 1539.0
+},
+"WB3535": {
+"name": "Lockable Wall Mounted Cabinet",
+"via": "Truck",
+"lb": 90,
+"cost": 396.33,
+"retail": 739.0
+},
+"WB3567": {
+"name": "Mood Mirrors 3-Pack",
+"via": "Ground",
+"lb": 9,
+"cost": 130.09,
+"retail": 239.0
+},
+"WB3569": {
+"name": "Mood Mirrors 5-Pack",
+"via": "Ground",
+"lb": 15,
+"cost": 213.25,
+"retail": 399.0
+},
+"WB4132": {
+"name": "Deluxe Mobile Book Library",
+"via": "Ground",
+"lb": 98,
+"cost": 447.66,
+"retail": 829.0
+},
+"WB4374": {
+"name": "Building Block Storage Cart",
+"via": "Ground",
+"lb": 21,
+"cost": 123.66,
+"retail": 229.0
+},
+"WB4375": {
+"name": "Block Cart And Building Block Set",
+"via": "Ground",
+"lb": 54,
+"cost": 266.71,
+"retail": 499.0
+},
+"WB4436": {
+"name": "New Wave Melamine Book Display",
+"via": "Ground",
+"lb": 50,
+"cost": 195.43,
+"retail": 369.0
+},
+"WB4848": {
+"name": "Wall Mounted Eight Cubby Diaper Cabinet",
+"via": "Truck",
+"lb": 58,
+"cost": 247.78,
+"retail": 469.0
+},
+"WB5533": {
+"name": "Child's Rocking Chair",
+"via": "Ground",
+"lb": 13,
+"cost": 129.84,
+"retail": 239.0
+},
+"WB5536": {
+"name": "Adult Rocking Chair",
+"via": "Ground",
+"lb": 34,
+"cost": 231.66,
+"retail": 429.0
+},
+"WB6128": {
+"name": "Wall Mirrors With Pull Up Bar",
+"via": "Ground",
+"lb": 31,
+"cost": 254.83,
+"retail": 479.0
+},
+"WB6255": {
+"name": "Mobile Big Book Display With Dry Erase Back",
+"via": "Ground",
+"lb": 40,
+"cost": 266.41,
+"retail": 499.0
+},
+"WB6353": {
+"name": "Basic Single Storage Shelf Cabinet 36H",
+"via": "Truck",
+"lb": 67,
+"cost": 253.65,
+"retail": 469.0
+},
+"WB6400N": {
+"name": "Contemporary Kitchen Ensemble - Natural",
+"via": "Truck",
+"lb": 199,
+"cost": 1341.85,
+"retail": 2499.0
+},
+"WB6410N": {
+"name": "Contemporary Dishwasher / Micro -Natural",
+"via": "Ground",
+"lb": 45,
+"cost": 309.88,
+"retail": 589.0
+},
+"WB6420N": {
+"name": "Contemporary Stove - Natural",
+"via": "Ground",
+"lb": 33,
+"cost": 237.01,
+"retail": 439.0
+},
+"WB6430N": {
+"name": "Contemporary Sink - Natural",
+"via": "Ground",
+"lb": 33,
+"cost": 237.01,
+"retail": 439.0
+},
+"WB6440N": {
+"name": "Contemporary Refrigerator - Natural",
+"via": "Ground",
+"lb": 46,
+"cost": 282.93,
+"retail": 519.0
+},
+"WB6450N": {
+"name": "Contemporary Washer / Dryer - Natural",
+"via": "Ground",
+"lb": 42,
+"cost": 285.66,
+"retail": 529.0
+},
+"WB6451N": {
+"name": "Contemporary Kitchen Combo - Natural",
+"via": "Truck",
+"lb": 110,
+"cost": 593.46,
+"retail": 1099.0
+},
+"WB6625": {
+"name": "Square Mirror",
+"via": "Ground",
+"lb": 6,
+"cost": 58.81,
+"retail": 109.0
+},
+"WB6648": {
+"name": "Large Mirror",
+"via": "Ground",
+"lb": 13,
+"cost": 97.65,
+"retail": 179.0
+},
+"WB6800": {
+"name": "Adjustable Double Easel With Dry Erase Panels",
+"via": "Ground",
+"lb": 19,
+"cost": 166.86,
+"retail": 309.0
+},
+"WB7001": {
+"name": "Clear Tray Single Column Storage Cabinet",
+"via": "Ground",
+"lb": 40,
+"cost": 226.23,
+"retail": 419.0
+},
+"WB7002": {
+"name": "Clear Tray Double Column Storage Cabinet",
+"via": "Truck",
+"lb": 62,
+"cost": 311.28,
+"retail": 579.0
+},
+"WB7003": {
+"name": "Clear Tray Triple Column Storage Cabinet",
+"via": "Truck",
+"lb": 87,
+"cost": 424.68,
+"retail": 789.0
+},
+"WB7004": {
+"name": "Clear Tray Quad Column Storage Cabinet",
+"via": "Truck",
+"lb": 98,
+"cost": 538.08,
+"retail": 999.0
+},
+"WB7070": {
+"name": "Let's Play Toddler Kitchen Ensemble - White",
+"via": "Ground",
+"lb": 110,
+"cost": 745.91,
+"retail": 1389.0
+},
+"WB7128": {
+"name": "Parent Teacher Communication Center",
+"via": "Truck",
+"lb": 109,
+"cost": 481.38,
+"retail": 889.0
+},
+"WB7178": {
+"name": "Bentwood Back Maple Toddler Chair 7H",
+"via": "Ground",
+"lb": 6,
+"cost": 115.91,
+"retail": 239.0
+},
+"WB7225": {
+"name": "Let's Play Toddler Stove - White",
+"via": "Ground",
+"lb": 22,
+"cost": 174.38,
+"retail": 319.0
+},
+"WB7235": {
+"name": "Let's Play Toddler Sink - White",
+"via": "Ground",
+"lb": 22,
+"cost": 174.38,
+"retail": 319.0
+},
+"WB7245": {
+"name": "Let's Play Toddler Refrigerator - White",
+"via": "Ground",
+"lb": 33,
+"cost": 203.54,
+"retail": 379.0
+},
+"WB7251": {
+"name": "Let's Play Toddler Kitchen Combo - White",
+"via": "Ground",
+"lb": 62,
+"cost": 454.31,
+"retail": 849.0
+},
+"WB7265": {
+"name": "Let's Play Toddler Washer/Dryer - White",
+"via": "Ground",
+"lb": 33,
+"cost": 203.54,
+"retail": 379.0
+},
+"WB7400": {
+"name": "Contemporary Kitchen Ensemble - White",
+"via": "Truck",
+"lb": 199,
+"cost": 1341.85,
+"retail": 2499.0
+},
+"WB7410": {
+"name": "Contemporary Dishwasher / Micro - White",
+"via": "Ground",
+"lb": 45,
+"cost": 309.88,
+"retail": 589.0
+},
+"WB7420": {
+"name": "Contemporary Stove - White",
+"via": "Ground",
+"lb": 33,
+"cost": 237.01,
+"retail": 439.0
+},
+"WB7430": {
+"name": "Contemporary Sink - White",
+"via": "Ground",
+"lb": 33,
+"cost": 237.01,
+"retail": 439.0
+},
+"WB7440": {
+"name": "Contemporary Refrigerator - White",
+"via": "Ground",
+"lb": 46,
+"cost": 282.93,
+"retail": 519.0
+},
+"WB7450": {
+"name": "Contemporary Washer / Dryer - White",
+"via": "Ground",
+"lb": 42,
+"cost": 285.66,
+"retail": 529.0
+},
+"WB7451": {
+"name": "Contemporary Kitchen Combo - White",
+"via": "Truck",
+"lb": 110,
+"cost": 593.46,
+"retail": 1099.0
+},
+"WB7724C": {
+"name": "Color Wheel Circles - Set Of Six",
+"via": "Ground",
+"lb": 1,
+"cost": 36.64,
+"retail": 69.0
+},
+"WB7724S": {
+"name": "Color Wheel Squares - Set Of Six",
+"via": "Ground",
+"lb": 1,
+"cost": 36.64,
+"retail": 69.0
+},
+"WB7724T": {
+"name": "Color Wheel Triangles - Set Of Six",
+"via": "Ground",
+"lb": 1,
+"cost": 36.64,
+"retail": 69.0
+},
+"WB7780": {
+"name": "Color Wheel Variety Pack - Three Shapes",
+"via": "Ground",
+"lb": 3,
+"cost": 98.74,
+"retail": 189.0
+},
+"WB8010": {
+"name": "Reading Nook",
+"via": "Ground",
+"lb": 25,
+"cost": 226.23,
+"retail": 419.0
+},
+"WB8115": {
+"name": "Play Slide With Stairs And Tunnel",
+"via": "Ground",
+"lb": 61,
+"cost": 322.62,
+"retail": 599.0
+},
+"WB8510": {
+"name": "Five Section Reading Nook",
+"via": "Truck",
+"lb": 125,
+"cost": 1079.46,
+"retail": 1999.0
+},
+"WB9202": {
+"name": "Tall And Wide Storage Cabinet",
+"via": "Truck",
+"lb": 226,
+"cost": 652.81,
+"retail": 1219.0
+},
+"WB9265": {
+"name": "Imagination Station",
+"via": "Ground",
+"lb": 83,
+"cost": 363.44,
+"retail": 679.0
+},
+"WB9698": {
+"name": "Sliding Doors Storage Cabinet",
+"via": "Truck",
+"lb": 90,
+"cost": 397.39,
+"retail": 739.0
+},
+"WB9960": {
+"name": "Play Table With Mirror Top",
+"via": "Ground",
+"lb": 39,
+"cost": 243.24,
+"retail": 449.0
+},
+"WB9972R": {
+"name": "Eight Cubby Backpack Storage Cabinet",
+"via": "Ground",
+"lb": 65,
+"cost": 271.59,
+"retail": 499.0
+},
+"WB9982": {
+"name": "12 Cubby Backpack Storage Cabinet",
+"via": "Truck",
+"lb": 102,
+"cost": 377.46,
+"retail": 699.0
+},
+"030-900": {
+"name": "Clear Plastic Deli Container",
+"via": "Ground",
+"lb": 1,
+"cost": 7.7,
+"retail": 12.99
+},
+"030-901": {
+"name": "Clear Lid For Plastic Deli Cont.",
+"via": "Ground",
+"lb": 1,
+"cost": 3.3,
+"retail": 5.99
+},
+"030-910": {
+"name": "Clear Plastic Test Tube 1.5 oz",
+"via": "Ground",
+"lb": 1,
+"cost": 5.5,
+"retail": 9.99
+},
+"101-286": {
+"name": "F1 Gratnell Plastic Tray Lime Green",
+"via": "Ground",
+"lb": 2,
+"cost": 25.27,
+"retail": 48.0
+},
+"101-289": {
+"name": "F1 Gratnell Plastic Tray Translucent",
+"via": "Ground",
+"lb": 2,
+"cost": 16.2,
+"retail": 30.0
+},
+"101-290": {
+"name": "F2 Gratnell Plastic Tray Translucent",
+"via": "Ground",
+"lb": 2,
+"cost": 18.79,
+"retail": 35.0
+},
+"101-291": {
+"name": "F2 Gratnell Plastic Tray Lime Green",
+"via": "Ground",
+"lb": 2,
+"cost": 25.27,
+"retail": 48.0
+},
+"101-292": {
+"name": "F3 Gratnell Plastic Tray Translucent",
+"via": "Ground",
+"lb": 3,
+"cost": 35.64,
+"retail": 69.0
+},
+"101-306": {
+"name": "Stainless Steel Pan 1/2 Size",
+"via": "Ground",
+"lb": 2,
+"cost": 24.95,
+"retail": 49.0
+},
+"101-307": {
+"name": "Stainless Steel Pan 1/4 Size",
+"via": "Ground",
+"lb": 1,
+"cost": 20.97,
+"retail": 37.0
+},
+"101-320": {
+"name": "Translucent 3\" Letter Tray",
+"via": "Ground",
+"lb": 2,
+"cost": 11.8,
+"retail": 23.0
+},
+"101-334": {
+"name": "Super Tote Tray - Red",
+"via": "Ground",
+"lb": 3,
+"cost": 12.31,
+"retail": 23.0
+},
+"101-474": {
+"name": "Translucent 5\" Letter Tray",
+"via": "Ground",
+"lb": 2,
+"cost": 14.9,
+"retail": 28.0
+},
+"101-475": {
+"name": "Plastic Tray - Translucent",
+"via": "Ground",
+"lb": 2,
+"cost": 11.8,
+"retail": 23.0
+},
+"110-455": {
+"name": "Exam Paper Roll - Case",
+"via": "Ground",
+"lb": 19,
+"cost": 136.0,
+"retail": 259.0
+},
+"112-720": {
+"name": "Blue Changing Pad",
+"via": "Ground",
+"lb": 3,
+"cost": 53.87,
+"retail": 99.0
+},
+"112-745": {
+"name": "White Contoured Changing Pad",
+"via": "Ground",
+"lb": 5,
+"cost": 94.45,
+"retail": 179.0
+},
+"112-880": {
+"name": "White Changing Pad",
+"via": "Ground",
+"lb": 2,
+"cost": 52.87,
+"retail": 99.0
+},
+"140-338": {
+"name": "Green Hinged Seat/Back Cushion",
+"via": "Ground",
+"lb": 8,
+"cost": 118.21,
+"retail": 219.0
+},
+"140-340": {
+"name": "Green Floor Mat",
+"via": "Ground",
+"lb": 12,
+"cost": 112.27,
+"retail": 209.0
+}
+}
+}

@@ -606,6 +606,46 @@ class MagentoClient:
                                                 item_id=st.get("item_id"))
         return out
 
+    # ---- Product on/off (Stock Update: "Disabled products that pay") ----------
+    def products_status(self, skus, batch=50):
+        """{sku: {"status", "price", "name", "attribute_set_id", "type_id"}} as the
+        storefront sees it (store-view scope). price = the lower special price when
+        one is active today. READ-ONLY."""
+        from datetime import date
+        from urllib.parse import quote
+        out, skus = {}, [s for s in dict.fromkeys(skus) if s]
+        today = date.today().isoformat()
+        for i in range(0, len(skus), batch):
+            part = skus[i:i + batch]
+            q = ("/products?searchCriteria[filterGroups][0][filters][0][field]=sku"
+                 f"&searchCriteria[filterGroups][0][filters][0][value]={quote(','.join(part), safe=',')}"
+                 "&searchCriteria[filterGroups][0][filters][0][conditionType]=in"
+                 f"&searchCriteria[pageSize]={batch}")
+            for p in (self._req("GET", q, scope=self.store_scope()) or {}).get("items") or []:
+                price = float(p.get("price") or 0)
+                sp, frm, to = (self._attr(p, k) for k in ("special_price", "special_from_date", "special_to_date"))
+                try:
+                    active = (not frm or str(frm)[:10] <= today) and (not to or str(to)[:10] >= today)
+                    if sp and active and 0 < float(sp) < price:
+                        price = float(sp)
+                except ValueError:
+                    pass
+                out[p.get("sku")] = {"status": int(p.get("status") or 1), "price": price, "name": p.get("name", ""),
+                                     "attribute_set_id": p.get("attribute_set_id"), "type_id": p.get("type_id")}
+        return out
+
+    def set_status(self, sku, enabled, attribute_set_id, type_id):
+        """Turn ONE product on (1) or off (2) on the storefront. The payload carries
+        only sku/attribute_set_id/type_id (echoes of what was read) and status;
+        anything else is refused."""
+        payload = {"product": {"sku": sku, "attribute_set_id": attribute_set_id, "type_id": type_id,
+                               "status": 1 if enabled else 2}}
+        if set(payload["product"]) != {"sku", "attribute_set_id", "type_id", "status"} \
+                or payload["product"]["status"] not in (1, 2):
+            raise MagentoError("Status write may carry only the product's status — refused.")
+        safe_sku = str(sku).replace("/", "%2F").replace(" ", "%20")
+        return self._write(f"/products/{safe_sku}", payload)
+
     def stock_items_by_product(self, product_ids, page_size=500):
         """{product_id: stock item} via the legacy stock list (every item with qty below a
         huge number = every item). Empty if the store doesn't offer it."""

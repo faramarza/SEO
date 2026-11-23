@@ -1497,7 +1497,7 @@ def _stock_job(path, use_new):
     def save(**kw):
         p = json.loads(path.read_text())
         p.update(kw, progress_at=_t.time())
-        path.write_text(json.dumps(p, indent=1))
+        _enable_save(path, p)
         return p
 
     def run():
@@ -1606,6 +1606,155 @@ def api_stock_history():
                                                "qty_only", "applied", "undone")})
         except Exception:
             pass
+    return jsonify(out)
+
+
+_ENABLE_DIR = DATA_PATH / "enable_checks"
+
+
+def _enable_path(pid):
+    if not re.fullmatch(r"[0-9a-f]{12}", pid or ""):
+        raise ValueError("bad id")
+    return _ENABLE_DIR / f"{pid}.json"
+
+
+def _enable_save(path, job):
+    """Atomic write, so the page polling the file never reads it half-written."""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(job, indent=1))
+    os.replace(tmp, path)
+
+
+def _enable_job(path, kind):
+    """Background job for the 'Disabled products that pay' card: kind = check | apply | undo.
+    Progress is saved in the job file so the page can poll it."""
+    def save(**kw):
+        p = json.loads(path.read_text())
+        p.update(kw, progress_at=time.time())
+        _enable_save(path, p)
+        return p
+
+    def run():
+        from src.analysis.enable_check import evaluate, load_costs
+        from src.data_sources.magento_client import MagentoClient
+        mc = MagentoClient()
+        job = json.loads(path.read_text())
+        try:
+            if kind == "check":
+                cfg = load_config()
+                rules, costs = load_costs(cfg)
+                prods = mc.products_status(list(costs))
+                off = [s for s, p in prods.items() if p["status"] != 1]
+                stock = mc.get_stock(off) if off else {}
+                fee = float((cfg.get("paid_search") or {}).get("card_fee", 0.03))
+                res = evaluate(prods, stock, costs, rules, card_fee=fee)
+                for r in res["turn_on"]:
+                    r["attribute_set_id"], r["type_id"] = prods[r["sku"]]["attribute_set_id"], prods[r["sku"]]["type_id"]
+                save(status="checked", in_store=len(prods), disabled=len(off), **res)
+                return
+            on = kind == "apply"
+            todo = [r for r in job["turn_on"] if r["sku"] in set(job.get("chosen") if on else job.get("written") or [])]
+            written, failed = [], {}
+            for n, r in enumerate(todo, 1):
+                try:
+                    mc.set_status(r["sku"], on, r["attribute_set_id"], r["type_id"])
+                    written.append(r["sku"])
+                except Exception as e:
+                    failed[r["sku"]] = str(e)[:200]
+                if n % 3 == 0 or n == len(todo):
+                    save(done=n, total=len(todo), **({"written": list(written)} if on else {}))
+            after = mc.products_status(written) if written else {}
+            want = 1 if on else 2
+            wrong = [s for s in written if (after.get(s) or {}).get("status") != want]
+            if on:
+                save(status="applied" if written else "failed", written=written, failed=failed, not_confirmed=wrong,
+                     applied=datetime.now().isoformat(timespec="seconds"),
+                     job_error=None if written else "Magento refused every product.")
+            else:
+                save(status="undone", restored=len(written), undo_failed=failed, undo_not_confirmed=wrong,
+                     undone=datetime.now().isoformat(timespec="seconds"))
+        except Exception as e:
+            partial = bool(json.loads(path.read_text()).get("written"))
+            save(status={"check": "failed", "apply": "applied" if partial else "failed", "undo": "applied"}[kind],
+                 job_error=f"Stopped: {e}")
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.route("/api/enable/check", methods=["POST"])
+def api_enable_check():
+    """Read-only: find disabled Whitney Brothers products that are in stock and make
+    the minimum margin after freight. Runs in the background; poll /api/enable/status."""
+    import uuid
+    from src.data_sources.magento_client import MagentoClient
+    if not MagentoClient().configured:
+        return jsonify({"error": "Magento is not connected."}), 400
+    pid = uuid.uuid4().hex[:12]
+    _ENABLE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _enable_path(pid)
+    _enable_save(path, {"id": pid, "vendor": "Whitney Brothers", "status": "checking",
+                        "created": datetime.now().isoformat(timespec="seconds"), "progress_at": time.time()})
+    _enable_job(path, "check")
+    return jsonify({"id": pid})
+
+
+@app.route("/api/enable/apply", methods=["POST"])
+def api_enable_apply():
+    body = request.get_json(silent=True) or {}
+    try:
+        path = _enable_path(body.get("id"))
+        job = json.loads(path.read_text())
+    except Exception:
+        return jsonify({"error": "That check was not found. Click Check again."}), 404
+    if job.get("status") != "checked":
+        return jsonify({"error": f"Can't turn on now: this check is {job.get('status')}."}), 400
+    allowed = {r["sku"] for r in job.get("turn_on") or []}
+    chosen = [s for s in (body.get("skus") or []) if s in allowed]
+    if not chosen:
+        return jsonify({"error": "Tick at least one product."}), 400
+    job.update(status="applying", chosen=chosen, done=0, total=len(chosen), progress_at=time.time(), job_error=None)
+    _enable_save(path, job)
+    _enable_job(path, "apply")
+    return jsonify({"started": True, "total": len(chosen)})
+
+
+@app.route("/api/enable/undo", methods=["POST"])
+def api_enable_undo():
+    try:
+        path = _enable_path((request.get_json(silent=True) or {}).get("id"))
+        job = json.loads(path.read_text())
+    except Exception:
+        return jsonify({"error": "Not found."}), 404
+    if job.get("status") != "applied":
+        return jsonify({"error": "Only products that were turned on can be undone."}), 400
+    job.update(status="undoing", done=0, total=len(job.get("written") or []), progress_at=time.time())
+    _enable_save(path, job)
+    _enable_job(path, "undo")
+    return jsonify({"started": True, "total": job["total"]})
+
+
+@app.route("/api/enable/status")
+def api_enable_status():
+    try:
+        job = json.loads(_enable_path(request.args.get("id")).read_text())
+    except Exception:
+        return jsonify({"error": "Not found."}), 404
+    job["stalled"] = job.get("status") in ("checking", "applying", "undoing") \
+        and time.time() - (job.get("progress_at") or 0) > 180
+    return jsonify(job)
+
+
+@app.route("/api/enable/history")
+def api_enable_history():
+    out = []
+    if _ENABLE_DIR.exists():
+        for p in sorted(_ENABLE_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:10]:
+            try:
+                d = json.loads(p.read_text())
+            except Exception:
+                continue
+            if d.get("status") in ("applied", "undone", "undoing"):
+                out.append({k: d.get(k) for k in ("id", "status", "applied", "undone")} | {"count": len(d.get("written") or [])})
     return jsonify(out)
 
 
