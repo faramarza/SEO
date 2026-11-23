@@ -55,6 +55,12 @@ function render(r){
      <div class="mw-sub" style="margin-top:6px">Do it in Awin: Commission > Validate Pending Transactions, tick Approve or Decline, click Apply. Awin export from ${e(r.awin_file_date||'-')}.</div>`
      :'<div class="mw-sub">Nothing pending, or no Awin export uploaded yet.</div>'}
     ${awinBox()}</div>
+  <div class="mw-card"><div class="mw-h">4. SEO changes: did they work?</div>
+    ${(r.seo_grades||[]).length?`<table class="mw-t"><tr><th>Result</th><th>#</th><th>Page</th><th>What changed</th><th>Before → now</th></tr>
+      ${r.seo_grades.map(g=>`<tr><td><b class="${g.verdict==='WORKED'?'mw-good':g.verdict==='DID NOT WORK'?'mw-bad':''}">${e(g.verdict)}</b></td><td>${e(g.id)}</td>
+      <td>${e((g.pages||[]).join(', '))}</td><td>${e(g.change)}</td><td>${e(g.why)}</td></tr>`).join('')}</table>
+      <div class="mw-sub" style="margin-top:6px">Graded by Google position for the target searches: 28 days before each change vs the last 28 days.</div>`
+     :'<div class="mw-sub">Changes are graded automatically once their check date passes (first ones Dec 21 to 26).</div>'}</div>
   ${(r.notes||[]).length?`<div class="mw-card"><div class="mw-h">Notes</div>${r.notes.map(n=>`<div class="mw-sub">• ${e(n)}</div>`).join('')}</div>`:''}`;
 }
 function awinBox(){return `<div style="margin-top:10px;font-size:13px">Upload the latest Awin transactions export (Reports > Transactions > export CSV):

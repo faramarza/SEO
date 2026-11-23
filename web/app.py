@@ -1092,9 +1092,14 @@ def money_page():
 @app.route("/api/money")
 def api_money():
     p = DATA_PATH / "money_report.json"
-    if not p.exists():
-        return jsonify({"missing": True})
-    return jsonify(json.loads(p.read_text()))
+    out = json.loads(p.read_text()) if p.exists() else {"missing": True}
+    g = DATA_PATH / "seo_grades.json"
+    if g.exists():
+        try:
+            out["seo_grades"] = sorted(json.loads(g.read_text()).values(), key=lambda x: x.get("graded", ""), reverse=True)
+        except Exception:
+            pass
+    return jsonify(out)
 
 
 @app.route("/api/money/rebuild", methods=["POST"])

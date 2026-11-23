@@ -394,6 +394,22 @@ class GSCClient:
             print(f"GSC query-data error: {e}")
             return {}
 
+    def page_query_range(self, start: date, end: date) -> list[dict]:
+        """Query x page rows for an exact date range (inclusive): [{query, page, clicks,
+        impressions, position}]. [] on failure. Used to grade SEO changes."""
+        service = self._get_service()
+        if service is None:
+            return []
+        try:
+            rows = self._query_all_rows(service, {"startDate": start.isoformat(), "endDate": end.isoformat(),
+                                                  "dimensions": ["query", "page"]})
+            return [{"query": r["keys"][0].lower(), "page": r["keys"][1], "clicks": int(r.get("clicks", 0)),
+                     "impressions": int(r.get("impressions", 0)), "position": float(r.get("position", 0.0))}
+                    for r in (rows or []) if r.get("keys")]
+        except Exception as e:
+            print(f"GSC page_query_range error: {e}")
+            return []
+
     def get_query_page_rows(self, days: int = 30) -> list[dict]:
         """Flat query x page rows (dimensions=['query','page']) so the Paid Search
         agent can see WHICH page an organic query sent clicks to — the basis for
