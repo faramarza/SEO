@@ -594,25 +594,30 @@ class MagentoClient:
         return out
 
     def set_stock(self, items, batch=100):
-        """Write [{sku, qty, in_stock, item_id}] (qty and stock status only, nothing
-        else). Uses the inventory source-items API (default source) when the store
-        has it, else the legacy stock-item API. Returns the method used."""
+        """Write [{sku, qty, in_stock}] (qty and stock status only, nothing else).
+        Uses the inventory source-items API when the store has it, else the legacy
+        stock-item API one SKU at a time (Magento finds the item by SKU; the id in
+        that URL is ignored). Never stops halfway silently: returns
+        {"method", "written": [skus], "failed": {sku: reason}}."""
         items = list(items)
         try:
             for i in range(0, len(items), batch):
                 self._req("POST", "/inventory/source-items", {"sourceItems": [
                     {"sku": it["sku"], "source_code": "default", "quantity": float(it["qty"]),
                      "status": 1 if it["in_stock"] else 0} for it in items[i:i + batch]]})
-            return "source-items"
+            return {"method": "source-items", "written": [it["sku"] for it in items], "failed": {}}
         except MagentoError as e:
             if not self._is_no_route(e):
-                raise
+                raise                      # nothing was written (the batch is all or nothing)
+        written, failed = [], {}
         for it in items:
-            if not it.get("item_id"):
-                raise MagentoError(f"{it['sku']}: no stock item id; nothing written for it")
-            self._req("PUT", "/products/" + str(it["sku"]).replace("/", "%2F") + f"/stockItems/{it['item_id']}",
-                      {"stockItem": {"qty": float(it["qty"]), "is_in_stock": bool(it["in_stock"])}})
-        return "stock-items"
+            try:
+                self._req("PUT", "/products/" + str(it["sku"]).replace("/", "%2F") + f"/stockItems/{it.get('item_id') or 1}",
+                          {"stockItem": {"qty": float(it["qty"]), "is_in_stock": bool(it["in_stock"])}})
+                written.append(it["sku"])
+            except MagentoError as e:
+                failed[it["sku"]] = str(e)[:200]
+        return {"method": "stock-items", "written": written, "failed": failed}
 
     def get_category_description(self, url: str):
         """Resolve a storefront URL to its category and return

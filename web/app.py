@@ -1487,19 +1487,23 @@ def api_stock_preview():
     return jsonify(plan)
 
 
-def _stock_write(plan, use_new):
+def _stock_write(plan, use_new, only=None):
+    """Write the plan's new (or, for Undo, old) values; `only` limits it to SKUs that
+    were actually written. Returns (result, [skus not confirmed on read-back])."""
     from src.data_sources.magento_client import MagentoClient
     mc = MagentoClient()
     items = [{"sku": c["sku"], "item_id": c.get("item_id"),
               "qty": c["new_qty"] if use_new else c["old_qty"],
-              "in_stock": c["new_in_stock"] if use_new else c["old_in_stock"]} for c in plan["changes"]]
-    method = mc.set_stock(items) if items else "nothing to write"
-    # Read back from Magento: proof each SKU now holds what we wrote.
-    after = mc.get_stock([i["sku"] for i in items]) if items else {}
-    wrong = [i["sku"] for i in items
+              "in_stock": c["new_in_stock"] if use_new else c["old_in_stock"]} for c in plan["changes"]
+             if only is None or c["sku"] in only]
+    res = mc.set_stock(items) if items else {"method": "nothing to write", "written": [], "failed": {}}
+    # Read back from Magento: proof each written SKU now holds what we wrote.
+    done = [i for i in items if i["sku"] in set(res["written"])]
+    after = mc.get_stock([i["sku"] for i in done]) if done else {}
+    wrong = [i["sku"] for i in done
              if i["sku"] not in after or after[i["sku"]]["in_stock"] != bool(i["in_stock"])
              or abs(after[i["sku"]]["qty"] - float(i["qty"])) > 0.001]
-    return method, wrong
+    return res, wrong
 
 
 @app.route("/api/stock/apply", methods=["POST"])
@@ -1514,13 +1518,16 @@ def api_stock_apply():
     if plan.get("status") == "applied":
         return jsonify({"error": "Already applied."}), 400
     try:
-        method, wrong = _stock_write(plan, use_new=True)
+        res, wrong = _stock_write(plan, use_new=True)
     except MagentoError as e:
-        return jsonify({"error": f"Magento refused the update, nothing more was written: {e}"}), 502
-    plan.update(status="applied", applied=datetime.now().isoformat(timespec="seconds"),
-                method=method, not_confirmed=wrong)
+        return jsonify({"error": f"Magento refused the update. Nothing was written: {e}"}), 502
+    if not res["written"]:
+        return jsonify({"error": "Magento refused every item. Nothing was written. First reason: "
+                        + next(iter(res["failed"].values()), "unknown")}), 502
+    plan.update(status="applied", applied=datetime.now().isoformat(timespec="seconds"), method=res["method"],
+                written=res["written"], failed=res["failed"], not_confirmed=wrong)
     path.write_text(json.dumps(plan, indent=1))
-    return jsonify({"success": True, "changed": len(plan["changes"]), "not_confirmed": wrong})
+    return jsonify({"success": True, "changed": len(res["written"]), "failed": res["failed"], "not_confirmed": wrong})
 
 
 @app.route("/api/stock/undo", methods=["POST"])
@@ -1535,12 +1542,14 @@ def api_stock_undo():
     if plan.get("status") != "applied":
         return jsonify({"error": "Only an applied update can be undone."}), 400
     try:
-        method, wrong = _stock_write(plan, use_new=False)
+        res, wrong = _stock_write(plan, use_new=False, only=set(plan.get("written") or [c["sku"] for c in plan["changes"]]))
     except MagentoError as e:
         return jsonify({"error": f"Magento refused the undo: {e}"}), 502
+    if res["failed"]:
+        wrong = wrong + list(res["failed"])
     plan.update(status="undone", undone=datetime.now().isoformat(timespec="seconds"), undo_not_confirmed=wrong)
     path.write_text(json.dumps(plan, indent=1))
-    return jsonify({"success": True, "restored": len(plan["changes"]), "not_confirmed": wrong})
+    return jsonify({"success": True, "restored": len(res["written"]), "not_confirmed": wrong})
 
 
 @app.route("/api/stock/history")

@@ -70,7 +70,10 @@ async function suApply(){
   if(r.error){ note.className='su-note err'; note.innerHTML='⚠️ '+suEsc(r.error); b.disabled=false; b.textContent='Try again'; }
   else{
     note.className='su-note ok';
+    const fails=Object.entries(r.failed||{});
     note.innerHTML=`✅ Done: ${r.changed} item${r.changed===1?'':'s'} updated and checked in Magento.`+
+      (fails.length?`<br>⚠️ ${fails.length} item${fails.length===1?'':'s'} Magento refused (not changed): ${suEsc(fails.map(([s,why])=>s).join(', '))}
+        <br><span style="font-size:12px">${suEsc(fails[0][1])}</span>`:'')+
       (r.not_confirmed.length?`<br>⚠️ Not confirmed on read-back: ${suEsc(r.not_confirmed.join(', '))}`:'')+
       `<br><span style="font-size:12.5px">If a product page still shows the old stock, it's page cache: run <b>bin/magento cache:flush</b>.</span>
        <br><button class="su-btn sec" style="margin-top:8px" onclick="suUndo('${SU.id}',this)">↩︎ Undo</button>`;
