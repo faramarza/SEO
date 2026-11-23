@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Page Content{% endblock %}
+{% block header %}📝 Page Content{% endblock %}
+
+{% block content %}
+<style>
+.pc{max-width:980px;}
+.pc-card{background:var(--card,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:16px 18px;margin:12px 0;}
+.pc-h{font-size:16px;font-weight:800;margin:0 0 4px;}
+.pc-sub{font-size:13px;color:#6b7280;margin:0 0 8px;}
+.pc-btn{font-size:13px;font-weight:700;padding:8px 16px;border-radius:8px;border:1px solid #16a34a;background:#16a34a;color:#fff;cursor:pointer;margin-right:6px;}
+.pc-btn.sec{background:#fff;color:#374151;border-color:#d1d5db;font-weight:600;}
+.pc-btn:disabled{opacity:.5;cursor:default;}
+.pc-where{font-size:12px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.03em;margin:12px 0 4px;}
+.pc-prev{border:1px dashed #cbd5e1;border-radius:8px;padding:10px 14px;font-size:14px;line-height:1.55;}
+.pc-prev h2{font-size:17px;margin:10px 0 6px;} .pc-prev h3{font-size:14.5px;margin:8px 0 2px;}
+.pc-fix{font-size:12.5px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:6px 10px;margin:8px 0;}
+.pc-note{font-size:13px;padding:9px 12px;border-radius:8px;margin:8px 0;}
+.pc-note.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;} .pc-note.err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;}
+textarea.pc-ed{width:100%;min-height:90px;font-family:monospace;font-size:12px;}
+</style>
+<div class="pc">
+  <div class="pc-card">
+    <div class="pc-sub">Each Monday Governor drafts content for the 1 or 2 most valuable pages from the demand plan:
+      a short intro at the <b>top</b> of the page and FAQs (and, for gift pages, a short guide) at the <b>bottom</b>,
+      so products stay near the top. It writes only from your catalog: real products, prices, links and age labels.
+      You read it, edit if you like, and click Approve. Undo removes exactly Governor's text.</div>
+    <button class="pc-btn sec" onclick="pcGenerate(this)">Draft the next pages now</button>
+  </div>
+  <div id="pc-list">Loading…</div>
+</div>
+<script>
+function e(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function post(u,b){ try{ return await (await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})})).json(); }catch(x){ return {error:''+x}; } }
+function card(d){
+  const where = d.create ? `<b>New page</b> “${e(d.page_name)}” with ${d.products.length} products (enabled, not in the menu)`
+                         : `<b>${e(d.page)}</b> (existing page; your text stays as it is)`;
+  const actions = d.status==='draft'
+    ? `<button class="pc-btn" onclick="pcApprove('${d.id}',this)">Approve and publish</button>
+       <button class="pc-btn sec" onclick="pcEdit('${d.id}')">Edit</button>`
+    : d.status==='applied' ? `<span class="pc-note ok">✅ Published ${e(d.applied)} on <a href="https://alphabet-trains.com${e(d.page)}" target="_blank">${e(d.page)}</a></span>
+       <button class="pc-btn sec" onclick="pcUndo('${d.id}',this)">↩︎ Undo</button>`
+    : `<span class="pc-sub">${e(d.status)}</span>`;
+  return `<div class="pc-card" id="pc-${d.id}"><div class="pc-h">${e(d.page_name)} · for “${e(d.search)}”</div>
+    <div class="pc-sub">${where} · ${e(d.template==='guide'?'guide':'intro + FAQ')} · drafted ${e(d.created)}</div>
+    ${(d.fixes||[]).length?`<div class="pc-fix">Governor corrected the AI: ${d.fixes.map(e).join('; ')}</div>`:''}
+    <div class="pc-where">Top of the page</div><div class="pc-prev" id="pi-${d.id}">${d.intro_html||'<i>none</i>'}</div>
+    <div class="pc-where">Bottom of the page</div><div class="pc-prev" id="pb-${d.id}">${d.body_html||'<i>none</i>'}</div>
+    <div style="margin-top:12px" id="pa-${d.id}">${actions}</div></div>`;
+}
+async function load(){
+  let l=[]; try{ l=await (await fetch('/api/page-content/drafts')).json(); }catch(x){}
+  document.getElementById('pc-list').innerHTML = l.length ? l.map(card).join('') : '<div class="pc-card pc-sub">No drafts yet. Click “Draft the next pages now”.</div>';
+}
+async function pcGenerate(b){ b.disabled=true; b.textContent='Drafting… (about a minute)';
+  const r=await post('/api/page-content/generate',{limit:2});
+  const errs=(Array.isArray(r)?r:[r]).filter(x=>x.error).map(x=>e(x.error));
+  b.disabled=false; b.textContent='Draft the next pages now';
+  await load();
+  if(errs.length) document.getElementById('pc-list').insertAdjacentHTML('afterbegin',`<div class="pc-note err">${errs.join('<br>')}</div>`);
+}
+function pcEdit(id){
+  const i=document.getElementById('pi-'+id), b=document.getElementById('pb-'+id);
+  i.outerHTML=`<textarea class="pc-ed" id="ei-${id}">${e(i.innerHTML)}</textarea>`;
+  b.outerHTML=`<textarea class="pc-ed" id="eb-${id}" style="min-height:200px">${e(b.innerHTML)}</textarea>`;
+  document.getElementById('pa-'+id).innerHTML=`<button class="pc-btn" onclick="pcSave('${id}')">Save changes</button>`;
+}
+async function pcSave(id){
+  const r=await post('/api/page-content/edit',{id,intro_html:document.getElementById('ei-'+id).value,body_html:document.getElementById('eb-'+id).value});
+  if(r.error) alert(r.error); load();
+}
+async function pcApprove(id,b){ b.disabled=true; b.textContent='Publishing…';
+  const r=await post('/api/page-content/approve',{id});
+  if(r.error){ b.insertAdjacentHTML('afterend',`<div class="pc-note err">⚠️ ${e(r.error)}</div>`); b.disabled=false; b.textContent='Approve and publish'; return; }
+  await load();
+  document.getElementById('pc-'+id).insertAdjacentHTML('beforeend',`<div class="pc-note ok">Done${r.confirmed?' and checked in Magento':''}. Run bin/magento cache:flush if the page still shows the old version.</div>`);
+}
+async function pcUndo(id,b){ b.disabled=true; const r=await post('/api/page-content/undo',{id}); if(r.error) alert(r.error); load(); }
+load();
+</script>
+{% endblock %}

@@ -51,6 +51,7 @@ def notify(kind, key, message, severity="warning"):
 
 def grade_seo(today, gsc_rows):
     entries = sc.parse_change_log((ROOT / "docs" / "seo_change_log.md").read_text())
+    entries += _load(DATA / "governor_changes.json", [])    # Page Content approvals
     graded = _load(GRADES, {})
     new = []
     for e in sc.due_entries(entries, graded, today):

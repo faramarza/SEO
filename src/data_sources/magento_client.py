@@ -513,6 +513,67 @@ class MagentoClient:
     # its OWN assertion that NOTHING but `description` is ever sent — so the two
     # surfaces can't bleed into each other, and the description write can never
     # touch price/status/url_key/etc.
+    # ---- Page content (Governor's Page Content page) ----------------------------
+    def category_raw(self, category_id):
+        return self._req("GET", f"/categories/{int(category_id)}", scope=self.store_scope()) or {}
+
+    def category_product_skus(self, category_id):
+        return [x.get("sku") for x in (self._req("GET", f"/categories/{int(category_id)}/products") or [])
+                if x.get("sku")]
+
+    def products_info(self, skus, batch=40):
+        """Sellable products only (enabled, visible, in stock): [{sku, name, price, url}]."""
+        from urllib.parse import quote
+        out = []
+        skus = [x for x in dict.fromkeys(skus) if x]
+        for i in range(0, len(skus), batch):
+            part = skus[i:i + batch]
+            q = ("/products?searchCriteria[filterGroups][0][filters][0][field]=sku"
+                 f"&searchCriteria[filterGroups][0][filters][0][value]={quote(','.join(part), safe=',')}"
+                 "&searchCriteria[filterGroups][0][filters][0][conditionType]=in"
+                 f"&searchCriteria[pageSize]={batch}")
+            for p in (self._req("GET", q, scope=self.store_scope()) or {}).get("items") or []:
+                st = (p.get("extension_attributes") or {}).get("stock_item") or {}
+                if int(p.get("status") or 2) != 1 or int(p.get("visibility") or 1) == 1 or not st.get("is_in_stock", True):
+                    continue
+                price = float(p.get("price") or 0)
+                sp = self._attr(p, "special_price")
+                try:
+                    if sp and 0 < float(sp) < price:
+                        price = float(sp)
+                except ValueError:
+                    pass
+                out.append({"sku": p.get("sku"), "name": p.get("name", ""), "price": price,
+                            "url": "/" + (self._attr(p, "url_key") or "") + ".html"})
+        return out
+
+    def root_category_id(self):
+        code = self.store_scope()
+        views = self._req("GET", "/store/storeViews") or []
+        gid = next((v.get("store_group_id") for v in views if v.get("code") == code), None)
+        groups = self._req("GET", "/store/storeGroups") or []
+        return next((g.get("root_category_id") for g in groups if g.get("id") == gid), None)
+
+    def create_category(self, name, url_key, description, meta_title, meta_description, parent_id):
+        """Create an enabled category (not in the menu) with Governor's guide. Returns its id."""
+        body = {"category": {"parent_id": int(parent_id), "name": name, "is_active": True,
+                             "include_in_menu": False, "custom_attributes": [
+                                 {"attribute_code": "url_key", "value": url_key},
+                                 {"attribute_code": "description", "value": description},
+                                 {"attribute_code": "meta_title", "value": meta_title},
+                                 {"attribute_code": "meta_description", "value": meta_description},
+                                 {"attribute_code": "display_mode", "value": "PRODUCTS"},
+                                 {"attribute_code": "is_anchor", "value": "1"}]}}
+        return int((self._req("POST", "/categories", body) or {}).get("id"))
+
+    def assign_products(self, category_id, skus):
+        for i, sku in enumerate(skus):
+            self._req("POST", f"/categories/{int(category_id)}/products",
+                      {"productLink": {"sku": sku, "category_id": str(int(category_id)), "position": i}})
+
+    def delete_category(self, category_id):
+        return self._req("DELETE", f"/categories/{int(category_id)}")
+
     # ---- Stock (Governor's Stock Update page) --------------------------------
     def get_stock(self, skus, batch=50):
         """{sku: {"qty", "in_stock", "name", "item_id"}} for the SKUs that exist in the

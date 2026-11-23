@@ -45,6 +45,18 @@ def recently_changed(within_days=42, log_path=None):
             continue
         for p in re.findall(r"(/[a-z0-9][a-z0-9/_-]*\.html)", line):
             out.setdefault(p, m.group(1))
+    # Changes Governor applied itself (Page Content approvals), when reading the real log.
+    if log_path is None:
+        import json as _json
+        gov = ROOT / "data" / "governor_changes.json"
+        try:
+            for c in _json.loads(gov.read_text()):
+                d = datetime.strptime(c["date"], "%Y-%m-%d").date()
+                if (date.today() - d).days <= within_days:
+                    for p in c.get("pages") or []:
+                        out.setdefault(p, c["date"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
     return out
 
 

@@ -53,3 +53,4 @@ data/*.log
 data/*.csv
 data/stock_updates/
 data/money/
+data/page_drafts/

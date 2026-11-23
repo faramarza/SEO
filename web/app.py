@@ -1083,6 +1083,196 @@ def grow_sales():
     return render_template("grow_sales.html")
 
 
+@app.route("/page-content")
+def page_content_page():
+    """Intros, FAQs and gift guides for the pages buyers search for: drafted from the
+    catalog, approved by the owner, inserted by Governor with Undo."""
+    return render_template("page_content.html")
+
+
+_PC_DIR = DATA_PATH / "page_drafts"
+_GOV_CHANGES = DATA_PATH / "governor_changes.json"
+
+
+def _pc_path(did):
+    import re as _re
+    if not _re.fullmatch(r"[0-9a-f]{12}", did or ""):
+        raise ValueError("bad id")
+    return _PC_DIR / f"{did}.json"
+
+
+def _pc_all():
+    out = []
+    for p in sorted(_PC_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True) if _PC_DIR.exists() else []:
+        try:
+            out.append(json.loads(p.read_text()))
+        except Exception:
+            pass
+    return out
+
+
+def _log_governor_change(page, change, queries):
+    """Record an approved change so the 6-week wait and the SEO grading include it."""
+    from datetime import timedelta as _td
+    log = json.loads(_GOV_CHANGES.read_text()) if _GOV_CHANGES.exists() else []
+    today = datetime.now().date()
+    log.append({"id": f"G{len(log) + 1}", "date": today.isoformat(), "check": (today + _td(days=42)).isoformat(),
+                "pages": [page], "queries": queries, "change": change})
+    _GOV_CHANGES.write_text(json.dumps(log, indent=1))
+
+
+def _pc_products_for(mc, target, cat_id=None):
+    from src.analysis.page_content import min_age
+    rules = (load_config().get("content_rules") or {}).get("min_age") or {}
+    skus = []
+    if cat_id:
+        skus = mc.category_product_skus(cat_id)
+    elif target.get("import_file"):
+        import csv as _csv
+        f = Path(__file__).parent.parent / target["import_file"]
+        if f.exists():
+            skus = [r["sku"] for r in _csv.DictReader(open(f))]
+    prods = mc.products_info(skus)[:25]
+    for p in prods:
+        p["min_age"] = min_age(p, rules)
+    return prods
+
+
+def _pc_draft_one(target):
+    """AI-draft one target from the catalog. Returns the saved draft dict."""
+    import uuid
+    from scripts.product_demand import description_renders
+    from src.analysis import page_content as pc
+    mc, ent, cat_id = None, None, None
+    from src.data_sources.magento_client import MagentoClient
+    mc = MagentoClient()
+    if not target.get("create"):
+        mc, ent, reason = _il_resolve_category(target["page"])
+        if reason or not ent.get("category_id"):
+            return {"error": reason or "not a category page"}
+        cat_id = ent["category_id"]
+        raw = mc.category_raw(cat_id)
+        attrs = {a["attribute_code"]: a.get("value") for a in raw.get("custom_attributes") or []}
+        if not description_renders({"landing_page": attrs.get("landing_page"), "display_mode": attrs.get("display_mode")}):
+            return {"error": f"{target['page']} shows a CMS block instead of its description; add content by hand."}
+    prods = _pc_products_for(mc, target, cat_id)
+    if len(prods) < 2:
+        return {"error": f"Fewer than 2 sellable products for {target.get('page') or target['key']}; skipped."}
+    cfg = load_config()
+    draft, err = _llm_json(pc.system_prompt(), pc.user_prompt(target, prods, target["template"]), cfg, max_tokens=1500)
+    if err or not isinstance(draft, dict):
+        return {"error": f"AI draft failed: {err}"}
+    clean, fixes = pc.validate(draft, prods, target["template"])
+    intro_html, body_html = pc.render(clean, prods)
+    d = {"id": uuid.uuid4().hex[:12], "key": target["key"], "template": target["template"],
+         "create": bool(target.get("create")), "page": target.get("page"),
+         "page_name": target.get("page_name") or target["searches"][0]["search"].title(),
+         "search": target["searches"][0]["search"], "queries": [s["search"] for s in target["searches"][:5]],
+         "products": [p["sku"] for p in prods], "draft": clean, "intro_html": intro_html, "body_html": body_html,
+         "fixes": fixes, "status": "draft", "created": datetime.now().isoformat(timespec="minutes")}
+    _PC_DIR.mkdir(parents=True, exist_ok=True)
+    _pc_path(d["id"]).write_text(json.dumps(d, indent=1))
+    return d
+
+
+def page_content_generate_next(limit=2):
+    """This week's drafts (cron and the Draft button)."""
+    from src.analysis.page_content import pick_targets
+    plan_file = DATA_PATH / "product_demand_plan.json"
+    if not plan_file.exists():
+        return [{"error": "No demand plan yet (scripts/product_demand.py)."}]
+    pages = json.loads(plan_file.read_text()).get("pages") or []
+    done = {d["key"] for d in _pc_all() if d.get("status") in ("draft", "applied")}
+    return [_pc_draft_one(t) for t in pick_targets(pages, done, limit)]
+
+
+@app.route("/api/page-content/drafts")
+def api_pc_drafts():
+    return jsonify(_pc_all()[:20])
+
+
+@app.route("/api/page-content/generate", methods=["POST"])
+def api_pc_generate():
+    return jsonify(page_content_generate_next(int((request.get_json(silent=True) or {}).get("limit", 2))))
+
+
+@app.route("/api/page-content/edit", methods=["POST"])
+def api_pc_edit():
+    b = request.get_json(silent=True) or {}
+    p = _pc_path(b.get("id"))
+    d = json.loads(p.read_text())
+    if d["status"] != "draft":
+        return jsonify({"error": "Only drafts can be edited."}), 400
+    d["intro_html"], d["body_html"] = b.get("intro_html", d["intro_html"]), b.get("body_html", d["body_html"])
+    p.write_text(json.dumps(d, indent=1))
+    return jsonify({"success": True})
+
+
+@app.route("/api/page-content/approve", methods=["POST"])
+def api_pc_approve():
+    import re as _re
+    from src.analysis import page_content as pc
+    from src.data_sources.magento_client import MagentoClient, MagentoError
+    try:
+        p = _pc_path((request.get_json(silent=True) or {}).get("id"))
+        d = json.loads(p.read_text())
+    except Exception:
+        return jsonify({"error": "Draft not found."}), 404
+    if d["status"] != "draft":
+        return jsonify({"error": f"Already {d['status']}."}), 400
+    try:
+        if d["create"]:
+            mc = MagentoClient()
+            root = mc.root_category_id()
+            slug = _re.sub(r"[^a-z0-9]+", "-", d["search"].lower()).strip("-")
+            desc = pc.merge("", d["intro_html"], d["body_html"])
+            cid = mc.create_category(d["page_name"], slug, desc, d["draft"].get("meta_title") or d["page_name"],
+                                     d["draft"].get("meta_description") or "", root)
+            mc.assign_products(cid, d["products"])
+            d.update(category_id=cid, page=f"/{slug}.html")
+        else:
+            mc, ent, reason = _il_resolve_category(d["page"])
+            if reason:
+                return jsonify({"error": reason}), 400
+            current = ent.get("description") or ""
+            d["original_description"] = current
+            ent["_write_desc"](pc.merge(current, d["intro_html"], d["body_html"]))
+            _m, again, _r = _il_resolve_category(d["page"])
+            d["confirmed"] = bool(again and pc.INTRO[0] in (again.get("description") or ""))
+    except MagentoError as e:
+        return jsonify({"error": f"Magento refused it, nothing was changed: {e}"}), 502
+    d.update(status="applied", applied=datetime.now().isoformat(timespec="minutes"))
+    p.write_text(json.dumps(d, indent=1))
+    _log_governor_change(d["page"], ("new page: " if d["create"] else "intro + FAQ: ") + d["page_name"], d["queries"])
+    return jsonify({"success": True, "page": d["page"], "confirmed": d.get("confirmed", True)})
+
+
+@app.route("/api/page-content/undo", methods=["POST"])
+def api_pc_undo():
+    from src.analysis import page_content as pc
+    from src.data_sources.magento_client import MagentoClient, MagentoError
+    try:
+        p = _pc_path((request.get_json(silent=True) or {}).get("id"))
+        d = json.loads(p.read_text())
+    except Exception:
+        return jsonify({"error": "Not found."}), 404
+    if d["status"] != "applied":
+        return jsonify({"error": "Only applied content can be undone."}), 400
+    try:
+        if d["create"]:
+            MagentoClient().delete_category(d["category_id"])
+        else:
+            mc, ent, reason = _il_resolve_category(d["page"])
+            if reason:
+                return jsonify({"error": reason}), 400
+            ent["_write_desc"](pc.remove(ent.get("description") or ""))
+    except MagentoError as e:
+        return jsonify({"error": f"Magento refused the undo: {e}"}), 502
+    d.update(status="undone", undone=datetime.now().isoformat(timespec="minutes"))
+    p.write_text(json.dumps(d, indent=1))
+    return jsonify({"success": True})
+
+
 @app.route("/money")
 def money_page():
     """Money This Week: profit, ads against spend, Awin approvals due, stale data."""
